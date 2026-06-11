@@ -9,4 +9,8 @@ public record UserProfileUpdatedPayload(
         String activityLevel,
         boolean onboardingCompleted,
         List<String> updatedFields) {
+
+    public UserProfileUpdatedPayload {
+        updatedFields = updatedFields == null ? List.of() : List.copyOf(updatedFields);
+    }
 }

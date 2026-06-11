@@ -25,4 +25,13 @@ public record WorkoutSessionView(
         List<WorkoutExerciseLogView> exercises,
         Instant createdAt,
         Instant updatedAt) {
+
+    public WorkoutSessionView {
+        exercises = exercises == null ? List.of() : List.copyOf(exercises);
+    }
+
+    @Override
+    public List<WorkoutExerciseLogView> exercises() {
+        return List.copyOf(exercises);
+    }
 }

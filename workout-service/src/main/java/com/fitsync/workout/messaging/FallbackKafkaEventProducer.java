@@ -15,6 +15,14 @@ public class FallbackKafkaEventProducer implements KafkaEventProducer {
     @Override
     public void send(OutboxEventEntity event) {
         log.info("Kafka publish fallback topic={} eventType={} eventId={}",
-                event.getTopic(), event.getEventType(), event.getEventId());
+                sanitizeForLog(event.getTopic()),
+                sanitizeForLog(event.getEventType()),
+                sanitizeForLog(event.getEventId()));
+    }
+
+    private String sanitizeForLog(Object value) {
+        return String.valueOf(value)
+                .replace("\r", "_")
+                .replace("\n", "_");
     }
 }

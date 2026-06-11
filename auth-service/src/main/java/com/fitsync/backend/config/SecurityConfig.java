@@ -24,8 +24,8 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
     private final CognitoProperties cognitoProperties;
-    private final JwtDecoder cognitoJwtDecoder;
-    private final Converter<Jwt, ? extends AbstractAuthenticationToken> cognitoJwtAuthenticationConverter;
+    private final ObjectProvider<JwtDecoder> cognitoJwtDecoderProvider;
+    private final ObjectProvider<Converter<Jwt, ? extends AbstractAuthenticationToken>> cognitoJwtAuthenticationConverterProvider;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           RestAuthenticationEntryPoint restAuthenticationEntryPoint,
@@ -35,8 +35,8 @@ public class SecurityConfig {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.restAuthenticationEntryPoint = restAuthenticationEntryPoint;
         this.cognitoProperties = cognitoProperties;
-        this.cognitoJwtDecoder = cognitoJwtDecoderProvider.getIfAvailable();
-        this.cognitoJwtAuthenticationConverter = cognitoJwtAuthenticationConverterProvider.getIfAvailable();
+        this.cognitoJwtDecoderProvider = cognitoJwtDecoderProvider;
+        this.cognitoJwtAuthenticationConverterProvider = cognitoJwtAuthenticationConverterProvider;
     }
 
     @Bean
@@ -60,6 +60,9 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         if (cognitoProperties.enabled()) {
+            JwtDecoder cognitoJwtDecoder = cognitoJwtDecoderProvider.getIfAvailable();
+            Converter<Jwt, ? extends AbstractAuthenticationToken> cognitoJwtAuthenticationConverter =
+                    cognitoJwtAuthenticationConverterProvider.getIfAvailable();
             if (cognitoJwtDecoder == null || cognitoJwtAuthenticationConverter == null) {
                 throw new IllegalStateException("Cognito auth is enabled but JWT resource server beans are missing");
             }

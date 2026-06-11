@@ -45,4 +45,13 @@ public record WorkoutPlanExerciseInput(
         @Min(0) Integer restSeconds,
         @Size(max = 300) String notes,
         @Valid List<WorkoutPlanExerciseSetTargetInput> setTargets) {
+
+    public WorkoutPlanExerciseInput {
+        setTargets = setTargets == null ? List.of() : List.copyOf(setTargets);
+    }
+
+    @Override
+    public List<WorkoutPlanExerciseSetTargetInput> setTargets() {
+        return List.copyOf(setTargets);
+    }
 }

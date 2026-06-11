@@ -1,6 +1,7 @@
 package com.fitsync.backend.service;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -23,8 +24,6 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class CurrentUserService {
-
-    private static final String EXTERNAL_PASSWORD_MARKER = "{EXTERNAL}";
 
     private final AppUserRepository appUserRepository;
     private final DomainEventPublisher domainEventPublisher;
@@ -62,7 +61,7 @@ public class CurrentUserService {
         user.setExternalSubject(subject);
         user.setEmail(email);
         user.setDisplayName(resolveDisplayName(jwt, email));
-        user.setPasswordHash(EXTERNAL_PASSWORD_MARKER);
+        user.setPasswordHash(externalPasswordMarker());
 
         AppUser savedUser = appUserRepository.save(user);
         publishUserRegistered(savedUser);
@@ -139,7 +138,11 @@ public class CurrentUserService {
     }
 
     private String normalizeEmail(String email) {
-        return StringUtils.hasText(email) ? email.trim().toLowerCase() : email;
+        return StringUtils.hasText(email) ? email.trim().toLowerCase(Locale.ROOT) : email;
+    }
+
+    private String externalPasswordMarker() {
+        return "{EXTERNAL}:" + UUID.randomUUID();
     }
 
     private CurrentUserResponse toResponse(AppUser user) {

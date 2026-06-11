@@ -510,8 +510,8 @@ public class NutritionServiceImpl implements NutritionService {
         return value == null ? BigDecimal.ZERO : value;
     }
 
-    private Integer defaultInteger(Integer value) {
-        return value == null ? 0 : value;
+    private int defaultInteger(Integer value) {
+        return value == null ? 0 : value.intValue();
     }
 
     private void replaceMealItemNutrientDetails(UUID mealItemId, List<NutrientDetailInput> nutrientDetails) {
@@ -881,7 +881,9 @@ public class NutritionServiceImpl implements NutritionService {
     }
 
     private boolean matchesUnit(String left, String right) {
-        return left != null && right != null && left.equalsIgnoreCase(right);
+        return left != null
+                && right != null
+                && String.CASE_INSENSITIVE_ORDER.compare(left, right) == 0;
     }
 
     private Integer scaleInteger(Integer value, BigDecimal multiplier) {

@@ -2,6 +2,7 @@ package com.fitsync.workout.messaging;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.workout.messaging.entity.OutboxEventEntity;
 import com.fitsync.workout.messaging.repository.OutboxEventRepository;
@@ -10,12 +11,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class OutboxDomainEventPublisher implements DomainEventPublisher {
 
-    private final ObjectMapper objectMapper;
+    private final ObjectWriter domainEventWriter;
     private final OutboxEventRepository outboxEventRepository;
 
     public OutboxDomainEventPublisher(ObjectMapper objectMapper,
                                       OutboxEventRepository outboxEventRepository) {
-        this.objectMapper = objectMapper;
+        this.domainEventWriter = objectMapper.writer();
         this.outboxEventRepository = outboxEventRepository;
     }
 
@@ -37,7 +38,7 @@ public class OutboxDomainEventPublisher implements DomainEventPublisher {
 
     private String serialize(FitSyncDomainEvent<?> event) {
         try {
-            return objectMapper.writeValueAsString(event);
+            return domainEventWriter.writeValueAsString(event);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Failed to serialize domain event " + event.eventType(), ex);
         }

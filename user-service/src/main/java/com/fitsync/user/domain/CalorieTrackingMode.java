@@ -32,7 +32,7 @@ public enum CalorieTrackingMode implements CodeEnum {
     public String getDefaultDescription() { return description; }
 
     @Override
-    public String[] getLegacyCodes() { return legacyCodes; }
+    public String[] getLegacyCodes() { return legacyCodes.clone(); }
 
     @JsonCreator
     public static CalorieTrackingMode fromCode(String value) {

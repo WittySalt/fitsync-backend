@@ -18,4 +18,13 @@ public record WorkoutExerciseLogView(
         Integer maxHeartRate,
         String notes,
         List<WorkoutExerciseSetLogView> sets) {
+
+    public WorkoutExerciseLogView {
+        sets = sets == null ? List.of() : List.copyOf(sets);
+    }
+
+    @Override
+    public List<WorkoutExerciseSetLogView> sets() {
+        return List.copyOf(sets);
+    }
 }

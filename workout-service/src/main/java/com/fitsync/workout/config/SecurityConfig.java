@@ -3,6 +3,7 @@ package com.fitsync.workout.config;
 import com.fitsync.workout.security.JwtAuthenticationFilter;
 import com.fitsync.web.security.RestAccessDeniedHandler;
 import com.fitsync.web.security.RestAuthenticationEntryPoint;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -15,20 +16,27 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
-    private final RestAccessDeniedHandler restAccessDeniedHandler;
+    private final ObjectProvider<JwtAuthenticationFilter> jwtAuthenticationFilterProvider;
+    private final ObjectProvider<RestAuthenticationEntryPoint> restAuthenticationEntryPointProvider;
+    private final ObjectProvider<RestAccessDeniedHandler> restAccessDeniedHandlerProvider;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          RestAuthenticationEntryPoint restAuthenticationEntryPoint,
-                          RestAccessDeniedHandler restAccessDeniedHandler) {
-        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-        this.restAuthenticationEntryPoint = restAuthenticationEntryPoint;
-        this.restAccessDeniedHandler = restAccessDeniedHandler;
+    public SecurityConfig(ObjectProvider<JwtAuthenticationFilter> jwtAuthenticationFilterProvider,
+                          ObjectProvider<RestAuthenticationEntryPoint> restAuthenticationEntryPointProvider,
+                          ObjectProvider<RestAccessDeniedHandler> restAccessDeniedHandlerProvider) {
+        this.jwtAuthenticationFilterProvider = jwtAuthenticationFilterProvider;
+        this.restAuthenticationEntryPointProvider = restAuthenticationEntryPointProvider;
+        this.restAccessDeniedHandlerProvider = restAccessDeniedHandlerProvider;
     }
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        JwtAuthenticationFilter jwtAuthenticationFilter = requireBean(
+                jwtAuthenticationFilterProvider.getIfAvailable(), JwtAuthenticationFilter.class);
+        RestAuthenticationEntryPoint restAuthenticationEntryPoint = requireBean(
+                restAuthenticationEntryPointProvider.getIfAvailable(), RestAuthenticationEntryPoint.class);
+        RestAccessDeniedHandler restAccessDeniedHandler = requireBean(
+                restAccessDeniedHandlerProvider.getIfAvailable(), RestAccessDeniedHandler.class);
+
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
@@ -47,5 +55,12 @@ public class SecurityConfig {
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    private static <T> T requireBean(T bean, Class<T> type) {
+        if (bean == null) {
+            throw new IllegalStateException("Missing required bean: " + type.getSimpleName());
+        }
+        return bean;
     }
 }

@@ -50,4 +50,13 @@ public record WorkoutExerciseLogInput(
         @Min(0) @Max(260) Integer maxHeartRate,
         @Size(max = 300) String notes,
         @Valid List<WorkoutExerciseSetLogInput> sets) {
+
+    public WorkoutExerciseLogInput {
+        sets = sets == null ? List.of() : List.copyOf(sets);
+    }
+
+    @Override
+    public List<WorkoutExerciseSetLogInput> sets() {
+        return List.copyOf(sets);
+    }
 }

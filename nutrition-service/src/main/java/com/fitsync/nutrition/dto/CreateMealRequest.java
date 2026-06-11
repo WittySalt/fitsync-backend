@@ -61,4 +61,13 @@ public record CreateMealRequest(
         @Size(max = 80) String timezone,
         @Size(max = 300) String note,
         @NotEmpty List<@Valid MealItemInput> items) {
+
+    public CreateMealRequest {
+        items = items == null ? List.of() : List.copyOf(items);
+    }
+
+    @Override
+    public List<MealItemInput> items() {
+        return List.copyOf(items);
+    }
 }

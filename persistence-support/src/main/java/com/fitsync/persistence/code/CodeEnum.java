@@ -19,10 +19,15 @@ public interface CodeEnum {
             return null;
         }
         return Arrays.stream(enumType.getEnumConstants())
-                .filter(candidate -> candidate.getCode().equalsIgnoreCase(value)
-                        || candidate.name().equalsIgnoreCase(value)
-                        || Arrays.stream(candidate.getLegacyCodes()).anyMatch(alias -> alias.equalsIgnoreCase(value)))
+                .filter(candidate -> equalsIgnoreCase(candidate.getCode(), value)
+                        || equalsIgnoreCase(candidate.name(), value)
+                        || Arrays.stream(candidate.getLegacyCodes())
+                        .anyMatch(alias -> equalsIgnoreCase(alias, value)))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unsupported " + enumType.getSimpleName() + " code: " + value));
+    }
+
+    private static boolean equalsIgnoreCase(String left, String right) {
+        return String.CASE_INSENSITIVE_ORDER.compare(left, right) == 0;
     }
 }

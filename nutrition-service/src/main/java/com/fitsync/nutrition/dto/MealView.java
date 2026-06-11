@@ -24,4 +24,13 @@ public record MealView(
         List<MealItemView> items,
         Instant createdAt,
         Instant updatedAt) {
+
+    public MealView {
+        items = items == null ? List.of() : List.copyOf(items);
+    }
+
+    @Override
+    public List<MealItemView> items() {
+        return List.copyOf(items);
+    }
 }

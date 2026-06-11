@@ -21,4 +21,13 @@ public record WorkoutPlanView(
         List<WorkoutPlanExerciseView> exercises,
         Instant createdAt,
         Instant updatedAt) {
+
+    public WorkoutPlanView {
+        exercises = exercises == null ? List.of() : List.copyOf(exercises);
+    }
+
+    @Override
+    public List<WorkoutPlanExerciseView> exercises() {
+        return List.copyOf(exercises);
+    }
 }

@@ -31,7 +31,7 @@ public enum LanguagePreference implements CodeEnum {
     public String getDefaultDescription() { return description; }
 
     @Override
-    public String[] getLegacyCodes() { return legacyCodes; }
+    public String[] getLegacyCodes() { return legacyCodes.clone(); }
 
     @JsonCreator
     public static LanguagePreference fromCode(String value) {
