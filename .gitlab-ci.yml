@@ -67,7 +67,9 @@ default:
 
 secret_scan:
   stage: precheck
-  image: zricethezav/gitleaks:v8.24.2
+  image:
+    name: zricethezav/gitleaks:v8.24.2
+    entrypoint: [""]
   script:
     - gitleaks detect --source . --verbose --redact
   rules:
@@ -235,7 +237,9 @@ dependency_check_full:
 
 trivy_fs:
   stage: security
-  image: aquasec/trivy:0.56.2
+  image:
+    name: aquasec/trivy:0.56.2
+    entrypoint: [""]
   script:
     - trivy fs --severity CRITICAL,HIGH --format sarif --output trivy-fs.sarif .
     - trivy fs --scanners secret --exit-code 1 .
@@ -250,7 +254,9 @@ trivy_fs:
 
 gitleaks_full:
   stage: security
-  image: zricethezav/gitleaks:v8.24.2
+  image:
+    name: zricethezav/gitleaks:v8.24.2
+    entrypoint: [""]
   script:
     - gitleaks detect --source . --verbose --redact --log-opts="--all"
   rules:
