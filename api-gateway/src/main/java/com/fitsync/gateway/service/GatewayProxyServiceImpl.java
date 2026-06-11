@@ -1,7 +1,6 @@
 package com.fitsync.gateway.service;
 
 import java.net.URI;
-import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.UUID;
@@ -10,7 +9,6 @@ import com.fitsync.gateway.config.GatewayRoutesProperties;
 import com.fitsync.gateway.exception.DownstreamServiceException;
 import com.fitsync.gateway.security.GatewayUserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
@@ -131,7 +129,9 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         headers.set("X-Correlation-Id", correlationId);
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
             return;
         }
 

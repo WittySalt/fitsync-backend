@@ -29,7 +29,8 @@ public class SecurityConfig {
                           RestAuthenticationEntryPoint restAuthenticationEntryPoint,
                           CognitoProperties cognitoProperties,
                           ObjectProvider<JwtDecoder> cognitoJwtDecoderProvider,
-                          ObjectProvider<Converter<Jwt, ? extends AbstractAuthenticationToken>> cognitoJwtAuthenticationConverterProvider) {
+                          ObjectProvider<Converter<Jwt, ? extends AbstractAuthenticationToken>>
+                                  cognitoJwtAuthenticationConverterProvider) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.restAuthenticationEntryPoint = restAuthenticationEntryPoint;
         this.cognitoProperties = cognitoProperties;
