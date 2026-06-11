@@ -10,3 +10,5 @@ dependency-check-report.*
 spotbugs.sarif
 trivy-*.sarif
 sbom.json
+memory.md
+uiux.md
