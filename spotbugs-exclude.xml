@@ -24,4 +24,32 @@
         <Bug category="SECURITY"/>
     </Match>
 
+    <!-- Spring dependency injection on singleton components can trigger EI_EXPOSE_REP2 noise -->
+    <Match>
+        <Class name="com.fitsync.gateway.config.SecurityConfig"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.gateway.service.GatewayProxyServiceImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- REST controllers are intentionally Spring endpoints -->
+    <Match>
+        <Class name="com.fitsync.gateway.controller.GatewayHealthController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.gateway.controller.GatewayProxyController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <!-- Gateway proxy forwards authenticated bearer-token traffic and disables CSRF by design -->
+    <Match>
+        <Class name="com.fitsync.gateway.controller.GatewayProxyController"/>
+        <Bug pattern="SPRING_CSRF_UNRESTRICTED_REQUEST_MAPPING"/>
+    </Match>
+
 </FindBugsFilter>
