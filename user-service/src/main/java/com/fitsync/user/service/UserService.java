@@ -1,0 +1,49 @@
+package com.fitsync.user.service;
+
+import java.util.List;
+import java.time.Instant;
+import java.util.UUID;
+
+import com.fitsync.user.domain.GoalStatus;
+import com.fitsync.user.domain.GoalType;
+import com.fitsync.user.dto.BodyMetricTrendResponse;
+import com.fitsync.user.dto.BodyMetricView;
+import com.fitsync.user.dto.CreateBodyMetricRequest;
+import com.fitsync.user.dto.CurrentUserResponse;
+import com.fitsync.user.dto.UpsertUserGoalRequest;
+import com.fitsync.user.dto.UpsertUserPreferencesRequest;
+import com.fitsync.user.dto.UpsertUserProfileRequest;
+import com.fitsync.user.dto.UserGoalView;
+import com.fitsync.user.dto.UserPreferencesView;
+import com.fitsync.user.dto.UserProfileView;
+import com.fitsync.user.security.CurrentUserPrincipal;
+public interface UserService {
+
+    CurrentUserResponse getCurrentUser(CurrentUserPrincipal principal);
+
+    UserProfileView getProfile(CurrentUserPrincipal principal);
+
+    UserProfileView upsertProfile(CurrentUserPrincipal principal, UpsertUserProfileRequest request);
+
+    UserPreferencesView getPreferences(CurrentUserPrincipal principal);
+
+    UserPreferencesView upsertPreferences(CurrentUserPrincipal principal, UpsertUserPreferencesRequest request);
+
+    BodyMetricView addBodyMetrics(CurrentUserPrincipal principal, CreateBodyMetricRequest request);
+
+    BodyMetricView getLatestBodyMetrics(CurrentUserPrincipal principal);
+
+    BodyMetricView getBodyMetric(CurrentUserPrincipal principal, UUID metricId);
+
+    List<BodyMetricView> listBodyMetrics(CurrentUserPrincipal principal, Instant from, Instant to, int limit);
+
+    BodyMetricTrendResponse getBodyMetricTrends(CurrentUserPrincipal principal, Instant from, Instant to);
+
+    BodyMetricView replaceBodyMetric(CurrentUserPrincipal principal, UUID metricId, CreateBodyMetricRequest request);
+
+    void deleteBodyMetric(CurrentUserPrincipal principal, UUID metricId);
+
+    UserGoalView upsertGoal(CurrentUserPrincipal principal, GoalType goalType, UpsertUserGoalRequest request);
+
+    List<UserGoalView> listGoals(CurrentUserPrincipal principal, GoalStatus status);
+}

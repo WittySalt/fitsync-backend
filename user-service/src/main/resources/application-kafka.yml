@@ -1,0 +1,15 @@
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+fitsync:
+  kafka:
+    enabled: true
+    listeners:
+      user-registered:
+        enabled: true
+  outbox:
+    relay:
+      enabled: ${OUTBOX_RELAY_ENABLED:true}
+      batch-size: ${OUTBOX_RELAY_BATCH_SIZE:50}
+      fixed-delay-ms: ${OUTBOX_RELAY_FIXED_DELAY_MS:5000}
