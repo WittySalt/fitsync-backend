@@ -65,4 +65,13 @@ public record MealItemInput(
         @DecimalMin(value = "0.0") BigDecimal sugarGrams,
         @DecimalMin(value = "0.0") BigDecimal sodiumMg,
         List<@Valid NutrientDetailInput> nutrientDetails) {
+
+    public MealItemInput {
+        nutrientDetails = nutrientDetails == null ? List.of() : List.copyOf(nutrientDetails);
+    }
+
+    @Override
+    public List<NutrientDetailInput> nutrientDetails() {
+        return List.copyOf(nutrientDetails);
+    }
 }

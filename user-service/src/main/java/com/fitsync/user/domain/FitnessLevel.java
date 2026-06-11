@@ -32,7 +32,7 @@ public enum FitnessLevel implements CodeEnum {
     public String getDefaultDescription() { return description; }
 
     @Override
-    public String[] getLegacyCodes() { return legacyCodes; }
+    public String[] getLegacyCodes() { return legacyCodes.clone(); }
 
     @JsonCreator
     public static FitnessLevel fromCode(String value) {

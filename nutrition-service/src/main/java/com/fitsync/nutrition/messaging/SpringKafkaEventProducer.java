@@ -6,6 +6,7 @@ import java.util.concurrent.ExecutionException;
 import com.fitsync.nutrition.messaging.entity.OutboxEventEntity;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -14,14 +15,19 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(prefix = "fitsync.kafka", name = "enabled", havingValue = "true")
 public class SpringKafkaEventProducer implements KafkaEventProducer {
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectProvider<KafkaTemplate<String, String>> kafkaTemplateProvider;
 
-    public SpringKafkaEventProducer(KafkaTemplate<String, String> kafkaTemplate) {
-        this.kafkaTemplate = kafkaTemplate;
+    public SpringKafkaEventProducer(ObjectProvider<KafkaTemplate<String, String>> kafkaTemplateProvider) {
+        this.kafkaTemplateProvider = kafkaTemplateProvider;
     }
 
     @Override
     public void send(OutboxEventEntity event) {
+        KafkaTemplate<String, String> kafkaTemplate = kafkaTemplateProvider.getIfAvailable();
+        if (kafkaTemplate == null) {
+            throw new IllegalStateException("Missing required bean: KafkaTemplate");
+        }
+
         ProducerRecord<String, String> record = new ProducerRecord<>(
                 event.getTopic(),
                 partitionKey(event),

@@ -52,4 +52,99 @@
         <Bug pattern="SPRING_CSRF_UNRESTRICTED_REQUEST_MAPPING"/>
     </Match>
 
+    <!-- Spring dependency injection on auth-service security components can trigger EI_EXPOSE_REP2 noise -->
+    <Match>
+        <Class name="com.fitsync.backend.config.SecurityConfig"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.backend.messaging.SpringKafkaEventProducer"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Auth controllers are intentional REST endpoints -->
+    <Match>
+        <Class name="com.fitsync.backend.controller.AuthController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.backend.controller.InternalOutboxController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <!-- Spring wiring and controllers in user-service -->
+    <Match>
+        <Class name="com.fitsync.user.config.SecurityConfig"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.user.controller.UserController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.user.controller.UserController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.user.controller.InternalMessagingController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.user.messaging.SpringKafkaEventProducer"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Spring wiring and controllers in nutrition-service -->
+    <Match>
+        <Class name="com.fitsync.nutrition.controller.NutritionController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.nutrition.controller.NutritionController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.nutrition.controller.InternalMessagingController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.nutrition.service.NutritionServiceImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Spring wiring, controllers, and JPA relationship noise in workout-service -->
+    <Match>
+        <Class name="com.fitsync.workout.controller.WorkoutController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.workout.controller.WorkoutController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.workout.controller.InternalMessagingController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="~com\.fitsync\.workout\.entity\..*"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
+    <Match>
+        <Class name="~com\.fitsync\.workout\.entity\..*"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
 </FindBugsFilter>

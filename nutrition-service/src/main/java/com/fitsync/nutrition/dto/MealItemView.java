@@ -26,4 +26,13 @@ public record MealItemView(
         BigDecimal sugarGrams,
         BigDecimal sodiumMg,
         List<NutrientDetailView> nutrientDetails) {
+
+    public MealItemView {
+        nutrientDetails = nutrientDetails == null ? List.of() : List.copyOf(nutrientDetails);
+    }
+
+    @Override
+    public List<NutrientDetailView> nutrientDetails() {
+        return List.copyOf(nutrientDetails);
+    }
 }

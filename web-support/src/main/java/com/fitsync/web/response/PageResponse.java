@@ -11,6 +11,15 @@ public record PageResponse<T>(
         boolean first,
         boolean last) {
 
+    public PageResponse {
+        content = content == null ? List.of() : List.copyOf(content);
+    }
+
+    @Override
+    public List<T> content() {
+        return List.copyOf(content);
+    }
+
     public static <T> PageResponse<T> of(List<T> content,
                                          int page,
                                          int size,

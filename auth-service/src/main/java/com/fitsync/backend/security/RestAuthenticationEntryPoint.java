@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fitsync.backend.exception.ApiError;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,10 +19,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-    private final ObjectMapper objectMapper;
+    private final ObjectWriter apiErrorWriter;
 
     public RestAuthenticationEntryPoint(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+        this.apiErrorWriter = objectMapper.writerFor(ApiError.class);
     }
 
     @Override
@@ -38,6 +39,6 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getOutputStream(), error);
+        apiErrorWriter.writeValue(response.getOutputStream(), error);
     }
 }

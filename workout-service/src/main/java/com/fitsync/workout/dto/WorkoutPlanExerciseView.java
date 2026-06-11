@@ -17,4 +17,13 @@ public record WorkoutPlanExerciseView(
         Integer restSeconds,
         String notes,
         List<WorkoutPlanExerciseSetTargetView> setTargets) {
+
+    public WorkoutPlanExerciseView {
+        setTargets = setTargets == null ? List.of() : List.copyOf(setTargets);
+    }
+
+    @Override
+    public List<WorkoutPlanExerciseSetTargetView> setTargets() {
+        return List.copyOf(setTargets);
+    }
 }

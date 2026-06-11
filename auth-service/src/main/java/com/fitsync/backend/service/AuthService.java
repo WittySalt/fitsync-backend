@@ -1,6 +1,7 @@
 package com.fitsync.backend.service;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -48,7 +49,7 @@ public class AuthService {
 
         AppUser user = new AppUser();
         user.setAuthProvider(AuthProvider.LOCAL);
-        user.setEmail(request.email().trim().toLowerCase());
+        user.setEmail(request.email().trim().toLowerCase(Locale.ROOT));
         user.setDisplayName(request.displayName().trim());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
 

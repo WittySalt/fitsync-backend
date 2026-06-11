@@ -3,6 +3,7 @@ package com.fitsync.user.messaging;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import org.slf4j.Logger;
@@ -19,16 +20,15 @@ public class UserRegisteredKafkaListener {
 
     private static final Logger log = LoggerFactory.getLogger(UserRegisteredKafkaListener.class);
 
-    private final ObjectMapper objectMapper;
+    private final ObjectReader eventReader;
     private final UserRegisteredEventConsumer userRegisteredEventConsumer;
-    private final JavaType eventType;
 
     public UserRegisteredKafkaListener(ObjectMapper objectMapper,
                                        UserRegisteredEventConsumer userRegisteredEventConsumer) {
-        this.objectMapper = objectMapper;
         this.userRegisteredEventConsumer = userRegisteredEventConsumer;
-        this.eventType = objectMapper.getTypeFactory()
+        JavaType eventType = objectMapper.getTypeFactory()
                 .constructParametricType(FitSyncDomainEvent.class, UserRegisteredPayload.class);
+        this.eventReader = objectMapper.readerFor(eventType);
     }
 
     @KafkaListener(
@@ -40,7 +40,10 @@ public class UserRegisteredKafkaListener {
                           @Header(value = KafkaHeaders.RECEIVED_KEY, required = false) String key) {
         FitSyncDomainEvent<UserRegisteredPayload> event = deserialize(payload);
         if (!"UserRegistered".equals(event.eventType())) {
-            log.debug("Ignoring eventType={} from topic={} key={}", event.eventType(), topic, key);
+            log.debug("Ignoring eventType={} from topic={} key={}",
+                    sanitizeForLog(event.eventType()),
+                    sanitizeForLog(topic),
+                    sanitizeForLog(key));
             return;
         }
         userRegisteredEventConsumer.consume(event);
@@ -48,9 +51,15 @@ public class UserRegisteredKafkaListener {
 
     private FitSyncDomainEvent<UserRegisteredPayload> deserialize(String payload) {
         try {
-            return objectMapper.readValue(payload, eventType);
+            return eventReader.readValue(payload);
         } catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("Failed to deserialize UserRegistered event", ex);
         }
+    }
+
+    private String sanitizeForLog(Object value) {
+        return String.valueOf(value)
+                .replace("\r", "_")
+                .replace("\n", "_");
     }
 }

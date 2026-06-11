@@ -69,4 +69,13 @@ public record UpsertWorkoutSessionRequest(
         @Min(1) @Max(10) Integer perceivedExertion,
         @Size(max = 1000) String notes,
         @Valid List<WorkoutExerciseLogInput> exercises) {
+
+    public UpsertWorkoutSessionRequest {
+        exercises = exercises == null ? List.of() : List.copyOf(exercises);
+    }
+
+    @Override
+    public List<WorkoutExerciseLogInput> exercises() {
+        return List.copyOf(exercises);
+    }
 }

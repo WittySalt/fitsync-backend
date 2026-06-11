@@ -33,7 +33,7 @@ public enum TrainingLocation implements CodeEnum {
     public String getDefaultDescription() { return description; }
 
     @Override
-    public String[] getLegacyCodes() { return legacyCodes; }
+    public String[] getLegacyCodes() { return legacyCodes.clone(); }
 
     @JsonCreator
     public static TrainingLocation fromCode(String value) {

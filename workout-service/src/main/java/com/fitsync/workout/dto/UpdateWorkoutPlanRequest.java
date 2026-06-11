@@ -54,4 +54,13 @@ public record UpdateWorkoutPlanRequest(
         @NotNull WorkoutDifficulty difficulty,
         @Min(1) Integer estimatedDurationMinutes,
         @Valid List<WorkoutPlanExerciseInput> exercises) {
+
+    public UpdateWorkoutPlanRequest {
+        exercises = exercises == null ? List.of() : List.copyOf(exercises);
+    }
+
+    @Override
+    public List<WorkoutPlanExerciseInput> exercises() {
+        return List.copyOf(exercises);
+    }
 }

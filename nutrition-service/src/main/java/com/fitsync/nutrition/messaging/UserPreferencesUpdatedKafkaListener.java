@@ -3,6 +3,7 @@ package com.fitsync.nutrition.messaging;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import org.slf4j.Logger;
@@ -19,16 +20,15 @@ public class UserPreferencesUpdatedKafkaListener {
 
     private static final Logger log = LoggerFactory.getLogger(UserPreferencesUpdatedKafkaListener.class);
 
-    private final ObjectMapper objectMapper;
+    private final ObjectReader eventReader;
     private final UserPreferencesUpdatedEventConsumer consumer;
-    private final JavaType eventType;
 
     public UserPreferencesUpdatedKafkaListener(ObjectMapper objectMapper,
                                               UserPreferencesUpdatedEventConsumer consumer) {
-        this.objectMapper = objectMapper;
         this.consumer = consumer;
-        this.eventType = objectMapper.getTypeFactory()
+        JavaType eventType = objectMapper.getTypeFactory()
                 .constructParametricType(FitSyncDomainEvent.class, UserPreferencesUpdatedPayload.class);
+        this.eventReader = objectMapper.readerFor(eventType);
     }
 
     @KafkaListener(
@@ -40,7 +40,8 @@ public class UserPreferencesUpdatedKafkaListener {
                           @Header(value = KafkaHeaders.RECEIVED_KEY, required = false) String key) {
         FitSyncDomainEvent<UserPreferencesUpdatedPayload> event = deserialize(payload);
         if (!"UserPreferencesUpdated".equals(event.eventType())) {
-            log.debug("Ignoring eventType={} from topic={} key={}", event.eventType(), topic, key);
+            log.debug("Ignoring eventType={} from topic={} key={}",
+                    sanitizeForLog(event.eventType()), sanitizeForLog(topic), sanitizeForLog(key));
             return;
         }
         consumer.consume(event);
@@ -48,9 +49,15 @@ public class UserPreferencesUpdatedKafkaListener {
 
     private FitSyncDomainEvent<UserPreferencesUpdatedPayload> deserialize(String payload) {
         try {
-            return objectMapper.readValue(payload, eventType);
+            return eventReader.readValue(payload);
         } catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("Failed to deserialize UserPreferencesUpdated event", ex);
         }
+    }
+
+    private String sanitizeForLog(Object value) {
+        return String.valueOf(value)
+                .replace("\r", "_")
+                .replace("\n", "_");
     }
 }

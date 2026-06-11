@@ -36,4 +36,19 @@ public record FoodDetailView(
         String primaryBarcode,
         List<FoodServingView> servings,
         List<NutrientDetailView> nutrientDetails) {
+
+    public FoodDetailView {
+        servings = servings == null ? List.of() : List.copyOf(servings);
+        nutrientDetails = nutrientDetails == null ? List.of() : List.copyOf(nutrientDetails);
+    }
+
+    @Override
+    public List<FoodServingView> servings() {
+        return List.copyOf(servings);
+    }
+
+    @Override
+    public List<NutrientDetailView> nutrientDetails() {
+        return List.copyOf(nutrientDetails);
+    }
 }

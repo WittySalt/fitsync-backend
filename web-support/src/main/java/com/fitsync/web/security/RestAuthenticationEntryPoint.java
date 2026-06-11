@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fitsync.web.error.ApiError;
 import com.fitsync.web.error.ApiErrorFactory;
 import jakarta.servlet.ServletException;
@@ -16,11 +17,11 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-    private final ObjectMapper objectMapper;
+    private final ObjectWriter apiErrorWriter;
     private final ApiErrorFactory apiErrorFactory;
 
     public RestAuthenticationEntryPoint(ObjectMapper objectMapper, ApiErrorFactory apiErrorFactory) {
-        this.objectMapper = objectMapper;
+        this.apiErrorWriter = objectMapper.writerFor(ApiError.class);
         this.apiErrorFactory = apiErrorFactory;
     }
 
@@ -37,6 +38,6 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getOutputStream(), error);
+        apiErrorWriter.writeValue(response.getOutputStream(), error);
     }
 }
