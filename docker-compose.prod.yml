@@ -1,0 +1,100 @@
+services:
+  api-gateway:
+    image: ${ECR_REGISTRY}/fitsync-backend-gateway:${IMAGE_TAG:-latest}
+    container_name: fitsync-api-gateway
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8088
+      JWT_SECRET: ${JWT_SECRET}
+      COGNITO_ENABLED: ${COGNITO_ENABLED:-false}
+      COGNITO_ISSUER_URI: ${COGNITO_ISSUER_URI:-}
+      COGNITO_AUDIENCE: ${COGNITO_AUDIENCE:-}
+      COGNITO_JWK_SET_URI: ${COGNITO_JWK_SET_URI:-}
+      COGNITO_PRINCIPAL_CLAIM: ${COGNITO_PRINCIPAL_CLAIM:-username}
+      AUTH_SERVICE_BASE_URL: http://auth-service:8080
+      USER_SERVICE_BASE_URL: http://user-service:8081
+    ports:
+      - "8088:8088"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    networks:
+      - fitsync-net
+
+  auth-service:
+    image: ${ECR_REGISTRY}/fitsync-backend:${IMAGE_TAG:-latest}
+    container_name: fitsync-auth-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: ${DB_URL}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - fitsync-net
+
+  user-service:
+    profiles: ["future-services"]
+    image: ${ECR_REGISTRY}/fitsync-backend-user:${IMAGE_TAG:-latest}
+    container_name: fitsync-user-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8081
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - fitsync-net
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: fitsync-nginx
+    restart: unless-stopped
+    environment:
+      NGINX_SERVER_NAME: ${NGINX_SERVER_NAME:-_}
+      NGINX_CERT_NAME: ${NGINX_CERT_NAME}
+    command: >
+      /bin/sh -c "envsubst '$$NGINX_SERVER_NAME $$NGINX_CERT_NAME'
+      < /etc/nginx/templates/nginx.conf.template
+      > /etc/nginx/nginx.conf
+      && exec nginx -g 'daemon off;'"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - fitsync-net
+
+networks:
+  fitsync-net:
+    driver: bridge
