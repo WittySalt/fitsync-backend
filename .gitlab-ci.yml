@@ -1,5 +1,6 @@
 workflow:
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "web"'
     - when: never
@@ -59,6 +60,10 @@ secret_scan:
     entrypoint: [""]
   script:
     - gitleaks detect --source . --verbose --redact
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    - when: never
 
 verify_backend:
   stage: verify
@@ -77,6 +82,10 @@ verify_backend:
       - "**/target/failsafe-reports/"
       - "**/target/site/jacoco/"
       - "**/target/spotbugsXml.xml"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    - when: never
 
 docker_image:
   stage: docker
@@ -103,6 +112,9 @@ docker_image:
     paths:
       - trivy-image.sarif
       - sbom.json
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    - when: never
 
 dependency_audit:
   stage: security

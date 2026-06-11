@@ -3,6 +3,7 @@ package com.fitsync.gateway.service;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import com.fitsync.gateway.config.GatewayRoutesProperties;
@@ -27,19 +28,19 @@ import org.springframework.web.client.RestTemplate;
 public class GatewayProxyServiceImpl implements GatewayProxyService {
 
     private static final List<String> HOP_BY_HOP_HEADERS = List.of(
-            HttpHeaders.HOST,
-            HttpHeaders.CONNECTION,
-            "Keep-Alive",
-            "Proxy-Authenticate",
-            "Proxy-Authorization",
-            "TE",
-            "Trailer",
-            HttpHeaders.TRANSFER_ENCODING,
-            HttpHeaders.UPGRADE,
-            "X-User-Id",
-            "X-User-Email",
-            "X-User-Roles",
-            "X-Correlation-Id");
+            HttpHeaders.HOST.toLowerCase(Locale.ROOT),
+            HttpHeaders.CONNECTION.toLowerCase(Locale.ROOT),
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            HttpHeaders.TRANSFER_ENCODING.toLowerCase(Locale.ROOT),
+            HttpHeaders.UPGRADE.toLowerCase(Locale.ROOT),
+            "x-user-id",
+            "x-user-email",
+            "x-user-roles",
+            "x-correlation-id");
 
     private final RestTemplate restTemplate;
     private final GatewayRoutesProperties routesProperties;
@@ -111,14 +112,17 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
 
         downstreamHeaders.forEach((name, values) -> {
             if (!isHopByHopHeader(name)) {
-                headers.put(name, values);
+                headers.put(name, List.copyOf(values));
             }
         });
         return headers;
     }
 
     private boolean isHopByHopHeader(String headerName) {
-        return HOP_BY_HOP_HEADERS.stream().anyMatch(header -> header.equalsIgnoreCase(headerName));
+        if (!StringUtils.hasText(headerName)) {
+            return false;
+        }
+        return HOP_BY_HOP_HEADERS.contains(headerName.toLowerCase(Locale.ROOT));
     }
 
     private void addGatewayHeaders(HttpHeaders headers) {
