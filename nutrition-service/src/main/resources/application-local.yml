@@ -1,0 +1,5 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/fitsync}
+    username: ${DB_USERNAME:fitsync}
+    password: ${DB_PASSWORD:fitsync}

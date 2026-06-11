@@ -1,0 +1,39 @@
+package com.fitsync.nutrition.dto;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
+
+import com.fitsync.nutrition.domain.FoodCatalogScope;
+import com.fitsync.nutrition.domain.FoodCreationMode;
+import com.fitsync.nutrition.domain.FoodCatalogSource;
+
+public record FoodDetailView(
+        UUID foodId,
+        String displayName,
+        String normalizedName,
+        String brandName,
+        String categoryCode,
+        FoodCatalogScope scope,
+        UUID baseFoodId,
+        FoodCreationMode creationMode,
+        FoodCatalogSource source,
+        boolean verified,
+        BigDecimal densityGramsPerMl,
+        Integer calories,
+        BigDecimal proteinGrams,
+        BigDecimal carbsGrams,
+        BigDecimal fatGrams,
+        BigDecimal saturatedFatGrams,
+        BigDecimal transFatGrams,
+        BigDecimal fiberGrams,
+        BigDecimal sugarGrams,
+        BigDecimal sodiumMg,
+        BigDecimal potassiumMg,
+        BigDecimal cholesterolMg,
+        BigDecimal basisQuantity,
+        String basisUnit,
+        String primaryBarcode,
+        List<FoodServingView> servings,
+        List<NutrientDetailView> nutrientDetails) {
+}
