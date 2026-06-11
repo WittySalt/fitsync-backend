@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!--
+      Add suppression entries only when:
+        1. The CVE is a confirmed false positive for this usage, OR
+        2. The vulnerability is in a test-scope dependency and cannot affect production.
+      Each suppression MUST include a notes field explaining WHY it is safe to suppress.
+    -->
+
+    <!-- Example suppression template (remove when first real suppression is needed):
+    <suppress>
+        <notes>CVE-XXXX-YYYY: false positive — this class/method is not reachable in our usage.
+               Reviewed by: [name], Date: [date]</notes>
+        <cve>CVE-XXXX-YYYY</cve>
+    </suppress>
+    -->
+
+</suppressions>

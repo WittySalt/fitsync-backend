@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs exclusion filter.
+  Add patterns here only for known false positives with documented justification.
+  Do NOT suppress real security findings without review.
+-->
+<FindBugsFilter>
+
+    <!-- Generated code: Lombok-generated equals/hashCode triggers some patterns -->
+    <Match>
+        <Class name="~.*\.entity\..*"/>
+        <Bug pattern="EQ_DOESNT_OVERRIDE_EQUALS"/>
+    </Match>
+
+    <!-- Spring @Configuration classes are instantiated by the container, not by new() -->
+    <Match>
+        <Class name="~.*\.config\..*"/>
+        <Bug pattern="SING_SINGLETON_GETTER_NOT_SYNCHRONIZED"/>
+    </Match>
+
+    <!-- Test classes — lower bar for security patterns -->
+    <Match>
+        <Class name="~.*Test.*"/>
+        <Bug category="SECURITY"/>
+    </Match>
+
+</FindBugsFilter>

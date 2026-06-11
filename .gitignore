@@ -1,0 +1,12 @@
+target/
+.idea/
+.vscode/
+*.iml
+*.log
+.env
+.DS_Store
+.m2
+dependency-check-report.*
+spotbugs.sarif
+trivy-*.sarif
+sbom.json
