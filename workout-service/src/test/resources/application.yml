@@ -1,9 +1,11 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:workoutdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    url: jdbc:h2:mem:workoutdb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;INIT=CREATE SCHEMA IF NOT EXISTS workout;DB_CLOSE_DELAY=-1
     driver-class-name: org.h2.Driver
     username: sa
     password:
+    hikari:
+      schema: workout
   jpa:
     open-in-view: false
     hibernate:
@@ -11,8 +13,12 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        default_schema: workout
   flyway:
     enabled: true
+    default-schema: workout
+    schemas: workout
+    table: workout_flyway_schema_history
 
 security:
   jwt:

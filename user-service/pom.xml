@@ -15,6 +15,10 @@
     <name>user-service</name>
     <description>FitSync user service</description>
 
+    <properties>
+        <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.fitsync</groupId>
@@ -38,6 +42,10 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -102,4 +110,13 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>
