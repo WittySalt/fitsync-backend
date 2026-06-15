@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:fitsync_analytics;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;INIT=CREATE SCHEMA IF NOT EXISTS analytics;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+    hikari:
+      schema: analytics
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: analytics
+  flyway:
+    enabled: true
+    default-schema: analytics
+    schemas: analytics
+    table: analytics_flyway_schema_history
+  kafka:
+    listener:
+      auto-startup: false
+  cache:
+    type: simple
+  data:
+    redis:
+      repositories:
+        enabled: false
+
+security:
+  jwt:
+    secret: test-secret-test-secret-test-secret-123456
+    expiration: PT1H
+
+fitsync:
+  kafka:
+    enabled: false
