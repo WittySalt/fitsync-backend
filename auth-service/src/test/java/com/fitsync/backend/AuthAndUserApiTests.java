@@ -26,15 +26,15 @@ class AuthAndUserApiTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "email": "alice@example.com",
-                                  "displayName": "Alice",
+                                  "email": "new-alice@example.com",
+                                  "displayName": "New Alice",
                                   "password": "supersecret"
                                 }
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.email").value("alice@example.com"))
+                .andExpect(jsonPath("$.email").value("new-alice@example.com"))
                 .andExpect(jsonPath("$.role").value("USER"));
     }
 
@@ -71,8 +71,9 @@ class AuthAndUserApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("cognito-user@example.com"))
                 .andExpect(jsonPath("$.displayName").value("Cognito User"))
-                .andExpect(jsonPath("$.authProvider").value("COGNITO"))
-                .andExpect(jsonPath("$.role").value("USER"));
+                .andExpect(jsonPath("$.role").value("USER"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
 
         mockMvc.perform(get("/api/v1/auth/me")
                         .with(jwt().jwt(jwt -> jwt
