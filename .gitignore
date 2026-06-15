@@ -6,6 +6,9 @@ target/
 .env
 .DS_Store
 .m2
+run-logs/
+**/application-online-db.yml
+**/application-cognito.yml
 dependency-check-report.*
 spotbugs.sarif
 trivy-*.sarif
