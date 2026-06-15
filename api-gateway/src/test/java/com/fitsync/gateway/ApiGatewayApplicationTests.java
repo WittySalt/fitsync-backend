@@ -37,7 +37,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestPropertySource(properties = {
         "security.jwt.secret=change-me-change-me-change-me-change-me",
         "fitsync.gateway.routes.auth-service-base-url=http://auth-service:8080",
-        "fitsync.gateway.routes.user-service-base-url=http://user-service:8081"
+        "fitsync.gateway.routes.user-service-base-url=http://user-service:8081",
+        "fitsync.gateway.routes.workout-service-base-url=http://workout-service:8082",
+        "fitsync.gateway.routes.nutrition-service-base-url=http://nutrition-service:8083",
+        "fitsync.gateway.routes.analytics-service-base-url=http://analytics-service:8085"
 })
 class ApiGatewayApplicationTests {
 
@@ -70,6 +73,21 @@ class ApiGatewayApplicationTests {
     }
 
     @Test
+    void bootstrapRouteIsPublicAndProxiedWithBearerToken() throws Exception {
+        when(gatewayProxyService.forwardToAuthService(any(), argThat(matchesBody("{}"))))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"accessToken\":\"local-token\"}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(post("/api/v1/auth/bootstrap")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer cognito-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("local-token"));
+    }
+
+    @Test
     void protectedUserRouteRejectsMissingToken() throws Exception {
         mockMvc.perform(get("/api/v1/users/me/profile"))
                 .andExpect(status().isUnauthorized())
@@ -98,6 +116,65 @@ class ApiGatewayApplicationTests {
                 .andExpect(header().string("X-Correlation-Id", "corr-123"));
 
         verify(gatewayProxyService).forwardToUserService(any(), argThat(emptyBody()));
+    }
+
+    @Test
+    void protectedWorkoutRouteRejectsMissingToken() throws Exception {
+        mockMvc.perform(get("/api/v1/workouts/plans"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void protectedWorkoutRouteForwardsValidatedToken() throws Exception {
+        when(gatewayProxyService.forwardToWorkoutService(any(), any()))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":\"workout-proxied\"}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/v1/workouts/plans")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("workout-proxied"));
+
+        verify(gatewayProxyService).forwardToWorkoutService(any(), argThat(emptyBody()));
+    }
+
+    @Test
+    void protectedNutritionRouteRejectsMissingToken() throws Exception {
+        mockMvc.perform(get("/api/v1/nutrition/meals"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void protectedNutritionRouteForwardsValidatedToken() throws Exception {
+        when(gatewayProxyService.forwardToNutritionService(any(), any()))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":\"nutrition-proxied\"}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/v1/nutrition/meals")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("nutrition-proxied"));
+
+        verify(gatewayProxyService).forwardToNutritionService(any(), argThat(emptyBody()));
+    }
+
+    @Test
+    void protectedAnalyticsRouteForwardsValidatedToken() throws Exception {
+        when(gatewayProxyService.forwardToAnalyticsService(any(), any()))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":\"analytics-proxied\"}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/v1/analytics/dashboard")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("analytics-proxied"));
+
+        verify(gatewayProxyService).forwardToAnalyticsService(any(), argThat(emptyBody()));
     }
 
     private String validToken() {

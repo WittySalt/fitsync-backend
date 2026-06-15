@@ -61,12 +61,27 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         return forward(routesProperties.userServiceBaseUrl(), request, body);
     }
 
+    @Override
+    public ResponseEntity<byte[]> forwardToWorkoutService(HttpServletRequest request, byte[] body) {
+        return forward(routesProperties.workoutServiceBaseUrl(), request, body);
+    }
+
+    @Override
+    public ResponseEntity<byte[]> forwardToNutritionService(HttpServletRequest request, byte[] body) {
+        return forward(routesProperties.nutritionServiceBaseUrl(), request, body);
+    }
+
+    @Override
+    public ResponseEntity<byte[]> forwardToAnalyticsService(HttpServletRequest request, byte[] body) {
+        return forward(routesProperties.analyticsServiceBaseUrl(), request, body);
+    }
+
     private ResponseEntity<byte[]> forward(String baseUrl, HttpServletRequest request, byte[] body) {
         HttpMethod method = HttpMethod.valueOf(request.getMethod());
         HttpHeaders headers = copyHeaders(request);
         addGatewayHeaders(headers);
 
-        URI targetUri = URI.create(baseUrl + request.getRequestURI() + queryStringSuffix(request));
+        URI targetUri = URI.create(normalizeBaseUrl(baseUrl) + request.getRequestURI() + queryStringSuffix(request));
         RequestEntity<byte[]> requestEntity = new RequestEntity<>(
                 body == null ? new byte[0] : body,
                 headers,
@@ -149,5 +164,13 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
 
     private String queryStringSuffix(HttpServletRequest request) {
         return StringUtils.hasText(request.getQueryString()) ? "?" + request.getQueryString() : "";
+    }
+
+    private String normalizeBaseUrl(String baseUrl) {
+        String normalizedBaseUrl = baseUrl == null ? "" : baseUrl.trim();
+        while (normalizedBaseUrl.endsWith("/")) {
+            normalizedBaseUrl = normalizedBaseUrl.substring(0, normalizedBaseUrl.length() - 1);
+        }
+        return normalizedBaseUrl;
     }
 }

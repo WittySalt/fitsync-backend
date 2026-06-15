@@ -8,5 +8,8 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "fitsync.gateway.routes")
 public record GatewayRoutesProperties(
         @NotBlank String authServiceBaseUrl,
-        @NotBlank String userServiceBaseUrl) {
+        @NotBlank String userServiceBaseUrl,
+        @NotBlank String workoutServiceBaseUrl,
+        @NotBlank String nutritionServiceBaseUrl,
+        @NotBlank String analyticsServiceBaseUrl) {
 }
