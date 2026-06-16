@@ -577,7 +577,44 @@ Residual risk:
 
 ---
 
-## 11. AI Tooling Decision
+## 11. Read Caching Direction
+
+Redis is not mandatory to make analytics correct, but it is a pragmatic optimization for this service once the API surface is in use.
+
+Recommended phase 1 posture:
+
+- keep analytics projections in PostgreSQL as the durable read model
+- add Spring Cache in front of the hottest read endpoints
+- default local and test environments to in-memory cache
+- enable Redis only for shared, cross-instance cache when deployed beyond one service replica
+
+Recommended first cached endpoints:
+
+- `GET /api/v1/analytics/dashboard`
+- `GET /api/v1/analytics/body/trends`
+- `GET /api/v1/analytics/workouts/summary`
+- `GET /api/v1/analytics/nutrition/summary`
+- `GET /api/v1/analytics/goals/progress`
+
+Recommended invalidation rule in phase 1:
+
+- clear analytics caches after any successful projection mutation or targeted rebuild
+
+Reason:
+
+- these endpoints are deterministic derived reads
+- projections already absorb eventual-consistent writes
+- broad invalidation is safer than partial stale data while dependency tracking is still simple
+
+Do not use Redis as:
+
+- the source of truth for analytics projections
+- the only copy of derived data
+- a substitute for idempotent event processing
+
+---
+
+## 12. AI Tooling Decision
 
 Short answer:
 
@@ -633,7 +670,7 @@ Recommended current position:
 
 ---
 
-## 12. Recommended Rollout Order
+## 13. Recommended Rollout Order
 
 ### Phase 1
 
@@ -661,7 +698,7 @@ Recommended current position:
 
 ---
 
-## 13. Immediate Practical Recommendation
+## 14. Immediate Practical Recommendation
 
 For this repository, the best next implementation step is:
 

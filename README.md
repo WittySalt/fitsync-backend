@@ -17,7 +17,9 @@ Multi-module Spring Boot backend foundation for FitSync. The current runnable im
 - `user-service`: persisted user domain implementation for profile, preferences, body metrics, and goals
 - `api-gateway`: edge gateway scaffold with design documented in `api-gateway/README.md`
 - `workout-service`: persisted workout domain implementation for plans, sessions, and outbox-backed workout events
-- `nutrition-service`, `analytics-service`, `recommendation-service`, `notification-service`: module scaffolds
+- `nutrition-service`: persisted nutrition domain implementation for meals, custom foods, food catalog reads, daily summaries, and outbox-backed nutrition events
+- `analytics-service`: derived analytics read service with event-driven projections, dashboard APIs, internal rebuild endpoints, and optional Redis-backed caching
+- `recommendation-service`, `notification-service`: module scaffolds
 - `event-contracts`: shared event contract scaffold
 
 ## Run Locally
@@ -40,6 +42,7 @@ Start the current runnable services:
 mvn -pl auth-service spring-boot:run
 mvn -pl user-service spring-boot:run
 mvn -pl workout-service spring-boot:run
+mvn -pl analytics-service spring-boot:run
 mvn -pl api-gateway spring-boot:run
 ```
 
@@ -49,6 +52,7 @@ Start the services with Kafka event delivery enabled:
 mvn -pl auth-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
 mvn -pl user-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
 mvn -pl workout-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
+mvn -pl analytics-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
 ```
 
 Kafka defaults:
@@ -80,6 +84,8 @@ Useful endpoints:
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/bootstrap`
 - `GET /api/v1/auth/me`
+- `GET /api/v1/analytics/dashboard`
+- `POST /api/v1/internal/analytics/users/{userId}/dashboard/rebuild`
 - `POST /api/v1/workouts/plans`
 - `POST /api/v1/workouts/sessions`
 - `POST /api/v1/internal/outbox/publish`
@@ -91,6 +97,8 @@ Gateway design reference:
 - `api-gateway` defaults to port `8088` and routes to:
   - `AUTH_SERVICE_BASE_URL=http://localhost:8080`
   - `USER_SERVICE_BASE_URL=http://localhost:8081`
+  - `WORKOUT_SERVICE_BASE_URL=http://localhost:8082`
+  - `NUTRITION_SERVICE_BASE_URL=http://localhost:8083`
 
 Cognito transition settings for `auth-service`:
 
@@ -101,16 +109,17 @@ Cognito transition settings for `auth-service`:
 - `COGNITO_JWK_SET_URI` is optional when the default Cognito JWKS path is used
 - `COGNITO_PRINCIPAL_CLAIM` defaults to `username`
 
-Current local Cognito SPA setup confirmed on 2026-06-12:
+Current local Cognito SPA setup confirmed on 2026-06-14:
 
-- Region: `ap-southeast-2`
-- User pool ID: `ap-southeast-2_8lgadn`
+- Region: `ap-southeast-1`
+- User pool ID: `ap-southeast-1_myVyuOmPD`
 - SPA app client name: `FitSync`
 - SPA app client ID: `4mvse0cgmkplgocfg827uolvad`
-- Managed login domain: `https://ap-southeast-2kjyn2vzun.auth.ap-southeast-2.amazoncognito.com`
+- Managed login domain: `https://ap-southeast-1myvyuompd.auth.ap-southeast-1.amazoncognito.com`
 - Allowed callback URL: `http://localhost:3000/auth/callback`
 - Allowed sign-out URL: `http://localhost:3000/logout/callback`
 - OAuth grant type: `Authorization code grant`
+- Custom Angular auth UI requires app-client auth flow: `USER_PASSWORD_AUTH`
 - OIDC scopes: `openid`, `email`, `profile`
 - Identity provider: `Cognito user pool directory`
 - Client secret: not generated for the SPA client
@@ -119,10 +128,18 @@ Recommended local environment values for the current backend implementation:
 
 ```text
 COGNITO_ENABLED=true
-COGNITO_ISSUER_URI=https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_8lgadn
+COGNITO_ISSUER_URI=https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_myVyuOmPD
 COGNITO_AUDIENCE=4mvse0cgmkplgocfg827uolvad
 COGNITO_PRINCIPAL_CLAIM=username
 ```
+
+For local Cognito testing, run `auth-service` with the `cognito` profile so `/api/v1/auth/bootstrap` validates the Cognito ID token from the custom Angular auth UI and returns a local FitSync JWT for downstream services:
+
+```powershell
+mvn -pl auth-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka,cognito"
+```
+
+`api-gateway` permits only `/api/v1/auth/bootstrap` through unauthenticated so the Cognito token can be forwarded to `auth-service`; regular protected APIs continue to use the local FitSync JWT returned by bootstrap.
 
 ## Notes
 
@@ -131,6 +148,8 @@ COGNITO_PRINCIPAL_CLAIM=username
 - `auth-service` now also supports optional AWS Cognito JWT validation plus local user bootstrapping for managed-login migration.
 - `user-service` owns user profile, preferences, body metrics, and goals with JPA + Flyway persistence.
 - `workout-service` owns workout plans and sessions with JPA + Flyway persistence plus outbox-backed Kafka delivery for `WorkoutLogged`, `WorkoutUpdated`, and `WorkoutDeleted`.
+- `analytics-service` owns derived projections for dashboard, body trends, workout summaries, nutrition summaries, and goal progress reads.
+- `analytics-service` supports optional Redis-backed Spring Cache by setting `SPRING_CACHE_TYPE=redis`.
 - Additional services remain scaffolded.
 - Production compose now runs `nginx -> api-gateway -> domain services` and expects host-level TLS material under `/etc/letsencrypt`.
 - Set `NGINX_CERT_NAME` to the Let's Encrypt certificate directory name and optionally set `NGINX_SERVER_NAME` for the generated Nginx config.

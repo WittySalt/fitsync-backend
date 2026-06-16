@@ -6,8 +6,8 @@ This document defines the recommended API gateway design for the current FitSync
 
 It is intentionally aligned with the current repository reality:
 
-- `auth-service` and `user-service` are the only meaningful runnable domain services today
-- `workout-service`, `nutrition-service`, `analytics-service`, `recommendation-service`, and `notification-service` are still scaffolds
+- `auth-service`, `user-service`, `workout-service`, and `nutrition-service` are meaningful runnable domain services today
+- `analytics-service`, `recommendation-service`, and `notification-service` are still scaffolds
 - production ingress currently uses `nginx`
 
 The gateway should therefore be introduced as a thin edge service, not as a second orchestration layer with business logic.
@@ -103,6 +103,8 @@ Recommended initial route ownership:
 |---|---|---|
 | `/api/v1/auth/**` | `auth-service` | register, login, me, token-related flows |
 | `/api/v1/users/**` | `user-service` | profile, preferences, metrics, goals |
+| `/api/v1/workouts/**` | `workout-service` | exercises, workout plans, workout sessions |
+| `/api/v1/nutrition/**` | `nutrition-service` | meals, custom foods, food catalog, daily summary |
 | `/api/v1/health` | `api-gateway` | edge health endpoint |
 | `/swagger-ui.html` | `auth-service` initially | keep temporary until aggregated docs are needed |
 
@@ -112,8 +114,6 @@ Add these when services become real:
 
 | External path | Downstream service |
 |---|---|
-| `/api/v1/workouts/**` | `workout-service` |
-| `/api/v1/nutrition/**` | `nutrition-service` |
 | `/api/v1/analytics/**` | `analytics-service` |
 | `/api/v1/recommendations/**` | `recommendation-service` |
 | `/api/v1/notifications/**` | `notification-service` |
@@ -303,6 +303,8 @@ Suggested local ports:
 - `api-gateway`: `8088`
 - `auth-service`: `8080`
 - `user-service`: `8081`
+- `workout-service`: `8082`
+- `nutrition-service`: `8083`
 
 ### 11.2 Production
 
@@ -328,6 +330,8 @@ Deliver:
 
 - route `/api/v1/auth/**` to `auth-service`
 - route `/api/v1/users/**` to `user-service`
+- route `/api/v1/workouts/**` to `workout-service`
+- route `/api/v1/nutrition/**` to `nutrition-service`
 - central CORS policy
 - edge JWT validation
 - request correlation id
@@ -356,8 +360,6 @@ Add:
 
 Extend routes to:
 
-- workout
-- nutrition
 - analytics
 - recommendation
 - notification
@@ -385,7 +387,7 @@ For the current FitSync backend, the best gateway design is:
 
 1. keep `nginx` as the TLS and public reverse proxy
 2. implement `api-gateway` as a Spring Boot edge service
-3. route only `auth-service` and `user-service` first
+3. route runnable domain services through the gateway: `auth-service`, `user-service`, `workout-service`, and `nutrition-service`
 4. validate JWT at the gateway, but keep authorization checks in each domain service
 5. add rate limiting only to abuse-prone public auth endpoints first
 6. onboard additional services only when their APIs are actually implemented

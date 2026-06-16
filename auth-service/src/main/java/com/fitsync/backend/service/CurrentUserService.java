@@ -42,13 +42,13 @@ public class CurrentUserService {
     }
 
     @Transactional
-    public CurrentUserResponse bootstrapCognitoUser(Authentication authentication) {
+    public AppUser bootstrapCognitoUser(Authentication authentication) {
         Jwt jwt = extractJwt(authentication);
         String subject = requiredClaim(jwt, "sub");
         requireVerifiedEmail(jwt);
         Optional<AppUser> existingBySubject = appUserRepository.findByExternalSubject(subject);
         if (existingBySubject.isPresent()) {
-            return toResponse(existingBySubject.get());
+            return existingBySubject.get();
         }
 
         String email = normalizeEmail(requiredClaim(jwt, "email"));
@@ -65,7 +65,7 @@ public class CurrentUserService {
 
         AppUser savedUser = appUserRepository.save(user);
         publishUserRegistered(savedUser);
-        return toResponse(savedUser);
+        return savedUser;
     }
 
     private Optional<AppUser> resolveUser(Authentication authentication) {

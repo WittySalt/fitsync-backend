@@ -27,4 +27,22 @@ public class GatewayProxyController {
                                             @RequestBody(required = false) byte[] body) {
         return gatewayProxyService.forwardToUserService(request, body);
     }
+
+    @RequestMapping("/api/v1/workouts/**")
+    public ResponseEntity<byte[]> proxyWorkout(HttpServletRequest request,
+                                               @RequestBody(required = false) byte[] body) {
+        return gatewayProxyService.forwardToWorkoutService(request, body);
+    }
+
+    @RequestMapping("/api/v1/nutrition/**")
+    public ResponseEntity<byte[]> proxyNutrition(HttpServletRequest request,
+                                                 @RequestBody(required = false) byte[] body) {
+        return gatewayProxyService.forwardToNutritionService(request, body);
+    }
+
+    @RequestMapping("/api/v1/analytics/**")
+    public ResponseEntity<byte[]> proxyAnalytics(HttpServletRequest request,
+                                                 @RequestBody(required = false) byte[] body) {
+        return gatewayProxyService.forwardToAnalyticsService(request, body);
+    }
 }

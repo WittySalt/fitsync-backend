@@ -4,6 +4,7 @@ import com.fitsync.backend.dto.AuthResponse;
 import com.fitsync.backend.dto.CurrentUserResponse;
 import com.fitsync.backend.dto.LoginRequest;
 import com.fitsync.backend.dto.RegisterRequest;
+import com.fitsync.backend.entity.AppUser;
 import com.fitsync.backend.service.AuthService;
 import com.fitsync.backend.service.CurrentUserService;
 import jakarta.validation.Valid;
@@ -40,8 +41,9 @@ public class AuthController {
     }
 
     @PostMapping("/bootstrap")
-    public CurrentUserResponse bootstrap(Authentication authentication) {
-        return currentUserService.bootstrapCognitoUser(authentication);
+    public AuthResponse bootstrap(Authentication authentication) {
+        AppUser user = currentUserService.bootstrapCognitoUser(authentication);
+        return authService.issueToken(user);
     }
 
     @GetMapping("/me")

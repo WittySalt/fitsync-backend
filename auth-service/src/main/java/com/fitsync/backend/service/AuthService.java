@@ -55,7 +55,7 @@ public class AuthService {
 
         AppUser savedUser = appUserRepository.save(user);
         publishUserRegistered(savedUser);
-        return toAuthResponse(savedUser);
+        return issueToken(savedUser);
     }
 
     @Transactional(readOnly = true)
@@ -71,10 +71,10 @@ public class AuthService {
             throw new UnauthorizedException("Invalid email or password");
         }
 
-        return toAuthResponse(user);
+        return issueToken(user);
     }
 
-    private AuthResponse toAuthResponse(AppUser user) {
+    public AuthResponse issueToken(AppUser user) {
         UserDetails userDetails = User.withUsername(user.getEmail())
                 .password(user.getPasswordHash())
                 .authorities("ROLE_" + user.getRole().name())

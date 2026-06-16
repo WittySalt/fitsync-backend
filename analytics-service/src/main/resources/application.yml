@@ -1,0 +1,92 @@
+spring:
+  application:
+    name: analytics-service
+  profiles:
+    default: local
+  datasource:
+    url: ${LOCAL_DB_URL:${DB_URL:jdbc:postgresql://localhost:5432/fitsync}}
+    username: ${LOCAL_DB_USERNAME:${DB_USERNAME:fitsync}}
+    password: ${LOCAL_DB_PASSWORD:${DB_PASSWORD:fitsync}}
+    hikari:
+      schema: analytics
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        default_schema: analytics
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    default-schema: analytics
+    schemas: analytics
+    table: analytics_flyway_schema_history
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      missing-topics-fatal: false
+  cache:
+    type: ${SPRING_CACHE_TYPE:simple}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      repositories:
+        enabled: false
+
+server:
+  port: ${SERVER_PORT:8085}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:change-me-change-me-change-me-change-me}
+    expiration: ${JWT_EXPIRATION:PT2H}
+
+fitsync:
+  kafka:
+    enabled: ${KAFKA_ENABLED:false}
+    topics:
+      user-events: ${KAFKA_USER_EVENTS_TOPIC:user-events}
+      progress-events: ${KAFKA_PROGRESS_EVENTS_TOPIC:progress-events}
+      nutrition-events: ${KAFKA_NUTRITION_EVENTS_TOPIC:nutrition-events}
+      workout-events: ${KAFKA_WORKOUT_EVENTS_TOPIC:workout-events}
+    consumer-groups:
+      analytics-service: ${KAFKA_ANALYTICS_SERVICE_GROUP:analytics-consumer-group}
+    listeners:
+      goal-updated:
+        enabled: ${KAFKA_GOAL_UPDATED_LISTENER_ENABLED:false}
+      body-metrics-recorded:
+        enabled: ${KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED:false}
+      meal-logged:
+        enabled: ${KAFKA_MEAL_LOGGED_LISTENER_ENABLED:false}
+      meal-updated:
+        enabled: ${KAFKA_MEAL_UPDATED_LISTENER_ENABLED:false}
+      meal-deleted:
+        enabled: ${KAFKA_MEAL_DELETED_LISTENER_ENABLED:false}
+      workout-logged:
+        enabled: ${KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED:false}
+      workout-updated:
+        enabled: ${KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED:false}
+      workout-deleted:
+        enabled: ${KAFKA_WORKOUT_DELETED_LISTENER_ENABLED:false}
