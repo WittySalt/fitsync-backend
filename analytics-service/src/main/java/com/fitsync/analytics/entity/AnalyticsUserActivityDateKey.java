@@ -7,10 +7,33 @@ import java.util.UUID;
 
 public class AnalyticsUserActivityDateKey implements Serializable {
 
+    private static final long serialVersionUID = 1L;
+
     private UUID userId;
     private LocalDate activityDate;
 
     public AnalyticsUserActivityDateKey() {
+    }
+
+    public AnalyticsUserActivityDateKey(UUID userId, LocalDate activityDate) {
+        this.userId = userId;
+        this.activityDate = activityDate;
+    }
+
+    public UUID getUserId() {
+        return userId;
+    }
+
+    public void setUserId(UUID userId) {
+        this.userId = userId;
+    }
+
+    public LocalDate getActivityDate() {
+        return activityDate;
+    }
+
+    public void setActivityDate(LocalDate activityDate) {
+        this.activityDate = activityDate;
     }
 
     @Override

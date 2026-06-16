@@ -207,11 +207,13 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     @Override
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.GOAL_PROGRESS_CACHE,
-            key = "#principal.userId() + ':' + (#status == null ? '' : #status.toUpperCase())")
+            key = "#principal.userId() + ':' + (#status == null ? '' : #status.toUpperCase(T(java.util.Locale).ROOT))")
     public AnalyticsGoalProgressResponse getGoalProgress(CurrentUserPrincipal principal, String status) {
+        String normalizedStatus = normalizeStatus(status);
         return new AnalyticsGoalProgressResponse(
                 goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(principal.userId()).stream()
-                        .filter(goal -> status == null || status.isBlank() || status.equalsIgnoreCase(goal.getGoalStatus()))
+                        .filter(goal -> normalizedStatus.isBlank()
+                                || normalizedStatus.equals(normalizeStatus(goal.getGoalStatus())))
                         .sorted(Comparator.comparing(AnalyticsUserGoalProgressEntity::getTargetDate,
                                         Comparator.nullsLast(Comparator.naturalOrder()))
                                 .thenComparing(AnalyticsUserGoalProgressEntity::getGoalId))
@@ -231,9 +233,11 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     }
 
     private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(java.util.UUID userId, String status) {
+        String normalizedStatus = normalizeStatus(status);
         return goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)
                 .stream()
-                .filter(entity -> status == null || status.isBlank() || status.equalsIgnoreCase(entity.getGoalStatus()))
+                .filter(entity -> normalizedStatus.isBlank()
+                        || normalizedStatus.equals(normalizeStatus(entity.getGoalStatus())))
                 .sorted(Comparator.comparing(AnalyticsUserGoalProgressEntity::getTargetDate,
                                 Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(AnalyticsUserGoalProgressEntity::getGoalId))
@@ -295,5 +299,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     private int defaultInteger(Integer value) {
         return value != null ? value : 0;
+    }
+
+    private String normalizeStatus(String status) {
+        return status == null ? "" : status.toUpperCase(Locale.ROOT);
     }
 }

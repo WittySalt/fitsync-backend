@@ -9,6 +9,15 @@ public record AnalyticsBodyTrendsResponse(
         String bucket,
         List<BodyTrendPoint> points) {
 
+    public AnalyticsBodyTrendsResponse {
+        points = List.copyOf(points);
+    }
+
+    @Override
+    public List<BodyTrendPoint> points() {
+        return List.copyOf(points);
+    }
+
     public record BodyTrendPoint(
             LocalDate date,
             Double weightKg,

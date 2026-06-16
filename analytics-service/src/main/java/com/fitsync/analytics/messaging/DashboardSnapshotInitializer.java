@@ -70,8 +70,9 @@ public class DashboardSnapshotInitializer {
 
     private boolean isH2() {
         if (databaseProductName == null) {
-            databaseProductName = jdbcTemplate.execute((ConnectionCallback<String>) connection ->
-                    connection.getMetaData().getDatabaseProductName().toLowerCase(Locale.ROOT));
+            String productName = jdbcTemplate.execute((ConnectionCallback<String>) connection ->
+                    connection.getMetaData().getDatabaseProductName());
+            databaseProductName = productName == null ? "" : productName.toLowerCase(Locale.ROOT);
         }
         return databaseProductName.contains("h2");
     }

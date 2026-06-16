@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import com.fitsync.analytics.dto.AnalyticsRebuildResponse;
@@ -29,6 +30,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
+
+    private static final String ACTIVE_STATUS = "ACTIVE";
+    private static final String CALORIES_GOAL_TYPE = "CALORIES";
+    private static final String PROTEIN_GOAL_TYPE = "PROTEIN";
 
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsUserDailyBodyRepository dailyBodyRepository;
@@ -206,11 +211,12 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         snapshot.setTodayProteinTargetGrams(null);
         List<AnalyticsUserGoalProgressEntity> goals = goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId);
         goals.stream()
-                .filter(goal -> "ACTIVE".equalsIgnoreCase(goal.getGoalStatus()))
+                .filter(goal -> ACTIVE_STATUS.equals(normalize(goal.getGoalStatus())))
                 .forEach(goal -> {
-                    if ("CALORIES".equalsIgnoreCase(goal.getGoalType()) && goal.getTargetValue() != null) {
+                    String goalType = normalize(goal.getGoalType());
+                    if (CALORIES_GOAL_TYPE.equals(goalType) && goal.getTargetValue() != null) {
                         snapshot.setTodayCaloriesTarget(goal.getTargetValue().intValue());
-                    } else if ("PROTEIN".equalsIgnoreCase(goal.getGoalType())) {
+                    } else if (PROTEIN_GOAL_TYPE.equals(goalType)) {
                         snapshot.setTodayProteinTargetGrams(goal.getTargetValue());
                     }
                 });
@@ -221,11 +227,12 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         daily.setProteinTargetGrams(null);
         List<AnalyticsUserGoalProgressEntity> goals = goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId);
         goals.stream()
-                .filter(goal -> "ACTIVE".equalsIgnoreCase(goal.getGoalStatus()))
+                .filter(goal -> ACTIVE_STATUS.equals(normalize(goal.getGoalStatus())))
                 .forEach(goal -> {
-                    if ("CALORIES".equalsIgnoreCase(goal.getGoalType()) && goal.getTargetValue() != null) {
+                    String goalType = normalize(goal.getGoalType());
+                    if (CALORIES_GOAL_TYPE.equals(goalType) && goal.getTargetValue() != null) {
                         daily.setCalorieTarget(goal.getTargetValue().intValue());
-                    } else if ("PROTEIN".equalsIgnoreCase(goal.getGoalType())) {
+                    } else if (PROTEIN_GOAL_TYPE.equals(goalType)) {
                         daily.setProteinTargetGrams(goal.getTargetValue());
                     }
                 });
@@ -253,7 +260,6 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
             if (!expected.equals(row.getActivityDate())) {
                 if (streak == 0 && row.getActivityDate().equals(today.minusDays(1))
                         && defaultInt(row.getCompletedWorkoutCount()) > 0) {
-                    expected = today.minusDays(1);
                 } else {
                     break;
                 }
@@ -273,5 +279,9 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
 
     private BigDecimal defaultDecimal(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.toUpperCase(Locale.ROOT);
     }
 }

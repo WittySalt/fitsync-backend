@@ -177,7 +177,6 @@ public class WorkoutProjectionService {
             if (!expectedDate.equals(row.getActivityDate())) {
                 if (streak == 0 && row.getActivityDate().equals(todayUtc.minusDays(1))
                         && defaultInt(row.getCompletedWorkoutCount()) > 0) {
-                    expectedDate = todayUtc.minusDays(1);
                 } else {
                     break;
                 }

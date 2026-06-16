@@ -12,6 +12,15 @@ public record AnalyticsDashboardResponse(
         NutritionSummary nutrition,
         List<GoalProgressSummary> goals) {
 
+    public AnalyticsDashboardResponse {
+        goals = List.copyOf(goals);
+    }
+
+    @Override
+    public List<GoalProgressSummary> goals() {
+        return List.copyOf(goals);
+    }
+
     public record BodySummary(
             Double latestWeightKg,
             Double latestBodyFatRate,

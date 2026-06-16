@@ -8,6 +8,15 @@ import java.util.UUID;
 public record AnalyticsGoalProgressResponse(
         List<GoalProgressView> goals) {
 
+    public AnalyticsGoalProgressResponse {
+        goals = List.copyOf(goals);
+    }
+
+    @Override
+    public List<GoalProgressView> goals() {
+        return List.copyOf(goals);
+    }
+
     public record GoalProgressView(
             UUID goalId,
             String goalType,
