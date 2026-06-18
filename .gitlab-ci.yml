@@ -39,10 +39,14 @@ default:
     GITLAB_OIDC_TOKEN:
       aud: sts.amazonaws.com
   before_script:
-    # Use Alpine's packaged aws-cli instead of `pip install awscli`: pip pulls a
-    # python3 from the live repo whose pyexpat needs a newer expat than the one
-    # baked into the docker:27.1.1-cli base image, which crashed with
-    # "XML_SetAllocTrackerActivationThreshold: symbol not found".
+    # The docker:27.1.1-cli base image froze an older Alpine 3.20 snapshot whose
+    # expat (2.6.x) predates the python3 that aws-cli pulls from the live 3.20 repo
+    # (built against expat 2.7.x). The shared-object name (libexpat.so.1) still
+    # matches, so apk does not upgrade expat on its own, and pyexpat fails to
+    # relocate XML_SetAllocTrackerActivationThreshold. Upgrade the base image's
+    # packages to the current repo first so expat matches python3, then install the
+    # tools (incl. Alpine's packaged aws-cli instead of `pip install awscli`).
+    - apk upgrade --no-cache
     - apk add --no-cache bash curl jq openssh-client docker-cli aws-cli
     - >
       aws_sts_output=$(aws sts assume-role-with-web-identity
