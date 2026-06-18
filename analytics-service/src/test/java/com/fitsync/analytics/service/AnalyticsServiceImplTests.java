@@ -3,8 +3,8 @@ package com.fitsync.analytics.service;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,16 +18,20 @@ import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
+import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
+import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AnalyticsServiceImplTests {
@@ -238,5 +242,102 @@ class AnalyticsServiceImplTests {
 
         assertThat(response.points()).hasSize(2);
         assertThat(response.points().get(1).weightKg()).isEqualTo(79.0);
+    }
+
+    @Test
+    void rebuildDashboardPreservesStreakGraceDayWhenYesterdayWasActive() {
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-06-18T00:05:00Z"), ZoneOffset.UTC);
+        AnalyticsUserDashboardSnapshotRepository dashboardRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
+        AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+        AnalyticsUserDashboardSnapshotEntity snapshot = new AnalyticsUserDashboardSnapshotEntity();
+        snapshot.setUserId(userId);
+        snapshot.setTodayWorkoutCount(3);
+        snapshot.setActiveStreakDays(99);
+        when(dashboardRepository.findById(userId)).thenReturn(Optional.of(snapshot));
+        when(bodyRepository.findTopByUserIdOrderByMetricDateDesc(userId)).thenReturn(Optional.empty());
+        when(nutritionRepository.findByUserIdAndActivityDate(userId, LocalDate.parse("2026-06-18")))
+                .thenReturn(Optional.empty());
+        when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of());
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                userId, LocalDate.parse("2026-06-12"), LocalDate.parse("2026-06-18")))
+                .thenReturn(List.of(
+                        workoutDay(userId, "2026-06-17", 1, 30),
+                        workoutDay(userId, "2026-06-16", 1, 40)));
+
+        rebuildService(dashboardRepository, bodyRepository, nutritionRepository, workoutRepository, goalRepository,
+                fixedClock).rebuildDashboard(userId);
+
+        ArgumentCaptor<AnalyticsUserDashboardSnapshotEntity> captor =
+                ArgumentCaptor.forClass(AnalyticsUserDashboardSnapshotEntity.class);
+        verify(dashboardRepository).save(captor.capture());
+        assertThat(captor.getValue().getTodayWorkoutCount()).isZero();
+        assertThat(captor.getValue().getActiveStreakDays()).isEqualTo(2);
+    }
+
+    @Test
+    void rebuildDashboardClearsStreakWhenLatestActivityIsBeforeYesterday() {
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-06-18T00:05:00Z"), ZoneOffset.UTC);
+        AnalyticsUserDashboardSnapshotRepository dashboardRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
+        AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+        AnalyticsUserDashboardSnapshotEntity snapshot = new AnalyticsUserDashboardSnapshotEntity();
+        snapshot.setUserId(userId);
+        snapshot.setActiveStreakDays(99);
+        when(dashboardRepository.findById(userId)).thenReturn(Optional.of(snapshot));
+        when(bodyRepository.findTopByUserIdOrderByMetricDateDesc(userId)).thenReturn(Optional.empty());
+        when(nutritionRepository.findByUserIdAndActivityDate(userId, LocalDate.parse("2026-06-18")))
+                .thenReturn(Optional.empty());
+        when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of());
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                userId, LocalDate.parse("2026-06-12"), LocalDate.parse("2026-06-18")))
+                .thenReturn(List.of(workoutDay(userId, "2026-06-16", 1, 30)));
+
+        rebuildService(dashboardRepository, bodyRepository, nutritionRepository, workoutRepository, goalRepository,
+                fixedClock).rebuildDashboard(userId);
+
+        ArgumentCaptor<AnalyticsUserDashboardSnapshotEntity> captor =
+                ArgumentCaptor.forClass(AnalyticsUserDashboardSnapshotEntity.class);
+        verify(dashboardRepository).save(captor.capture());
+        assertThat(captor.getValue().getTodayWorkoutCount()).isZero();
+        assertThat(captor.getValue().getActiveStreakDays()).isZero();
+    }
+
+    private AnalyticsRebuildServiceImpl rebuildService(
+            AnalyticsUserDashboardSnapshotRepository dashboardRepository,
+            AnalyticsUserDailyBodyRepository bodyRepository,
+            AnalyticsUserDailyNutritionRepository nutritionRepository,
+            AnalyticsUserDailyWorkoutRepository workoutRepository,
+            AnalyticsUserGoalProgressRepository goalRepository,
+            Clock clock) {
+        return new AnalyticsRebuildServiceImpl(
+                dashboardRepository,
+                bodyRepository,
+                nutritionRepository,
+                workoutRepository,
+                goalRepository,
+                mock(AnalyticsMealContributionRepository.class),
+                mock(AnalyticsWorkoutContributionRepository.class),
+                mock(AnalyticsCacheInvalidationService.class),
+                clock);
+    }
+
+    private AnalyticsUserDailyWorkoutEntity workoutDay(UUID userId, String date, int count, int minutes) {
+        AnalyticsUserDailyWorkoutEntity workout = new AnalyticsUserDailyWorkoutEntity();
+        workout.setUserId(userId);
+        workout.setActivityDate(LocalDate.parse(date));
+        workout.setCompletedWorkoutCount(count);
+        workout.setTotalWorkoutMinutes(minutes);
+        workout.setTotalCaloriesBurned(0);
+        workout.setTotalExerciseCount(0);
+        return workout;
     }
 }
