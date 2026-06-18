@@ -1,5 +1,7 @@
 package com.fitsync.backend.entity;
 
+import java.time.Instant;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -35,4 +37,7 @@ public class AppUser extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private UserRole role = UserRole.USER;
+
+    @Column
+    private Instant accountDeletionRequestedAt;
 }

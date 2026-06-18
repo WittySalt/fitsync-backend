@@ -2,10 +2,13 @@ package com.fitsync.backend;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -19,6 +22,9 @@ class AuthAndUserApiTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void registerReturnsJwtToken() throws Exception {
@@ -36,6 +42,18 @@ class AuthAndUserApiTests {
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.email").value("new-alice@example.com"))
                 .andExpect(jsonPath("$.role").value("USER"));
+    }
+
+    @Test
+    void locallyIssuedTokenCanAccessMe() throws Exception {
+        registerUser("local-me@example.com", "Local Me", "supersecret");
+        String token = loginAndGetAccessToken("local-me@example.com", "supersecret");
+
+        mockMvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("local-me@example.com"))
+                .andExpect(jsonPath("$.authProvider").value("LOCAL"));
     }
 
     @Test
@@ -61,6 +79,12 @@ class AuthAndUserApiTests {
     }
 
     @Test
+    void securityOverviewRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/security/overview"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void bootstrapCreatesCognitoUser() throws Exception {
         mockMvc.perform(post("/api/v1/auth/bootstrap")
                         .with(jwt().jwt(jwt -> jwt
@@ -82,6 +106,146 @@ class AuthAndUserApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("cognito-user@example.com"))
                 .andExpect(jsonPath("$.authProvider").value("COGNITO"));
+
+        mockMvc.perform(get("/api/v1/auth/security/overview")
+                        .with(jwt().jwt(jwt -> jwt
+                                .subject("cognito-sub-1")
+                                .claim("email", "cognito-user@example.com"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authProvider").value("COGNITO"))
+                .andExpect(jsonPath("$.passwordManagedExternally").value(true))
+                .andExpect(jsonPath("$.twoFactorEnabled").value(false))
+                .andExpect(jsonPath("$.twoFactorConfigurable").value(true))
+                .andExpect(jsonPath("$.recoveryEmail").value("cognito-user@example.com"))
+                .andExpect(jsonPath("$.recoveryEmailUpdatable").value(false))
+                .andExpect(jsonPath("$.sessionCount").value(1))
+                .andExpect(jsonPath("$.sessionTrackingAvailable").value(true))
+                .andExpect(jsonPath("$.securityLabel").value("COGNITO_PROTECTED"));
+    }
+
+    @Test
+    void localAccountCanUpdateRecoveryEmailWithCurrentPassword() throws Exception {
+        registerUser("local-recovery@example.com", "Local Recovery", "supersecret");
+        String token = loginAndGetAccessToken("local-recovery@example.com", "supersecret");
+
+        mockMvc.perform(patch("/api/v1/auth/security/recovery-email")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "updated-recovery@example.com",
+                                  "currentPassword": "supersecret"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authProvider").value("LOCAL"))
+                .andExpect(jsonPath("$.recoveryEmail").value("updated-recovery@example.com"))
+                .andExpect(jsonPath("$.recoveryEmailUpdatable").value(true));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "updated-recovery@example.com",
+                                  "password": "supersecret"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("updated-recovery@example.com"));
+    }
+
+    @Test
+    void cognitoRecoveryEmailUpdateIsRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/bootstrap")
+                        .with(jwt().jwt(jwt -> jwt
+                                .subject("cognito-sub-9")
+                                .claim("email", "cognito-recovery@example.com")
+                                .claim("name", "Cognito Recovery")
+                                .claim("email_verified", true))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/api/v1/auth/security/recovery-email")
+                        .with(jwt().jwt(jwt -> jwt
+                                .subject("cognito-sub-9")
+                                .claim("email", "cognito-recovery@example.com")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "new-cognito@example.com",
+                                  "currentPassword": "ignored-password"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Recovery email is managed by Cognito for this account"));
+    }
+
+    @Test
+    void sessionsEndpointReturnsCurrentSessionSummary() throws Exception {
+        registerUser("session-user@example.com", "Session User", "supersecret");
+        String token = loginAndGetAccessToken("session-user@example.com", "supersecret");
+
+        mockMvc.perform(get("/api/v1/auth/security/sessions")
+                        .header("Authorization", "Bearer " + token)
+                        .header("User-Agent", "Mozilla/5.0 Chrome/125.0")
+                        .header("X-Forwarded-For", "203.0.113.10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].sessionId").value("current-session"))
+                .andExpect(jsonPath("$[0].deviceLabel").value("This browser (Chrome)"))
+                .andExpect(jsonPath("$[0].ipAddress").value("203.0.113.10"))
+                .andExpect(jsonPath("$[0].current").value(true))
+                .andExpect(jsonPath("$[0].revocable").value(false))
+                .andExpect(jsonPath("$[0].issuedAt").isNotEmpty())
+                .andExpect(jsonPath("$[0].expiresAt").isNotEmpty());
+    }
+
+    @Test
+    void localAccountCanRequestAccountDeletionWithPasswordConfirmation() throws Exception {
+        registerUser("delete-local@example.com", "Delete Local", "supersecret");
+        String token = loginAndGetAccessToken("delete-local@example.com", "supersecret");
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/request")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "confirmationText": "DELETE",
+                                  "currentPassword": "supersecret"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REQUESTED"))
+                .andExpect(jsonPath("$.requestedAt").isNotEmpty())
+                .andExpect(jsonPath("$.passwordConfirmationRequired").value(true));
+
+        mockMvc.perform(get("/api/v1/auth/account-deletion")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REQUESTED"));
+    }
+
+    @Test
+    void cognitoAccountCanRequestAccountDeletionWithoutPassword() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/bootstrap")
+                        .with(jwt().jwt(jwt -> jwt
+                                .subject("cognito-sub-13")
+                                .claim("email", "delete-cognito@example.com")
+                                .claim("name", "Delete Cognito")
+                                .claim("email_verified", true))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/request")
+                        .with(jwt().jwt(jwt -> jwt
+                                .subject("cognito-sub-13")
+                                .claim("email", "delete-cognito@example.com")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "confirmationText": "DELETE"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REQUESTED"))
+                .andExpect(jsonPath("$.passwordConfirmationRequired").value(false));
     }
 
     @Test
@@ -142,5 +306,22 @@ class AuthAndUserApiTests {
                                 }
                                 """.formatted(email, displayName, password)))
                 .andExpect(status().isCreated());
+    }
+
+    private String loginAndGetAccessToken(String email, String password) throws Exception {
+        String content = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "%s",
+                                  "password": "%s"
+                                }
+                                """.formatted(email, password)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        JsonNode json = objectMapper.readTree(content);
+        return json.get("accessToken").asText();
     }
 }
