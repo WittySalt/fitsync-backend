@@ -75,7 +75,8 @@ public class CurrentUserService {
 
     @Transactional(readOnly = true)
     public List<ActiveSessionView> getActiveSessions(Authentication authentication, HttpServletRequest request) {
-        AppUser user = resolveUser(authentication)
+        // Ensure the caller is provisioned; the session view is derived from the token/request, not the user row.
+        resolveUser(authentication)
                 .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
 
         Instant issuedAt = null;
@@ -139,7 +140,7 @@ public class CurrentUserService {
         AppUser user = resolveUser(authentication)
                 .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
 
-        if (!"DELETE".equalsIgnoreCase(request.confirmationText().trim())) {
+        if (!"DELETE".equals(request.confirmationText().trim())) {
             throw new IllegalArgumentException("Confirmation text must be DELETE");
         }
 

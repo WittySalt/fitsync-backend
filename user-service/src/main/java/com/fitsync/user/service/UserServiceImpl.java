@@ -175,7 +175,7 @@ public class UserServiceImpl implements UserService {
                         request.mealFrequency(),
                         request.calorieTrackingMode(),
                         request.macroPreference(),
-                        request.waterGoalMl() == null ? 2500 : request.waterGoalMl()),
+                        request.waterGoalMl() == null ? Integer.valueOf(2500) : request.waterGoalMl()),
                 new com.fitsync.user.dto.UpsertNotificationPreferencesRequest(
                         true,
                         false,
