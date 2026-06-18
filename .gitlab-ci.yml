@@ -120,7 +120,10 @@ docker_image:
       - trivy-image.sarif
       - sbom.json
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    # Only build/push the image once AWS is wired up. AWS_ROLE_ARN is supplied as a
+    # CI/CD variable; while it is unset (no ECR/EC2 provisioned yet) this job is
+    # skipped so the main pipeline stays green. Set the variable to auto-enable it.
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
     - when: never
 
 dependency_audit:
@@ -191,7 +194,9 @@ deploy_prod:
         test "$(curl -sk -o /dev/null -w '%{http_code}' "$BASE/api/v1/auth/login")" = "405"
       fi
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    # Manual production deploy, only offered once AWS/EC2 is configured (AWS_ROLE_ARN
+    # plus the PROD_EC2_* / PROD_DOMAIN variables). Hidden until then.
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
       when: manual
       allow_failure: false
     - when: never
