@@ -10,9 +10,11 @@ import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
+import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
+import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionService;
@@ -118,8 +120,27 @@ public class NutritionController {
 
     @GetMapping("/foods/search")
     public List<FoodSearchResultView> searchFoods(Authentication authentication,
-                                                  @RequestParam(required = false) String q) {
-        return nutritionService.searchFoods(currentPrincipal(authentication), q);
+                                                  @RequestParam(required = false) String q,
+                                                  @RequestParam(required = false) UUID categoryId,
+                                                  @RequestParam(defaultValue = "true") boolean includeSubcategories) {
+        return nutritionService.searchFoods(currentPrincipal(authentication), q, categoryId, includeSubcategories);
+    }
+
+    @GetMapping("/categories")
+    public List<FoodCategoryView> categories(Authentication authentication) {
+        return nutritionService.listCategories(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/foods/recent")
+    public List<LoggedFoodView> recentFoods(Authentication authentication,
+                                            @RequestParam(defaultValue = "20") int limit) {
+        return nutritionService.listRecentFoods(currentPrincipal(authentication), limit);
+    }
+
+    @GetMapping("/foods/frequent")
+    public List<LoggedFoodView> frequentFoods(Authentication authentication,
+                                              @RequestParam(defaultValue = "20") int limit) {
+        return nutritionService.listFrequentFoods(currentPrincipal(authentication), limit);
     }
 
     @GetMapping("/foods/{foodId}")

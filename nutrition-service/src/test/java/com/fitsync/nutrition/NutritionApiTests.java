@@ -425,6 +425,59 @@ class NutritionApiTests {
     }
 
     @Test
+    void categoriesEndpointReturnsTwoLevelTaxonomyTree() throws Exception {
+        String token = tokenFor("nora@example.com", "Nora");
+
+        mockMvc.perform(get("/api/v1/nutrition/categories")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(6))
+                .andExpect(jsonPath("$[0].code").value("PROTEINS"))
+                .andExpect(jsonPath("$[0].parentId").doesNotExist())
+                .andExpect(jsonPath("$[0].children.length()").value(5))
+                .andExpect(jsonPath("$[0].children[0].code").value("MEAT_POULTRY"))
+                .andExpect(jsonPath("$[2].code").value("PRODUCE"))
+                .andExpect(jsonPath("$[2].children.length()").value(2));
+    }
+
+    @Test
+    void searchCanFilterByCategorySubtreeAndExactCategory() throws Exception {
+        // Greek Yogurt is seeded under category_code DAIRY (subcategory of DAIRY_GROUP).
+        seedFoodCatalog();
+        String token = tokenFor("oscar@example.com", "Oscar");
+
+        // Parent group, subtree filter → finds the DAIRY food.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("categoryId", "ca700004-0000-0000-0000-000000000000")) // DAIRY_GROUP
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"));
+
+        // Unrelated group → no results.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("categoryId", "ca700001-0000-0000-0000-000000000000")) // PROTEINS
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        // Exact leaf category (no subcategories) → still finds it.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("categoryId", "ca710009-0000-0000-0000-000000000000") // DAIRY leaf
+                        .param("includeSubcategories", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"));
+
+        // Unknown category id → 404.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("categoryId", UUID.randomUUID().toString()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void canCloneGlobalFoodIntoUserFood() throws Exception {
         UUID foodId = seedFoodCatalog();
         String token = tokenFor("gina@example.com", "Gina");
@@ -479,6 +532,71 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.items[0].proteinGrams").value(34.00))
                 .andExpect(jsonPath("$.items[0].nutrientDetails.length()").value(3))
                 .andExpect(jsonPath("$.items[0].nutrientDetails[0].amount").value(34.00));
+    }
+
+    @Test
+    void recentAndFrequentFoodsReflectLoggingHistory() throws Exception {
+        String token = tokenFor("ivan@example.com", "Ivan");
+
+        // Banana logged in three older meals; Coffee once in the latest meal.
+        logSingleItemMeal(token, "Banana", "2026-06-11T08:00:00Z", 105, 1.0);
+        logSingleItemMeal(token, "Banana", "2026-06-11T09:00:00Z", 105, 2.0);
+        logSingleItemMeal(token, "Banana", "2026-06-11T10:00:00Z", 105, 3.0);
+        logSingleItemMeal(token, "Coffee", "2026-06-11T11:00:00Z", 5, 1.0);
+
+        // Recent is recency-ordered, deduped to the latest occurrence (Banana carries qty 3.0).
+        mockMvc.perform(get("/api/v1/nutrition/foods/recent")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].foodName").value("Coffee"))
+                .andExpect(jsonPath("$[1].foodName").value("Banana"))
+                .andExpect(jsonPath("$[1].quantity").value(3.0))
+                .andExpect(jsonPath("$[1].timesLogged").value(3));
+
+        // Frequent is count-ordered, so the thrice-logged Banana comes first.
+        mockMvc.perform(get("/api/v1/nutrition/foods/frequent")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].foodName").value("Banana"))
+                .andExpect(jsonPath("$[0].timesLogged").value(3))
+                .andExpect(jsonPath("$[1].foodName").value("Coffee"));
+    }
+
+    @Test
+    void recentFoodsAreScopedToTheCaller() throws Exception {
+        String ownerToken = tokenFor("judy@example.com", "Judy");
+        logSingleItemMeal(ownerToken, "Almonds", "2026-06-11T08:00:00Z", 160, 1.0);
+
+        String otherToken = tokenFor("kyle@example.com", "Kyle");
+        mockMvc.perform(get("/api/v1/nutrition/foods/recent")
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    private void logSingleItemMeal(String token, String foodName, String consumedAt, int calories, double quantity)
+            throws Exception {
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "SNACK",
+                                  "source": "MANUAL",
+                                  "consumedAt": "%s",
+                                  "items": [
+                                    {
+                                      "foodName": "%s",
+                                      "quantity": %s,
+                                      "unit": "serving",
+                                      "calories": %d
+                                    }
+                                  ]
+                                }
+                                """.formatted(consumedAt, foodName, quantity, calories)))
+                .andExpect(status().isCreated());
     }
 
     @Test
