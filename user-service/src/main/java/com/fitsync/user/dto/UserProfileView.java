@@ -5,6 +5,8 @@ import java.time.LocalDate;
 
 import com.fitsync.user.domain.ActivityLevel;
 import com.fitsync.user.domain.Gender;
+import com.fitsync.user.domain.MembershipStatus;
+import com.fitsync.user.domain.MembershipTier;
 
 public record UserProfileView(
         String displayName,
@@ -16,6 +18,9 @@ public record UserProfileView(
         BigDecimal heightCm,
         ActivityLevel activityLevel,
         String timezone,
+        String locationDisplay,
         String bio,
+        MembershipTier membershipTier,
+        MembershipStatus membershipStatus,
         boolean onboardingCompleted) {
 }

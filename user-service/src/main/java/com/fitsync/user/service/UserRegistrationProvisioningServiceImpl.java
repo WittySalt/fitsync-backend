@@ -8,6 +8,9 @@ import com.fitsync.user.domain.FitnessLevel;
 import com.fitsync.user.domain.IntensityPreference;
 import com.fitsync.user.domain.LanguagePreference;
 import com.fitsync.user.domain.MacroPreference;
+import com.fitsync.user.domain.MembershipStatus;
+import com.fitsync.user.domain.MembershipTier;
+import com.fitsync.user.domain.NotificationChannel;
 import com.fitsync.user.domain.PrivacyLevel;
 import com.fitsync.user.domain.TrainingLocation;
 import com.fitsync.user.domain.UnitSystem;
@@ -52,6 +55,8 @@ public class UserRegistrationProvisioningServiceImpl implements UserRegistration
             UserProfileEntity entity = new UserProfileEntity();
             entity.setUserId(event.userId());
             entity.setDisplayName(event.payload().displayName());
+            entity.setMembershipTier(MembershipTier.MEMBER);
+            entity.setMembershipStatus(MembershipStatus.ACTIVE);
             entity.setOnboardingCompleted(false);
             return userProfileRepository.save(entity);
         });
@@ -93,6 +98,8 @@ public class UserRegistrationProvisioningServiceImpl implements UserRegistration
             entity.setMealReminderEnabled(false);
             entity.setWeighInReminderEnabled(false);
             entity.setGoalProgressReminderEnabled(true);
+            entity.setWeeklyProgressReportEnabled(false);
+            entity.setWeeklyProgressReportChannel(NotificationChannel.EMAIL);
             entity.setMarketingEmailsEnabled(false);
             return userNotificationPreferencesRepository.save(entity);
         });

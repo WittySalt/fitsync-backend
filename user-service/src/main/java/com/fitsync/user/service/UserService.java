@@ -4,10 +4,13 @@ import java.util.List;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.fitsync.user.dto.AccountDataExportPayload;
+import com.fitsync.user.dto.AccountDataExportRequestView;
 import com.fitsync.user.domain.GoalStatus;
 import com.fitsync.user.domain.GoalType;
 import com.fitsync.user.dto.BodyMetricTrendResponse;
 import com.fitsync.user.dto.BodyMetricView;
+import com.fitsync.user.dto.CompleteOnboardingRequest;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
@@ -20,6 +23,8 @@ import com.fitsync.user.security.CurrentUserPrincipal;
 public interface UserService {
 
     CurrentUserResponse getCurrentUser(CurrentUserPrincipal principal);
+
+    CurrentUserResponse completeOnboarding(CurrentUserPrincipal principal, CompleteOnboardingRequest request);
 
     UserProfileView getProfile(CurrentUserPrincipal principal);
 
@@ -46,4 +51,10 @@ public interface UserService {
     UserGoalView upsertGoal(CurrentUserPrincipal principal, GoalType goalType, UpsertUserGoalRequest request);
 
     List<UserGoalView> listGoals(CurrentUserPrincipal principal, GoalStatus status);
+
+    AccountDataExportRequestView requestAccountDataExport(CurrentUserPrincipal principal);
+
+    AccountDataExportRequestView getLatestAccountDataExport(CurrentUserPrincipal principal);
+
+    AccountDataExportPayload downloadAccountDataExport(CurrentUserPrincipal principal, UUID exportRequestId);
 }
