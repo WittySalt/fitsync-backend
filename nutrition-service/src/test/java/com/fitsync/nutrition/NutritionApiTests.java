@@ -478,6 +478,53 @@ class NutritionApiTests {
     }
 
     @Test
+    void searchRanksByRelevanceAndSupportsPaginationAndFilters() throws Exception {
+        String token = tokenFor("paul@example.com", "Paul");
+        seedGlobalFood("a0000001-0000-0000-0000-000000000000", "Rice", "GRAINS", true);
+        seedGlobalFood("a0000002-0000-0000-0000-000000000000", "Rice Cake", "GRAINS", true);
+        seedGlobalFood("a0000003-0000-0000-0000-000000000000", "Brown Rice", "GRAINS", false);
+
+        // Relevance: exact ("Rice") > prefix ("Rice Cake") > substring ("Brown Rice").
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].displayName").value("Rice"))
+                .andExpect(jsonPath("$[1].displayName").value("Rice Cake"))
+                .andExpect(jsonPath("$[2].displayName").value("Brown Rice"));
+
+        // Pagination: page 0 size 2, then page 1 size 2.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("size", "2").param("page", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].displayName").value("Rice"));
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("size", "2").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].displayName").value("Brown Rice"));
+
+        // verified filter.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("verified", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].displayName").value("Brown Rice"));
+
+        // scope filter: all seeded foods are GLOBAL, so USER scope returns none.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("scope", "USER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
     void canCloneGlobalFoodIntoUserFood() throws Exception {
         UUID foodId = seedFoodCatalog();
         String token = tokenFor("gina@example.com", "Gina");
@@ -657,6 +704,19 @@ class NutritionApiTests {
                 .parseSignedClaims(token)
                 .getPayload()
                 .get("userId", String.class);
+    }
+
+    private void seedGlobalFood(String id, String displayName, String categoryCode, boolean verified) {
+        FoodCatalogItemEntity food = new FoodCatalogItemEntity();
+        food.setFoodId(UUID.fromString(id));
+        food.setScope(FoodCatalogScope.GLOBAL);
+        food.setSource(FoodCatalogSource.OFFICIAL);
+        food.setDisplayName(displayName);
+        food.setNormalizedName(displayName.toLowerCase(java.util.Locale.ROOT));
+        food.setCategoryCode(categoryCode);
+        food.setVerified(verified);
+        food.setActive(true);
+        foodCatalogItemRepository.save(food);
     }
 
     private UUID seedFoodCatalog() {

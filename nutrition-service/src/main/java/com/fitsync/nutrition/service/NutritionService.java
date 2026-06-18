@@ -12,6 +12,7 @@ import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
+import com.fitsync.nutrition.dto.FoodSearchCriteria;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
@@ -44,8 +45,7 @@ public interface NutritionService {
 
     DailyNutritionSummaryView getDailySummary(CurrentUserPrincipal principal, LocalDate date, String timezone);
 
-    List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, String query,
-                                           UUID categoryId, boolean includeSubcategories);
+    List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria);
 
     List<FoodCategoryView> listCategories(CurrentUserPrincipal principal);
 

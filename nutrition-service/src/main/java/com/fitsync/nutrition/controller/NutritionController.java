@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.MealType;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
@@ -12,6 +13,7 @@ import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
+import com.fitsync.nutrition.dto.FoodSearchCriteria;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
@@ -122,8 +124,15 @@ public class NutritionController {
     public List<FoodSearchResultView> searchFoods(Authentication authentication,
                                                   @RequestParam(required = false) String q,
                                                   @RequestParam(required = false) UUID categoryId,
-                                                  @RequestParam(defaultValue = "true") boolean includeSubcategories) {
-        return nutritionService.searchFoods(currentPrincipal(authentication), q, categoryId, includeSubcategories);
+                                                  @RequestParam(defaultValue = "true") boolean includeSubcategories,
+                                                  @RequestParam(required = false) UUID brandId,
+                                                  @RequestParam(required = false) Boolean verified,
+                                                  @RequestParam(required = false) FoodCatalogScope scope,
+                                                  @RequestParam(defaultValue = "0") int page,
+                                                  @RequestParam(defaultValue = "20") int size) {
+        FoodSearchCriteria criteria = new FoodSearchCriteria(
+                q, categoryId, includeSubcategories, brandId, verified, scope, page, size);
+        return nutritionService.searchFoods(currentPrincipal(authentication), criteria);
     }
 
     @GetMapping("/categories")

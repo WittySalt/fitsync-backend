@@ -28,6 +28,7 @@ import com.fitsync.nutrition.dto.CreateMealRequest;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
+import com.fitsync.nutrition.dto.FoodSearchCriteria;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodServingView;
@@ -74,7 +75,7 @@ public class NutritionServiceImpl implements NutritionService {
 
     private static final String SOURCE = "nutrition-service";
     private static final String NUTRITION_EVENTS_TOPIC = "nutrition-events";
-    private static final int FOOD_SEARCH_LIMIT = 20;
+    private static final int FOOD_SEARCH_MAX_SIZE = 50;
     private static final int LOGGED_FOOD_DEFAULT_LIMIT = 20;
     private static final int LOGGED_FOOD_MAX_LIMIT = 50;
     private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
@@ -272,15 +273,28 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, String query,
-                                                  UUID categoryId, boolean includeSubcategories) {
+    public List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria) {
         LocalDate today = LocalDate.now();
-        String normalizedQuery = normalizeQuery(query);
-        List<FoodCatalogItemEntity> foods = searchAccessibleFoods(
-                        principal.userId(), normalizedQuery, today, categoryId, includeSubcategories)
-                .stream()
-                .limit(FOOD_SEARCH_LIMIT)
-                .toList();
+        String normalizedQuery = normalizeQuery(criteria.query());
+
+        String categoryCode = null;
+        String pathPrefix = null;
+        if (criteria.categoryId() != null) {
+            FoodCategoryEntity category = foodCategoryRepository.findByCategoryIdAndActiveTrue(criteria.categoryId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Food category not found"));
+            if (criteria.includeSubcategories()) {
+                pathPrefix = category.getPath();
+            } else {
+                categoryCode = category.getCode();
+            }
+        }
+
+        int size = Math.min(Math.max(criteria.size(), 1), FOOD_SEARCH_MAX_SIZE);
+        int page = Math.max(criteria.page(), 0);
+        List<FoodCatalogItemEntity> foods = foodCatalogItemRepository.searchAccessibleFoods(
+                principal.userId(), normalizedQuery, today, categoryCode, pathPrefix,
+                criteria.brandId(), criteria.verified(), criteria.scope(), PageRequest.of(page, size));
+
         Map<UUID, String> brandNames = loadBrandNames(foods.stream()
                 .map(FoodCatalogItemEntity::getBrandId)
                 .filter(java.util.Objects::nonNull)
@@ -295,21 +309,6 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(food -> toFoodSearchResultView(food, brandNames, profiles.get(food.getFoodId()),
                         primaryBarcodes.get(food.getFoodId())))
                 .toList();
-    }
-
-    private List<FoodCatalogItemEntity> searchAccessibleFoods(UUID userId, String query, LocalDate today,
-                                                              UUID categoryId, boolean includeSubcategories) {
-        if (categoryId == null) {
-            return foodCatalogItemRepository.searchAccessibleFoods(userId, query, today);
-        }
-        FoodCategoryEntity category = foodCategoryRepository.findByCategoryIdAndActiveTrue(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException("Food category not found"));
-        if (includeSubcategories) {
-            return foodCatalogItemRepository.searchAccessibleFoodsInCategorySubtree(
-                    userId, query, today, category.getPath());
-        }
-        return foodCatalogItemRepository.searchAccessibleFoodsInCategory(
-                userId, query, today, category.getCode());
     }
 
     @Override
@@ -748,7 +747,7 @@ public class NutritionServiceImpl implements NutritionService {
         return new FoodSearchResultView(
                 food.getFoodId(),
                 food.getDisplayName(),
-                brandNames.get(food.getBrandId()),
+                food.getBrandId() == null ? null : brandNames.get(food.getBrandId()),
                 food.getCategoryCode(),
                 food.getScope(),
                 food.getSource(),
