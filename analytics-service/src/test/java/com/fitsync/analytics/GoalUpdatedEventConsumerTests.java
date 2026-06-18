@@ -114,4 +114,34 @@ class GoalUpdatedEventConsumerTests {
                 .extracting(snapshot -> snapshot.getTodayProteinTargetGrams())
                 .isNull();
     }
+
+    @Test
+    void pastActiveGoalIsStoredAsExpired() {
+        UUID userId = UUID.randomUUID();
+        UUID goalId = UUID.randomUUID();
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-14T04:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "CALORIES",
+                        new BigDecimal("2100"),
+                        "kcal",
+                        LocalDate.parse("2026-06-13"),
+                        "ACTIVE")));
+
+        assertThat(goalProgressRepository.findById(goalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getGoalStatus()).isEqualTo("EXPIRED");
+                    assertThat(goal.getDaysRemaining()).isNull();
+                    assertThat(goal.isOnTrack()).isFalse();
+                });
+    }
 }

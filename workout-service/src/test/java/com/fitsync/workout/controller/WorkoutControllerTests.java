@@ -28,6 +28,7 @@ import com.fitsync.workout.security.JwtService;
 import com.fitsync.workout.messaging.OutboxEventRelay;
 import com.fitsync.workout.service.ExerciseService;
 import com.fitsync.workout.service.WorkoutService;
+import com.fitsync.web.error.ResourceNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -39,6 +40,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -112,6 +115,73 @@ class WorkoutControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.planId").value(planId.toString()))
                 .andExpect(jsonPath("$.name").value("Push Day"));
+    }
+
+    @Test
+    void shouldStartPlanForAuthenticatedUser() throws Exception {
+        UUID planId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionView response = new WorkoutSessionView(
+                sessionId,
+                planId,
+                "Push Day",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.PLAN,
+                Instant.parse("2026-06-11T12:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                List.of(),
+                Instant.parse("2026-06-11T12:00:00Z"),
+                Instant.parse("2026-06-11T12:00:00Z"));
+
+        when(workoutService.startPlan(any(), eq(planId))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.planId").value(planId.toString()))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.source").value("PLAN"));
+
+        verify(workoutService).startPlan(eq(principal), eq(planId));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenStartingArchivedPlan() throws Exception {
+        UUID planId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+
+        when(workoutService.startPlan(any(), eq(planId)))
+                .thenThrow(new IllegalArgumentException("Archived workout plan cannot be used for a session"));
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Archived workout plan cannot be used for a session"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenStartingMissingPlan() throws Exception {
+        UUID planId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+
+        when(workoutService.startPlan(any(), eq(planId)))
+                .thenThrow(new ResourceNotFoundException("Workout plan not found"));
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Workout plan not found"));
     }
 
     @Test

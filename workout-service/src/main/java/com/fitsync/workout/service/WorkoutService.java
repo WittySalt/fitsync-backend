@@ -29,6 +29,8 @@ public interface WorkoutService {
 
     void archivePlan(CurrentUserPrincipal currentUser, UUID planId);
 
+    WorkoutSessionView startPlan(CurrentUserPrincipal currentUser, UUID planId);
+
     WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request);
 
     PageResponse<WorkoutSessionView> listSessions(CurrentUserPrincipal currentUser,

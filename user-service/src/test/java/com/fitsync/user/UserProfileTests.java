@@ -68,7 +68,8 @@ class UserProfileTests {
                         "displayName", "Bob",
                         "role", "USER"))
                 .subject("bob@example.com")
-                .signWith(Keys.hmacShaKeyFor("test-secret-test-secret-test-secret-123456".getBytes(StandardCharsets.UTF_8)))
+                .signWith(Keys.hmacShaKeyFor(
+                        "test-secret-test-secret-test-secret-123456".getBytes(StandardCharsets.UTF_8)))
                 .compact();
 
         mockMvc.perform(get("/api/v1/users/me")
@@ -79,10 +80,14 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.email").value("bob@example.com"))
                 .andExpect(jsonPath("$.role").value("USER"))
                 .andExpect(jsonPath("$.profile.displayName").value("Bob"))
+                .andExpect(jsonPath("$.profile.membershipTier").value("MEMBER"))
+                .andExpect(jsonPath("$.profile.membershipStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.preferences.app.preferredUnits").value("100001"))
                 .andExpect(jsonPath("$.preferences.training.fitnessLevel").value("200001"))
                 .andExpect(jsonPath("$.preferences.nutrition.dietaryPattern").value("300001"))
-                .andExpect(jsonPath("$.preferences.notifications.pushEnabled").value(true));
+                .andExpect(jsonPath("$.preferences.notifications.pushEnabled").value(true))
+                .andExpect(jsonPath("$.preferences.notifications.weeklyProgressReportEnabled").value(false))
+                .andExpect(jsonPath("$.preferences.notifications.weeklyProgressReportChannel").value("EMAIL"));
     }
 
     @Test
@@ -123,6 +128,8 @@ class UserProfileTests {
                                     "mealReminderEnabled": true,
                                     "weighInReminderEnabled": true,
                                     "goalProgressReminderEnabled": true,
+                                    "weeklyProgressReportEnabled": true,
+                                    "weeklyProgressReportChannel": "EMAIL",
                                     "marketingEmailsEnabled": false,
                                     "quietHoursStart": "22:00:00",
                                     "quietHoursEnd": "07:00:00"
@@ -134,7 +141,9 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.app.language").value("110002"))
                 .andExpect(jsonPath("$.training.trainingLocation").value("210002"))
                 .andExpect(jsonPath("$.nutrition.dietaryPattern").value("300002"))
-                .andExpect(jsonPath("$.notifications.emailEnabled").value(true));
+                .andExpect(jsonPath("$.notifications.emailEnabled").value(true))
+                .andExpect(jsonPath("$.notifications.weeklyProgressReportEnabled").value(true))
+                .andExpect(jsonPath("$.notifications.weeklyProgressReportChannel").value("EMAIL"));
 
         mockMvc.perform(get("/api/v1/users/me/preferences")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -143,7 +152,8 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.app.privacyLevel").value("120002"))
                 .andExpect(jsonPath("$.training.weeklyWorkoutDays").value(5))
                 .andExpect(jsonPath("$.nutrition.waterGoalMl").value(2500))
-                .andExpect(jsonPath("$.notifications.quietHoursStart").value("22:00:00"));
+                .andExpect(jsonPath("$.notifications.quietHoursStart").value("22:00:00"))
+                .andExpect(jsonPath("$.notifications.weeklyProgressReportEnabled").value(true));
     }
 
     @Test
@@ -160,6 +170,7 @@ class UserProfileTests {
                                   "heightCm": 170.0,
                                   "activityLevel": "VERY_ACTIVE",
                                   "timezone": "Asia/Singapore",
+                                  "locationDisplay": "Singapore",
                                   "bio": "Training for consistency",
                                   "onboardingCompleted": true
                                 }
@@ -167,14 +178,159 @@ class UserProfileTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.displayName").value("Carol"))
                 .andExpect(jsonPath("$.heightCm").value(170.0))
-                .andExpect(jsonPath("$.activityLevel").value("VERY_ACTIVE"));
+                .andExpect(jsonPath("$.activityLevel").value("VERY_ACTIVE"))
+                .andExpect(jsonPath("$.locationDisplay").value("Singapore"))
+                .andExpect(jsonPath("$.membershipTier").value("MEMBER"));
 
         mockMvc.perform(get("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profile.lastName").value("Lim"))
+                .andExpect(jsonPath("$.profile.locationDisplay").value("Singapore"))
                 .andExpect(jsonPath("$.profile.onboardingCompleted").value(true));
+    }
+
+    @Test
+    void canCompleteOnboardingInSingleRequest() throws Exception {
+        String token = tokenFor("new-user@example.com", "New User");
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "New User",
+                                  "birthDate": "1996-04-12",
+                                  "gender": "FEMALE",
+                                  "heightCm": 168.0,
+                                  "activityLevel": "MODERATELY_ACTIVE",
+                                  "timezone": "Asia/Singapore",
+                                  "preferredUnits": "100001",
+                                  "currentWeightKg": 72.0,
+                                  "targetWeightKg": 68.0,
+                                  "bodyFatRate": 22.5,
+                                  "targetDate": "2026-09-30",
+                                  "fitnessLevel": "200001",
+                                  "trainingLocation": "210004",
+                                  "weeklyWorkoutDays": 4,
+                                  "preferredDurationMinutes": 45,
+                                  "preferredWorkoutTime": "19:30:00",
+                                  "intensityPreference": "220002",
+                                  "dietaryPattern": "300001",
+                                  "mealFrequency": 4,
+                                  "calorieTrackingMode": "310002",
+                                  "macroPreference": "320002",
+                                  "waterGoalMl": 2500,
+                                  "workoutReminderEnabled": true,
+                                  "mealReminderEnabled": true,
+                                  "weighInReminderEnabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile.displayName").value("New User"))
+                .andExpect(jsonPath("$.profile.onboardingCompleted").value(true))
+                .andExpect(jsonPath("$.preferences.training.weeklyWorkoutDays").value(4))
+                .andExpect(jsonPath("$.preferences.nutrition.macroPreference").value("320002"))
+                .andExpect(jsonPath("$.latestBodyMetrics.weightKg").value(72.0))
+                .andExpect(jsonPath("$.activeGoals", hasSize(4)));
+
+        mockMvc.perform(get("/api/v1/users/me/goals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .param("status", "ACTIVE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(4)));
+    }
+
+    @Test
+    void completingOnboardingAgainUpdatesExistingBaselineRecords() throws Exception {
+        String token = tokenFor("repeat-onboarding@example.com", "Repeat User");
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Repeat User",
+                                  "birthDate": "1996-04-12",
+                                  "gender": "FEMALE",
+                                  "heightCm": 168.0,
+                                  "activityLevel": "MODERATELY_ACTIVE",
+                                  "timezone": "Asia/Singapore",
+                                  "preferredUnits": "100001",
+                                  "currentWeightKg": 72.0,
+                                  "targetWeightKg": 68.0,
+                                  "bodyFatRate": 22.5,
+                                  "targetDate": "2026-09-30",
+                                  "fitnessLevel": "200001",
+                                  "trainingLocation": "210004",
+                                  "weeklyWorkoutDays": 4,
+                                  "preferredDurationMinutes": 45,
+                                  "preferredWorkoutTime": "19:30:00",
+                                  "intensityPreference": "220002",
+                                  "dietaryPattern": "300001",
+                                  "mealFrequency": 4,
+                                  "calorieTrackingMode": "310002",
+                                  "macroPreference": "320002",
+                                  "waterGoalMl": 2500,
+                                  "workoutReminderEnabled": true,
+                                  "mealReminderEnabled": true,
+                                  "weighInReminderEnabled": true
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Repeat Updated",
+                                  "birthDate": "1996-04-12",
+                                  "gender": "FEMALE",
+                                  "heightCm": 168.0,
+                                  "activityLevel": "MODERATELY_ACTIVE",
+                                  "timezone": "Asia/Singapore",
+                                  "preferredUnits": "100001",
+                                  "currentWeightKg": 70.0,
+                                  "targetWeightKg": 66.0,
+                                  "bodyFatRate": 21.0,
+                                  "targetDate": "2026-10-31",
+                                  "fitnessLevel": "200002",
+                                  "trainingLocation": "210002",
+                                  "weeklyWorkoutDays": 5,
+                                  "preferredDurationMinutes": 50,
+                                  "preferredWorkoutTime": "20:00:00",
+                                  "intensityPreference": "220003",
+                                  "dietaryPattern": "300002",
+                                  "mealFrequency": 3,
+                                  "calorieTrackingMode": "310003",
+                                  "macroPreference": "320002",
+                                  "waterGoalMl": 2600,
+                                  "workoutReminderEnabled": true,
+                                  "mealReminderEnabled": true,
+                                  "weighInReminderEnabled": false
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile.displayName").value("Repeat Updated"))
+                .andExpect(jsonPath("$.latestBodyMetrics.weightKg").value(70.0))
+                .andExpect(jsonPath("$.activeGoals", hasSize(4)));
+
+        mockMvc.perform(get("/api/v1/users/me/body-metrics")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].weightKg").value(70.0));
+
+        mockMvc.perform(get("/api/v1/users/me/goals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .param("status", "ACTIVE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(4)));
     }
 
     @Test
@@ -438,6 +594,48 @@ class UserProfileTests {
     }
 
     @Test
+    void canRequestAndDownloadAccountDataExport() throws Exception {
+        String token = tokenFor("export@example.com", "Export User");
+
+        mockMvc.perform(put("/api/v1/users/me/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Export User",
+                                  "heightCm": 171.0,
+                                  "onboardingCompleted": true
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        String exportRequestId = objectMapper.readTree(mockMvc.perform(post("/api/v1/users/me/data-export/requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.downloadAvailable").value(true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString()).get("exportRequestId").asText();
+
+        mockMvc.perform(get("/api/v1/users/me/data-export/requests/latest")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exportRequestId").value(exportRequestId))
+                .andExpect(jsonPath("$.status").value("READY"));
+
+        mockMvc.perform(get("/api/v1/users/me/data-export/requests/{exportRequestId}/download", exportRequestId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.account.email").value("export@example.com"))
+                .andExpect(jsonPath("$.account.profile.displayName").value("Export User"))
+                .andExpect(jsonPath("$.bodyMetrics").isArray());
+    }
+
+    @Test
     void bodyMetricsRequiresAtLeastOneMeasurement() throws Exception {
         String token = tokenFor("frank@example.com", "Frank");
 
@@ -519,7 +717,8 @@ class UserProfileTests {
                         "displayName", displayName,
                         "role", "USER"))
                 .subject(email)
-                .signWith(Keys.hmacShaKeyFor("test-secret-test-secret-test-secret-123456".getBytes(StandardCharsets.UTF_8)))
+                .signWith(Keys.hmacShaKeyFor(
+                        "test-secret-test-secret-test-secret-123456".getBytes(StandardCharsets.UTF_8)))
                 .compact();
     }
 

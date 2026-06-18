@@ -2,6 +2,7 @@ package com.fitsync.backend.config;
 
 import com.fitsync.backend.security.JwtAuthenticationFilter;
 import com.fitsync.backend.security.RestAuthenticationEntryPoint;
+import org.springframework.core.annotation.Order;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,24 +41,15 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    @Order(1)
+    SecurityFilterChain cognitoBootstrapSecurityFilterChain(HttpSecurity http) throws Exception {
         http
+                .securityMatcher("/api/v1/auth/bootstrap")
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/internal/**").hasRole("ADMIN")
-                        .requestMatchers(
-                                "/api/v1/auth/register",
-                                "/api/v1/auth/login",
-                                "/actuator/health",
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html")
-                        .permitAll()
-                        .anyRequest().authenticated())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated());
 
         if (cognitoProperties.enabled()) {
             JwtDecoder cognitoJwtDecoder = cognitoJwtDecoderProvider.getIfAvailable();
@@ -72,6 +64,31 @@ public class SecurityConfig {
                             .decoder(cognitoJwtDecoder)
                             .jwtAuthenticationConverter(cognitoJwtAuthenticationConverter)));
         }
+
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
+    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(Customizer.withDefaults())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/v1/internal/**").hasRole("ADMIN")
+                        .requestMatchers(
+                                "/api/v1/auth/register",
+                                "/api/v1/auth/login",
+                                "/api/v1/auth/bootstrap",
+                                "/actuator/health",
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html")
+                        .permitAll()
+                        .anyRequest().authenticated())
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

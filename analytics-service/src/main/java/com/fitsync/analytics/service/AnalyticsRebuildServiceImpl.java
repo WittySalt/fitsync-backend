@@ -251,6 +251,10 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         }
     }
 
+    /**
+     * Preserves a user's streak during the current UTC day when the latest activity was yesterday.
+     * The streak decays only when the latest active row is two or more days before today.
+     */
     private int calculateActiveStreak(List<AnalyticsUserDailyWorkoutEntity> rows, LocalDate today) {
         int streak = 0;
         LocalDate expected = today;

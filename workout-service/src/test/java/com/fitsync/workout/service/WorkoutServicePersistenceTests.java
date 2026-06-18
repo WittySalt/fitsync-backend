@@ -30,6 +30,7 @@ import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +41,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @SpringBootTest
@@ -69,6 +71,11 @@ class WorkoutServicePersistenceTests {
             "alice@example.com",
             "Alice",
             "USER");
+    private final CurrentUserPrincipal otherUser = new CurrentUserPrincipal(
+            UUID.fromString("22222222-2222-2222-2222-222222222222"),
+            "bob@example.com",
+            "Bob",
+            "USER");
 
     @BeforeEach
     void clearOutbox() {
@@ -96,6 +103,98 @@ class WorkoutServicePersistenceTests {
         assertEquals("Leg Day", archived.name());
         assertEquals(WorkoutPlanStatus.ARCHIVED, archived.status());
         assertEquals(1, workoutPlanRepository.findByPlanIdAndUserId(created.planId(), currentUser.userId()).orElseThrow().getExercises().size());
+    }
+
+    @Test
+    void shouldStartWorkoutPlanAsInProgressSessionWithSeededSkeletonAndNoOutboxEvent() {
+        UUID squatId = createExercise("start-squat", "Start Squat");
+        UUID rowId = createExercise("start-row", "Start Row");
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Start Strength",
+                "Plan to start",
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.INTERMEDIATE,
+                65,
+                List.of(
+                        new WorkoutPlanExerciseInput(
+                                squatId,
+                                1,
+                                2,
+                                null,
+                                null,
+                                null,
+                                null,
+                                180,
+                                "Keep depth consistent",
+                                List.of(
+                                        new WorkoutPlanExerciseSetTargetInput(1, 5, new BigDecimal("100.00"), null, null, 180),
+                                        new WorkoutPlanExerciseSetTargetInput(2, 5, new BigDecimal("105.00"), null, null, 180))),
+                        new WorkoutPlanExerciseInput(
+                                rowId,
+                                2,
+                                1,
+                                null,
+                                null,
+                                null,
+                                null,
+                                120,
+                                null,
+                                List.of(new WorkoutPlanExerciseSetTargetInput(1, 10, new BigDecimal("60.00"), null, null, 120))))));
+
+        WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+        WorkoutSessionView fetched = workoutService.getSession(currentUser, started.sessionId());
+
+        assertEquals(plan.planId(), fetched.planId());
+        assertEquals("Start Strength", fetched.name());
+        assertEquals(WorkoutType.STRENGTH, fetched.workoutType());
+        assertEquals(WorkoutSessionStatus.IN_PROGRESS, fetched.status());
+        assertEquals(WorkoutSource.PLAN, fetched.source());
+        assertNull(fetched.completedAt());
+        assertNull(fetched.durationMinutes());
+        assertEquals(2, fetched.exerciseCount());
+        assertEquals(3, fetched.exercises().stream().mapToInt(exercise -> exercise.sets().size()).sum());
+        assertEquals(plan.exercises().stream().mapToInt(exercise -> exercise.setTargets().size()).sum(),
+                fetched.exercises().stream().mapToInt(exercise -> exercise.sets().size()).sum());
+        assertEquals("Start Squat", fetched.exercises().get(0).exerciseNameSnapshot());
+        assertNull(fetched.exercises().get(0).performedSets());
+        assertNull(fetched.exercises().get(0).performedReps());
+        assertNull(fetched.exercises().get(0).totalVolumeKg());
+        assertEquals(1, fetched.exercises().get(0).sets().get(0).setNumber());
+        assertEquals(5, fetched.exercises().get(0).sets().get(0).reps());
+        assertEquals(new BigDecimal("100.00"), fetched.exercises().get(0).sets().get(0).weightKg());
+        assertNull(fetched.exercises().get(0).sets().get(0).perceivedExertion());
+        assertEquals(0, outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).size());
+    }
+
+    @Test
+    void shouldRejectStartingArchivedWorkoutPlan() {
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Archived Start",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of()));
+        workoutService.archivePlan(currentUser, plan.planId());
+
+        assertThrows(IllegalArgumentException.class, () -> workoutService.startPlan(currentUser, plan.planId()));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenStartingMissingOrNonOwnedWorkoutPlan() {
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Owned Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of()));
+
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.startPlan(otherUser, plan.planId()));
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.startPlan(currentUser, UUID.randomUUID()));
     }
 
     @Test

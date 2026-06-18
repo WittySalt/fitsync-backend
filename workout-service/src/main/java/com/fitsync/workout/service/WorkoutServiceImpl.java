@@ -11,6 +11,7 @@ import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
+import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
@@ -126,6 +127,31 @@ public class WorkoutServiceImpl implements WorkoutService {
         WorkoutPlanEntity entity = findPlan(currentUser.userId(), planId);
         entity.setStatus(WorkoutPlanStatus.ARCHIVED);
         workoutPlanRepository.save(entity);
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView startPlan(CurrentUserPrincipal currentUser, UUID planId) {
+        WorkoutPlanEntity plan = findPlan(currentUser.userId(), planId);
+        if (plan.getStatus() == WorkoutPlanStatus.ARCHIVED) {
+            throw new IllegalArgumentException("Archived workout plan cannot be used for a session");
+        }
+
+        WorkoutSessionEntity session = new WorkoutSessionEntity();
+        session.setSessionId(UUID.randomUUID());
+        session.setUserId(currentUser.userId());
+        session.setPlanId(plan.getPlanId());
+        session.setName(plan.getName());
+        session.setWorkoutType(plan.getWorkoutType());
+        session.setStatus(WorkoutSessionStatus.IN_PROGRESS);
+        session.setSource(WorkoutSource.PLAN);
+        session.setStartedAt(Instant.now());
+
+        for (WorkoutPlanExerciseEntity planExercise : plan.getExercises()) {
+            session.getExercises().add(toSeededExerciseLog(session, planExercise));
+        }
+
+        return toSessionView(workoutSessionRepository.save(session));
     }
 
     @Override
@@ -346,6 +372,36 @@ public class WorkoutServiceImpl implements WorkoutService {
             setLog.setNotes(input.notes());
             exercise.getSets().add(setLog);
         }
+    }
+
+    private WorkoutExerciseLogEntity toSeededExerciseLog(WorkoutSessionEntity session,
+                                                         WorkoutPlanExerciseEntity planExercise) {
+        WorkoutExerciseLogEntity exercise = new WorkoutExerciseLogEntity();
+        exercise.setExerciseLogId(UUID.randomUUID());
+        exercise.setSession(session);
+        exercise.setExercise(planExercise.getExercise());
+        exercise.setExerciseNameSnapshot(planExercise.getExerciseNameSnapshot());
+        exercise.setSequence(planExercise.getSequence());
+        exercise.setNotes(planExercise.getNotes());
+
+        for (WorkoutPlanExerciseSetTargetEntity setTarget : planExercise.getSetTargets()) {
+            exercise.getSets().add(toSeededSetLog(exercise, setTarget));
+        }
+        return exercise;
+    }
+
+    private WorkoutExerciseSetLogEntity toSeededSetLog(WorkoutExerciseLogEntity exercise,
+                                                       WorkoutPlanExerciseSetTargetEntity setTarget) {
+        WorkoutExerciseSetLogEntity setLog = new WorkoutExerciseSetLogEntity();
+        setLog.setSetLogId(UUID.randomUUID());
+        setLog.setExerciseLog(exercise);
+        setLog.setSetNumber(setTarget.getSetNumber());
+        setLog.setReps(setTarget.getTargetReps());
+        setLog.setWeightKg(setTarget.getTargetWeightKg());
+        setLog.setDurationSeconds(setTarget.getTargetDurationSeconds());
+        setLog.setDistanceKm(setTarget.getTargetDistanceKm());
+        setLog.setRestSeconds(setTarget.getRestSeconds());
+        return setLog;
     }
 
     private ExerciseEntity findAccessibleExercise(UUID userId, UUID exerciseId) {

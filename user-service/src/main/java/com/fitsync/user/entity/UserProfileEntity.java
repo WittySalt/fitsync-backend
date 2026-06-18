@@ -7,6 +7,8 @@ import java.util.UUID;
 import com.fitsync.persistence.entity.BaseAuditableEntity;
 import com.fitsync.user.domain.ActivityLevel;
 import com.fitsync.user.domain.Gender;
+import com.fitsync.user.domain.MembershipStatus;
+import com.fitsync.user.domain.MembershipTier;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -51,8 +53,19 @@ public class UserProfileEntity extends BaseAuditableEntity {
     @Column(name = "timezone", length = 80)
     private String timezone;
 
+    @Column(name = "location_display", length = 120)
+    private String locationDisplay;
+
     @Column(name = "bio", length = 300)
     private String bio;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "membership_tier", nullable = false, length = 30)
+    private MembershipTier membershipTier = MembershipTier.MEMBER;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "membership_status", nullable = false, length = 30)
+    private MembershipStatus membershipStatus = MembershipStatus.ACTIVE;
 
     @Column(name = "onboarding_completed", nullable = false)
     private boolean onboardingCompleted;
@@ -77,8 +90,14 @@ public class UserProfileEntity extends BaseAuditableEntity {
     public void setActivityLevel(ActivityLevel activityLevel) { this.activityLevel = activityLevel; }
     public String getTimezone() { return timezone; }
     public void setTimezone(String timezone) { this.timezone = timezone; }
+    public String getLocationDisplay() { return locationDisplay; }
+    public void setLocationDisplay(String locationDisplay) { this.locationDisplay = locationDisplay; }
     public String getBio() { return bio; }
     public void setBio(String bio) { this.bio = bio; }
+    public MembershipTier getMembershipTier() { return membershipTier; }
+    public void setMembershipTier(MembershipTier membershipTier) { this.membershipTier = membershipTier; }
+    public MembershipStatus getMembershipStatus() { return membershipStatus; }
+    public void setMembershipStatus(MembershipStatus membershipStatus) { this.membershipStatus = membershipStatus; }
     public boolean isOnboardingCompleted() { return onboardingCompleted; }
     public void setOnboardingCompleted(boolean onboardingCompleted) { this.onboardingCompleted = onboardingCompleted; }
 }

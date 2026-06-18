@@ -2,10 +2,16 @@ package com.fitsync.backend.service;
 
 import java.time.Instant;
 import java.util.Locale;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.backend.dto.ActiveSessionView;
+import com.fitsync.backend.dto.AccountDeletionRequestStatusResponse;
 import com.fitsync.backend.dto.CurrentUserResponse;
+import com.fitsync.backend.dto.RequestAccountDeletionRequest;
+import com.fitsync.backend.dto.SecurityOverviewResponse;
+import com.fitsync.backend.dto.UpdateRecoveryEmailRequest;
 import com.fitsync.backend.entity.AppUser;
 import com.fitsync.backend.entity.AuthProvider;
 import com.fitsync.backend.exception.ConflictException;
@@ -13,10 +19,13 @@ import com.fitsync.backend.exception.NotFoundException;
 import com.fitsync.backend.exception.UnauthorizedException;
 import com.fitsync.backend.messaging.DomainEventPublisher;
 import com.fitsync.backend.repository.AppUserRepository;
+import com.fitsync.backend.security.JwtService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,11 +36,17 @@ public class CurrentUserService {
 
     private final AppUserRepository appUserRepository;
     private final DomainEventPublisher domainEventPublisher;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
     public CurrentUserService(AppUserRepository appUserRepository,
-                              DomainEventPublisher domainEventPublisher) {
+                              DomainEventPublisher domainEventPublisher,
+                              PasswordEncoder passwordEncoder,
+                              JwtService jwtService) {
         this.appUserRepository = appUserRepository;
         this.domainEventPublisher = domainEventPublisher;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
     }
 
     @Transactional(readOnly = true)
@@ -39,6 +54,109 @@ public class CurrentUserService {
         AppUser user = resolveUser(authentication)
                 .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
         return toResponse(user);
+    }
+
+    @Transactional(readOnly = true)
+    public SecurityOverviewResponse getSecurityOverview(Authentication authentication) {
+        AppUser user = resolveUser(authentication)
+                .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
+        boolean cognitoManaged = user.getAuthProvider() == AuthProvider.COGNITO;
+        return new SecurityOverviewResponse(
+                user.getAuthProvider().name(),
+                cognitoManaged,
+                false,
+                cognitoManaged,
+                user.getEmail(),
+                !cognitoManaged,
+                1,
+                true,
+                cognitoManaged ? "COGNITO_PROTECTED" : "LOCAL_ACCOUNT");
+    }
+
+    @Transactional(readOnly = true)
+    public List<ActiveSessionView> getActiveSessions(Authentication authentication, HttpServletRequest request) {
+        // Ensure the caller is provisioned; the session view is derived from the token/request, not the user row.
+        resolveUser(authentication)
+                .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
+
+        Instant issuedAt = null;
+        Instant expiresAt = null;
+        if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
+            issuedAt = jwt.getIssuedAt();
+            expiresAt = jwt.getExpiresAt();
+        } else {
+            String token = bearerToken(request);
+            if (token != null) {
+                issuedAt = jwtService.extractIssuedAt(token);
+                expiresAt = jwtService.extractExpiration(token);
+            }
+        }
+
+        return List.of(new ActiveSessionView(
+                "current-session",
+                resolveDeviceLabel(request),
+                resolveIpAddress(request),
+                issuedAt,
+                expiresAt,
+                true,
+                false));
+    }
+
+    @Transactional(readOnly = true)
+    public AccountDeletionRequestStatusResponse getAccountDeletionStatus(Authentication authentication) {
+        AppUser user = resolveUser(authentication)
+                .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
+        return toAccountDeletionStatus(user);
+    }
+
+    @Transactional
+    public SecurityOverviewResponse updateRecoveryEmail(Authentication authentication,
+                                                        UpdateRecoveryEmailRequest request) {
+        AppUser user = resolveUser(authentication)
+                .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
+
+        if (user.getAuthProvider() != AuthProvider.LOCAL) {
+            throw new ConflictException("Recovery email is managed by Cognito for this account");
+        }
+
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new UnauthorizedException("Current password is invalid");
+        }
+
+        String normalizedEmail = normalizeEmail(request.email());
+        Optional<AppUser> existing = appUserRepository.findByEmailIgnoreCase(normalizedEmail);
+        if (existing.isPresent() && !existing.get().getId().equals(user.getId())) {
+            throw new ConflictException("An account with this email already exists");
+        }
+
+        user.setEmail(normalizedEmail);
+        AppUser saved = appUserRepository.save(user);
+        return getSecurityOverviewForUser(saved);
+    }
+
+    @Transactional
+    public AccountDeletionRequestStatusResponse requestAccountDeletion(Authentication authentication,
+                                                                      RequestAccountDeletionRequest request) {
+        AppUser user = resolveUser(authentication)
+                .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
+
+        if (!"DELETE".equals(request.confirmationText().trim())) {
+            throw new IllegalArgumentException("Confirmation text must be DELETE");
+        }
+
+        if (user.getAuthProvider() == AuthProvider.LOCAL) {
+            if (!StringUtils.hasText(request.currentPassword())
+                    || !passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+                throw new UnauthorizedException("Current password is invalid");
+            }
+        }
+
+        if (user.getAccountDeletionRequestedAt() == null) {
+            user.setAccountDeletionRequestedAt(Instant.now());
+            user = appUserRepository.save(user);
+        }
+
+        return toAccountDeletionStatus(user);
     }
 
     @Transactional
@@ -152,6 +270,74 @@ public class CurrentUserService {
                 user.getDisplayName(),
                 user.getRole().name(),
                 user.getAuthProvider().name());
+    }
+
+    private SecurityOverviewResponse getSecurityOverviewForUser(AppUser user) {
+        boolean cognitoManaged = user.getAuthProvider() == AuthProvider.COGNITO;
+        return new SecurityOverviewResponse(
+                user.getAuthProvider().name(),
+                cognitoManaged,
+                false,
+                cognitoManaged,
+                user.getEmail(),
+                !cognitoManaged,
+                1,
+                true,
+                cognitoManaged ? "COGNITO_PROTECTED" : "LOCAL_ACCOUNT");
+    }
+
+    private String bearerToken(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String authorization = request.getHeader("Authorization");
+        if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
+            return null;
+        }
+        return authorization.substring(7);
+    }
+
+    private String resolveDeviceLabel(HttpServletRequest request) {
+        if (request == null) {
+            return "Current session";
+        }
+        String userAgent = request.getHeader("User-Agent");
+        if (!StringUtils.hasText(userAgent)) {
+            return "Current session";
+        }
+        String normalized = userAgent.toLowerCase(Locale.ROOT);
+        if (normalized.contains("edg")) {
+            return "This browser (Edge)";
+        }
+        if (normalized.contains("chrome")) {
+            return "This browser (Chrome)";
+        }
+        if (normalized.contains("safari") && !normalized.contains("chrome")) {
+            return "This browser (Safari)";
+        }
+        if (normalized.contains("firefox")) {
+            return "This browser (Firefox)";
+        }
+        return "This browser";
+    }
+
+    private String resolveIpAddress(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (StringUtils.hasText(forwarded)) {
+            int commaIndex = forwarded.indexOf(',');
+            return commaIndex > 0 ? forwarded.substring(0, commaIndex).trim() : forwarded.trim();
+        }
+        return request.getRemoteAddr();
+    }
+
+    private AccountDeletionRequestStatusResponse toAccountDeletionStatus(AppUser user) {
+        return new AccountDeletionRequestStatusResponse(
+                user.getAccountDeletionRequestedAt() == null ? "NOT_REQUESTED" : "REQUESTED",
+                user.getAccountDeletionRequestedAt(),
+                user.getAuthProvider() == AuthProvider.LOCAL);
     }
 
     private void publishUserRegistered(AppUser user) {

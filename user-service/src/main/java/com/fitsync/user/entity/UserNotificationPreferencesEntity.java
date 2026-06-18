@@ -4,8 +4,11 @@ import java.time.LocalTime;
 import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseAuditableEntity;
+import com.fitsync.user.domain.NotificationChannel;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -35,6 +38,13 @@ public class UserNotificationPreferencesEntity extends BaseAuditableEntity {
     @Column(name = "goal_progress_reminder_enabled", nullable = false)
     private boolean goalProgressReminderEnabled;
 
+    @Column(name = "weekly_progress_report_enabled", nullable = false)
+    private boolean weeklyProgressReportEnabled;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "weekly_progress_report_channel", nullable = false, length = 20)
+    private NotificationChannel weeklyProgressReportChannel = NotificationChannel.EMAIL;
+
     @Column(name = "marketing_emails_enabled", nullable = false)
     private boolean marketingEmailsEnabled;
 
@@ -58,6 +68,10 @@ public class UserNotificationPreferencesEntity extends BaseAuditableEntity {
     public void setWeighInReminderEnabled(boolean weighInReminderEnabled) { this.weighInReminderEnabled = weighInReminderEnabled; }
     public boolean isGoalProgressReminderEnabled() { return goalProgressReminderEnabled; }
     public void setGoalProgressReminderEnabled(boolean goalProgressReminderEnabled) { this.goalProgressReminderEnabled = goalProgressReminderEnabled; }
+    public boolean isWeeklyProgressReportEnabled() { return weeklyProgressReportEnabled; }
+    public void setWeeklyProgressReportEnabled(boolean weeklyProgressReportEnabled) { this.weeklyProgressReportEnabled = weeklyProgressReportEnabled; }
+    public NotificationChannel getWeeklyProgressReportChannel() { return weeklyProgressReportChannel; }
+    public void setWeeklyProgressReportChannel(NotificationChannel weeklyProgressReportChannel) { this.weeklyProgressReportChannel = weeklyProgressReportChannel; }
     public boolean isMarketingEmailsEnabled() { return marketingEmailsEnabled; }
     public void setMarketingEmailsEnabled(boolean marketingEmailsEnabled) { this.marketingEmailsEnabled = marketingEmailsEnabled; }
     public LocalTime getQuietHoursStart() { return quietHoursStart; }

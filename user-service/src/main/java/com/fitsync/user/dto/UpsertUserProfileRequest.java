@@ -37,6 +37,7 @@ public record UpsertUserProfileRequest(
         BigDecimal heightCm,
         ActivityLevel activityLevel,
         @Size(max = 80) String timezone,
+        @Size(max = 120) String locationDisplay,
         @Size(max = 300) String bio,
         boolean onboardingCompleted) {
 }

@@ -2,6 +2,7 @@ package com.fitsync.user.dto;
 
 import java.time.LocalTime;
 
+import com.fitsync.user.domain.NotificationChannel;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(example = """
@@ -24,6 +25,8 @@ public record UpsertNotificationPreferencesRequest(
         boolean mealReminderEnabled,
         boolean weighInReminderEnabled,
         boolean goalProgressReminderEnabled,
+        Boolean weeklyProgressReportEnabled,
+        NotificationChannel weeklyProgressReportChannel,
         boolean marketingEmailsEnabled,
         LocalTime quietHoursStart,
         LocalTime quietHoursEnd) {

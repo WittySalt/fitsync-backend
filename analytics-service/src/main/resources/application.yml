@@ -64,6 +64,9 @@ security:
     expiration: ${JWT_EXPIRATION:PT2H}
 
 fitsync:
+  analytics:
+    rollup:
+      cron: "${ANALYTICS_ROLLUP_CRON:0 5 0 * * *}"
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

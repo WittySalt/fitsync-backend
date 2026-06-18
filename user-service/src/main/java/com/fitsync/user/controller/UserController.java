@@ -4,10 +4,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.user.dto.AccountDataExportPayload;
+import com.fitsync.user.dto.AccountDataExportRequestView;
 import com.fitsync.user.domain.GoalStatus;
 import com.fitsync.user.domain.GoalType;
 import com.fitsync.user.dto.BodyMetricTrendResponse;
 import com.fitsync.user.dto.BodyMetricView;
+import com.fitsync.user.dto.CompleteOnboardingRequest;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
@@ -22,6 +25,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -49,6 +55,12 @@ public class UserController {
     @GetMapping("/me")
     public CurrentUserResponse currentUser(Authentication authentication) {
         return userService.getCurrentUser(currentPrincipal(authentication));
+    }
+
+    @PostMapping("/me/onboarding")
+    public CurrentUserResponse completeOnboarding(Authentication authentication,
+                                                  @Valid @RequestBody CompleteOnboardingRequest request) {
+        return userService.completeOnboarding(currentPrincipal(authentication), request);
     }
 
     @GetMapping("/me/profile")
@@ -131,6 +143,28 @@ public class UserController {
                                    @PathVariable GoalType goalType,
                                    @Valid @RequestBody UpsertUserGoalRequest request) {
         return userService.upsertGoal(currentPrincipal(authentication), goalType, request);
+    }
+
+    @PostMapping("/me/data-export/requests")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AccountDataExportRequestView requestDataExport(Authentication authentication) {
+        return userService.requestAccountDataExport(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/me/data-export/requests/latest")
+    public AccountDataExportRequestView latestDataExport(Authentication authentication) {
+        return userService.getLatestAccountDataExport(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/me/data-export/requests/{exportRequestId}/download")
+    public ResponseEntity<AccountDataExportPayload> downloadDataExport(Authentication authentication,
+                                                                       @PathVariable UUID exportRequestId) {
+        AccountDataExportPayload payload = userService.downloadAccountDataExport(
+                currentPrincipal(authentication), exportRequestId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"fitsync-account-export.json\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(payload);
     }
 
     private CurrentUserPrincipal currentPrincipal(Authentication authentication) {

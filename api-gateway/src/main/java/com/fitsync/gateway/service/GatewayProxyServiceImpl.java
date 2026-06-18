@@ -35,6 +35,7 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
             "proxy-authorization",
             "te",
             "trailer",
+            HttpHeaders.CONTENT_LENGTH.toLowerCase(Locale.ROOT),
             HttpHeaders.TRANSFER_ENCODING.toLowerCase(Locale.ROOT),
             HttpHeaders.UPGRADE.toLowerCase(Locale.ROOT),
             "x-user-id",

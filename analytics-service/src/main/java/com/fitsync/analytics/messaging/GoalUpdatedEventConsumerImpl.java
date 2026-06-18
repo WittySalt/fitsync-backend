@@ -1,6 +1,8 @@
 package com.fitsync.analytics.messaging;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 
 import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
@@ -9,6 +11,7 @@ import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
+import com.fitsync.analytics.service.GoalExpiryPolicy;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import org.springframework.stereotype.Service;
@@ -17,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class GoalUpdatedEventConsumerImpl implements GoalUpdatedEventConsumer {
 
-    private static final String ACTIVE = "ACTIVE";
     private static final String CALORIES = "CALORIES";
     private static final String PROTEIN = "PROTEIN";
 
@@ -26,17 +28,20 @@ public class GoalUpdatedEventConsumerImpl implements GoalUpdatedEventConsumer {
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final DashboardSnapshotInitializer dashboardSnapshotInitializer;
+    private final Clock clock;
 
     public GoalUpdatedEventConsumerImpl(AnalyticsProcessedEventRepository processedEventRepository,
                                         AnalyticsUserGoalProgressRepository goalProgressRepository,
                                         AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                         AnalyticsCacheInvalidationService cacheInvalidationService,
-                                        DashboardSnapshotInitializer dashboardSnapshotInitializer) {
+                                        DashboardSnapshotInitializer dashboardSnapshotInitializer,
+                                        Clock clock) {
         this.processedEventRepository = processedEventRepository;
         this.goalProgressRepository = goalProgressRepository;
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.cacheInvalidationService = cacheInvalidationService;
         this.dashboardSnapshotInitializer = dashboardSnapshotInitializer;
+        this.clock = clock;
     }
 
     @Override
@@ -52,18 +57,24 @@ public class GoalUpdatedEventConsumerImpl implements GoalUpdatedEventConsumer {
             return;
         }
 
+        Instant evaluatedAt = event.occurredAt() != null ? event.occurredAt() : Instant.now(clock);
+        String goalStatus = resolveGoalStatus(payload, evaluatedAt);
+
         AnalyticsUserGoalProgressEntity entity = goalProgressRepository.findById(payload.goalId())
                 .orElseGet(AnalyticsUserGoalProgressEntity::new);
         entity.setGoalId(payload.goalId());
         entity.setUserId(event.userId());
         entity.setGoalType(payload.goalType());
-        entity.setGoalStatus(payload.status());
+        entity.setGoalStatus(goalStatus);
         entity.setTargetValue(payload.targetValue());
         entity.setTargetUnit(payload.targetUnit());
         entity.setTargetDate(payload.targetDate());
-        entity.setLastEvaluatedAt(event.occurredAt() != null ? event.occurredAt() : Instant.now());
-        entity.setOnTrack(ACTIVE.equals(payload.status()));
-        if (!ACTIVE.equals(payload.status())) {
+        entity.setLastEvaluatedAt(evaluatedAt);
+        entity.setOnTrack(GoalExpiryPolicy.isActive(goalStatus));
+        if (GoalExpiryPolicy.isActive(goalStatus)) {
+            entity.setDaysRemaining(GoalExpiryPolicy.daysRemaining(
+                    payload.targetDate(), evaluatedAt.atZone(ZoneOffset.UTC).toLocalDate()));
+        } else {
             entity.setProgressRatio(null);
             entity.setCurrentValue(null);
             entity.setDaysRemaining(null);
@@ -80,12 +91,13 @@ public class GoalUpdatedEventConsumerImpl implements GoalUpdatedEventConsumer {
             return;
         }
 
-        Instant generatedAt = event.occurredAt() != null ? event.occurredAt() : Instant.now();
+        Instant generatedAt = event.occurredAt() != null ? event.occurredAt() : Instant.now(clock);
         dashboardSnapshotInitializer.insertIfMissing(event.userId(), generatedAt);
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(event.userId())
                 .orElseThrow(() -> new IllegalStateException("Dashboard snapshot was not created"));
 
-        boolean active = ACTIVE.equals(payload.status());
+        boolean active = GoalExpiryPolicy.isActive(payload.status())
+                && !GoalExpiryPolicy.isExpired(payload.targetDate(), generatedAt.atZone(ZoneOffset.UTC).toLocalDate());
         if (CALORIES.equals(payload.goalType())) {
             snapshot.setTodayCaloriesTarget(active && payload.targetValue() != null ? payload.targetValue().intValue() : null);
         } else {
@@ -100,7 +112,15 @@ public class GoalUpdatedEventConsumerImpl implements GoalUpdatedEventConsumer {
         processedEvent.setEventId(event.eventId());
         processedEvent.setEventType(event.eventType());
         processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() != null ? event.occurredAt() : Instant.now());
+        processedEvent.setProcessedAt(event.occurredAt() != null ? event.occurredAt() : Instant.now(clock));
         processedEventRepository.save(processedEvent);
+    }
+
+    private String resolveGoalStatus(GoalUpdatedPayload payload, Instant evaluatedAt) {
+        if (GoalExpiryPolicy.isActive(payload.status())
+                && GoalExpiryPolicy.isExpired(payload.targetDate(), evaluatedAt.atZone(ZoneOffset.UTC).toLocalDate())) {
+            return GoalExpiryPolicy.EXPIRED_STATUS;
+        }
+        return payload.status();
     }
 }

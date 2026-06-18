@@ -74,6 +74,16 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <Match>
+        <Class name="com.fitsync.backend.controller.AuthAccountLifecycleController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.backend.controller.AuthSecurityController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
     <!-- Spring wiring and controllers in user-service -->
     <Match>
         <Class name="com.fitsync.user.config.SecurityConfig"/>

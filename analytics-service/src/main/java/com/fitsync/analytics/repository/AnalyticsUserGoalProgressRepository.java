@@ -9,4 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AnalyticsUserGoalProgressRepository extends JpaRepository<AnalyticsUserGoalProgressEntity, UUID> {
 
     List<AnalyticsUserGoalProgressEntity> findByUserIdOrderByTargetDateAscGoalIdAsc(UUID userId);
+
+    List<AnalyticsUserGoalProgressEntity> findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(
+            UUID userId, String goalStatus);
 }

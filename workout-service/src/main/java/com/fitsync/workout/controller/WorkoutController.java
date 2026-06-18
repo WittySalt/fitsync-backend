@@ -23,6 +23,7 @@ import com.fitsync.web.response.PageResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -106,6 +107,14 @@ public class WorkoutController {
     public void archivePlan(Authentication authentication,
                             @PathVariable UUID planId) {
         workoutService.archivePlan(currentPrincipal(authentication), planId);
+    }
+
+    @Operation(summary = "Start a workout session from a workout plan")
+    @PostMapping("/plans/{planId}/start")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkoutSessionView startPlan(Authentication authentication,
+                                        @PathVariable UUID planId) {
+        return workoutService.startPlan(currentPrincipal(authentication), planId);
     }
 
     @PostMapping("/sessions")

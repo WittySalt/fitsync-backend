@@ -10,7 +10,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,7 +29,9 @@ import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
+import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodServingView;
+import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealItemInput;
 import com.fitsync.nutrition.dto.MealItemView;
 import com.fitsync.nutrition.dto.MealView;
@@ -37,6 +41,7 @@ import com.fitsync.nutrition.entity.CustomFoodEntity;
 import com.fitsync.nutrition.entity.FoodBarcodeEntity;
 import com.fitsync.nutrition.entity.FoodBrandEntity;
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
+import com.fitsync.nutrition.entity.FoodCategoryEntity;
 import com.fitsync.nutrition.entity.FoodNutrientDetailEntity;
 import com.fitsync.nutrition.entity.FoodNutrientProfileEntity;
 import com.fitsync.nutrition.entity.FoodServingEntity;
@@ -49,6 +54,7 @@ import com.fitsync.nutrition.repository.CustomFoodRepository;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
 import com.fitsync.nutrition.repository.FoodBrandRepository;
 import com.fitsync.nutrition.repository.FoodCatalogItemRepository;
+import com.fitsync.nutrition.repository.FoodCategoryRepository;
 import com.fitsync.nutrition.repository.FoodNutrientDetailRepository;
 import com.fitsync.nutrition.repository.FoodNutrientProfileRepository;
 import com.fitsync.nutrition.repository.FoodServingRepository;
@@ -59,6 +65,7 @@ import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -68,6 +75,9 @@ public class NutritionServiceImpl implements NutritionService {
     private static final String SOURCE = "nutrition-service";
     private static final String NUTRITION_EVENTS_TOPIC = "nutrition-events";
     private static final int FOOD_SEARCH_LIMIT = 20;
+    private static final int LOGGED_FOOD_DEFAULT_LIMIT = 20;
+    private static final int LOGGED_FOOD_MAX_LIMIT = 50;
+    private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
 
     private final DomainEventPublisher domainEventPublisher;
     private final MealLogRepository mealLogRepository;
@@ -76,6 +86,7 @@ public class NutritionServiceImpl implements NutritionService {
     private final CustomFoodRepository customFoodRepository;
     private final NutritionTargetRepository nutritionTargetRepository;
     private final FoodCatalogItemRepository foodCatalogItemRepository;
+    private final FoodCategoryRepository foodCategoryRepository;
     private final FoodBrandRepository foodBrandRepository;
     private final FoodServingRepository foodServingRepository;
     private final FoodBarcodeRepository foodBarcodeRepository;
@@ -89,6 +100,7 @@ public class NutritionServiceImpl implements NutritionService {
                                 CustomFoodRepository customFoodRepository,
                                 NutritionTargetRepository nutritionTargetRepository,
                                 FoodCatalogItemRepository foodCatalogItemRepository,
+                                FoodCategoryRepository foodCategoryRepository,
                                 FoodBrandRepository foodBrandRepository,
                                 FoodServingRepository foodServingRepository,
                                 FoodBarcodeRepository foodBarcodeRepository,
@@ -101,6 +113,7 @@ public class NutritionServiceImpl implements NutritionService {
         this.customFoodRepository = customFoodRepository;
         this.nutritionTargetRepository = nutritionTargetRepository;
         this.foodCatalogItemRepository = foodCatalogItemRepository;
+        this.foodCategoryRepository = foodCategoryRepository;
         this.foodBrandRepository = foodBrandRepository;
         this.foodServingRepository = foodServingRepository;
         this.foodBarcodeRepository = foodBarcodeRepository;
@@ -259,10 +272,12 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, String query) {
+    public List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, String query,
+                                                  UUID categoryId, boolean includeSubcategories) {
         LocalDate today = LocalDate.now();
-        List<FoodCatalogItemEntity> foods = foodCatalogItemRepository.searchAccessibleFoods(
-                        principal.userId(), normalizeQuery(query), today)
+        String normalizedQuery = normalizeQuery(query);
+        List<FoodCatalogItemEntity> foods = searchAccessibleFoods(
+                        principal.userId(), normalizedQuery, today, categoryId, includeSubcategories)
                 .stream()
                 .limit(FOOD_SEARCH_LIMIT)
                 .toList();
@@ -280,6 +295,132 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(food -> toFoodSearchResultView(food, brandNames, profiles.get(food.getFoodId()),
                         primaryBarcodes.get(food.getFoodId())))
                 .toList();
+    }
+
+    private List<FoodCatalogItemEntity> searchAccessibleFoods(UUID userId, String query, LocalDate today,
+                                                              UUID categoryId, boolean includeSubcategories) {
+        if (categoryId == null) {
+            return foodCatalogItemRepository.searchAccessibleFoods(userId, query, today);
+        }
+        FoodCategoryEntity category = foodCategoryRepository.findByCategoryIdAndActiveTrue(categoryId)
+                .orElseThrow(() -> new ResourceNotFoundException("Food category not found"));
+        if (includeSubcategories) {
+            return foodCatalogItemRepository.searchAccessibleFoodsInCategorySubtree(
+                    userId, query, today, category.getPath());
+        }
+        return foodCatalogItemRepository.searchAccessibleFoodsInCategory(
+                userId, query, today, category.getCode());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<FoodCategoryView> listCategories(CurrentUserPrincipal principal) {
+        List<FoodCategoryEntity> categories = foodCategoryRepository
+                .findByActiveTrueOrderBySortOrderAscDisplayNameAsc();
+        Map<UUID, List<FoodCategoryEntity>> byParent = new LinkedHashMap<>();
+        for (FoodCategoryEntity category : categories) {
+            UUID parentKey = category.getParentId();
+            byParent.computeIfAbsent(parentKey, k -> new ArrayList<>()).add(category);
+        }
+        return byParent.getOrDefault(null, List.of()).stream()
+                .map(category -> toCategoryView(category, byParent))
+                .toList();
+    }
+
+    private FoodCategoryView toCategoryView(FoodCategoryEntity category,
+                                            Map<UUID, List<FoodCategoryEntity>> byParent) {
+        List<FoodCategoryView> children = byParent.getOrDefault(category.getCategoryId(), List.of()).stream()
+                .map(child -> toCategoryView(child, byParent))
+                .toList();
+        return new FoodCategoryView(
+                category.getCategoryId(),
+                category.getParentId(),
+                category.getCode(),
+                category.getDisplayName(),
+                category.getSlug(),
+                category.getSortOrder(),
+                children);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<LoggedFoodView> listRecentFoods(CurrentUserPrincipal principal, int limit) {
+        return aggregateLoggedFoods(principal.userId(), false, limit);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<LoggedFoodView> listFrequentFoods(CurrentUserPrincipal principal, int limit) {
+        return aggregateLoggedFoods(principal.userId(), true, limit);
+    }
+
+    /**
+     * Collapses the caller's recent meal items by food identity. The most-recently-consumed
+     * occurrence becomes the representative (carrying the last-used serving snapshot). When
+     * {@code byFrequency} is true the result is ordered by occurrence count (recency breaks ties);
+     * otherwise it preserves recency order.
+     */
+    private List<LoggedFoodView> aggregateLoggedFoods(UUID userId, boolean byFrequency, int limit) {
+        int cappedLimit = Math.min(Math.max(limit, 1), LOGGED_FOOD_MAX_LIMIT);
+        List<MealItemEntity> items = mealItemRepository.findRecentItemsByUserId(
+                userId, PageRequest.of(0, LOGGED_FOOD_SCAN_LIMIT));
+
+        LinkedHashMap<String, MealItemEntity> representative = new LinkedHashMap<>();
+        Map<String, Long> counts = new HashMap<>();
+        for (MealItemEntity item : items) {
+            String key = loggedFoodKey(item);
+            representative.putIfAbsent(key, item);
+            counts.merge(key, 1L, Long::sum);
+        }
+
+        var entries = representative.entrySet().stream();
+        if (byFrequency) {
+            entries = entries.sorted(Comparator.comparingLong(
+                    (Map.Entry<String, MealItemEntity> e) -> counts.get(e.getKey())).reversed());
+        }
+        return entries
+                .limit(cappedLimit)
+                .map(e -> toLoggedFoodView(e.getValue(), counts.get(e.getKey())))
+                .toList();
+    }
+
+    private String loggedFoodKey(MealItemEntity item) {
+        if (item.getFoodCatalogItemId() != null) {
+            return "C:" + item.getFoodCatalogItemId();
+        }
+        if (item.getCustomFoodId() != null) {
+            return "U:" + item.getCustomFoodId();
+        }
+        String externalRef = blankToNull(item.getExternalFoodRef());
+        if (externalRef != null) {
+            return "E:" + externalRef;
+        }
+        String name = item.getFoodName() == null ? "" : item.getFoodName().trim().toLowerCase(Locale.ROOT);
+        return "N:" + name;
+    }
+
+    private LoggedFoodView toLoggedFoodView(MealItemEntity item, long timesLogged) {
+        return new LoggedFoodView(
+                item.getCustomFoodId(),
+                item.getFoodCatalogItemId(),
+                item.getFoodServingId(),
+                item.getExternalFoodRef(),
+                item.getBarcode(),
+                item.getFoodName(),
+                item.getBrandName(),
+                item.getQuantity(),
+                item.getUnit(),
+                item.getServingSize(),
+                item.getServingUnit(),
+                item.getSnapshotServingLabel(),
+                item.getCalories(),
+                item.getProteinGrams(),
+                item.getCarbsGrams(),
+                item.getFatGrams(),
+                item.getFiberGrams(),
+                item.getSugarGrams(),
+                item.getSodiumMg(),
+                timesLogged);
     }
 
     @Override
