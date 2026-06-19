@@ -13,6 +13,8 @@ import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.ExerciseView;
+import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
@@ -82,6 +84,25 @@ public class WorkoutController {
     public ExerciseView getExercise(Authentication authentication,
                                     @PathVariable UUID exerciseId) {
         return exerciseService.getExercise(currentPrincipal(authentication), exerciseId);
+    }
+
+    @Operation(summary = "Get completed set history for an accessible exercise")
+    @GetMapping("/exercises/{exerciseId}/history")
+    public PageResponse<ExerciseHistoryEntryView> getExerciseHistory(
+            Authentication authentication,
+            @PathVariable UUID exerciseId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return workoutService.getExerciseHistory(currentPrincipal(authentication), exerciseId, from, to, page, size);
+    }
+
+    @Operation(summary = "Get current personal records for an accessible exercise")
+    @GetMapping("/exercises/{exerciseId}/records")
+    public ExerciseRecordsView getExerciseRecords(Authentication authentication,
+                                                  @PathVariable UUID exerciseId) {
+        return workoutService.getExerciseRecords(currentPrincipal(authentication), exerciseId);
     }
 
     @Operation(summary = "Update a custom exercise")

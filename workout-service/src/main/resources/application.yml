@@ -58,6 +58,9 @@ security:
     expiration: ${JWT_EXPIRATION:PT2H}
 
 fitsync:
+  workout:
+    exercise-history:
+      max-range-days: ${WORKOUT_EXERCISE_HISTORY_MAX_RANGE_DAYS:370}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

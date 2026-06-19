@@ -1,12 +1,17 @@
 package com.fitsync.workout.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.workout.PersonalRecordAchievedPayload;
 import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
@@ -16,6 +21,10 @@ import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
+import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseRecordSetRow;
+import com.fitsync.workout.dto.ExerciseRecordValueView;
+import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
@@ -38,6 +47,7 @@ import com.fitsync.workout.entity.WorkoutPlanExerciseSetTargetEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.messaging.DomainEventPublisher;
 import com.fitsync.workout.repository.ExerciseRepository;
+import com.fitsync.workout.repository.WorkoutExerciseLogRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -54,21 +64,32 @@ import org.springframework.transaction.annotation.Transactional;
 public class WorkoutServiceImpl implements WorkoutService {
 
     private static final String SOURCE = "workout-service";
+    private static final String MAX_WEIGHT_KG = "MAX_WEIGHT_KG";
+    private static final String MAX_REPS = "MAX_REPS";
+    private static final String MAX_SINGLE_SET_VOLUME_KG = "MAX_SINGLE_SET_VOLUME_KG";
+    private static final String ESTIMATED_ONE_REP_MAX_KG = "ESTIMATED_ONE_REP_MAX_KG";
+    private static final String BEST_SESSION_VOLUME_KG = "BEST_SESSION_VOLUME_KG";
 
     private final String workoutEventsTopic;
+    private final int exerciseHistoryMaxRangeDays;
     private final DomainEventPublisher domainEventPublisher;
     private final ExerciseRepository exerciseRepository;
+    private final WorkoutExerciseLogRepository workoutExerciseLogRepository;
     private final WorkoutPlanRepository workoutPlanRepository;
     private final WorkoutSessionRepository workoutSessionRepository;
 
     public WorkoutServiceImpl(@Value("${fitsync.kafka.topics.workout-events:workout-events}") String workoutEventsTopic,
+                              @Value("${fitsync.workout.exercise-history.max-range-days:370}") int exerciseHistoryMaxRangeDays,
                               DomainEventPublisher domainEventPublisher,
                               ExerciseRepository exerciseRepository,
+                              WorkoutExerciseLogRepository workoutExerciseLogRepository,
                               WorkoutPlanRepository workoutPlanRepository,
                               WorkoutSessionRepository workoutSessionRepository) {
         this.workoutEventsTopic = workoutEventsTopic;
+        this.exerciseHistoryMaxRangeDays = exerciseHistoryMaxRangeDays;
         this.domainEventPublisher = domainEventPublisher;
         this.exerciseRepository = exerciseRepository;
+        this.workoutExerciseLogRepository = workoutExerciseLogRepository;
         this.workoutPlanRepository = workoutPlanRepository;
         this.workoutSessionRepository = workoutSessionRepository;
     }
@@ -120,6 +141,35 @@ public class WorkoutServiceImpl implements WorkoutService {
                 .findFirst()
                 .map(this::toPlanView)
                 .orElseThrow(() -> new ResourceNotFoundException("Active workout plan not found"));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<ExerciseHistoryEntryView> getExerciseHistory(CurrentUserPrincipal currentUser,
+                                                                     UUID exerciseId,
+                                                                     Instant from,
+                                                                     Instant to,
+                                                                     int page,
+                                                                     int size) {
+        ExerciseEntity exercise = findAccessibleExercise(currentUser.userId(), exerciseId);
+        validateHistoryRange(from, to);
+        return toPageResponse(workoutExerciseLogRepository.findExerciseHistory(
+                currentUser.userId(),
+                exercise.getExerciseId(),
+                from,
+                to,
+                PageRequest.of(page, size)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ExerciseRecordsView getExerciseRecords(CurrentUserPrincipal currentUser, UUID exerciseId) {
+        ExerciseEntity exercise = findAccessibleExercise(currentUser.userId(), exerciseId);
+        PersonalRecordSnapshot snapshot = snapshotRows(workoutExerciseLogRepository.findRecordRows(
+                currentUser.userId(),
+                exercise.getExerciseId(),
+                null));
+        return toExerciseRecordsView(exercise, snapshot);
     }
 
     @Override
@@ -194,7 +244,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         applySessionRequest(currentUser.userId(), entity, request);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         if (saved.getStatus() == WorkoutSessionStatus.COMPLETED) {
-            publishWorkoutLogged(saved);
+            publishWorkoutLoggedAndPersonalRecords(saved);
         }
         return toSessionView(saved);
     }
@@ -255,7 +305,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         applySessionRequest(currentUser.userId(), entity, request);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         if (saved.getStatus() == WorkoutSessionStatus.COMPLETED && previousStatus != WorkoutSessionStatus.COMPLETED) {
-            publishWorkoutLogged(saved);
+            publishWorkoutLoggedAndPersonalRecords(saved);
         } else if (saved.getStatus() == WorkoutSessionStatus.COMPLETED) {
             publishWorkoutUpdated(saved);
         }
@@ -274,7 +324,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         validateTimeRange(entity.getStartedAt(), entity.getCompletedAt());
         deriveSessionMetrics(entity);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
-        publishWorkoutLogged(saved);
+        publishWorkoutLoggedAndPersonalRecords(saved);
         return toSessionView(saved);
     }
 
@@ -689,6 +739,165 @@ public class WorkoutServiceImpl implements WorkoutService {
         }
     }
 
+    private void validateHistoryRange(Instant from, Instant to) {
+        if (from == null || to == null) {
+            throw new IllegalArgumentException("from and to are required");
+        }
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("to must not be before from");
+        }
+        if (Duration.between(from, to).compareTo(Duration.ofDays(exerciseHistoryMaxRangeDays)) > 0) {
+            throw new IllegalArgumentException("Exercise history range must not exceed "
+                    + exerciseHistoryMaxRangeDays + " days");
+        }
+    }
+
+    private ExerciseRecordsView toExerciseRecordsView(ExerciseEntity exercise, PersonalRecordSnapshot snapshot) {
+        return new ExerciseRecordsView(
+                exercise.getExerciseId(),
+                exercise.getName(),
+                snapshot.maxWeightKg(),
+                snapshot.maxReps(),
+                snapshot.maxSingleSetVolumeKg(),
+                snapshot.estimatedOneRepMaxKg(),
+                snapshot.bestSessionVolumeKg());
+    }
+
+    private void publishWorkoutLoggedAndPersonalRecords(WorkoutSessionEntity session) {
+        publishWorkoutLogged(session);
+        publishPersonalRecordsAchieved(session);
+    }
+
+    private void publishPersonalRecordsAchieved(WorkoutSessionEntity session) {
+        for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
+            PersonalRecordSnapshot current = snapshotExercise(exercise);
+            if (current.isEmpty()) {
+                continue;
+            }
+            PersonalRecordSnapshot prior = snapshotRows(workoutExerciseLogRepository.findRecordRows(
+                    session.getUserId(),
+                    exercise.getExercise().getExerciseId(),
+                    session.getSessionId()));
+            List<PersonalRecordAchievedPayload.RecordAchievement> achievements = compareRecords(current, prior);
+            if (achievements.isEmpty()) {
+                continue;
+            }
+            domainEventPublisher.publish(workoutEventsTopic(), "WorkoutSession", session.getSessionId().toString(), new FitSyncDomainEvent<>(
+                    UUID.randomUUID(),
+                    "PersonalRecordAchieved",
+                    1,
+                    Instant.now(),
+                    SOURCE,
+                    session.getUserId(),
+                    new PersonalRecordAchievedPayload(
+                            exercise.getExercise().getExerciseId(),
+                            exercise.getExerciseNameSnapshot(),
+                            session.getSessionId(),
+                            achievements,
+                            session.getCompletedAt())));
+        }
+    }
+
+    private List<PersonalRecordAchievedPayload.RecordAchievement> compareRecords(PersonalRecordSnapshot current,
+                                                                                PersonalRecordSnapshot prior) {
+        List<PersonalRecordAchievedPayload.RecordAchievement> achievements = new ArrayList<>();
+        addAchievementIfNew(achievements, MAX_WEIGHT_KG, current.maxWeightKg(), prior.maxWeightKg());
+        addAchievementIfNew(achievements, MAX_REPS, current.maxReps(), prior.maxReps());
+        addAchievementIfNew(achievements, MAX_SINGLE_SET_VOLUME_KG, current.maxSingleSetVolumeKg(), prior.maxSingleSetVolumeKg());
+        addAchievementIfNew(achievements, ESTIMATED_ONE_REP_MAX_KG, current.estimatedOneRepMaxKg(), prior.estimatedOneRepMaxKg());
+        addAchievementIfNew(achievements, BEST_SESSION_VOLUME_KG, current.bestSessionVolumeKg(), prior.bestSessionVolumeKg());
+        return achievements;
+    }
+
+    private void addAchievementIfNew(List<PersonalRecordAchievedPayload.RecordAchievement> achievements,
+                                     String recordType,
+                                     ExerciseRecordValueView current,
+                                     ExerciseRecordValueView prior) {
+        if (current != null && (prior == null || current.value().compareTo(prior.value()) > 0)) {
+            achievements.add(new PersonalRecordAchievedPayload.RecordAchievement(recordType, current.value()));
+        }
+    }
+
+    private PersonalRecordSnapshot snapshotExercise(WorkoutExerciseLogEntity exercise) {
+        List<ExerciseRecordSetRow> rows = exercise.getSets().stream()
+                .filter(WorkoutExerciseSetLogEntity::isLogged)
+                .map(set -> new ExerciseRecordSetRow(
+                        exercise.getSession().getSessionId(),
+                        exercise.getExerciseLogId(),
+                        exercise.getExercise().getExerciseId(),
+                        exercise.getExerciseNameSnapshot(),
+                        exercise.getSession().getStartedAt(),
+                        exercise.getSession().getCompletedAt(),
+                        set.getReps(),
+                        set.getWeightKg()))
+                .toList();
+        return snapshotRows(rows);
+    }
+
+    private PersonalRecordSnapshot snapshotRows(List<ExerciseRecordSetRow> rows) {
+        ExerciseRecordValueView maxWeight = null;
+        ExerciseRecordValueView maxReps = null;
+        ExerciseRecordValueView maxSingleSetVolume = null;
+        ExerciseRecordValueView estimatedOneRepMax = null;
+        Map<UUID, SessionVolume> sessionVolumes = new LinkedHashMap<>();
+
+        for (ExerciseRecordSetRow row : rows) {
+            if (row.weightKg() != null) {
+                maxWeight = max(maxWeight, recordValue(row.weightKg(), row));
+            }
+            if (row.reps() != null) {
+                maxReps = max(maxReps, recordValue(BigDecimal.valueOf(row.reps()), row));
+            }
+            if (row.reps() != null && row.weightKg() != null) {
+                BigDecimal setVolume = row.weightKg().multiply(BigDecimal.valueOf(row.reps()));
+                maxSingleSetVolume = max(maxSingleSetVolume, recordValue(setVolume, row));
+                estimatedOneRepMax = max(estimatedOneRepMax, recordValue(estimateOneRepMax(row.weightKg(), row.reps()), row));
+                sessionVolumes.compute(row.sessionId(), (sessionId, volume) -> {
+                    if (volume == null) {
+                        return new SessionVolume(row.sessionId(), row.completedAt(), setVolume);
+                    }
+                    return new SessionVolume(volume.sessionId(), volume.achievedAt(), volume.value().add(setVolume));
+                });
+            }
+        }
+
+        ExerciseRecordValueView bestSessionVolume = null;
+        for (SessionVolume volume : sessionVolumes.values()) {
+            bestSessionVolume = max(bestSessionVolume, new ExerciseRecordValueView(
+                    normalize(volume.value()),
+                    volume.sessionId(),
+                    volume.achievedAt()));
+        }
+
+        return new PersonalRecordSnapshot(
+                maxWeight,
+                maxReps,
+                maxSingleSetVolume,
+                estimatedOneRepMax,
+                bestSessionVolume);
+    }
+
+    private ExerciseRecordValueView max(ExerciseRecordValueView current, ExerciseRecordValueView candidate) {
+        return current == null || candidate.value().compareTo(current.value()) > 0 ? candidate : current;
+    }
+
+    private ExerciseRecordValueView recordValue(BigDecimal value, ExerciseRecordSetRow row) {
+        return new ExerciseRecordValueView(normalize(value), row.sessionId(), row.completedAt());
+    }
+
+    /*
+     * Epley estimated one-rep max: weight * (1 + reps / 30).
+     */
+    private BigDecimal estimateOneRepMax(BigDecimal weight, int reps) {
+        BigDecimal multiplier = BigDecimal.ONE.add(BigDecimal.valueOf(reps)
+                .divide(BigDecimal.valueOf(30), 8, RoundingMode.HALF_UP));
+        return weight.multiply(multiplier);
+    }
+
+    private BigDecimal normalize(BigDecimal value) {
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
     private void publishWorkoutLogged(WorkoutSessionEntity session) {
         domainEventPublisher.publish(workoutEventsTopic(), "WorkoutSession", session.getSessionId().toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
@@ -824,5 +1033,27 @@ public class WorkoutServiceImpl implements WorkoutService {
                 exercises,
                 entity.getDateTimeCreated(),
                 entity.getDateTimeUpdated());
+    }
+
+    private record PersonalRecordSnapshot(
+            ExerciseRecordValueView maxWeightKg,
+            ExerciseRecordValueView maxReps,
+            ExerciseRecordValueView maxSingleSetVolumeKg,
+            ExerciseRecordValueView estimatedOneRepMaxKg,
+            ExerciseRecordValueView bestSessionVolumeKg) {
+
+        boolean isEmpty() {
+            return maxWeightKg == null
+                    && maxReps == null
+                    && maxSingleSetVolumeKg == null
+                    && estimatedOneRepMaxKg == null
+                    && bestSessionVolumeKg == null;
+        }
+    }
+
+    private record SessionVolume(
+            UUID sessionId,
+            Instant achievedAt,
+            BigDecimal value) {
     }
 }
