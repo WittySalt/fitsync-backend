@@ -956,8 +956,8 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional(readOnly = true)
     public byte[] exportFoodDiary(CurrentUserPrincipal principal, Instant from, Instant to, String format) {
-        if (format != null && !format.isBlank() && !"csv".equalsIgnoreCase(format)) {
-            throw new BadRequestException("Unsupported export format: " + format + " (only csv)");
+        if (format != null && !format.isBlank() && !"csv".equals(format)) {
+            throw new BadRequestException("Unsupported export format: " + format + " (only \"csv\")");
         }
         if (from == null || to == null) {
             throw new BadRequestException("from and to are required");

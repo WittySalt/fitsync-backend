@@ -58,7 +58,8 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
             }
             return Optional.of(toFoodDetailView(root.path("product"), barcode));
         } catch (Exception ex) {
-            log.warn("OpenFoodFacts lookup failed for barcode {}: {}", barcode, ex.toString());
+            // Constant message + throwable overload — never interpolate user input (CRLF/log injection).
+            log.warn("OpenFoodFacts barcode lookup failed", ex);
             return Optional.empty();
         }
     }
