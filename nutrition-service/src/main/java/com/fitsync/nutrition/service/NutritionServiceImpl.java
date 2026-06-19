@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -24,6 +25,8 @@ import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.FoodCreationMode;
 import com.fitsync.nutrition.domain.MealSource;
 import com.fitsync.nutrition.domain.MealType;
+import com.fitsync.nutrition.dto.CopyDayRequest;
+import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
 import com.fitsync.nutrition.dto.CustomFoodView;
@@ -235,6 +238,86 @@ public class NutritionServiceImpl implements NutritionService {
         return mealLogRepository.findTopByUserIdOrderByConsumedAtDesc(principal.userId())
                 .map(meal -> toMealView(meal, mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(meal.getMealId())))
                 .orElse(null);
+    }
+
+    @Override
+    @Transactional
+    public MealView copyMeal(CurrentUserPrincipal principal, UUID mealId, CopyMealRequest request) {
+        MealLogEntity source = getOwnedMeal(principal.userId(), mealId);
+        return copyMealTo(principal.userId(), source, request.consumedAt(), request.mealType());
+    }
+
+    @Override
+    @Transactional
+    public List<MealView> copyDay(CurrentUserPrincipal principal, LocalDate sourceDate, CopyDayRequest request) {
+        ZoneId zone = resolveZone(request.timezone());
+        Instant from = sourceDate.atStartOfDay(zone).toInstant();
+        Instant to = sourceDate.plusDays(1).atStartOfDay(zone).minusNanos(1).toInstant();
+        List<MealLogEntity> meals = mealLogRepository
+                .findByUserIdAndConsumedAtGreaterThanEqualAndConsumedAtLessThanEqualOrderByConsumedAtDesc(
+                        principal.userId(), from, to);
+        List<MealView> copied = new ArrayList<>();
+        for (MealLogEntity meal : meals) {
+            LocalTime localTime = meal.getConsumedAt().atZone(zone).toLocalTime();
+            Instant target = request.targetDate().atTime(localTime).atZone(zone).toInstant();
+            copied.add(copyMealTo(principal.userId(), meal, target, null));
+        }
+        return copied;
+    }
+
+    /** Clones a meal and its item snapshots (+ nutrient details) to a new time, emitting MealLogged. */
+    private MealView copyMealTo(UUID userId, MealLogEntity source, Instant targetConsumedAt, MealType mealTypeOverride) {
+        MealLogEntity newMeal = new MealLogEntity();
+        newMeal.setMealId(UUID.randomUUID());
+        newMeal.setUserId(userId);
+        newMeal.setMealType(mealTypeOverride != null ? mealTypeOverride : source.getMealType());
+        newMeal.setName(source.getName());
+        newMeal.setSource(source.getSource());
+        newMeal.setConsumedAt(targetConsumedAt);
+        newMeal.setTimezone(source.getTimezone());
+        newMeal.setNote(source.getNote());
+        MealLogEntity savedMeal = mealLogRepository.save(newMeal);
+
+        List<MealItemEntity> sourceItems = mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(source.getMealId());
+        Map<UUID, List<NutrientDetailView>> detailsBySource = loadMealItemNutrientDetails(sourceItems);
+        List<MealItemEntity> newItems = new ArrayList<>();
+        for (MealItemEntity src : sourceItems) {
+            MealItemEntity savedItem = mealItemRepository.save(copyMealItem(savedMeal.getMealId(), src));
+            replaceMealItemNutrientDetails(savedItem.getMealItemId(),
+                    detailsBySource.getOrDefault(src.getMealItemId(), List.of()).stream()
+                            .map(d -> new NutrientDetailInput(d.nutrientCode(), d.displayName(), d.amount(),
+                                    d.unit(), d.sortOrder()))
+                            .toList());
+            newItems.add(savedItem);
+        }
+        publishMealLogged(savedMeal, newItems);
+        return toMealView(savedMeal, newItems);
+    }
+
+    private MealItemEntity copyMealItem(UUID newMealId, MealItemEntity src) {
+        MealItemEntity copy = new MealItemEntity();
+        copy.setMealItemId(UUID.randomUUID());
+        copy.setMealId(newMealId);
+        copy.setCustomFoodId(src.getCustomFoodId());
+        copy.setFoodCatalogItemId(src.getFoodCatalogItemId());
+        copy.setFoodServingId(src.getFoodServingId());
+        copy.setExternalFoodRef(src.getExternalFoodRef());
+        copy.setBarcode(src.getBarcode());
+        copy.setFoodName(src.getFoodName());
+        copy.setBrandName(src.getBrandName());
+        copy.setQuantity(src.getQuantity());
+        copy.setUnit(src.getUnit());
+        copy.setServingSize(src.getServingSize());
+        copy.setServingUnit(src.getServingUnit());
+        copy.setSnapshotServingLabel(src.getSnapshotServingLabel());
+        copy.setCalories(src.getCalories());
+        copy.setProteinGrams(src.getProteinGrams());
+        copy.setCarbsGrams(src.getCarbsGrams());
+        copy.setFatGrams(src.getFatGrams());
+        copy.setFiberGrams(src.getFiberGrams());
+        copy.setSugarGrams(src.getSugarGrams());
+        copy.setSodiumMg(src.getSodiumMg());
+        return copy;
     }
 
     @Override

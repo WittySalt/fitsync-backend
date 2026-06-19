@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.nutrition.domain.MealType;
+import com.fitsync.nutrition.dto.CopyDayRequest;
+import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
@@ -37,6 +39,10 @@ public interface NutritionService {
     void deleteMeal(CurrentUserPrincipal principal, UUID mealId);
 
     MealView getLatestMeal(CurrentUserPrincipal principal);
+
+    MealView copyMeal(CurrentUserPrincipal principal, UUID mealId, CopyMealRequest request);
+
+    List<MealView> copyDay(CurrentUserPrincipal principal, LocalDate sourceDate, CopyDayRequest request);
 
     CustomFoodView createCustomFood(CurrentUserPrincipal principal, CreateCustomFoodRequest request);
 

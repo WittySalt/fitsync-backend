@@ -7,6 +7,8 @@ import java.util.UUID;
 
 import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.MealType;
+import com.fitsync.nutrition.dto.CopyDayRequest;
+import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
@@ -91,6 +93,22 @@ public class NutritionController {
     @GetMapping("/meals/latest")
     public MealView latestMeal(Authentication authentication) {
         return nutritionService.getLatestMeal(currentPrincipal(authentication));
+    }
+
+    @PostMapping("/meals/{mealId}/copy")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView copyMeal(Authentication authentication,
+                             @PathVariable UUID mealId,
+                             @Valid @RequestBody CopyMealRequest request) {
+        return nutritionService.copyMeal(currentPrincipal(authentication), mealId, request);
+    }
+
+    @PostMapping("/days/{date}/copy-to")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<MealView> copyDay(Authentication authentication,
+                                  @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                  @Valid @RequestBody CopyDayRequest request) {
+        return nutritionService.copyDay(currentPrincipal(authentication), date, request);
     }
 
     @PostMapping("/custom-foods")

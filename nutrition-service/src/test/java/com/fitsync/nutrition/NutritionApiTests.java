@@ -402,6 +402,74 @@ class NutritionApiTests {
     }
 
     @Test
+    void canCopyMealAndCopyEntireDay() throws Exception {
+        String token = tokenFor("tina@example.com", "Tina");
+
+        String mealResponse = mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "BREAKFAST",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-14T08:00:00Z",
+                                  "timezone": "UTC",
+                                  "items": [
+                                    { "foodName": "Oats", "quantity": 1.0, "unit": "bowl", "calories": 300 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String mealId = com.jayway.jsonpath.JsonPath.read(mealResponse, "$.mealId");
+
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "LUNCH",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-14T12:00:00Z",
+                                  "timezone": "UTC",
+                                  "items": [
+                                    { "foodName": "Salad", "quantity": 1.0, "unit": "bowl", "calories": 400 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        // Copy a single meal to a new day, overriding the meal type.
+        mockMvc.perform(post("/api/v1/nutrition/meals/{mealId}/copy", mealId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "consumedAt": "2026-06-20T08:00:00Z", "mealType": "SNACK" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mealType").value("SNACK"))
+                .andExpect(jsonPath("$.totalCalories").value(300))
+                .andExpect(jsonPath("$.items[0].foodName").value("Oats"));
+
+        // Copy the whole 2026-06-14 day (2 meals) to 2026-06-21.
+        mockMvc.perform(post("/api/v1/nutrition/days/{date}/copy-to", "2026-06-14")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "targetDate": "2026-06-21", "timezone": "UTC" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.length()").value(2));
+
+        mockMvc.perform(get("/api/v1/nutrition/summary/daily")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-21").param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mealCount").value(2))
+                .andExpect(jsonPath("$.totalCalories").value(700));
+    }
+
+    @Test
     void mealValidationRejectsEmptyItems() throws Exception {
         String token = tokenFor("carol@example.com", "Carol");
 
