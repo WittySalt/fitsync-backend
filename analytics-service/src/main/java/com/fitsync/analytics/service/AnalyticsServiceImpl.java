@@ -4,14 +4,17 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
+import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 
+import com.fitsync.analytics.config.AnalyticsProperties;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
@@ -44,19 +47,22 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     private final AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository;
     private final AnalyticsUserDailyNutritionRepository dailyNutritionRepository;
     private final Clock clock;
+    private final AnalyticsProperties analyticsProperties;
 
     public AnalyticsServiceImpl(AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                 AnalyticsUserGoalProgressRepository goalProgressRepository,
                                 AnalyticsUserDailyBodyRepository dailyBodyRepository,
                                 AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository,
                                 AnalyticsUserDailyNutritionRepository dailyNutritionRepository,
-                                Clock clock) {
+                                Clock clock,
+                                AnalyticsProperties analyticsProperties) {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.goalProgressRepository = goalProgressRepository;
         this.dailyBodyRepository = dailyBodyRepository;
         this.dailyWorkoutRepository = dailyWorkoutRepository;
         this.dailyNutritionRepository = dailyNutritionRepository;
         this.clock = clock;
+        this.analyticsProperties = analyticsProperties;
     }
 
     @Override
@@ -99,25 +105,13 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                                      LocalDate from,
                                                      LocalDate to,
                                                      BodyTrendBucket bucket) {
-        validateDateRange(from, to);
+        validateDateRange(from, to, bucket);
         List<AnalyticsUserDailyBodyEntity> rows = dailyBodyRepository
                 .findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(principal.userId(), from, to);
 
-        Map<LocalDate, AnalyticsUserDailyBodyEntity> grouped = new LinkedHashMap<>();
-        for (AnalyticsUserDailyBodyEntity row : rows) {
-            grouped.put(bucketStart(row.getMetricDate(), bucket), row);
-        }
-
-        List<AnalyticsBodyTrendsResponse.BodyTrendPoint> points = grouped.values().stream()
-                .map(row -> new AnalyticsBodyTrendsResponse.BodyTrendPoint(
-                        row.getMetricDate(),
-                        toDouble(row.getWeightKg()),
-                        toDouble(row.getBodyFatRate()),
-                        toDouble(row.getWaistCm()),
-                        toDouble(row.getBmi()),
-                        toDouble(row.getWeightDeltaFromStart()),
-                        toDouble(row.getWeightDeltaFromPrevious())))
-                .toList();
+        List<AnalyticsBodyTrendsResponse.BodyTrendPoint> points = bucket == BodyTrendBucket.DAY
+                ? rows.stream().map(this::toBodyTrendPoint).toList()
+                : aggregateBodyTrendRows(rows, bucket);
 
         return new AnalyticsBodyTrendsResponse(from, to, bucket.name(), points);
     }
@@ -126,7 +120,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.WORKOUT_SUMMARY_CACHE,
             key = "#principal.userId() + ':' + #from + ':' + #to")
     public AnalyticsWorkoutSummaryResponse getWorkoutSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to) {
-        validateDateRange(from, to);
+        validateSummaryRange(from, to);
         List<AnalyticsUserDailyWorkoutEntity> rows = dailyWorkoutRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
         int totalWorkoutCount = rows.stream().mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount())).sum();
@@ -153,7 +147,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.NUTRITION_SUMMARY_CACHE,
             key = "#principal.userId() + ':' + #from + ':' + #to")
     public AnalyticsNutritionSummaryResponse getNutritionSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to) {
-        validateDateRange(from, to);
+        validateSummaryRange(from, to);
         List<AnalyticsUserDailyNutritionEntity> rows = dailyNutritionRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
         int totalCaloriesConsumed = rows.stream().mapToInt(row -> defaultInteger(row.getTotalCaloriesConsumed())).sum();
@@ -255,21 +249,92 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 goals);
     }
 
+    /**
+     * Aggregates WEEK and MONTH body trend buckets using last-valid-value semantics. Each point-in-time
+     * metric (weight, body-fat, waist, BMI, and delta-from-start) keeps the latest non-null value within
+     * the bucket, so the point represents the bucket-end known state. The delta-from-previous field is
+     * recomputed between adjacent aggregated bucket weights and is not copied from any source row.
+     */
+    private List<AnalyticsBodyTrendsResponse.BodyTrendPoint> aggregateBodyTrendRows(
+            List<AnalyticsUserDailyBodyEntity> rows,
+            BodyTrendBucket bucket) {
+        Map<LocalDate, BodyTrendBucketAccumulator> grouped = new TreeMap<>();
+        rows.forEach(row -> grouped
+                .computeIfAbsent(bucketStart(row.getMetricDate(), bucket), BodyTrendBucketAccumulator::new)
+                .accept(row));
+
+        List<AnalyticsBodyTrendsResponse.BodyTrendPoint> points = new ArrayList<>();
+        BigDecimal previousWeight = null;
+        for (BodyTrendBucketAccumulator accumulator : grouped.values()) {
+            BigDecimal deltaFromPrevious = accumulator.weightKg != null && previousWeight != null
+                    ? accumulator.weightKg.subtract(previousWeight)
+                    : null;
+            points.add(accumulator.toPoint(deltaFromPrevious));
+            previousWeight = accumulator.weightKg;
+        }
+        return points;
+    }
+
+    private AnalyticsBodyTrendsResponse.BodyTrendPoint toBodyTrendPoint(AnalyticsUserDailyBodyEntity row) {
+        return new AnalyticsBodyTrendsResponse.BodyTrendPoint(
+                row.getMetricDate(),
+                toDouble(row.getWeightKg()),
+                toDouble(row.getBodyFatRate()),
+                toDouble(row.getWaistCm()),
+                toDouble(row.getBmi()),
+                toDouble(row.getWeightDeltaFromStart()),
+                toDouble(row.getWeightDeltaFromPrevious()));
+    }
+
     private LocalDate bucketStart(LocalDate date, BodyTrendBucket bucket) {
         return switch (bucket) {
             case DAY -> date;
-            case WEEK -> date.with(WeekFields.of(Locale.getDefault()).dayOfWeek(), 1);
+            case WEEK -> date.with(WeekFields.ISO.dayOfWeek(), 1);
             case MONTH -> date.withDayOfMonth(1);
         };
     }
 
-    private void validateDateRange(LocalDate from, LocalDate to) {
+    /**
+     * Validates trend ranges using one ChronoUnit.DAYS day-span cap per bucket. WEEK and MONTH
+     * are allowed longer raw date spans than DAY because they return coarser buckets instead of daily points.
+     */
+    private void validateDateRange(LocalDate from, LocalDate to, BodyTrendBucket bucket) {
+        long rangeDays = validateBaseDateRange(from, to);
+        int maxRangeDays = maxRangeDaysFor(bucket);
+        if (rangeDays > maxRangeDays) {
+            throw new BadRequestException(
+                    "Date range for " + bucket.name() + " bucket must not exceed " + maxRangeDays + " days");
+        }
+    }
+
+    /**
+     * Validates summary ranges with the DAY cap because summary endpoints do not have bucket semantics.
+     */
+    private void validateSummaryRange(LocalDate from, LocalDate to) {
+        long rangeDays = validateBaseDateRange(from, to);
+        int maxRangeDays = analyticsProperties.trends().maxRangeDays().day();
+        if (rangeDays > maxRangeDays) {
+            throw new BadRequestException("Date range must not exceed " + maxRangeDays + " days");
+        }
+    }
+
+    private long validateBaseDateRange(LocalDate from, LocalDate to) {
         if (from == null || to == null) {
             throw new BadRequestException("from and to are required");
         }
         if (to.isBefore(from)) {
             throw new BadRequestException("to must not be before from");
         }
+        return ChronoUnit.DAYS.between(from, to);
+    }
+
+    private int maxRangeDaysFor(BodyTrendBucket bucket) {
+        AnalyticsProperties.MaxRangeDays maxRangeDays = analyticsProperties.trends().maxRangeDays();
+        return switch (bucket) {
+            case DAY -> maxRangeDays.day();
+            case WEEK -> maxRangeDays.week();
+            case MONTH -> maxRangeDays.month();
+        };
     }
 
     private AnalyticsDashboardResponse.GoalProgressSummary toGoalProgressSummary(
@@ -293,7 +358,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return value == null || value.compareTo(BigDecimal.ZERO) == 0 ? null : value.doubleValue();
     }
 
-    private Double toDouble(BigDecimal value) {
+    private static Double toDouble(BigDecimal value) {
         return value != null ? value.doubleValue() : null;
     }
 
@@ -303,5 +368,42 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     private String normalizeStatus(String status) {
         return status == null ? "" : status.toUpperCase(Locale.ROOT);
+    }
+
+    private static final class BodyTrendBucketAccumulator {
+
+        private final LocalDate bucketStart;
+        private BigDecimal weightKg;
+        private BigDecimal bodyFatRate;
+        private BigDecimal waistCm;
+        private BigDecimal bmi;
+        private BigDecimal weightDeltaFromStart;
+
+        BodyTrendBucketAccumulator(LocalDate bucketStart) {
+            this.bucketStart = bucketStart;
+        }
+
+        void accept(AnalyticsUserDailyBodyEntity row) {
+            weightKg = lastValid(weightKg, row.getWeightKg());
+            bodyFatRate = lastValid(bodyFatRate, row.getBodyFatRate());
+            waistCm = lastValid(waistCm, row.getWaistCm());
+            bmi = lastValid(bmi, row.getBmi());
+            weightDeltaFromStart = lastValid(weightDeltaFromStart, row.getWeightDeltaFromStart());
+        }
+
+        AnalyticsBodyTrendsResponse.BodyTrendPoint toPoint(BigDecimal weightDeltaFromPrevious) {
+            return new AnalyticsBodyTrendsResponse.BodyTrendPoint(
+                    bucketStart,
+                    toDouble(weightKg),
+                    toDouble(bodyFatRate),
+                    toDouble(waistCm),
+                    toDouble(bmi),
+                    toDouble(weightDeltaFromStart),
+                    toDouble(weightDeltaFromPrevious));
+        }
+
+        private BigDecimal lastValid(BigDecimal currentValue, BigDecimal newValue) {
+            return newValue != null ? newValue : currentValue;
+        }
     }
 }

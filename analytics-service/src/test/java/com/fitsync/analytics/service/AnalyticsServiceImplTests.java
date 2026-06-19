@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.analytics.config.AnalyticsProperties;
+import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
@@ -26,11 +28,15 @@ import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,7 +55,7 @@ class AnalyticsServiceImplTests {
         when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of());
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         AnalyticsDashboardResponse response = service.getDashboard(new CurrentUserPrincipal(
                 userId,
@@ -105,7 +111,7 @@ class AnalyticsServiceImplTests {
         when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of(goal));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         AnalyticsDashboardResponse response = service.getDashboard(new CurrentUserPrincipal(
                 userId,
@@ -190,7 +196,7 @@ class AnalyticsServiceImplTests {
                 .thenReturn(List.of(nutritionDay1, nutritionDay2));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         AnalyticsWorkoutSummaryResponse workoutSummary = service.getWorkoutSummary(
                 new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"),
@@ -223,16 +229,18 @@ class AnalyticsServiceImplTests {
         day1.setUserId(userId);
         day1.setMetricDate(LocalDate.parse("2026-06-01"));
         day1.setWeightKg(new BigDecimal("80.00"));
+        day1.setWeightDeltaFromPrevious(null);
         AnalyticsUserDailyBodyEntity day2 = new AnalyticsUserDailyBodyEntity();
         day2.setUserId(userId);
         day2.setMetricDate(LocalDate.parse("2026-06-08"));
         day2.setWeightKg(new BigDecimal("79.00"));
+        day2.setWeightDeltaFromPrevious(new BigDecimal("-1.00"));
         when(bodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(
                 userId, LocalDate.parse("2026-06-01"), LocalDate.parse("2026-06-14")))
                 .thenReturn(List.of(day1, day2));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         var response = service.getBodyTrends(
                 new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"),
@@ -241,7 +249,166 @@ class AnalyticsServiceImplTests {
                 BodyTrendBucket.DAY);
 
         assertThat(response.points()).hasSize(2);
+        assertThat(response.points().get(1).date()).isEqualTo(LocalDate.parse("2026-06-08"));
         assertThat(response.points().get(1).weightKg()).isEqualTo(79.0);
+        assertThat(response.points().get(1).weightDeltaFromPrevious()).isEqualTo(-1.0);
+    }
+
+    @Test
+    void bodyTrendsAllowsRangesExactlyAtConfiguredBucketCaps() {
+        assertTrendRangePasses(BodyTrendBucket.DAY, 370);
+        assertTrendRangePasses(BodyTrendBucket.WEEK, 1095);
+        assertTrendRangePasses(BodyTrendBucket.MONTH, 1830);
+    }
+
+    @Test
+    void bodyTrendsRejectsRangesBeyondConfiguredBucketCapsBeforeLoadingRows() {
+        assertTrendRangeRejected(BodyTrendBucket.DAY, 370);
+        assertTrendRangeRejected(BodyTrendBucket.WEEK, 1095);
+        assertTrendRangeRejected(BodyTrendBucket.MONTH, 1830);
+    }
+
+    @Test
+    void bodyTrendsAllowsLongerRangesForWeekAndMonthBuckets() {
+        assertTrendRangePasses(BodyTrendBucket.WEEK, 800);
+        assertTrendRangePasses(BodyTrendBucket.MONTH, 800);
+    }
+
+    @Test
+    void bodyTrendsKeepsExistingNullAndInvertedRangeValidation() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsServiceImpl service = bodyTrendService(bodyRepository);
+        CurrentUserPrincipal principal = principal(userId);
+
+        assertThatThrownBy(() -> service.getBodyTrends(
+                principal,
+                null,
+                LocalDate.parse("2026-01-01"),
+                BodyTrendBucket.DAY))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("from and to are required");
+        assertThatThrownBy(() -> service.getBodyTrends(
+                principal,
+                LocalDate.parse("2026-01-02"),
+                LocalDate.parse("2026-01-01"),
+                BodyTrendBucket.DAY))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("to must not be before from");
+        verify(bodyRepository, never()).findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(any(), any(), any());
+    }
+
+    @Test
+    void workoutSummaryRejectsRangesBeyondDayCapBeforeLoadingRows() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsServiceImpl service = workoutSummaryService(workoutRepository);
+        LocalDate from = LocalDate.parse("2026-01-01");
+
+        assertThatThrownBy(() -> service.getWorkoutSummary(principal(userId), from, from.plusDays(371)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Date range must not exceed 370 days");
+        verify(workoutRepository, never()).findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any());
+    }
+
+    @Test
+    void shouldAggregateBodyTrendsByIsoWeekStartUsingLastValidValues() {
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC);
+        AnalyticsUserDashboardSnapshotRepository dashboardRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
+        AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+        when(bodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(
+                userId, LocalDate.parse("2026-06-02"), LocalDate.parse("2026-06-10")))
+                .thenReturn(List.of(
+                        bodyDay(userId, "2026-06-02", "80.00", "20.00", "90.00", "25.00", "0.00", null),
+                        bodyDay(userId, "2026-06-04", "79.50", null, "89.00", "24.80", "-0.50", "-0.50"),
+                        bodyDay(userId, "2026-06-08", "79.00", "19.50", null, "24.60", "-1.00", "-0.50"),
+                        bodyDay(userId, "2026-06-10", null, "19.20", "88.00", null, null, null)));
+
+        AnalyticsServiceImpl service = new AnalyticsServiceImpl(
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
+
+        var response = service.getBodyTrends(
+                new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"),
+                LocalDate.parse("2026-06-02"),
+                LocalDate.parse("2026-06-10"),
+                BodyTrendBucket.WEEK);
+
+        assertThat(response.points()).hasSize(2);
+        assertThat(response.points().get(0))
+                .extracting(
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::date,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightKg,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::bodyFatRate,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::waistCm,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::bmi,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightDeltaFromStart,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightDeltaFromPrevious)
+                .containsExactly(LocalDate.parse("2026-06-01"), 79.5, 20.0, 89.0, 24.8, -0.5, null);
+        assertThat(response.points().get(1))
+                .extracting(
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::date,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightKg,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::bodyFatRate,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::waistCm,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::bmi,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightDeltaFromStart,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightDeltaFromPrevious)
+                .containsExactly(LocalDate.parse("2026-06-08"), 79.0, 19.2, 88.0, 24.6, -1.0, -0.5);
+    }
+
+    @Test
+    void shouldAggregateBodyTrendsByMonthStartAndRecomputeBucketDeltas() {
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-02-20T08:00:00Z"), ZoneOffset.UTC);
+        AnalyticsUserDashboardSnapshotRepository dashboardRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
+        AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+        when(bodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(
+                userId, LocalDate.parse("2026-01-05"), LocalDate.parse("2026-02-20")))
+                .thenReturn(List.of(
+                        bodyDay(userId, "2026-01-05", "82.00", "20.00", "92.00", "26.00", "0.00", null),
+                        bodyDay(userId, "2026-01-31", "81.00", "19.60", "91.00", "25.50", "-1.00", "-1.00"),
+                        bodyDay(userId, "2026-02-01", "80.80", null, "90.50", "25.30", "-1.20", "-0.20"),
+                        bodyDay(userId, "2026-02-20", "80.00", "19.10", "90.00", "25.00", "-2.00", "-0.80")));
+
+        AnalyticsServiceImpl service = new AnalyticsServiceImpl(
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
+
+        var response = service.getBodyTrends(
+                new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"),
+                LocalDate.parse("2026-01-05"),
+                LocalDate.parse("2026-02-20"),
+                BodyTrendBucket.MONTH);
+
+        assertThat(response.points()).hasSize(2);
+        assertThat(response.points().get(0))
+                .extracting(
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::date,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightKg,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::bodyFatRate,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::waistCm,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::bmi,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightDeltaFromStart,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightDeltaFromPrevious)
+                .containsExactly(LocalDate.parse("2026-01-01"), 81.0, 19.6, 91.0, 25.5, -1.0, null);
+        assertThat(response.points().get(1))
+                .extracting(
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::date,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightKg,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::bodyFatRate,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::waistCm,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::bmi,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightDeltaFromStart,
+                        AnalyticsBodyTrendsResponse.BodyTrendPoint::weightDeltaFromPrevious)
+                .containsExactly(LocalDate.parse("2026-02-01"), 80.0, 19.1, 90.0, 25.0, -2.0, -1.0);
     }
 
     @Test
@@ -311,6 +478,65 @@ class AnalyticsServiceImplTests {
         assertThat(captor.getValue().getActiveStreakDays()).isZero();
     }
 
+    private void assertTrendRangePasses(BodyTrendBucket bucket, int days) {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-01-01");
+        LocalDate to = from.plusDays(days);
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        when(bodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(userId, from, to))
+                .thenReturn(List.of());
+
+        AnalyticsServiceImpl service = bodyTrendService(bodyRepository);
+
+        AnalyticsBodyTrendsResponse response = service.getBodyTrends(principal(userId), from, to, bucket);
+
+        assertThat(response.points()).isEmpty();
+        verify(bodyRepository).findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(userId, from, to);
+    }
+
+    private void assertTrendRangeRejected(BodyTrendBucket bucket, int cap) {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-01-01");
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsServiceImpl service = bodyTrendService(bodyRepository);
+
+        assertThatThrownBy(() -> service.getBodyTrends(principal(userId), from, from.plusDays(cap + 1L), bucket))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Date range for " + bucket.name() + " bucket must not exceed " + cap + " days");
+        verify(bodyRepository, never()).findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(any(), any(), any());
+    }
+
+    private AnalyticsServiceImpl bodyTrendService(AnalyticsUserDailyBodyRepository bodyRepository) {
+        return new AnalyticsServiceImpl(
+                mock(AnalyticsUserDashboardSnapshotRepository.class),
+                mock(AnalyticsUserGoalProgressRepository.class),
+                bodyRepository,
+                mock(AnalyticsUserDailyWorkoutRepository.class),
+                mock(AnalyticsUserDailyNutritionRepository.class),
+                Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC),
+                analyticsProperties());
+    }
+
+    private AnalyticsServiceImpl workoutSummaryService(AnalyticsUserDailyWorkoutRepository workoutRepository) {
+        return new AnalyticsServiceImpl(
+                mock(AnalyticsUserDashboardSnapshotRepository.class),
+                mock(AnalyticsUserGoalProgressRepository.class),
+                mock(AnalyticsUserDailyBodyRepository.class),
+                workoutRepository,
+                mock(AnalyticsUserDailyNutritionRepository.class),
+                Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC),
+                analyticsProperties());
+    }
+
+    private CurrentUserPrincipal principal(UUID userId) {
+        return new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER");
+    }
+
+    private AnalyticsProperties analyticsProperties() {
+        return new AnalyticsProperties(
+                new AnalyticsProperties.Trends(new AnalyticsProperties.MaxRangeDays(370, 1095, 1830)));
+    }
+
     private AnalyticsRebuildServiceImpl rebuildService(
             AnalyticsUserDashboardSnapshotRepository dashboardRepository,
             AnalyticsUserDailyBodyRepository bodyRepository,
@@ -339,5 +565,29 @@ class AnalyticsServiceImplTests {
         workout.setTotalCaloriesBurned(0);
         workout.setTotalExerciseCount(0);
         return workout;
+    }
+
+    private AnalyticsUserDailyBodyEntity bodyDay(UUID userId,
+                                                 String date,
+                                                 String weightKg,
+                                                 String bodyFatRate,
+                                                 String waistCm,
+                                                 String bmi,
+                                                 String weightDeltaFromStart,
+                                                 String weightDeltaFromPrevious) {
+        AnalyticsUserDailyBodyEntity body = new AnalyticsUserDailyBodyEntity();
+        body.setUserId(userId);
+        body.setMetricDate(LocalDate.parse(date));
+        body.setWeightKg(decimal(weightKg));
+        body.setBodyFatRate(decimal(bodyFatRate));
+        body.setWaistCm(decimal(waistCm));
+        body.setBmi(decimal(bmi));
+        body.setWeightDeltaFromStart(decimal(weightDeltaFromStart));
+        body.setWeightDeltaFromPrevious(decimal(weightDeltaFromPrevious));
+        return body;
+    }
+
+    private BigDecimal decimal(String value) {
+        return value == null ? null : new BigDecimal(value);
     }
 }

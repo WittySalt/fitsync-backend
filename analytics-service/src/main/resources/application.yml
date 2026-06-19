@@ -67,6 +67,11 @@ fitsync:
   analytics:
     rollup:
       cron: "${ANALYTICS_ROLLUP_CRON:0 5 0 * * *}"
+    trends:
+      max-range-days:
+        day: ${ANALYTICS_TRENDS_MAX_RANGE_DAYS_DAY:370}
+        week: ${ANALYTICS_TRENDS_MAX_RANGE_DAYS_WEEK:1095}
+        month: ${ANALYTICS_TRENDS_MAX_RANGE_DAYS_MONTH:1830}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:
