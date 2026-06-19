@@ -22,6 +22,7 @@ import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
 import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.FoodCreationMode;
+import com.fitsync.nutrition.domain.MealSource;
 import com.fitsync.nutrition.domain.MealType;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
@@ -36,6 +37,7 @@ import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealItemInput;
 import com.fitsync.nutrition.dto.MealItemView;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.QuickAddMealRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.NutrientDetailInput;
 import com.fitsync.nutrition.dto.NutrientDetailView;
@@ -152,6 +154,34 @@ public class NutritionServiceImpl implements NutritionService {
         List<MealItemEntity> savedItems = replaceMealItems(principal.userId(), savedMeal.getMealId(), request.items());
         publishMealLogged(savedMeal, savedItems);
         return toMealView(savedMeal, savedItems);
+    }
+
+    @Override
+    @Transactional
+    public MealView quickAddMeal(CurrentUserPrincipal principal, QuickAddMealRequest request) {
+        String itemName = request.name() == null || request.name().isBlank() ? "Quick add" : request.name().trim();
+        MealItemInput item = new MealItemInput(
+                null, null, null, null, null,
+                itemName, null,
+                BigDecimal.ONE, "serving",
+                null, null, null,
+                request.calories(),
+                request.proteinGrams(),
+                request.carbsGrams(),
+                request.fatGrams(),
+                request.fiberGrams(),
+                request.sugarGrams(),
+                request.sodiumMg(),
+                null);
+        CreateMealRequest mealRequest = new CreateMealRequest(
+                request.mealType() == null ? MealType.SNACK : request.mealType(),
+                blankToNull(request.name()),
+                MealSource.MANUAL,
+                request.consumedAt() == null ? Instant.now() : request.consumedAt(),
+                blankToNull(request.timezone()),
+                null,
+                List.of(item));
+        return createMeal(principal, mealRequest);
     }
 
     @Override

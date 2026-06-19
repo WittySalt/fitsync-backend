@@ -18,12 +18,15 @@ import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.QuickAddMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 
 public interface NutritionService {
 
     MealView createMeal(CurrentUserPrincipal principal, CreateMealRequest request);
+
+    MealView quickAddMeal(CurrentUserPrincipal principal, QuickAddMealRequest request);
 
     List<MealView> listMeals(CurrentUserPrincipal principal, Instant from, Instant to, MealType mealType);
 

@@ -353,6 +353,55 @@ class NutritionApiTests {
     }
 
     @Test
+    void quickAddCreatesSingleItemMealWithDefaults() throws Exception {
+        String token = tokenFor("sam@example.com", "Sam");
+
+        // Only calories supplied -> defaults: SNACK, "Quick add" item, now.
+        mockMvc.perform(post("/api/v1/nutrition/meals/quick-add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "calories": 450 }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mealType").value("SNACK"))
+                .andExpect(jsonPath("$.totalCalories").value(450))
+                .andExpect(jsonPath("$.itemCount").value(1))
+                .andExpect(jsonPath("$.items[0].foodName").value("Quick add"))
+                .andExpect(jsonPath("$.items[0].unit").value("serving"));
+
+        // With macros + explicit fields.
+        mockMvc.perform(post("/api/v1/nutrition/meals/quick-add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "LUNCH",
+                                  "name": "Food court plate",
+                                  "consumedAt": "2026-06-15T05:00:00Z",
+                                  "calories": 700,
+                                  "proteinGrams": 35.0,
+                                  "carbsGrams": 80.0,
+                                  "fatGrams": 22.0
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mealType").value("LUNCH"))
+                .andExpect(jsonPath("$.name").value("Food court plate"))
+                .andExpect(jsonPath("$.totalProteinGrams").value(35.0))
+                .andExpect(jsonPath("$.items[0].foodName").value("Food court plate"));
+
+        // calories is required.
+        mockMvc.perform(post("/api/v1/nutrition/meals/quick-add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "name": "No calories" }
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void mealValidationRejectsEmptyItems() throws Exception {
         String token = tokenFor("carol@example.com", "Carol");
 

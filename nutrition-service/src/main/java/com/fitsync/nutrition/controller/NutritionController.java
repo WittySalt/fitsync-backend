@@ -19,6 +19,7 @@ import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.QuickAddMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionService;
@@ -52,6 +53,13 @@ public class NutritionController {
     public MealView createMeal(Authentication authentication,
                                @Valid @RequestBody CreateMealRequest request) {
         return nutritionService.createMeal(currentPrincipal(authentication), request);
+    }
+
+    @PostMapping("/meals/quick-add")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView quickAddMeal(Authentication authentication,
+                                 @Valid @RequestBody QuickAddMealRequest request) {
+        return nutritionService.quickAddMeal(currentPrincipal(authentication), request);
     }
 
     @GetMapping("/meals")
