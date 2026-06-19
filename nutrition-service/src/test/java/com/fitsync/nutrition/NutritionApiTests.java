@@ -755,6 +755,41 @@ class NutritionApiTests {
     }
 
     @Test
+    void canFavoriteUnfavoriteAndListFavorites() throws Exception {
+        UUID foodId = seedFoodCatalog();
+        String token = tokenFor("uma@example.com", "Uma");
+
+        // Favorite is idempotent.
+        mockMvc.perform(post("/api/v1/nutrition/foods/{foodId}/favorite", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/nutrition/foods/{foodId}/favorite", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/favorites")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].foodId").value(foodId.toString()))
+                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"));
+
+        mockMvc.perform(delete("/api/v1/nutrition/foods/{foodId}/favorite", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/favorites")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        // Favoriting an unknown food is a 404.
+        mockMvc.perform(post("/api/v1/nutrition/foods/{foodId}/favorite", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void canCloneGlobalFoodIntoUserFood() throws Exception {
         UUID foodId = seedFoodCatalog();
         String token = tokenFor("gina@example.com", "Gina");

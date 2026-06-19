@@ -201,6 +201,23 @@ public class NutritionController {
         return nutritionService.cloneFood(currentPrincipal(authentication), foodId);
     }
 
+    @PostMapping("/foods/{foodId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void addFavorite(Authentication authentication, @PathVariable UUID foodId) {
+        nutritionService.addFavorite(currentPrincipal(authentication), foodId);
+    }
+
+    @DeleteMapping("/foods/{foodId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeFavorite(Authentication authentication, @PathVariable UUID foodId) {
+        nutritionService.removeFavorite(currentPrincipal(authentication), foodId);
+    }
+
+    @GetMapping("/favorites")
+    public List<FoodSearchResultView> favorites(Authentication authentication) {
+        return nutritionService.listFavorites(currentPrincipal(authentication));
+    }
+
     @PostMapping("/recipes")
     @ResponseStatus(HttpStatus.CREATED)
     public RecipeView createRecipe(Authentication authentication,

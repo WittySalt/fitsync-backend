@@ -52,6 +52,7 @@ import com.fitsync.nutrition.entity.FoodBarcodeEntity;
 import com.fitsync.nutrition.entity.FoodBrandEntity;
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
 import com.fitsync.nutrition.entity.FoodCategoryEntity;
+import com.fitsync.nutrition.entity.FoodFavoriteEntity;
 import com.fitsync.nutrition.entity.FoodNutrientDetailEntity;
 import com.fitsync.nutrition.entity.FoodNutrientProfileEntity;
 import com.fitsync.nutrition.entity.FoodServingEntity;
@@ -67,6 +68,7 @@ import com.fitsync.nutrition.repository.FoodBarcodeRepository;
 import com.fitsync.nutrition.repository.FoodBrandRepository;
 import com.fitsync.nutrition.repository.FoodCatalogItemRepository;
 import com.fitsync.nutrition.repository.FoodCategoryRepository;
+import com.fitsync.nutrition.repository.FoodFavoriteRepository;
 import com.fitsync.nutrition.repository.FoodNutrientDetailRepository;
 import com.fitsync.nutrition.repository.FoodNutrientProfileRepository;
 import com.fitsync.nutrition.repository.FoodServingRepository;
@@ -113,6 +115,7 @@ public class NutritionServiceImpl implements NutritionService {
     private final FoodNutrientDetailRepository foodNutrientDetailRepository;
     private final RecipeRepository recipeRepository;
     private final RecipeIngredientRepository recipeIngredientRepository;
+    private final FoodFavoriteRepository foodFavoriteRepository;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
@@ -128,7 +131,8 @@ public class NutritionServiceImpl implements NutritionService {
                                 FoodNutrientProfileRepository foodNutrientProfileRepository,
                                 FoodNutrientDetailRepository foodNutrientDetailRepository,
                                 RecipeRepository recipeRepository,
-                                RecipeIngredientRepository recipeIngredientRepository) {
+                                RecipeIngredientRepository recipeIngredientRepository,
+                                FoodFavoriteRepository foodFavoriteRepository) {
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
@@ -144,6 +148,7 @@ public class NutritionServiceImpl implements NutritionService {
         this.foodNutrientDetailRepository = foodNutrientDetailRepository;
         this.recipeRepository = recipeRepository;
         this.recipeIngredientRepository = recipeIngredientRepository;
+        this.foodFavoriteRepository = foodFavoriteRepository;
     }
 
     @Override
@@ -654,6 +659,57 @@ public class NutritionServiceImpl implements NutritionService {
             return null;
         }
         return total.divide(servings, 2, RoundingMode.HALF_UP);
+    }
+
+    @Override
+    @Transactional
+    public void addFavorite(CurrentUserPrincipal principal, UUID foodId) {
+        FoodCatalogItemEntity food = getAccessibleFood(principal.userId(), foodId, LocalDate.now());
+        if (!foodFavoriteRepository.existsByUserIdAndFoodId(principal.userId(), food.getFoodId())) {
+            FoodFavoriteEntity favorite = new FoodFavoriteEntity();
+            favorite.setFavoriteId(UUID.randomUUID());
+            favorite.setUserId(principal.userId());
+            favorite.setFoodId(food.getFoodId());
+            foodFavoriteRepository.save(favorite);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void removeFavorite(CurrentUserPrincipal principal, UUID foodId) {
+        foodFavoriteRepository.deleteByUserIdAndFoodId(principal.userId(), foodId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<FoodSearchResultView> listFavorites(CurrentUserPrincipal principal) {
+        List<FoodFavoriteEntity> favorites = foodFavoriteRepository
+                .findByUserIdOrderByDateTimeCreatedDesc(principal.userId());
+        List<UUID> foodIds = favorites.stream().map(FoodFavoriteEntity::getFoodId).toList();
+        if (foodIds.isEmpty()) {
+            return List.of();
+        }
+        LocalDate today = LocalDate.now();
+        Map<UUID, FoodCatalogItemEntity> foodsById = new HashMap<>();
+        for (FoodCatalogItemEntity food : foodCatalogItemRepository.findAllById(foodIds)) {
+            foodsById.put(food.getFoodId(), food);
+        }
+        List<FoodCatalogItemEntity> foods = favorites.stream()
+                .map(favorite -> foodsById.get(favorite.getFoodId()))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        Map<UUID, String> brandNames = loadBrandNames(foods.stream()
+                .map(FoodCatalogItemEntity::getBrandId)
+                .filter(java.util.Objects::nonNull)
+                .toList());
+        Map<UUID, FoodNutrientProfileEntity> profiles = loadPrimaryProfiles(foods.stream()
+                .map(FoodCatalogItemEntity::getFoodId).toList(), today);
+        Map<UUID, String> primaryBarcodes = loadPrimaryBarcodes(foods.stream()
+                .map(FoodCatalogItemEntity::getFoodId).toList(), today);
+        return foods.stream()
+                .map(food -> toFoodSearchResultView(food, brandNames, profiles.get(food.getFoodId()),
+                        primaryBarcodes.get(food.getFoodId())))
+                .toList();
     }
 
     @Override

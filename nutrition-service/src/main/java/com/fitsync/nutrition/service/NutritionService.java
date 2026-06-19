@@ -81,4 +81,10 @@ public interface NutritionService {
     FoodDetailView getFoodByBarcode(CurrentUserPrincipal principal, String barcode);
 
     FoodDetailView cloneFood(CurrentUserPrincipal principal, UUID foodId);
+
+    void addFavorite(CurrentUserPrincipal principal, UUID foodId);
+
+    void removeFavorite(CurrentUserPrincipal principal, UUID foodId);
+
+    List<FoodSearchResultView> listFavorites(CurrentUserPrincipal principal);
 }
