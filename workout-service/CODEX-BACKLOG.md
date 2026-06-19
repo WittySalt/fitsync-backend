@@ -129,7 +129,7 @@ can't be viewed by id, edited, or removed. Worse, `code` uniqueness is **global*
 - Add `GET /api/v1/workouts/exercises/{exerciseId}` (uses `findAccessibleById`; 404 if not
   global and not owned).
 - Add `PUT /api/v1/workouts/exercises/{exerciseId}` — only the **owner** may edit a custom
-  exercise; editing a global (`ownerUserId is null`) exercise → 403/400 (pick one, document it).
+  exercise; editing a global (`ownerUserId is null`) exercise → 403 (chosen because the catalog exercise is visible but not user-editable).
   Editable fields mirror `CreateExerciseRequest` minus `code` (code is immutable once set).
 - Add `DELETE /api/v1/workouts/exercises/{exerciseId}` — **soft delete** to
   `ExerciseStatus.ARCHIVED` (do NOT hard-delete; plans/sessions reference it and snapshot the

@@ -17,7 +17,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface ExerciseRepository extends JpaRepository<ExerciseEntity, UUID> {
 
-    boolean existsByCode(String code);
+    boolean existsByCodeAndOwnerUserId(String code, UUID ownerUserId);
 
     @Query("""
             select exercise from ExerciseEntity exercise

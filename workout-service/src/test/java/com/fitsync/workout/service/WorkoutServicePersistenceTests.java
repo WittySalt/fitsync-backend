@@ -14,8 +14,10 @@ import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
+import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
@@ -30,6 +32,7 @@ import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import com.fitsync.web.error.ForbiddenException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
 import org.junit.jupiter.api.Test;
@@ -198,6 +201,60 @@ class WorkoutServicePersistenceTests {
     }
 
     @Test
+    void shouldActivatePlanAndDemoteExistingActivePlanForSameUserOnly() {
+        WorkoutPlanView planA = createPlan("Activation Plan A", currentUser);
+        WorkoutPlanView planB = createPlan("Activation Plan B", currentUser);
+        WorkoutPlanView otherPlan = createPlan("Other User Active Plan", otherUser);
+
+        workoutService.activatePlan(otherUser, otherPlan.planId());
+        workoutService.activatePlan(currentUser, planA.planId());
+        WorkoutPlanView activatedB = workoutService.activatePlan(currentUser, planB.planId());
+
+        assertEquals(WorkoutPlanStatus.ACTIVE, activatedB.status());
+        assertEquals(WorkoutPlanStatus.DRAFT, workoutService.getPlan(currentUser, planA.planId()).status());
+        assertEquals(WorkoutPlanStatus.ACTIVE, workoutService.getPlan(currentUser, planB.planId()).status());
+        assertEquals(WorkoutPlanStatus.ACTIVE, workoutService.getPlan(otherUser, otherPlan.planId()).status());
+        assertEquals(1, workoutService.listPlans(currentUser, WorkoutPlanStatus.ACTIVE, 0, 10).totalElements());
+        assertEquals(1, workoutService.listPlans(otherUser, WorkoutPlanStatus.ACTIVE, 0, 10).totalElements());
+        assertEquals(planB.planId(), workoutService.getActivePlan(currentUser).planId());
+    }
+
+    @Test
+    void shouldActivatePlanIdempotently() {
+        WorkoutPlanView plan = createPlan("Idempotent Active Plan", currentUser);
+
+        WorkoutPlanView firstActivation = workoutService.activatePlan(currentUser, plan.planId());
+        WorkoutPlanView secondActivation = workoutService.activatePlan(currentUser, plan.planId());
+
+        assertEquals(firstActivation.planId(), secondActivation.planId());
+        assertEquals(WorkoutPlanStatus.ACTIVE, secondActivation.status());
+        assertEquals(1, workoutService.listPlans(currentUser, WorkoutPlanStatus.ACTIVE, 0, 10).totalElements());
+    }
+
+    @Test
+    void shouldReactivateArchivedWorkoutPlan() {
+        WorkoutPlanView plan = createPlan("Archived Reactivation Plan", currentUser);
+        workoutService.archivePlan(currentUser, plan.planId());
+
+        WorkoutPlanView activated = workoutService.activatePlan(currentUser, plan.planId());
+
+        assertEquals(WorkoutPlanStatus.ACTIVE, activated.status());
+        assertEquals(plan.planId(), workoutService.getActivePlan(currentUser).planId());
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenNoActiveWorkoutPlanExists() {
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.getActivePlan(currentUser));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenActivatingNonOwnedWorkoutPlan() {
+        WorkoutPlanView plan = createPlan("Owner Only Active Plan", currentUser);
+
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.activatePlan(otherUser, plan.planId()));
+    }
+
+    @Test
     void shouldCreateCompletedSessionAndPersistOutboxEvent() {
         UUID rowId = createExercise("barbell-row", "Barbell Row");
         WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
@@ -262,6 +319,135 @@ class WorkoutServicePersistenceTests {
 
         assertEquals(1, page.totalElements());
         assertEquals(squatId, page.content().get(0).exerciseId());
+    }
+
+    @Test
+    void shouldAllowDuplicateCustomExerciseCodesAcrossUsersOnly() {
+        ExerciseView currentUserExercise = createCustomExercise(currentUser, "shared-code", "Shared Code Lift");
+        ExerciseView otherUserExercise = createCustomExercise(otherUser, "shared-code", "Other Shared Code Lift");
+
+        assertEquals("shared-code", currentUserExercise.code());
+        assertEquals("shared-code", otherUserExercise.code());
+        assertThrows(IllegalArgumentException.class, () -> createCustomExercise(currentUser, "shared-code", "Duplicate"));
+    }
+
+    @Test
+    void shouldGetUpdateAndArchiveCustomExerciseForOwner() {
+        ExerciseView created = createCustomExercise(currentUser, "owner-edit", "Owner Edit Lift");
+
+        ExerciseView fetched = exerciseService.getExercise(currentUser, created.exerciseId());
+        ExerciseView updated = exerciseService.updateCustomExercise(currentUser, created.exerciseId(), new UpdateExerciseRequest(
+                "Owner Edit Lift Updated",
+                "Updated description",
+                ExerciseType.STRENGTH,
+                MuscleGroup.LEGS,
+                ExerciseEquipment.DUMBBELL,
+                WorkoutDifficulty.ADVANCED));
+        exerciseService.archiveCustomExercise(currentUser, created.exerciseId());
+
+        assertEquals(created.exerciseId(), fetched.exerciseId());
+        assertEquals("owner-edit", updated.code());
+        assertEquals("Owner Edit Lift Updated", updated.name());
+        assertEquals(WorkoutDifficulty.ADVANCED, updated.difficulty());
+        assertEquals(ExerciseStatus.ARCHIVED, exerciseRepository.findById(created.exerciseId()).orElseThrow().getStatus());
+        assertThrows(ResourceNotFoundException.class, () -> exerciseService.getExercise(currentUser, created.exerciseId()));
+        assertEquals(0, exerciseService.listExercises(
+                currentUser,
+                "Owner Edit Lift Updated",
+                null,
+                null,
+                null,
+                null,
+                0,
+                10).totalElements());
+    }
+
+    @Test
+    void shouldHideNonOwnedCustomExerciseAndForbidGlobalExerciseMutation() {
+        ExerciseView ownedExercise = createCustomExercise(currentUser, "owner-only", "Owner Only Lift");
+        UUID globalExerciseId = createExercise("global-push", "Global Push");
+
+        assertThrows(ResourceNotFoundException.class, () -> exerciseService.getExercise(otherUser, ownedExercise.exerciseId()));
+        assertThrows(ResourceNotFoundException.class, () -> exerciseService.updateCustomExercise(otherUser, ownedExercise.exerciseId(), updateExercise("Other Edit")));
+        assertThrows(ResourceNotFoundException.class, () -> exerciseService.archiveCustomExercise(otherUser, ownedExercise.exerciseId()));
+        assertEquals(globalExerciseId, exerciseService.getExercise(currentUser, globalExerciseId).exerciseId());
+        assertThrows(ForbiddenException.class, () -> exerciseService.updateCustomExercise(currentUser, globalExerciseId, updateExercise("Global Edit")));
+        assertThrows(ForbiddenException.class, () -> exerciseService.archiveCustomExercise(currentUser, globalExerciseId));
+    }
+
+    @Test
+    void archivedExerciseShouldNotBeSearchableOrAttachableButExistingSnapshotsRemain() {
+        ExerciseView customExercise = createCustomExercise(currentUser, "snapshot-lift", "Snapshot Lift");
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Snapshot Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of(new WorkoutPlanExerciseInput(customExercise.exerciseId(), 1, 3, 5, null, null, null, 90, null, null))));
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Snapshot Session",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        customExercise.exerciseId(),
+                        1,
+                        3,
+                        15,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of()))));
+
+        exerciseService.archiveCustomExercise(currentUser, customExercise.exerciseId());
+
+        assertEquals("Snapshot Lift", workoutService.getPlan(currentUser, plan.planId()).exercises().get(0).exerciseNameSnapshot());
+        assertEquals("Snapshot Lift", workoutService.getSession(currentUser, session.sessionId()).exercises().get(0).exerciseNameSnapshot());
+        assertEquals(0, exerciseService.listExercises(currentUser, "snapshot-lift", null, null, null, null, 0, 10).totalElements());
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "New Archived Exercise Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of(new WorkoutPlanExerciseInput(customExercise.exerciseId(), 1, 3, 5, null, null, null, 90, null, null)))));
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "New Archived Exercise Session",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T11:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        customExercise.exerciseId(),
+                        1,
+                        3,
+                        15,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of())))));
     }
 
     @Test
@@ -491,5 +677,37 @@ class WorkoutServicePersistenceTests {
         entity.setStatus(ExerciseStatus.ACTIVE);
         entity.setCustom(false);
         return exerciseRepository.save(entity).getExerciseId();
+    }
+
+    private ExerciseView createCustomExercise(CurrentUserPrincipal user, String code, String name) {
+        return exerciseService.createCustomExercise(user, new CreateExerciseRequest(
+                code,
+                name,
+                "Custom exercise",
+                ExerciseType.STRENGTH,
+                MuscleGroup.BACK,
+                ExerciseEquipment.BARBELL,
+                WorkoutDifficulty.BEGINNER));
+    }
+
+    private UpdateExerciseRequest updateExercise(String name) {
+        return new UpdateExerciseRequest(
+                name,
+                "Updated exercise",
+                ExerciseType.STRENGTH,
+                MuscleGroup.BACK,
+                ExerciseEquipment.BARBELL,
+                WorkoutDifficulty.INTERMEDIATE);
+    }
+
+    private WorkoutPlanView createPlan(String name, CurrentUserPrincipal user) {
+        return workoutService.createPlan(user, new CreateWorkoutPlanRequest(
+                name,
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of()));
     }
 }
