@@ -9,6 +9,7 @@ import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.MealType;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
+import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
@@ -18,6 +19,7 @@ import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionService;
 import jakarta.validation.Valid;
@@ -171,6 +173,36 @@ public class NutritionController {
     @ResponseStatus(HttpStatus.CREATED)
     public FoodDetailView cloneFood(Authentication authentication, @PathVariable UUID foodId) {
         return nutritionService.cloneFood(currentPrincipal(authentication), foodId);
+    }
+
+    @PostMapping("/recipes")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RecipeView createRecipe(Authentication authentication,
+                                   @Valid @RequestBody CreateRecipeRequest request) {
+        return nutritionService.createRecipe(currentPrincipal(authentication), request);
+    }
+
+    @GetMapping("/recipes")
+    public List<RecipeView> recipes(Authentication authentication) {
+        return nutritionService.listRecipes(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/recipes/{recipeId}")
+    public RecipeView recipe(Authentication authentication, @PathVariable UUID recipeId) {
+        return nutritionService.getRecipe(currentPrincipal(authentication), recipeId);
+    }
+
+    @PutMapping("/recipes/{recipeId}")
+    public RecipeView updateRecipe(Authentication authentication,
+                                   @PathVariable UUID recipeId,
+                                   @Valid @RequestBody CreateRecipeRequest request) {
+        return nutritionService.updateRecipe(currentPrincipal(authentication), recipeId, request);
+    }
+
+    @DeleteMapping("/recipes/{recipeId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteRecipe(Authentication authentication, @PathVariable UUID recipeId) {
+        nutritionService.deleteRecipe(currentPrincipal(authentication), recipeId);
     }
 
     private CurrentUserPrincipal currentPrincipal(Authentication authentication) {

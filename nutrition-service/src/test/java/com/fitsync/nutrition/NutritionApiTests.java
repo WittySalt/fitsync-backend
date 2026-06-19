@@ -525,6 +525,75 @@ class NutritionApiTests {
     }
 
     @Test
+    void canManageRecipeAndAggregateNutritionFromIngredients() throws Exception {
+        UUID foodId = seedFoodCatalog();
+        String token = tokenFor("quinn@example.com", "Quinn");
+
+        String foodResponse = mockMvc.perform(get("/api/v1/nutrition/foods/{foodId}", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String servingId = com.jayway.jsonpath.JsonPath.read(foodResponse, "$.servings[0].servingId");
+
+        // 1 container (170 g) x 2 of Greek Yogurt (120 kcal / 170 g) -> 240 kcal, 34 g protein.
+        String recipeResponse = mockMvc.perform(post("/api/v1/nutrition/recipes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "name": "Yogurt Bowl",
+                                  "servings": 2,
+                                  "note": "Snack",
+                                  "ingredients": [
+                                    { "foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": 2.0 }
+                                  ]
+                                }
+                                """.formatted(foodId, servingId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Yogurt Bowl"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.totalProteinGrams").value(34.00))
+                .andExpect(jsonPath("$.perServingCalories").value(120))
+                .andExpect(jsonPath("$.perServingProteinGrams").value(17.00))
+                .andExpect(jsonPath("$.ingredients[0].foodName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.ingredients[0].calories").value(240))
+                .andReturn().getResponse().getContentAsString();
+
+        String recipeId = com.jayway.jsonpath.JsonPath.read(recipeResponse, "$.recipeId");
+
+        mockMvc.perform(get("/api/v1/nutrition/recipes")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Yogurt Bowl"));
+
+        // Scaling servings to 4 halves the per-serving values (total unchanged).
+        mockMvc.perform(put("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "name": "Yogurt Bowl XL",
+                                  "servings": 4,
+                                  "ingredients": [
+                                    { "foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": 2.0 }
+                                  ]
+                                }
+                                """.formatted(foodId, servingId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Yogurt Bowl XL"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.perServingCalories").value(60));
+
+        mockMvc.perform(delete("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void canCloneGlobalFoodIntoUserFood() throws Exception {
         UUID foodId = seedFoodCatalog();
         String token = tokenFor("gina@example.com", "Gina");

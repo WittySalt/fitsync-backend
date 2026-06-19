@@ -8,6 +8,7 @@ import java.util.UUID;
 import com.fitsync.nutrition.domain.MealType;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
+import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
@@ -17,6 +18,7 @@ import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 
 public interface NutritionService {
@@ -48,6 +50,16 @@ public interface NutritionService {
     List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria);
 
     List<FoodCategoryView> listCategories(CurrentUserPrincipal principal);
+
+    RecipeView createRecipe(CurrentUserPrincipal principal, CreateRecipeRequest request);
+
+    List<RecipeView> listRecipes(CurrentUserPrincipal principal);
+
+    RecipeView getRecipe(CurrentUserPrincipal principal, UUID recipeId);
+
+    RecipeView updateRecipe(CurrentUserPrincipal principal, UUID recipeId, CreateRecipeRequest request);
+
+    void deleteRecipe(CurrentUserPrincipal principal, UUID recipeId);
 
     List<LoggedFoodView> listRecentFoods(CurrentUserPrincipal principal, int limit);
 
