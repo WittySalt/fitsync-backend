@@ -1,5 +1,7 @@
 package com.fitsync.workout.service;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -301,6 +303,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setPerceivedExertion(request.perceivedExertion());
         entity.setNotes(request.notes());
         replaceSessionExercises(userId, entity, request.exercises());
+        deriveSessionMetrics(entity);
     }
 
     private void replacePlanExercises(UUID userId, WorkoutPlanEntity plan, List<WorkoutPlanExerciseInput> inputs) {
@@ -372,8 +375,40 @@ public class WorkoutServiceImpl implements WorkoutService {
             exercise.setMaxHeartRate(input.maxHeartRate());
             exercise.setNotes(input.notes());
             replaceSetLogs(exercise, input.sets());
+            deriveExerciseMetrics(exercise, input);
             session.getExercises().add(exercise);
         }
+    }
+
+    private void deriveSessionMetrics(WorkoutSessionEntity session) {
+        if (session.getStartedAt() != null && session.getCompletedAt() != null) {
+            long minutes = Duration.between(session.getStartedAt(), session.getCompletedAt()).toMinutes();
+            session.setDurationMinutes(Math.toIntExact(minutes));
+        }
+    }
+
+    private void deriveExerciseMetrics(WorkoutExerciseLogEntity exercise, WorkoutExerciseLogInput input) {
+        if (exercise.getSets().isEmpty()) {
+            exercise.setPerformedSets(input.performedSets());
+            exercise.setPerformedReps(input.performedReps());
+            exercise.setTotalVolumeKg(input.totalVolumeKg());
+            return;
+        }
+
+        int performedReps = 0;
+        BigDecimal totalVolumeKg = BigDecimal.ZERO;
+        for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
+            if (set.getReps() != null) {
+                performedReps += set.getReps();
+                if (set.getWeightKg() != null) {
+                    totalVolumeKg = totalVolumeKg.add(set.getWeightKg().multiply(BigDecimal.valueOf(set.getReps())));
+                }
+            }
+        }
+
+        exercise.setPerformedSets(exercise.getSets().size());
+        exercise.setPerformedReps(performedReps);
+        exercise.setTotalVolumeKg(totalVolumeKg);
     }
 
     private void replaceSetLogs(WorkoutExerciseLogEntity exercise,
@@ -438,6 +473,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     private void validateSessionRequest(UUID userId, UpsertWorkoutSessionRequest request) {
         validateTimeRange(request.startedAt(), request.completedAt());
         validateSessionTiming(request);
+        validateSessionScalars(request);
         validateExerciseLogs(request.exercises());
         if (request.planId() != null) {
             WorkoutPlanEntity plan = findPlan(userId, request.planId());
@@ -448,11 +484,23 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void validateSessionTiming(UpsertWorkoutSessionRequest request) {
+        if (request.startedAt().isAfter(Instant.now())) {
+            throw new IllegalArgumentException("startedAt must not be in the future");
+        }
         if (request.status() == WorkoutSessionStatus.COMPLETED && request.completedAt() == null) {
             throw new IllegalArgumentException("completedAt is required when status is COMPLETED");
         }
         if (request.status() != WorkoutSessionStatus.COMPLETED && request.completedAt() != null) {
             throw new IllegalArgumentException("completedAt is only allowed when status is COMPLETED");
+        }
+    }
+
+    private void validateSessionScalars(UpsertWorkoutSessionRequest request) {
+        if (request.durationMinutes() != null && request.durationMinutes() < 0) {
+            throw new IllegalArgumentException("durationMinutes must be non-negative");
+        }
+        if (request.caloriesBurned() != null && request.caloriesBurned() < 0) {
+            throw new IllegalArgumentException("caloriesBurned must be non-negative");
         }
     }
 
