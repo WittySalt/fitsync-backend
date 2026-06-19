@@ -7,9 +7,14 @@ import java.util.UUID;
 
 import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.MealType;
+import com.fitsync.nutrition.dto.CopyDayRequest;
+import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
+import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
+import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
+import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
@@ -19,6 +24,7 @@ import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.QuickAddMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionService;
@@ -54,6 +60,13 @@ public class NutritionController {
         return nutritionService.createMeal(currentPrincipal(authentication), request);
     }
 
+    @PostMapping("/meals/quick-add")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView quickAddMeal(Authentication authentication,
+                                 @Valid @RequestBody QuickAddMealRequest request) {
+        return nutritionService.quickAddMeal(currentPrincipal(authentication), request);
+    }
+
     @GetMapping("/meals")
     public List<MealView> meals(Authentication authentication,
                                 @RequestParam(required = false) Instant from,
@@ -83,6 +96,22 @@ public class NutritionController {
     @GetMapping("/meals/latest")
     public MealView latestMeal(Authentication authentication) {
         return nutritionService.getLatestMeal(currentPrincipal(authentication));
+    }
+
+    @PostMapping("/meals/{mealId}/copy")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView copyMeal(Authentication authentication,
+                             @PathVariable UUID mealId,
+                             @Valid @RequestBody CopyMealRequest request) {
+        return nutritionService.copyMeal(currentPrincipal(authentication), mealId, request);
+    }
+
+    @PostMapping("/days/{date}/copy-to")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<MealView> copyDay(Authentication authentication,
+                                  @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                  @Valid @RequestBody CopyDayRequest request) {
+        return nutritionService.copyDay(currentPrincipal(authentication), date, request);
     }
 
     @PostMapping("/custom-foods")
@@ -173,6 +202,54 @@ public class NutritionController {
     @ResponseStatus(HttpStatus.CREATED)
     public FoodDetailView cloneFood(Authentication authentication, @PathVariable UUID foodId) {
         return nutritionService.cloneFood(currentPrincipal(authentication), foodId);
+    }
+
+    @PostMapping("/foods/{foodId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void addFavorite(Authentication authentication, @PathVariable UUID foodId) {
+        nutritionService.addFavorite(currentPrincipal(authentication), foodId);
+    }
+
+    @DeleteMapping("/foods/{foodId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeFavorite(Authentication authentication, @PathVariable UUID foodId) {
+        nutritionService.removeFavorite(currentPrincipal(authentication), foodId);
+    }
+
+    @GetMapping("/favorites")
+    public List<FoodSearchResultView> favorites(Authentication authentication) {
+        return nutritionService.listFavorites(currentPrincipal(authentication));
+    }
+
+    @PostMapping("/meal-templates")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealTemplateView createMealTemplate(Authentication authentication,
+                                               @Valid @RequestBody CreateMealTemplateRequest request) {
+        return nutritionService.createMealTemplate(currentPrincipal(authentication), request);
+    }
+
+    @GetMapping("/meal-templates")
+    public List<MealTemplateView> mealTemplates(Authentication authentication) {
+        return nutritionService.listMealTemplates(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/meal-templates/{templateId}")
+    public MealTemplateView mealTemplate(Authentication authentication, @PathVariable UUID templateId) {
+        return nutritionService.getMealTemplate(currentPrincipal(authentication), templateId);
+    }
+
+    @DeleteMapping("/meal-templates/{templateId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMealTemplate(Authentication authentication, @PathVariable UUID templateId) {
+        nutritionService.deleteMealTemplate(currentPrincipal(authentication), templateId);
+    }
+
+    @PostMapping("/meals/from-template/{templateId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView createMealFromTemplate(Authentication authentication,
+                                           @PathVariable UUID templateId,
+                                           @Valid @RequestBody MaterializeTemplateRequest request) {
+        return nutritionService.createMealFromTemplate(currentPrincipal(authentication), templateId, request);
     }
 
     @PostMapping("/recipes")
