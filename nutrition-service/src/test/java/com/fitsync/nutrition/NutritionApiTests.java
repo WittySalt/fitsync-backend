@@ -256,6 +256,50 @@ class NutritionApiTests {
     }
 
     @Test
+    void dailySummaryExposesMicronutrientTotalsAndLimitFlags() throws Exception {
+        String token = tokenFor("rita@example.com", "Rita");
+
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "LUNCH",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-15T12:00:00Z",
+                                  "timezone": "UTC",
+                                  "items": [
+                                    {
+                                      "foodName": "Salty fibrous bowl",
+                                      "quantity": 1.0,
+                                      "unit": "bowl",
+                                      "calories": 500,
+                                      "fiberGrams": 30.0,
+                                      "sugarGrams": 60.0,
+                                      "sodiumMg": 2500.0
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/nutrition/summary/daily")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-15")
+                        .param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalFiberGrams").value(30.00))
+                .andExpect(jsonPath("$.totalSugarGrams").value(60.00))
+                .andExpect(jsonPath("$.totalSodiumMg").value(2500.00))
+                .andExpect(jsonPath("$.fiberTargetGrams").value(28))
+                .andExpect(jsonPath("$.sugarLimitGrams").value(50))
+                .andExpect(jsonPath("$.sodiumLimitMg").value(2300))
+                .andExpect(jsonPath("$.fiberTargetMet").value(true))
+                .andExpect(jsonPath("$.sugarWithinLimit").value(false))
+                .andExpect(jsonPath("$.sodiumWithinLimit").value(false));
+    }
+
+    @Test
     void canManageCustomFoods() throws Exception {
         String token = tokenFor("bob@example.com", "Bob");
 
@@ -478,6 +522,122 @@ class NutritionApiTests {
     }
 
     @Test
+    void searchRanksByRelevanceAndSupportsPaginationAndFilters() throws Exception {
+        String token = tokenFor("paul@example.com", "Paul");
+        seedGlobalFood("a0000001-0000-0000-0000-000000000000", "Rice", "GRAINS", true);
+        seedGlobalFood("a0000002-0000-0000-0000-000000000000", "Rice Cake", "GRAINS", true);
+        seedGlobalFood("a0000003-0000-0000-0000-000000000000", "Brown Rice", "GRAINS", false);
+
+        // Relevance: exact ("Rice") > prefix ("Rice Cake") > substring ("Brown Rice").
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].displayName").value("Rice"))
+                .andExpect(jsonPath("$[1].displayName").value("Rice Cake"))
+                .andExpect(jsonPath("$[2].displayName").value("Brown Rice"));
+
+        // Pagination: page 0 size 2, then page 1 size 2.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("size", "2").param("page", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].displayName").value("Rice"));
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("size", "2").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].displayName").value("Brown Rice"));
+
+        // verified filter.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("verified", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].displayName").value("Brown Rice"));
+
+        // scope filter: all seeded foods are GLOBAL, so USER scope returns none.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("scope", "USER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void canManageRecipeAndAggregateNutritionFromIngredients() throws Exception {
+        UUID foodId = seedFoodCatalog();
+        String token = tokenFor("quinn@example.com", "Quinn");
+
+        String foodResponse = mockMvc.perform(get("/api/v1/nutrition/foods/{foodId}", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String servingId = com.jayway.jsonpath.JsonPath.read(foodResponse, "$.servings[0].servingId");
+
+        // 1 container (170 g) x 2 of Greek Yogurt (120 kcal / 170 g) -> 240 kcal, 34 g protein.
+        String recipeResponse = mockMvc.perform(post("/api/v1/nutrition/recipes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "name": "Yogurt Bowl",
+                                  "servings": 2,
+                                  "note": "Snack",
+                                  "ingredients": [
+                                    { "foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": 2.0 }
+                                  ]
+                                }
+                                """.formatted(foodId, servingId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Yogurt Bowl"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.totalProteinGrams").value(34.00))
+                .andExpect(jsonPath("$.perServingCalories").value(120))
+                .andExpect(jsonPath("$.perServingProteinGrams").value(17.00))
+                .andExpect(jsonPath("$.ingredients[0].foodName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.ingredients[0].calories").value(240))
+                .andReturn().getResponse().getContentAsString();
+
+        String recipeId = com.jayway.jsonpath.JsonPath.read(recipeResponse, "$.recipeId");
+
+        mockMvc.perform(get("/api/v1/nutrition/recipes")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Yogurt Bowl"));
+
+        // Scaling servings to 4 halves the per-serving values (total unchanged).
+        mockMvc.perform(put("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "name": "Yogurt Bowl XL",
+                                  "servings": 4,
+                                  "ingredients": [
+                                    { "foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": 2.0 }
+                                  ]
+                                }
+                                """.formatted(foodId, servingId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Yogurt Bowl XL"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.perServingCalories").value(60));
+
+        mockMvc.perform(delete("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void canCloneGlobalFoodIntoUserFood() throws Exception {
         UUID foodId = seedFoodCatalog();
         String token = tokenFor("gina@example.com", "Gina");
@@ -657,6 +817,19 @@ class NutritionApiTests {
                 .parseSignedClaims(token)
                 .getPayload()
                 .get("userId", String.class);
+    }
+
+    private void seedGlobalFood(String id, String displayName, String categoryCode, boolean verified) {
+        FoodCatalogItemEntity food = new FoodCatalogItemEntity();
+        food.setFoodId(UUID.fromString(id));
+        food.setScope(FoodCatalogScope.GLOBAL);
+        food.setSource(FoodCatalogSource.OFFICIAL);
+        food.setDisplayName(displayName);
+        food.setNormalizedName(displayName.toLowerCase(java.util.Locale.ROOT));
+        food.setCategoryCode(categoryCode);
+        food.setVerified(verified);
+        food.setActive(true);
+        foodCatalogItemRepository.save(food);
     }
 
     private UUID seedFoodCatalog() {

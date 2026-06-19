@@ -28,6 +28,7 @@ import com.fitsync.nutrition.dto.CreateMealRequest;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
+import com.fitsync.nutrition.dto.FoodSearchCriteria;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodServingView;
@@ -35,8 +36,12 @@ import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealItemInput;
 import com.fitsync.nutrition.dto.MealItemView;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.NutrientDetailInput;
 import com.fitsync.nutrition.dto.NutrientDetailView;
+import com.fitsync.nutrition.dto.RecipeIngredientInput;
+import com.fitsync.nutrition.dto.RecipeIngredientView;
+import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.entity.CustomFoodEntity;
 import com.fitsync.nutrition.entity.FoodBarcodeEntity;
 import com.fitsync.nutrition.entity.FoodBrandEntity;
@@ -49,6 +54,8 @@ import com.fitsync.nutrition.entity.MealItemEntity;
 import com.fitsync.nutrition.entity.MealItemNutrientDetailEntity;
 import com.fitsync.nutrition.entity.MealLogEntity;
 import com.fitsync.nutrition.entity.NutritionTargetEntity;
+import com.fitsync.nutrition.entity.RecipeEntity;
+import com.fitsync.nutrition.entity.RecipeIngredientEntity;
 import com.fitsync.nutrition.messaging.DomainEventPublisher;
 import com.fitsync.nutrition.repository.CustomFoodRepository;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
@@ -62,6 +69,8 @@ import com.fitsync.nutrition.repository.MealItemNutrientDetailRepository;
 import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealLogRepository;
 import com.fitsync.nutrition.repository.NutritionTargetRepository;
+import com.fitsync.nutrition.repository.RecipeIngredientRepository;
+import com.fitsync.nutrition.repository.RecipeRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
@@ -74,10 +83,15 @@ public class NutritionServiceImpl implements NutritionService {
 
     private static final String SOURCE = "nutrition-service";
     private static final String NUTRITION_EVENTS_TOPIC = "nutrition-events";
-    private static final int FOOD_SEARCH_LIMIT = 20;
+    private static final int FOOD_SEARCH_MAX_SIZE = 50;
     private static final int LOGGED_FOOD_DEFAULT_LIMIT = 20;
     private static final int LOGGED_FOOD_MAX_LIMIT = 50;
     private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
+    // Daily micronutrient reference values (general adult DRI/WHO/DGA): fiber target,
+    // free-sugar upper limit, sodium upper limit.
+    private static final BigDecimal FIBER_TARGET_GRAMS = new BigDecimal("28");
+    private static final BigDecimal SUGAR_LIMIT_GRAMS = new BigDecimal("50");
+    private static final BigDecimal SODIUM_LIMIT_MG = new BigDecimal("2300");
 
     private final DomainEventPublisher domainEventPublisher;
     private final MealLogRepository mealLogRepository;
@@ -92,6 +106,8 @@ public class NutritionServiceImpl implements NutritionService {
     private final FoodBarcodeRepository foodBarcodeRepository;
     private final FoodNutrientProfileRepository foodNutrientProfileRepository;
     private final FoodNutrientDetailRepository foodNutrientDetailRepository;
+    private final RecipeRepository recipeRepository;
+    private final RecipeIngredientRepository recipeIngredientRepository;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
@@ -105,7 +121,9 @@ public class NutritionServiceImpl implements NutritionService {
                                 FoodServingRepository foodServingRepository,
                                 FoodBarcodeRepository foodBarcodeRepository,
                                 FoodNutrientProfileRepository foodNutrientProfileRepository,
-                                FoodNutrientDetailRepository foodNutrientDetailRepository) {
+                                FoodNutrientDetailRepository foodNutrientDetailRepository,
+                                RecipeRepository recipeRepository,
+                                RecipeIngredientRepository recipeIngredientRepository) {
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
@@ -119,6 +137,8 @@ public class NutritionServiceImpl implements NutritionService {
         this.foodBarcodeRepository = foodBarcodeRepository;
         this.foodNutrientProfileRepository = foodNutrientProfileRepository;
         this.foodNutrientDetailRepository = foodNutrientDetailRepository;
+        this.recipeRepository = recipeRepository;
+        this.recipeIngredientRepository = recipeIngredientRepository;
     }
 
     @Override
@@ -239,12 +259,18 @@ public class NutritionServiceImpl implements NutritionService {
         BigDecimal totalProtein = BigDecimal.ZERO;
         BigDecimal totalCarbs = BigDecimal.ZERO;
         BigDecimal totalFat = BigDecimal.ZERO;
+        BigDecimal totalFiber = BigDecimal.ZERO;
+        BigDecimal totalSugar = BigDecimal.ZERO;
+        BigDecimal totalSodium = BigDecimal.ZERO;
         for (MealLogEntity meal : meals) {
             Totals totals = calculateTotals(mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(meal.getMealId()));
             totalCalories += totals.totalCalories();
             totalProtein = totalProtein.add(totals.totalProteinGrams());
             totalCarbs = totalCarbs.add(totals.totalCarbsGrams());
             totalFat = totalFat.add(totals.totalFatGrams());
+            totalFiber = totalFiber.add(totals.totalFiberGrams());
+            totalSugar = totalSugar.add(totals.totalSugarGrams());
+            totalSodium = totalSodium.add(totals.totalSodiumMg());
         }
         NutritionTargetEntity target = nutritionTargetRepository.findById(principal.userId()).orElse(null);
         Integer targetCalories = target == null ? null : target.getCalorieTarget();
@@ -267,20 +293,42 @@ public class NutritionServiceImpl implements NutritionService {
                 targetProtein == null ? null : targetProtein.subtract(totalProtein),
                 targetCarbs == null ? null : targetCarbs.subtract(totalCarbs),
                 targetFat == null ? null : targetFat.subtract(totalFat),
-                meals.size());
+                meals.size(),
+                scaleTwo(totalFiber),
+                scaleTwo(totalSugar),
+                scaleTwo(totalSodium),
+                FIBER_TARGET_GRAMS,
+                SUGAR_LIMIT_GRAMS,
+                SODIUM_LIMIT_MG,
+                totalFiber.compareTo(FIBER_TARGET_GRAMS) >= 0,
+                totalSugar.compareTo(SUGAR_LIMIT_GRAMS) <= 0,
+                totalSodium.compareTo(SODIUM_LIMIT_MG) <= 0);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, String query,
-                                                  UUID categoryId, boolean includeSubcategories) {
+    public List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria) {
         LocalDate today = LocalDate.now();
-        String normalizedQuery = normalizeQuery(query);
-        List<FoodCatalogItemEntity> foods = searchAccessibleFoods(
-                        principal.userId(), normalizedQuery, today, categoryId, includeSubcategories)
-                .stream()
-                .limit(FOOD_SEARCH_LIMIT)
-                .toList();
+        String normalizedQuery = normalizeQuery(criteria.query());
+
+        String categoryCode = null;
+        String pathPrefix = null;
+        if (criteria.categoryId() != null) {
+            FoodCategoryEntity category = foodCategoryRepository.findByCategoryIdAndActiveTrue(criteria.categoryId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Food category not found"));
+            if (criteria.includeSubcategories()) {
+                pathPrefix = category.getPath();
+            } else {
+                categoryCode = category.getCode();
+            }
+        }
+
+        int size = Math.min(Math.max(criteria.size(), 1), FOOD_SEARCH_MAX_SIZE);
+        int page = Math.max(criteria.page(), 0);
+        List<FoodCatalogItemEntity> foods = foodCatalogItemRepository.searchAccessibleFoods(
+                principal.userId(), normalizedQuery, today, categoryCode, pathPrefix,
+                criteria.brandId(), criteria.verified(), criteria.scope(), PageRequest.of(page, size));
+
         Map<UUID, String> brandNames = loadBrandNames(foods.stream()
                 .map(FoodCatalogItemEntity::getBrandId)
                 .filter(java.util.Objects::nonNull)
@@ -295,21 +343,6 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(food -> toFoodSearchResultView(food, brandNames, profiles.get(food.getFoodId()),
                         primaryBarcodes.get(food.getFoodId())))
                 .toList();
-    }
-
-    private List<FoodCatalogItemEntity> searchAccessibleFoods(UUID userId, String query, LocalDate today,
-                                                              UUID categoryId, boolean includeSubcategories) {
-        if (categoryId == null) {
-            return foodCatalogItemRepository.searchAccessibleFoods(userId, query, today);
-        }
-        FoodCategoryEntity category = foodCategoryRepository.findByCategoryIdAndActiveTrue(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException("Food category not found"));
-        if (includeSubcategories) {
-            return foodCatalogItemRepository.searchAccessibleFoodsInCategorySubtree(
-                    userId, query, today, category.getPath());
-        }
-        return foodCatalogItemRepository.searchAccessibleFoodsInCategory(
-                userId, query, today, category.getCode());
     }
 
     @Override
@@ -340,6 +373,174 @@ public class NutritionServiceImpl implements NutritionService {
                 category.getSlug(),
                 category.getSortOrder(),
                 children);
+    }
+
+    @Override
+    @Transactional
+    public RecipeView createRecipe(CurrentUserPrincipal principal, CreateRecipeRequest request) {
+        RecipeEntity recipe = new RecipeEntity();
+        recipe.setRecipeId(UUID.randomUUID());
+        recipe.setUserId(principal.userId());
+        applyRecipe(recipe, request);
+        RecipeEntity saved = recipeRepository.save(recipe);
+        List<RecipeIngredientEntity> ingredients = replaceRecipeIngredients(saved.getRecipeId(), request.ingredients());
+        return toRecipeView(principal.userId(), saved, ingredients);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RecipeView> listRecipes(CurrentUserPrincipal principal) {
+        return recipeRepository.findByUserIdOrderByNameAsc(principal.userId()).stream()
+                .map(recipe -> toRecipeView(principal.userId(), recipe,
+                        recipeIngredientRepository.findByRecipeIdOrderBySortOrderAsc(recipe.getRecipeId())))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public RecipeView getRecipe(CurrentUserPrincipal principal, UUID recipeId) {
+        RecipeEntity recipe = getOwnedRecipe(principal.userId(), recipeId);
+        return toRecipeView(principal.userId(), recipe,
+                recipeIngredientRepository.findByRecipeIdOrderBySortOrderAsc(recipe.getRecipeId()));
+    }
+
+    @Override
+    @Transactional
+    public RecipeView updateRecipe(CurrentUserPrincipal principal, UUID recipeId, CreateRecipeRequest request) {
+        RecipeEntity recipe = getOwnedRecipe(principal.userId(), recipeId);
+        applyRecipe(recipe, request);
+        RecipeEntity saved = recipeRepository.save(recipe);
+        recipeIngredientRepository.deleteByRecipeId(saved.getRecipeId());
+        List<RecipeIngredientEntity> ingredients = replaceRecipeIngredients(saved.getRecipeId(), request.ingredients());
+        return toRecipeView(principal.userId(), saved, ingredients);
+    }
+
+    @Override
+    @Transactional
+    public void deleteRecipe(CurrentUserPrincipal principal, UUID recipeId) {
+        RecipeEntity recipe = getOwnedRecipe(principal.userId(), recipeId);
+        recipeIngredientRepository.deleteByRecipeId(recipe.getRecipeId());
+        recipeRepository.delete(recipe);
+    }
+
+    private void applyRecipe(RecipeEntity recipe, CreateRecipeRequest request) {
+        recipe.setName(request.name().trim());
+        recipe.setServings(request.servings());
+        recipe.setNote(blankToNull(request.note()));
+    }
+
+    private RecipeEntity getOwnedRecipe(UUID userId, UUID recipeId) {
+        return recipeRepository.findByRecipeIdAndUserId(recipeId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Recipe not found"));
+    }
+
+    private List<RecipeIngredientEntity> replaceRecipeIngredients(UUID recipeId, List<RecipeIngredientInput> inputs) {
+        List<RecipeIngredientEntity> saved = new ArrayList<>();
+        int sortOrder = 0;
+        for (RecipeIngredientInput input : inputs) {
+            RecipeIngredientEntity entity = new RecipeIngredientEntity();
+            entity.setIngredientId(UUID.randomUUID());
+            entity.setRecipeId(recipeId);
+            entity.setFoodCatalogItemId(input.foodCatalogItemId());
+            entity.setFoodServingId(input.foodServingId());
+            entity.setQuantity(input.quantity());
+            entity.setSortOrder(sortOrder++);
+            saved.add(recipeIngredientRepository.save(entity));
+        }
+        return saved;
+    }
+
+    /**
+     * Recomputes a recipe's nutrition by aggregating each ingredient's catalog nutrition (reusing
+     * the meal-item resolution), so totals always reflect current catalog data. Per-serving values
+     * are total / servings.
+     */
+    private RecipeView toRecipeView(UUID userId, RecipeEntity recipe, List<RecipeIngredientEntity> ingredients) {
+        List<RecipeIngredientView> ingredientViews = new ArrayList<>();
+        int totalCalories = 0;
+        BigDecimal totalProtein = BigDecimal.ZERO;
+        BigDecimal totalCarbs = BigDecimal.ZERO;
+        BigDecimal totalFat = BigDecimal.ZERO;
+        BigDecimal totalFiber = BigDecimal.ZERO;
+        BigDecimal totalSugar = BigDecimal.ZERO;
+        BigDecimal totalSodium = BigDecimal.ZERO;
+        for (RecipeIngredientEntity ingredient : ingredients) {
+            MealItemDraft draft = buildMealItemFromCatalog(userId, recipeIngredientInput(ingredient));
+            ingredientViews.add(new RecipeIngredientView(
+                    ingredient.getIngredientId(),
+                    draft.foodCatalogItemId(),
+                    draft.foodName(),
+                    draft.brandName(),
+                    draft.foodServingId(),
+                    draft.snapshotServingLabel(),
+                    ingredient.getQuantity(),
+                    draft.unit(),
+                    draft.calories(),
+                    draft.proteinGrams(),
+                    draft.carbsGrams(),
+                    draft.fatGrams(),
+                    draft.fiberGrams(),
+                    draft.sugarGrams(),
+                    draft.sodiumMg()));
+            totalCalories += defaultInteger(draft.calories());
+            totalProtein = totalProtein.add(defaultDecimal(draft.proteinGrams()));
+            totalCarbs = totalCarbs.add(defaultDecimal(draft.carbsGrams()));
+            totalFat = totalFat.add(defaultDecimal(draft.fatGrams()));
+            totalFiber = totalFiber.add(defaultDecimal(draft.fiberGrams()));
+            totalSugar = totalSugar.add(defaultDecimal(draft.sugarGrams()));
+            totalSodium = totalSodium.add(defaultDecimal(draft.sodiumMg()));
+        }
+        BigDecimal servings = recipe.getServings();
+        return new RecipeView(
+                recipe.getRecipeId(),
+                recipe.getName(),
+                servings,
+                recipe.getNote(),
+                totalCalories,
+                scaleTwo(totalProtein),
+                scaleTwo(totalCarbs),
+                scaleTwo(totalFat),
+                scaleTwo(totalFiber),
+                scaleTwo(totalSugar),
+                scaleTwo(totalSodium),
+                perServingInteger(totalCalories, servings),
+                perServingDecimal(totalProtein, servings),
+                perServingDecimal(totalCarbs, servings),
+                perServingDecimal(totalFat, servings),
+                perServingDecimal(totalFiber, servings),
+                perServingDecimal(totalSugar, servings),
+                perServingDecimal(totalSodium, servings),
+                ingredientViews);
+    }
+
+    private MealItemInput recipeIngredientInput(RecipeIngredientEntity ingredient) {
+        return new MealItemInput(
+                null,
+                ingredient.getFoodCatalogItemId(),
+                ingredient.getFoodServingId(),
+                null, null, null, null,
+                ingredient.getQuantity(),
+                null, null, null, null,
+                null, null, null, null, null, null, null,
+                null);
+    }
+
+    private BigDecimal scaleTwo(BigDecimal value) {
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private Integer perServingInteger(int total, BigDecimal servings) {
+        if (servings == null || servings.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return BigDecimal.valueOf(total).divide(servings, 0, RoundingMode.HALF_UP).intValue();
+    }
+
+    private BigDecimal perServingDecimal(BigDecimal total, BigDecimal servings) {
+        if (servings == null || servings.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return total.divide(servings, 2, RoundingMode.HALF_UP);
     }
 
     @Override
@@ -638,13 +839,19 @@ public class NutritionServiceImpl implements NutritionService {
         BigDecimal protein = BigDecimal.ZERO;
         BigDecimal carbs = BigDecimal.ZERO;
         BigDecimal fat = BigDecimal.ZERO;
+        BigDecimal fiber = BigDecimal.ZERO;
+        BigDecimal sugar = BigDecimal.ZERO;
+        BigDecimal sodium = BigDecimal.ZERO;
         for (MealItemEntity item : items) {
             calories += defaultInteger(item.getCalories());
             protein = protein.add(defaultDecimal(item.getProteinGrams()));
             carbs = carbs.add(defaultDecimal(item.getCarbsGrams()));
             fat = fat.add(defaultDecimal(item.getFatGrams()));
+            fiber = fiber.add(defaultDecimal(item.getFiberGrams()));
+            sugar = sugar.add(defaultDecimal(item.getSugarGrams()));
+            sodium = sodium.add(defaultDecimal(item.getSodiumMg()));
         }
-        return new Totals(calories, protein, carbs, fat);
+        return new Totals(calories, protein, carbs, fat, fiber, sugar, sodium);
     }
 
     private BigDecimal defaultDecimal(BigDecimal value) {
@@ -748,7 +955,7 @@ public class NutritionServiceImpl implements NutritionService {
         return new FoodSearchResultView(
                 food.getFoodId(),
                 food.getDisplayName(),
-                brandNames.get(food.getBrandId()),
+                food.getBrandId() == null ? null : brandNames.get(food.getBrandId()),
                 food.getCategoryCode(),
                 food.getScope(),
                 food.getSource(),
@@ -868,7 +1075,8 @@ public class NutritionServiceImpl implements NutritionService {
                 .findFirst()
                 .orElseThrow(() -> new BadRequestException("Food nutrient profile is unavailable"));
         BigDecimal multiplier = resolveMultiplier(input, profile, serving);
-        Map<UUID, String> brandNames = loadBrandNames(List.of(food.getBrandId()));
+        Map<UUID, String> brandNames = loadBrandNames(
+                food.getBrandId() == null ? List.of() : List.of(food.getBrandId()));
         List<NutrientDetailInput> nutrientDetails = buildScaledNutrientDetails(food.getFoodId(), today, multiplier);
         return new MealItemDraft(
                 input.customFoodId(),
@@ -1126,7 +1334,10 @@ public class NutritionServiceImpl implements NutritionService {
             int totalCalories,
             BigDecimal totalProteinGrams,
             BigDecimal totalCarbsGrams,
-            BigDecimal totalFatGrams) {
+            BigDecimal totalFatGrams,
+            BigDecimal totalFiberGrams,
+            BigDecimal totalSugarGrams,
+            BigDecimal totalSodiumMg) {
     }
 
     private record MealItemDraft(
