@@ -5,12 +5,13 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
+import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
@@ -103,21 +104,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         List<AnalyticsUserDailyBodyEntity> rows = dailyBodyRepository
                 .findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(principal.userId(), from, to);
 
-        Map<LocalDate, AnalyticsUserDailyBodyEntity> grouped = new LinkedHashMap<>();
-        for (AnalyticsUserDailyBodyEntity row : rows) {
-            grouped.put(bucketStart(row.getMetricDate(), bucket), row);
-        }
-
-        List<AnalyticsBodyTrendsResponse.BodyTrendPoint> points = grouped.values().stream()
-                .map(row -> new AnalyticsBodyTrendsResponse.BodyTrendPoint(
-                        row.getMetricDate(),
-                        toDouble(row.getWeightKg()),
-                        toDouble(row.getBodyFatRate()),
-                        toDouble(row.getWaistCm()),
-                        toDouble(row.getBmi()),
-                        toDouble(row.getWeightDeltaFromStart()),
-                        toDouble(row.getWeightDeltaFromPrevious())))
-                .toList();
+        List<AnalyticsBodyTrendsResponse.BodyTrendPoint> points = bucket == BodyTrendBucket.DAY
+                ? rows.stream().map(this::toBodyTrendPoint).toList()
+                : aggregateBodyTrendRows(rows, bucket);
 
         return new AnalyticsBodyTrendsResponse(from, to, bucket.name(), points);
     }
@@ -255,10 +244,47 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 goals);
     }
 
+    /**
+     * Aggregates WEEK and MONTH body trend buckets using last-valid-value semantics. Each point-in-time
+     * metric (weight, body-fat, waist, BMI, and delta-from-start) keeps the latest non-null value within
+     * the bucket, so the point represents the bucket-end known state. The delta-from-previous field is
+     * recomputed between adjacent aggregated bucket weights and is not copied from any source row.
+     */
+    private List<AnalyticsBodyTrendsResponse.BodyTrendPoint> aggregateBodyTrendRows(
+            List<AnalyticsUserDailyBodyEntity> rows,
+            BodyTrendBucket bucket) {
+        Map<LocalDate, BodyTrendBucketAccumulator> grouped = new TreeMap<>();
+        rows.forEach(row -> grouped
+                .computeIfAbsent(bucketStart(row.getMetricDate(), bucket), BodyTrendBucketAccumulator::new)
+                .accept(row));
+
+        List<AnalyticsBodyTrendsResponse.BodyTrendPoint> points = new ArrayList<>();
+        BigDecimal previousWeight = null;
+        for (BodyTrendBucketAccumulator accumulator : grouped.values()) {
+            BigDecimal deltaFromPrevious = accumulator.weightKg != null && previousWeight != null
+                    ? accumulator.weightKg.subtract(previousWeight)
+                    : null;
+            points.add(accumulator.toPoint(deltaFromPrevious));
+            previousWeight = accumulator.weightKg;
+        }
+        return points;
+    }
+
+    private AnalyticsBodyTrendsResponse.BodyTrendPoint toBodyTrendPoint(AnalyticsUserDailyBodyEntity row) {
+        return new AnalyticsBodyTrendsResponse.BodyTrendPoint(
+                row.getMetricDate(),
+                toDouble(row.getWeightKg()),
+                toDouble(row.getBodyFatRate()),
+                toDouble(row.getWaistCm()),
+                toDouble(row.getBmi()),
+                toDouble(row.getWeightDeltaFromStart()),
+                toDouble(row.getWeightDeltaFromPrevious()));
+    }
+
     private LocalDate bucketStart(LocalDate date, BodyTrendBucket bucket) {
         return switch (bucket) {
             case DAY -> date;
-            case WEEK -> date.with(WeekFields.of(Locale.getDefault()).dayOfWeek(), 1);
+            case WEEK -> date.with(WeekFields.ISO.dayOfWeek(), 1);
             case MONTH -> date.withDayOfMonth(1);
         };
     }
@@ -293,7 +319,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return value == null || value.compareTo(BigDecimal.ZERO) == 0 ? null : value.doubleValue();
     }
 
-    private Double toDouble(BigDecimal value) {
+    private static Double toDouble(BigDecimal value) {
         return value != null ? value.doubleValue() : null;
     }
 
@@ -303,5 +329,42 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     private String normalizeStatus(String status) {
         return status == null ? "" : status.toUpperCase(Locale.ROOT);
+    }
+
+    private static final class BodyTrendBucketAccumulator {
+
+        private final LocalDate bucketStart;
+        private BigDecimal weightKg;
+        private BigDecimal bodyFatRate;
+        private BigDecimal waistCm;
+        private BigDecimal bmi;
+        private BigDecimal weightDeltaFromStart;
+
+        BodyTrendBucketAccumulator(LocalDate bucketStart) {
+            this.bucketStart = bucketStart;
+        }
+
+        void accept(AnalyticsUserDailyBodyEntity row) {
+            weightKg = lastValid(weightKg, row.getWeightKg());
+            bodyFatRate = lastValid(bodyFatRate, row.getBodyFatRate());
+            waistCm = lastValid(waistCm, row.getWaistCm());
+            bmi = lastValid(bmi, row.getBmi());
+            weightDeltaFromStart = lastValid(weightDeltaFromStart, row.getWeightDeltaFromStart());
+        }
+
+        AnalyticsBodyTrendsResponse.BodyTrendPoint toPoint(BigDecimal weightDeltaFromPrevious) {
+            return new AnalyticsBodyTrendsResponse.BodyTrendPoint(
+                    bucketStart,
+                    toDouble(weightKg),
+                    toDouble(bodyFatRate),
+                    toDouble(waistCm),
+                    toDouble(bmi),
+                    toDouble(weightDeltaFromStart),
+                    toDouble(weightDeltaFromPrevious));
+        }
+
+        private BigDecimal lastValid(BigDecimal currentValue, BigDecimal newValue) {
+            return newValue != null ? newValue : currentValue;
+        }
     }
 }
