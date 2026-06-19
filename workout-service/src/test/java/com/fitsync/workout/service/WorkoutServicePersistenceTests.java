@@ -17,10 +17,12 @@ import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
+import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseLogView;
@@ -48,6 +50,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -307,6 +310,237 @@ class WorkoutServicePersistenceTests {
                 .reduce((first, second) -> second)
                 .orElseThrow()
                 .getEventType());
+    }
+
+    @Test
+    void shouldCompleteSessionOnceAndPublishWorkoutLogged() {
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Complete Later",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                250,
+                7,
+                null,
+                List.of()));
+
+        WorkoutSessionView completed = workoutService.completeSession(
+                currentUser,
+                session.sessionId(),
+                new CompleteWorkoutSessionRequest(Instant.parse("2026-06-11T18:45:00Z")));
+
+        assertEquals(WorkoutSessionStatus.COMPLETED, completed.status());
+        assertEquals(45, completed.durationMinutes());
+        assertEquals(1, outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).size());
+        assertEquals("WorkoutLogged", outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).get(0).getEventType());
+        assertThrows(IllegalArgumentException.class, () -> workoutService.completeSession(
+                currentUser,
+                session.sessionId(),
+                new CompleteWorkoutSessionRequest(Instant.parse("2026-06-11T18:50:00Z"))));
+        assertThrows(IllegalArgumentException.class, () -> workoutService.cancelSession(currentUser, session.sessionId()));
+        assertEquals(1, outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).size());
+    }
+
+    @Test
+    void shouldDefaultCompletedAtWhenCompletingSessionWithoutRequestBody() {
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Complete Now",
+                WorkoutType.CARDIO,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.now().minus(Duration.ofMinutes(5)),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+
+        WorkoutSessionView completed = workoutService.completeSession(currentUser, session.sessionId(), null);
+
+        assertEquals(WorkoutSessionStatus.COMPLETED, completed.status());
+        assertNotNull(completed.completedAt());
+        assertNotNull(completed.durationMinutes());
+        assertEquals(1, outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).size());
+    }
+
+    @Test
+    void shouldCancelSessionWithoutPublishingEventAndRejectTerminalTransitions() {
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Cancel Later",
+                WorkoutType.CARDIO,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T07:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+
+        WorkoutSessionView cancelled = workoutService.cancelSession(currentUser, session.sessionId());
+
+        assertEquals(WorkoutSessionStatus.CANCELLED, cancelled.status());
+        assertEquals(0, outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).size());
+        assertThrows(IllegalArgumentException.class, () -> workoutService.cancelSession(currentUser, session.sessionId()));
+        assertThrows(IllegalArgumentException.class, () -> workoutService.completeSession(currentUser, session.sessionId(), null));
+    }
+
+    @Test
+    void shouldRejectLiveEditsForCompletedAndCancelledSessions() {
+        UUID rowId = createExercise("terminal-edit-row", "Terminal Edit Row");
+        WorkoutSessionView completed = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Completed Terminal",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                Instant.parse("2026-06-11T18:30:00Z"),
+                30,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(rowId, 1, null, null, null, null, null, null, null, null, List.of()))));
+        WorkoutSessionView cancelled = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Cancelled Terminal",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T19:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+        workoutService.cancelSession(currentUser, cancelled.sessionId());
+        WorkoutExerciseLogInput newExercise = new WorkoutExerciseLogInput(
+                rowId, 1, null, null, null, null, null, null, null, null, List.of());
+        UUID completedExerciseLogId = completed.exercises().get(0).exerciseLogId();
+
+        assertThrows(IllegalArgumentException.class, () -> workoutService.appendOrReplaceExercise(currentUser, completed.sessionId(), newExercise));
+        assertThrows(IllegalArgumentException.class, () -> workoutService.upsertSet(
+                currentUser,
+                completed.sessionId(),
+                completedExerciseLogId,
+                1,
+                new UpsertWorkoutExerciseSetRequest(8, new BigDecimal("80.00"), null, null, 120, 7, null)));
+        assertThrows(IllegalArgumentException.class, () -> workoutService.appendOrReplaceExercise(currentUser, cancelled.sessionId(), newExercise));
+    }
+
+    @Test
+    void shouldUpsertSingleSetWithoutTouchingSiblingSets() {
+        UUID squatId = createExercise("single-set-squat", "Single Set Squat");
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Single Set Session",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        squatId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(
+                                new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 180, 7, "Keep"),
+                                new WorkoutExerciseSetLogInput(2, 5, new BigDecimal("105.00"), null, null, 180, 8, "Change"))))));
+        UUID exerciseLogId = session.exercises().get(0).exerciseLogId();
+
+        WorkoutSessionView updated = workoutService.upsertSet(
+                currentUser,
+                session.sessionId(),
+                exerciseLogId,
+                2,
+                new UpsertWorkoutExerciseSetRequest(6, new BigDecimal("110.00"), null, null, 150, 9, "Changed"));
+
+        assertEquals(2, updated.exercises().get(0).sets().size());
+        assertEquals(5, updated.exercises().get(0).sets().get(0).reps());
+        assertEquals(new BigDecimal("100.00"), updated.exercises().get(0).sets().get(0).weightKg());
+        assertEquals("Keep", updated.exercises().get(0).sets().get(0).notes());
+        assertEquals(6, updated.exercises().get(0).sets().get(1).reps());
+        assertEquals(new BigDecimal("110.00"), updated.exercises().get(0).sets().get(1).weightKg());
+        assertEquals("Changed", updated.exercises().get(0).sets().get(1).notes());
+        assertEquals(2, updated.exercises().get(0).performedSets());
+        assertEquals(11, updated.exercises().get(0).performedReps());
+        assertEquals(new BigDecimal("1160.00"), updated.exercises().get(0).totalVolumeKg());
+    }
+
+    @Test
+    void shouldExcludeUntouchedSeededSetsOnCompleteAndIncludeLoggedSetAfterUpsert() {
+        UUID squatId = createExercise("logged-seed-squat", "Logged Seed Squat");
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Logged Seed Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of(new WorkoutPlanExerciseInput(
+                        squatId,
+                        1,
+                        2,
+                        null,
+                        null,
+                        null,
+                        null,
+                        180,
+                        null,
+                        List.of(
+                                new WorkoutPlanExerciseSetTargetInput(1, 5, new BigDecimal("100.00"), null, null, 180),
+                                new WorkoutPlanExerciseSetTargetInput(2, 5, new BigDecimal("105.00"), null, null, 180))))));
+
+        WorkoutSessionView untouched = workoutService.startPlan(currentUser, plan.planId());
+        WorkoutSessionView completedUntouched = workoutService.completeSession(
+                currentUser,
+                untouched.sessionId(),
+                new CompleteWorkoutSessionRequest(untouched.startedAt().plus(Duration.ofMinutes(45))));
+
+        assertEquals(WorkoutSessionStatus.COMPLETED, completedUntouched.status());
+        assertEquals(2, completedUntouched.exercises().get(0).sets().size());
+        assertEquals(false, completedUntouched.exercises().get(0).sets().get(0).logged());
+        assertNull(completedUntouched.exercises().get(0).performedSets());
+        assertNull(completedUntouched.exercises().get(0).performedReps());
+        assertNull(completedUntouched.exercises().get(0).totalVolumeKg());
+
+        WorkoutSessionView touched = workoutService.startPlan(currentUser, plan.planId());
+        WorkoutSessionView afterSet = workoutService.upsertSet(
+                currentUser,
+                touched.sessionId(),
+                touched.exercises().get(0).exerciseLogId(),
+                1,
+                new UpsertWorkoutExerciseSetRequest(5, new BigDecimal("100.00"), null, null, 180, 8, "Actual set"));
+        WorkoutSessionView completedTouched = workoutService.completeSession(
+                currentUser,
+                afterSet.sessionId(),
+                new CompleteWorkoutSessionRequest(afterSet.startedAt().plus(Duration.ofMinutes(45))));
+
+        assertEquals(true, completedTouched.exercises().get(0).sets().get(0).logged());
+        assertEquals(false, completedTouched.exercises().get(0).sets().get(1).logged());
+        assertEquals(1, completedTouched.exercises().get(0).performedSets());
+        assertEquals(5, completedTouched.exercises().get(0).performedReps());
+        assertEquals(new BigDecimal("500.00"), completedTouched.exercises().get(0).totalVolumeKg());
     }
 
     @Test

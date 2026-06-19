@@ -9,12 +9,15 @@ import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
+import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
+import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -189,6 +192,39 @@ public class WorkoutController {
                                             @PathVariable UUID sessionId,
                                             @Valid @RequestBody UpsertWorkoutSessionRequest request) {
         return workoutService.updateSession(currentPrincipal(authentication), sessionId, request);
+    }
+
+    @Operation(summary = "Complete a workout session")
+    @PostMapping("/sessions/{sessionId}/complete")
+    public WorkoutSessionView completeSession(Authentication authentication,
+                                              @PathVariable UUID sessionId,
+                                              @Valid @RequestBody(required = false) CompleteWorkoutSessionRequest request) {
+        return workoutService.completeSession(currentPrincipal(authentication), sessionId, request);
+    }
+
+    @Operation(summary = "Cancel a workout session")
+    @PostMapping("/sessions/{sessionId}/cancel")
+    public WorkoutSessionView cancelSession(Authentication authentication,
+                                            @PathVariable UUID sessionId) {
+        return workoutService.cancelSession(currentPrincipal(authentication), sessionId);
+    }
+
+    @Operation(summary = "Append or replace one exercise log in an editable workout session")
+    @PostMapping("/sessions/{sessionId}/exercises")
+    public WorkoutSessionView appendOrReplaceExercise(Authentication authentication,
+                                                      @PathVariable UUID sessionId,
+                                                      @Valid @RequestBody WorkoutExerciseLogInput request) {
+        return workoutService.appendOrReplaceExercise(currentPrincipal(authentication), sessionId, request);
+    }
+
+    @Operation(summary = "Upsert one set in an editable workout session exercise log")
+    @PutMapping("/sessions/{sessionId}/exercises/{exerciseLogId}/sets/{setNumber}")
+    public WorkoutSessionView upsertSet(Authentication authentication,
+                                        @PathVariable UUID sessionId,
+                                        @PathVariable UUID exerciseLogId,
+                                        @PathVariable @Min(1) int setNumber,
+                                        @Valid @RequestBody UpsertWorkoutExerciseSetRequest request) {
+        return workoutService.upsertSet(currentPrincipal(authentication), sessionId, exerciseLogId, setNumber, request);
     }
 
     @DeleteMapping("/sessions/{sessionId}")

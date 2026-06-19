@@ -47,6 +47,9 @@ public class WorkoutExerciseSetLogEntity {
     @Column(name = "notes", length = 300)
     private String notes;
 
+    @Column(name = "logged", nullable = false)
+    private boolean logged;
+
     public UUID getSetLogId() { return setLogId; }
     public void setSetLogId(UUID setLogId) { this.setLogId = setLogId; }
     public WorkoutExerciseLogEntity getExerciseLog() { return exerciseLog; }
@@ -67,4 +70,6 @@ public class WorkoutExerciseSetLogEntity {
     public void setPerceivedExertion(Integer perceivedExertion) { this.perceivedExertion = perceivedExertion; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public boolean isLogged() { return logged; }
+    public void setLogged(boolean logged) { this.logged = logged; }
 }
