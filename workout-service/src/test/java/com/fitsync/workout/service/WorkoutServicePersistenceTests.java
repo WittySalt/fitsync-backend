@@ -23,6 +23,10 @@ import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
+import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
@@ -1298,6 +1302,146 @@ class WorkoutServicePersistenceTests {
     }
 
     @Test
+    void shouldImportCompletedWorkoutSessionWithLoggedSetsAndWorkoutLoggedOnly() {
+        UUID squatId = createExercise("import-squat", "Import Squat");
+        ImportWorkoutSessionsResponse response = workoutService.importSessions(currentUser, new ImportWorkoutSessionsRequest(
+                List.of(importRow(
+                        "device-session-1",
+                        "DEVICE",
+                        "Device Strength",
+                        Instant.parse("2026-06-11T10:00:00Z"),
+                        squatId,
+                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 120, 8, null))))));
+
+        assertEquals(1, response.imported());
+        assertEquals(0, response.skippedDuplicate());
+        assertEquals(0, response.rejected());
+        assertEquals(ImportWorkoutSessionRowStatus.IMPORTED, response.results().get(0).status());
+
+        WorkoutSessionView imported = workoutService.getSession(currentUser, response.results().get(0).sessionId());
+        assertEquals(WorkoutSource.DEVICE, imported.source());
+        assertEquals(WorkoutSessionStatus.COMPLETED, imported.status());
+        assertEquals(60, imported.durationMinutes());
+        assertEquals(1, imported.exercises().get(0).performedSets());
+        assertEquals(5, imported.exercises().get(0).performedReps());
+        assertEquals(new BigDecimal("500.00"), imported.exercises().get(0).totalVolumeKg());
+        assertEquals(true, imported.exercises().get(0).sets().get(0).logged());
+        assertEquals("device-session-1", workoutSessionRepository.findBySessionIdAndUserId(
+                imported.sessionId(),
+                currentUser.userId()).orElseThrow().getExternalId());
+        assertEquals(1, pendingEventCount("WorkoutLogged"));
+        assertEquals(0, pendingEventCount("PersonalRecordAchieved"));
+    }
+
+    @Test
+    void shouldSkipDuplicateImportedWorkoutSessionWithoutReimportingOrRepublishing() {
+        UUID squatId = createExercise("import-duplicate-squat", "Import Duplicate Squat");
+        ImportWorkoutSessionRowRequest first = importRow(
+                "device-session-duplicate",
+                "DEVICE",
+                "Device Strength",
+                Instant.parse("2026-06-11T10:00:00Z"),
+                squatId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 120, 8, null)));
+        workoutService.importSessions(currentUser, new ImportWorkoutSessionsRequest(List.of(first)));
+        outboxEventRepository.deleteAll();
+
+        ImportWorkoutSessionsResponse duplicate = workoutService.importSessions(currentUser, new ImportWorkoutSessionsRequest(
+                List.of(importRow(
+                        "device-session-duplicate",
+                        "DEVICE",
+                        "Changed Device Strength",
+                        Instant.parse("2026-06-12T10:00:00Z"),
+                        squatId,
+                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("150.00"), null, null, 120, 9, null)),
+                        Instant.parse("2026-06-12T09:59:00Z")))));
+
+        assertEquals(0, duplicate.imported());
+        assertEquals(1, duplicate.skippedDuplicate());
+        assertEquals(0, duplicate.rejected());
+        assertEquals(ImportWorkoutSessionRowStatus.SKIPPED_DUPLICATE, duplicate.results().get(0).status());
+        assertEquals(1, workoutSessionRepository.findAll().size());
+        assertEquals(0, outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).size());
+    }
+
+    @Test
+    void shouldRejectBadImportRowsWithoutRollingBackValidRows() {
+        UUID squatId = createExercise("import-partial-squat", "Import Partial Squat");
+
+        ImportWorkoutSessionsResponse response = workoutService.importSessions(currentUser, new ImportWorkoutSessionsRequest(List.of(
+                importRow(
+                        "bad-device-session",
+                        "DEVICE",
+                        "Bad Device Strength",
+                        Instant.parse("2026-06-11T10:00:00Z"),
+                        squatId,
+                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 120, 8, null)),
+                        Instant.parse("2026-06-11T09:59:00Z")),
+                importRow(
+                        "good-device-session",
+                        "DEVICE",
+                        "Good Device Strength",
+                        Instant.parse("2026-06-12T10:00:00Z"),
+                        squatId,
+                        List.of(new WorkoutExerciseSetLogInput(1, 6, new BigDecimal("100.00"), null, null, 120, 8, null))))));
+
+        assertEquals(1, response.imported());
+        assertEquals(0, response.skippedDuplicate());
+        assertEquals(1, response.rejected());
+        assertEquals(ImportWorkoutSessionRowStatus.REJECTED, response.results().get(0).status());
+        assertEquals("completedAt must not be before startedAt", response.results().get(0).reason());
+        assertEquals(ImportWorkoutSessionRowStatus.IMPORTED, response.results().get(1).status());
+        assertEquals(1, workoutSessionRepository.findAll().size());
+        assertEquals(1, pendingEventCount("WorkoutLogged"));
+    }
+
+    @Test
+    void shouldRejectImportRowsWithUnsupportedSource() {
+        UUID squatId = createExercise("import-source-squat", "Import Source Squat");
+
+        ImportWorkoutSessionsResponse response = workoutService.importSessions(currentUser, new ImportWorkoutSessionsRequest(
+                List.of(importRow(
+                        "manual-session-rejected",
+                        "MANUAL",
+                        "Manual Imported Strength",
+                        Instant.parse("2026-06-11T10:00:00Z"),
+                        squatId,
+                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 120, 8, null))))));
+
+        assertEquals(0, response.imported());
+        assertEquals(0, response.skippedDuplicate());
+        assertEquals(1, response.rejected());
+        assertEquals(ImportWorkoutSessionRowStatus.REJECTED, response.results().get(0).status());
+        assertEquals("source must be DEVICE or IMPORTED", response.results().get(0).reason());
+        assertEquals(0, workoutSessionRepository.findAll().size());
+    }
+
+    @Test
+    void shouldScopeImportIdempotencyByUser() {
+        UUID squatId = createExercise("import-user-squat", "Import User Squat");
+        ImportWorkoutSessionRowRequest row = importRow(
+                "shared-external-session",
+                "IMPORTED",
+                "Shared External Strength",
+                Instant.parse("2026-06-11T10:00:00Z"),
+                squatId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 120, 8, null)));
+
+        ImportWorkoutSessionsResponse currentImport = workoutService.importSessions(currentUser, new ImportWorkoutSessionsRequest(List.of(row)));
+        ImportWorkoutSessionsResponse otherImport = workoutService.importSessions(otherUser, new ImportWorkoutSessionsRequest(List.of(row)));
+
+        assertEquals(1, currentImport.imported());
+        assertEquals(1, otherImport.imported());
+        assertEquals(2, workoutSessionRepository.findAll().size());
+        assertEquals(currentUser.userId(), workoutSessionRepository.findBySessionIdAndUserId(
+                currentImport.results().get(0).sessionId(),
+                currentUser.userId()).orElseThrow().getUserId());
+        assertEquals(otherUser.userId(), workoutSessionRepository.findBySessionIdAndUserId(
+                otherImport.results().get(0).sessionId(),
+                otherUser.userId()).orElseThrow().getUserId());
+    }
+
+    @Test
     void shouldRepeatSessionFromLoggedSetsOnlyAsUnloggedEditableSkeletonWithoutEvents() {
         UUID squatId = createExercise("repeat-seed-squat", "Repeat Seed Squat");
         WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
@@ -1542,6 +1686,49 @@ class WorkoutServicePersistenceTests {
                         null,
                         null,
                         null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        sets)));
+    }
+
+    private ImportWorkoutSessionRowRequest importRow(String externalId,
+                                                     String source,
+                                                     String name,
+                                                     Instant startedAt,
+                                                     UUID exerciseId,
+                                                     List<WorkoutExerciseSetLogInput> sets) {
+        return importRow(externalId, source, name, startedAt, exerciseId, sets, startedAt.plus(Duration.ofHours(1)));
+    }
+
+    private ImportWorkoutSessionRowRequest importRow(String externalId,
+                                                     String source,
+                                                     String name,
+                                                     Instant startedAt,
+                                                     UUID exerciseId,
+                                                     List<WorkoutExerciseSetLogInput> sets,
+                                                     Instant completedAt) {
+        return new ImportWorkoutSessionRowRequest(
+                externalId,
+                source,
+                null,
+                name,
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                startedAt,
+                completedAt,
+                999,
+                400,
+                8,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        exerciseId,
+                        1,
+                        99,
+                        999,
+                        new BigDecimal("99999.00"),
                         null,
                         null,
                         null,

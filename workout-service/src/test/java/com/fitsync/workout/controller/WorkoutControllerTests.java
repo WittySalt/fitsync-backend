@@ -24,6 +24,11 @@ import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordValueView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowResult;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
+import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
@@ -608,6 +613,53 @@ class WorkoutControllerTests {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("startedAt must not be in the future"));
+    }
+
+    @Test
+    void shouldImportWorkoutSessionsForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        ImportWorkoutSessionsRequest request = new ImportWorkoutSessionsRequest(List.of(new ImportWorkoutSessionRowRequest(
+                "device-session-1",
+                "DEVICE",
+                null,
+                "Imported Strength",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                Instant.parse("2026-06-11T11:00:00Z"),
+                60,
+                400,
+                8,
+                null,
+                List.of())));
+        ImportWorkoutSessionsResponse response = new ImportWorkoutSessionsResponse(
+                1,
+                0,
+                0,
+                List.of(new ImportWorkoutSessionRowResult(
+                        0,
+                        "device-session-1",
+                        WorkoutSource.DEVICE,
+                        ImportWorkoutSessionRowStatus.IMPORTED,
+                        sessionId,
+                        null)));
+
+        when(workoutService.importSessions(any(), any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/import")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imported").value(1))
+                .andExpect(jsonPath("$.skippedDuplicate").value(0))
+                .andExpect(jsonPath("$.rejected").value(0))
+                .andExpect(jsonPath("$.results[0].status").value("IMPORTED"))
+                .andExpect(jsonPath("$.results[0].sessionId").value(sessionId.toString()));
+
+        verify(workoutService).importSessions(eq(principal), any());
     }
 
     @Test

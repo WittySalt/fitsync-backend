@@ -48,6 +48,9 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     @Column(name = "source", nullable = false, length = 30)
     private WorkoutSource source;
 
+    @Column(name = "external_id", length = 120)
+    private String externalId;
+
     @Column(name = "started_at", nullable = false)
     private Instant startedAt;
 
@@ -84,6 +87,8 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     public void setStatus(WorkoutSessionStatus status) { this.status = status; }
     public WorkoutSource getSource() { return source; }
     public void setSource(WorkoutSource source) { this.source = source; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
     public Instant getStartedAt() { return startedAt; }
     public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
     public Instant getCompletedAt() { return completedAt; }

@@ -15,6 +15,8 @@ import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
+import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
@@ -191,6 +193,13 @@ public class WorkoutController {
     public WorkoutSessionView createSession(Authentication authentication,
                                             @Valid @RequestBody UpsertWorkoutSessionRequest request) {
         return workoutService.createSession(currentPrincipal(authentication), request);
+    }
+
+    @Operation(summary = "Import externally sourced workout sessions")
+    @PostMapping("/sessions/import")
+    public ImportWorkoutSessionsResponse importSessions(Authentication authentication,
+                                                        @Valid @RequestBody ImportWorkoutSessionsRequest request) {
+        return workoutService.importSessions(currentPrincipal(authentication), request);
     }
 
     @GetMapping("/sessions")

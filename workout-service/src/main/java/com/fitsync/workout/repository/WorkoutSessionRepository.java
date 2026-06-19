@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.WorkoutSessionStatus;
+import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,6 +18,8 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     Optional<WorkoutSessionEntity> findBySessionIdAndUserId(UUID sessionId, UUID userId);
+
+    Optional<WorkoutSessionEntity> findByUserIdAndSourceAndExternalId(UUID userId, WorkoutSource source, String externalId);
 
     Optional<WorkoutSessionEntity> findTopByUserIdOrderByStartedAtDesc(UUID userId);
 

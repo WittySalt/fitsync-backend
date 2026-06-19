@@ -5,9 +5,11 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -25,6 +27,11 @@ import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordSetRow;
 import com.fitsync.workout.dto.ExerciseRecordValueView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowResult;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
+import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
@@ -53,12 +60,18 @@ import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class WorkoutServiceImpl implements WorkoutService {
@@ -79,6 +92,8 @@ public class WorkoutServiceImpl implements WorkoutService {
     private final WorkoutExerciseLogRepository workoutExerciseLogRepository;
     private final WorkoutPlanRepository workoutPlanRepository;
     private final WorkoutSessionRepository workoutSessionRepository;
+    private final Validator validator;
+    private final TransactionTemplate importRowTransactionTemplate;
 
     public WorkoutServiceImpl(@Value("${fitsync.kafka.topics.workout-events:workout-events}") String workoutEventsTopic,
                               @Value("${fitsync.workout.exercise-history.max-range-days:370}") int exerciseHistoryMaxRangeDays,
@@ -86,7 +101,9 @@ public class WorkoutServiceImpl implements WorkoutService {
                               ExerciseRepository exerciseRepository,
                               WorkoutExerciseLogRepository workoutExerciseLogRepository,
                               WorkoutPlanRepository workoutPlanRepository,
-                              WorkoutSessionRepository workoutSessionRepository) {
+                              WorkoutSessionRepository workoutSessionRepository,
+                              Validator validator,
+                              PlatformTransactionManager transactionManager) {
         this.workoutEventsTopic = workoutEventsTopic;
         this.exerciseHistoryMaxRangeDays = exerciseHistoryMaxRangeDays;
         this.domainEventPublisher = domainEventPublisher;
@@ -94,6 +111,9 @@ public class WorkoutServiceImpl implements WorkoutService {
         this.workoutExerciseLogRepository = workoutExerciseLogRepository;
         this.workoutPlanRepository = workoutPlanRepository;
         this.workoutSessionRepository = workoutSessionRepository;
+        this.validator = validator;
+        this.importRowTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.importRowTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
@@ -257,6 +277,28 @@ public class WorkoutServiceImpl implements WorkoutService {
             publishWorkoutLoggedAndPersonalRecords(saved);
         }
         return toSessionView(saved);
+    }
+
+    @Override
+    public ImportWorkoutSessionsResponse importSessions(CurrentUserPrincipal currentUser,
+                                                        ImportWorkoutSessionsRequest request) {
+        List<ImportWorkoutSessionRowResult> results = new ArrayList<>();
+        List<ImportWorkoutSessionRowRequest> rows = request.sessions();
+        for (int index = 0; index < rows.size(); index++) {
+            ImportWorkoutSessionRowRequest row = rows.get(index);
+            results.add(importOneRow(currentUser.userId(), index, row));
+        }
+
+        int imported = (int) results.stream()
+                .filter(result -> result.status() == ImportWorkoutSessionRowStatus.IMPORTED)
+                .count();
+        int skipped = (int) results.stream()
+                .filter(result -> result.status() == ImportWorkoutSessionRowStatus.SKIPPED_DUPLICATE)
+                .count();
+        int rejected = (int) results.stream()
+                .filter(result -> result.status() == ImportWorkoutSessionRowStatus.REJECTED)
+                .count();
+        return new ImportWorkoutSessionsResponse(imported, skipped, rejected, results);
     }
 
     @Override
@@ -436,6 +478,135 @@ public class WorkoutServiceImpl implements WorkoutService {
     private WorkoutSessionEntity findSession(UUID userId, UUID sessionId) {
         return workoutSessionRepository.findBySessionIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Workout session not found"));
+    }
+
+    private ImportWorkoutSessionRowResult importOneRow(UUID userId,
+                                                       int rowIndex,
+                                                       ImportWorkoutSessionRowRequest row) {
+        try {
+            return importRowTransactionTemplate.execute(status -> importSessionRow(userId, rowIndex, row));
+        } catch (DataIntegrityViolationException ex) {
+            return new ImportWorkoutSessionRowResult(
+                    rowIndex,
+                    row == null ? null : row.externalId(),
+                    row == null ? null : parseImportSourceOrNull(row.source()),
+                    ImportWorkoutSessionRowStatus.SKIPPED_DUPLICATE,
+                    null,
+                    "Duplicate externalId for source");
+        } catch (IllegalArgumentException | ResourceNotFoundException ex) {
+            return new ImportWorkoutSessionRowResult(
+                    rowIndex,
+                    row == null ? null : row.externalId(),
+                    row == null ? null : parseImportSourceOrNull(row.source()),
+                    ImportWorkoutSessionRowStatus.REJECTED,
+                    null,
+                    ex.getMessage());
+        }
+    }
+
+    private ImportWorkoutSessionRowResult importSessionRow(UUID userId,
+                                                           int rowIndex,
+                                                           ImportWorkoutSessionRowRequest row) {
+        validateImportIdentity(row);
+        WorkoutSource source = parseImportSource(row.source());
+        if (workoutSessionRepository.findByUserIdAndSourceAndExternalId(userId, source, row.externalId()).isPresent()) {
+            return new ImportWorkoutSessionRowResult(
+                    rowIndex,
+                    row.externalId(),
+                    source,
+                    ImportWorkoutSessionRowStatus.SKIPPED_DUPLICATE,
+                    null,
+                    "Duplicate externalId for source");
+        }
+
+        validateImportRow(row);
+        UpsertWorkoutSessionRequest request = toUpsertWorkoutSessionRequest(row, source);
+        validateSessionRequest(userId, request);
+
+        WorkoutSessionEntity entity = new WorkoutSessionEntity();
+        entity.setSessionId(UUID.randomUUID());
+        entity.setUserId(userId);
+        entity.setExternalId(row.externalId());
+        applySessionRequest(userId, entity, request);
+        WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
+        if (saved.getStatus() == WorkoutSessionStatus.COMPLETED) {
+            publishWorkoutLoggedAndPersonalRecords(saved, true);
+        }
+        return new ImportWorkoutSessionRowResult(
+                rowIndex,
+                row.externalId(),
+                source,
+                ImportWorkoutSessionRowStatus.IMPORTED,
+                saved.getSessionId(),
+                null);
+    }
+
+    private void validateImportIdentity(ImportWorkoutSessionRowRequest row) {
+        if (row == null) {
+            throw new IllegalArgumentException("Import row must not be null");
+        }
+        if (row.externalId() == null || row.externalId().isBlank() || row.externalId().length() > 120) {
+            throw new IllegalArgumentException("externalId is required and must not exceed 120 characters");
+        }
+        if (row.source() == null || row.source().isBlank() || row.source().length() > 30) {
+            throw new IllegalArgumentException("source must be DEVICE or IMPORTED");
+        }
+    }
+
+    private void validateImportRow(ImportWorkoutSessionRowRequest row) {
+        if (row == null) {
+            throw new IllegalArgumentException("Import row must not be null");
+        }
+        Set<ConstraintViolation<ImportWorkoutSessionRowRequest>> violations = validator.validate(row);
+        if (!violations.isEmpty()) {
+            String message = violations.stream()
+                    .sorted(Comparator.comparing(violation -> violation.getPropertyPath().toString()))
+                    .map(violation -> violation.getPropertyPath() + " " + violation.getMessage())
+                    .findFirst()
+                    .orElse("Import row is invalid");
+            throw new IllegalArgumentException(message);
+        }
+    }
+
+    private WorkoutSource parseImportSource(String source) {
+        WorkoutSource parsed;
+        try {
+            parsed = WorkoutSource.valueOf(source.trim());
+        } catch (RuntimeException ex) {
+            throw new IllegalArgumentException("source must be DEVICE or IMPORTED");
+        }
+        if (parsed != WorkoutSource.DEVICE && parsed != WorkoutSource.IMPORTED) {
+            throw new IllegalArgumentException("source must be DEVICE or IMPORTED");
+        }
+        return parsed;
+    }
+
+    private WorkoutSource parseImportSourceOrNull(String source) {
+        if (source == null) {
+            return null;
+        }
+        try {
+            return WorkoutSource.valueOf(source.trim());
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private UpsertWorkoutSessionRequest toUpsertWorkoutSessionRequest(ImportWorkoutSessionRowRequest row,
+                                                                      WorkoutSource source) {
+        return new UpsertWorkoutSessionRequest(
+                row.planId(),
+                row.name(),
+                row.workoutType(),
+                row.status(),
+                source,
+                row.startedAt(),
+                row.completedAt(),
+                row.durationMinutes(),
+                row.caloriesBurned(),
+                row.perceivedExertion(),
+                row.notes(),
+                row.exercises());
     }
 
     private WorkoutPlanEntity toDuplicatePlan(UUID userId, WorkoutPlanEntity source) {
@@ -904,8 +1075,14 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void publishWorkoutLoggedAndPersonalRecords(WorkoutSessionEntity session) {
+        publishWorkoutLoggedAndPersonalRecords(session, false);
+    }
+
+    private void publishWorkoutLoggedAndPersonalRecords(WorkoutSessionEntity session, boolean skipPersonalRecords) {
         publishWorkoutLogged(session);
-        publishPersonalRecordsAchieved(session);
+        if (!skipPersonalRecords) {
+            publishPersonalRecordsAchieved(session);
+        }
     }
 
     private void publishPersonalRecordsAchieved(WorkoutSessionEntity session) {
