@@ -14,12 +14,16 @@ import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
+import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -79,6 +83,12 @@ public class WorkoutController {
                 currentPrincipal(authentication), q, exerciseType, primaryMuscleGroup, equipment, difficulty, page, size);
     }
 
+    @Operation(summary = "Get exercise and workout metadata")
+    @GetMapping("/exercises/metadata")
+    public ExerciseMetadataView getExerciseMetadata() {
+        return exerciseService.getExerciseMetadata();
+    }
+
     @Operation(summary = "Get an accessible exercise")
     @GetMapping("/exercises/{exerciseId}")
     public ExerciseView getExercise(Authentication authentication,
@@ -103,6 +113,12 @@ public class WorkoutController {
     public ExerciseRecordsView getExerciseRecords(Authentication authentication,
                                                   @PathVariable UUID exerciseId) {
         return workoutService.getExerciseRecords(currentPrincipal(authentication), exerciseId);
+    }
+
+    @Operation(summary = "Export workout data for the current user")
+    @GetMapping("/export")
+    public WorkoutExportView exportWorkoutData(Authentication authentication) {
+        return workoutService.exportWorkoutData(currentPrincipal(authentication));
     }
 
     @Operation(summary = "Update a custom exercise")
@@ -149,6 +165,14 @@ public class WorkoutController {
         return workoutService.getPlan(currentPrincipal(authentication), planId);
     }
 
+    @Operation(summary = "Duplicate a workout plan")
+    @PostMapping("/plans/{planId}/duplicate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkoutPlanView duplicatePlan(Authentication authentication,
+                                         @PathVariable UUID planId) {
+        return workoutService.duplicatePlan(currentPrincipal(authentication), planId);
+    }
+
     @PutMapping("/plans/{planId}")
     public WorkoutPlanView updatePlan(Authentication authentication,
                                       @PathVariable UUID planId,
@@ -185,6 +209,13 @@ public class WorkoutController {
         return workoutService.createSession(currentPrincipal(authentication), request);
     }
 
+    @Operation(summary = "Import externally sourced workout sessions")
+    @PostMapping("/sessions/import")
+    public ImportWorkoutSessionsResponse importSessions(Authentication authentication,
+                                                        @Valid @RequestBody ImportWorkoutSessionsRequest request) {
+        return workoutService.importSessions(currentPrincipal(authentication), request);
+    }
+
     @GetMapping("/sessions")
     public PageResponse<WorkoutSessionView> listSessions(
             Authentication authentication,
@@ -202,10 +233,25 @@ public class WorkoutController {
         return workoutService.getLatestSession(currentPrincipal(authentication));
     }
 
+    @Operation(summary = "Repeat the latest completed workout session")
+    @PostMapping("/sessions/repeat-latest")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkoutSessionView repeatLatestSession(Authentication authentication) {
+        return workoutService.repeatLatestSession(currentPrincipal(authentication));
+    }
+
     @GetMapping("/sessions/{sessionId}")
     public WorkoutSessionView getSession(Authentication authentication,
                                          @PathVariable UUID sessionId) {
         return workoutService.getSession(currentPrincipal(authentication), sessionId);
+    }
+
+    @Operation(summary = "Repeat a workout session")
+    @PostMapping("/sessions/{sessionId}/repeat")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkoutSessionView repeatSession(Authentication authentication,
+                                            @PathVariable UUID sessionId) {
+        return workoutService.repeatSession(currentPrincipal(authentication), sessionId);
     }
 
     @PutMapping("/sessions/{sessionId}")

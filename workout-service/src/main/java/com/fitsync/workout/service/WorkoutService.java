@@ -10,10 +10,13 @@ import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
+import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -32,6 +35,8 @@ public interface WorkoutService {
 
     WorkoutPlanView getActivePlan(CurrentUserPrincipal currentUser);
 
+    WorkoutPlanView duplicatePlan(CurrentUserPrincipal currentUser, UUID planId);
+
     PageResponse<ExerciseHistoryEntryView> getExerciseHistory(CurrentUserPrincipal currentUser,
                                                               UUID exerciseId,
                                                               Instant from,
@@ -40,6 +45,8 @@ public interface WorkoutService {
                                                               int size);
 
     ExerciseRecordsView getExerciseRecords(CurrentUserPrincipal currentUser, UUID exerciseId);
+
+    WorkoutExportView exportWorkoutData(CurrentUserPrincipal currentUser);
 
     WorkoutPlanView updatePlan(CurrentUserPrincipal currentUser, UUID planId, UpdateWorkoutPlanRequest request);
 
@@ -50,6 +57,8 @@ public interface WorkoutService {
     WorkoutSessionView startPlan(CurrentUserPrincipal currentUser, UUID planId);
 
     WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request);
+
+    ImportWorkoutSessionsResponse importSessions(CurrentUserPrincipal currentUser, ImportWorkoutSessionsRequest request);
 
     PageResponse<WorkoutSessionView> listSessions(CurrentUserPrincipal currentUser,
                                                   Instant from,
@@ -62,6 +71,10 @@ public interface WorkoutService {
     WorkoutSessionView getLatestSession(CurrentUserPrincipal currentUser);
 
     WorkoutSessionView getSession(CurrentUserPrincipal currentUser, UUID sessionId);
+
+    WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId);
+
+    WorkoutSessionView repeatLatestSession(CurrentUserPrincipal currentUser);
 
     WorkoutSessionView updateSession(CurrentUserPrincipal currentUser, UUID sessionId, UpsertWorkoutSessionRequest request);
 

@@ -15,6 +15,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.BatchSize;
 
 @Entity
 @Table(name = "workout_exercise_logs")
@@ -64,6 +65,7 @@ public class WorkoutExerciseLogEntity {
 
     @OneToMany(mappedBy = "exerciseLog", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("setNumber asc")
+    @BatchSize(size = 100)
     private List<WorkoutExerciseSetLogEntity> sets = new ArrayList<>();
 
     public UUID getExerciseLogId() { return exerciseLogId; }

@@ -1,16 +1,20 @@
 package com.fitsync.workout.service;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
+import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.dto.CreateExerciseRequest;
+import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
+import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.entity.ExerciseEntity;
 import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -62,6 +66,17 @@ public class ExerciseServiceImpl implements ExerciseService {
     }
 
     @Override
+    public ExerciseMetadataView getExerciseMetadata() {
+        return new ExerciseMetadataView(
+                List.of(ExerciseType.values()),
+                List.of(MuscleGroup.values()),
+                List.of(ExerciseEquipment.values()),
+                List.of(WorkoutDifficulty.values()),
+                List.of(WorkoutType.values()),
+                List.of(GoalFocus.values()));
+    }
+
+    @Override
     @Transactional
     public ExerciseView updateCustomExercise(CurrentUserPrincipal currentUser,
                                              UUID exerciseId,
@@ -82,6 +97,15 @@ public class ExerciseServiceImpl implements ExerciseService {
         ExerciseEntity entity = findEditableCustomExercise(currentUser.userId(), exerciseId);
         entity.setStatus(ExerciseStatus.ARCHIVED);
         exerciseRepository.save(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ExerciseView> exportCustomExercises(CurrentUserPrincipal currentUser) {
+        return exerciseRepository.findByOwnerUserIdOrderByNameAsc(currentUser.userId())
+                .stream()
+                .map(this::toView)
+                .toList();
     }
 
     @Override

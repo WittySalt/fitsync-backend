@@ -22,14 +22,21 @@ import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseRecordValueView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowResult;
+import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
+import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
+import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
+import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
@@ -94,6 +101,45 @@ class WorkoutControllerTests {
     }
 
     @Test
+    void shouldExportWorkoutDataForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        Instant exportedAt = Instant.parse("2026-06-19T12:00:00Z");
+        ExerciseView exercise = new ExerciseView(
+                UUID.randomUUID(),
+                principal.userId(),
+                "custom-squat",
+                "Custom Squat",
+                "Custom movement",
+                ExerciseType.STRENGTH,
+                MuscleGroup.LEGS,
+                ExerciseEquipment.BARBELL,
+                WorkoutDifficulty.INTERMEDIATE,
+                ExerciseStatus.ACTIVE,
+                true,
+                exportedAt,
+                exportedAt);
+        WorkoutExportView response = new WorkoutExportView(
+                1,
+                exportedAt,
+                List.of(exercise),
+                List.of(),
+                List.of(sessionView(UUID.randomUUID(), WorkoutSessionStatus.COMPLETED)));
+
+        when(workoutService.exportWorkoutData(any())).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/export")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schemaVersion").value(1))
+                .andExpect(jsonPath("$.exportedAt").value("2026-06-19T12:00:00Z"))
+                .andExpect(jsonPath("$.exercises[0].code").value("custom-squat"))
+                .andExpect(jsonPath("$.plans").isArray())
+                .andExpect(jsonPath("$.sessions[0].status").value("COMPLETED"));
+
+        verify(workoutService).exportWorkoutData(eq(principal));
+    }
+
+    @Test
     void shouldCreatePlanForAuthenticatedUser() throws Exception {
         UUID planId = UUID.randomUUID();
         UUID exerciseId = UUID.randomUUID();
@@ -132,6 +178,33 @@ class WorkoutControllerTests {
     }
 
     @Test
+    void shouldReturnExerciseMetadataForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        ExerciseMetadataView response = new ExerciseMetadataView(
+                List.of(ExerciseType.values()),
+                List.of(MuscleGroup.values()),
+                List.of(ExerciseEquipment.values()),
+                List.of(WorkoutDifficulty.values()),
+                List.of(WorkoutType.values()),
+                List.of(GoalFocus.values()));
+
+        when(exerciseService.getExerciseMetadata()).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/exercises/metadata")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exerciseTypes.length()").value(ExerciseType.values().length))
+                .andExpect(jsonPath("$.exerciseTypes[0]").value(ExerciseType.STRENGTH.name()))
+                .andExpect(jsonPath("$.muscleGroups.length()").value(MuscleGroup.values().length))
+                .andExpect(jsonPath("$.equipment.length()").value(ExerciseEquipment.values().length))
+                .andExpect(jsonPath("$.difficulties.length()").value(WorkoutDifficulty.values().length))
+                .andExpect(jsonPath("$.workoutTypes.length()").value(WorkoutType.values().length))
+                .andExpect(jsonPath("$.goalFocuses.length()").value(GoalFocus.values().length));
+
+        verify(exerciseService).getExerciseMetadata();
+    }
+
+    @Test
     void shouldStartPlanForAuthenticatedUser() throws Exception {
         UUID planId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
@@ -166,6 +239,52 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.source").value("PLAN"));
 
         verify(workoutService).startPlan(eq(principal), eq(planId));
+    }
+
+    @Test
+    void shouldDuplicatePlanForAuthenticatedUser() throws Exception {
+        UUID planId = UUID.randomUUID();
+        UUID duplicatePlanId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutPlanView response = new WorkoutPlanView(
+                duplicatePlanId,
+                "Push Day (Copy)",
+                "Upper body strength",
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.INTERMEDIATE,
+                60,
+                WorkoutPlanStatus.DRAFT,
+                List.of(),
+                Instant.parse("2026-06-11T12:00:00Z"),
+                Instant.parse("2026-06-11T12:00:00Z"));
+
+        when(workoutService.duplicatePlan(any(), eq(planId))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/duplicate", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.planId").value(duplicatePlanId.toString()))
+                .andExpect(jsonPath("$.name").value("Push Day (Copy)"))
+                .andExpect(jsonPath("$.status").value("DRAFT"));
+
+        verify(workoutService).duplicatePlan(eq(principal), eq(planId));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenDuplicatePlanIsNotAccessible() throws Exception {
+        UUID planId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+
+        when(workoutService.duplicatePlan(any(), eq(planId)))
+                .thenThrow(new ResourceNotFoundException("Workout plan not found"));
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/duplicate", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Workout plan not found"));
     }
 
     @Test
@@ -565,6 +684,53 @@ class WorkoutControllerTests {
     }
 
     @Test
+    void shouldImportWorkoutSessionsForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        ImportWorkoutSessionsRequest request = new ImportWorkoutSessionsRequest(List.of(new ImportWorkoutSessionRowRequest(
+                "device-session-1",
+                "DEVICE",
+                null,
+                "Imported Strength",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                Instant.parse("2026-06-11T11:00:00Z"),
+                60,
+                400,
+                8,
+                null,
+                List.of())));
+        ImportWorkoutSessionsResponse response = new ImportWorkoutSessionsResponse(
+                1,
+                0,
+                0,
+                List.of(new ImportWorkoutSessionRowResult(
+                        0,
+                        "device-session-1",
+                        WorkoutSource.DEVICE,
+                        ImportWorkoutSessionRowStatus.IMPORTED,
+                        sessionId,
+                        null)));
+
+        when(workoutService.importSessions(any(), any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/import")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imported").value(1))
+                .andExpect(jsonPath("$.skippedDuplicate").value(0))
+                .andExpect(jsonPath("$.rejected").value(0))
+                .andExpect(jsonPath("$.results[0].status").value("IMPORTED"))
+                .andExpect(jsonPath("$.results[0].sessionId").value(sessionId.toString()));
+
+        verify(workoutService).importSessions(eq(principal), any());
+    }
+
+    @Test
     void shouldCompleteSessionForAuthenticatedUser() throws Exception {
         UUID sessionId = UUID.randomUUID();
         CurrentUserPrincipal principal = principal();
@@ -601,6 +767,43 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         verify(workoutService).cancelSession(eq(principal), eq(sessionId));
+    }
+
+    @Test
+    void shouldRepeatSessionForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID repeatedSessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionView response = sessionView(repeatedSessionId, WorkoutSessionStatus.IN_PROGRESS);
+
+        when(workoutService.repeatSession(any(), eq(sessionId))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/repeat", sessionId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessionId").value(repeatedSessionId.toString()))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+
+        verify(workoutService).repeatSession(eq(principal), eq(sessionId));
+    }
+
+    @Test
+    void shouldRepeatLatestCompletedSessionForAuthenticatedUser() throws Exception {
+        UUID repeatedSessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionView response = sessionView(repeatedSessionId, WorkoutSessionStatus.IN_PROGRESS);
+
+        when(workoutService.repeatLatestSession(any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/repeat-latest")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessionId").value(repeatedSessionId.toString()))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+
+        verify(workoutService).repeatLatestSession(eq(principal));
     }
 
     @Test
