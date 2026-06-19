@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -74,6 +75,7 @@ import com.fitsync.nutrition.entity.NutritionTargetEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.entity.RecipeIngredientEntity;
 import com.fitsync.nutrition.entity.WaterLogEntity;
+import com.fitsync.nutrition.external.ExternalFoodSource;
 import com.fitsync.nutrition.messaging.DomainEventPublisher;
 import com.fitsync.nutrition.repository.CustomFoodRepository;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
@@ -135,6 +137,7 @@ public class NutritionServiceImpl implements NutritionService {
     private final MealTemplateRepository mealTemplateRepository;
     private final MealTemplateItemRepository mealTemplateItemRepository;
     private final WaterLogRepository waterLogRepository;
+    private final ExternalFoodSource externalFoodSource;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
@@ -154,7 +157,8 @@ public class NutritionServiceImpl implements NutritionService {
                                 FoodFavoriteRepository foodFavoriteRepository,
                                 MealTemplateRepository mealTemplateRepository,
                                 MealTemplateItemRepository mealTemplateItemRepository,
-                                WaterLogRepository waterLogRepository) {
+                                WaterLogRepository waterLogRepository,
+                                ExternalFoodSource externalFoodSource) {
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
@@ -174,6 +178,7 @@ public class NutritionServiceImpl implements NutritionService {
         this.mealTemplateRepository = mealTemplateRepository;
         this.mealTemplateItemRepository = mealTemplateItemRepository;
         this.waterLogRepository = waterLogRepository;
+        this.externalFoodSource = externalFoodSource;
     }
 
     @Override
@@ -1105,9 +1110,14 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional(readOnly = true)
     public FoodDetailView getFoodByBarcode(CurrentUserPrincipal principal, String barcode) {
-        FoodBarcodeEntity barcodeEntity = foodBarcodeRepository.findActiveByBarcode(barcode, LocalDate.now())
+        LocalDate today = LocalDate.now();
+        Optional<FoodBarcodeEntity> barcodeEntity = foodBarcodeRepository.findActiveByBarcode(barcode, today);
+        if (barcodeEntity.isPresent()) {
+            return toFoodDetailView(getAccessibleFood(principal.userId(), barcodeEntity.get().getFoodId(), today));
+        }
+        // Local miss: fall back to the external food source (no-op unless enabled).
+        return externalFoodSource.findByBarcode(barcode)
                 .orElseThrow(() -> new ResourceNotFoundException("Food not found"));
-        return toFoodDetailView(getAccessibleFood(principal.userId(), barcodeEntity.getFoodId(), LocalDate.now()));
     }
 
     @Override

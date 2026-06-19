@@ -571,6 +571,15 @@ class NutritionApiTests {
     }
 
     @Test
+    void unknownBarcodeIs404WhenExternalFallbackDisabled() throws Exception {
+        String token = tokenFor("yan@example.com", "Yan");
+        // External food source defaults to disabled, so a local miss stays a 404.
+        mockMvc.perform(get("/api/v1/nutrition/barcodes/{barcode}", "0000000000000")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void mealValidationRejectsEmptyItems() throws Exception {
         String token = tokenFor("carol@example.com", "Carol");
 
