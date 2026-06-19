@@ -9,7 +9,9 @@ import java.time.LocalDate;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
+import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import com.fitsync.analytics.security.JwtService;
@@ -89,6 +91,29 @@ class AnalyticsControllerTests {
     }
 
     @Test
+    void shouldReturnWorkoutSeriesForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getWorkoutSeries(any(), any(), any(), any())).thenReturn(
+                new AnalyticsWorkoutSeriesResponse(
+                        LocalDate.parse("2026-06-01"),
+                        LocalDate.parse("2026-06-14"),
+                        "WEEK",
+                        List.of(new AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint(
+                                LocalDate.parse("2026-06-01"), 3, 120, 900, 14))));
+
+        mockMvc.perform(get("/api/v1/analytics/workouts/series")
+                        .with(authentication(authToken(principal)))
+                        .param("from", "2026-06-01")
+                        .param("to", "2026-06-14")
+                        .param("bucket", "WEEK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bucket").value("WEEK"))
+                .andExpect(jsonPath("$.points[0].date").value("2026-06-01"))
+                .andExpect(jsonPath("$.points[0].completedWorkoutCount").value(3))
+                .andExpect(jsonPath("$.points[0].totalWorkoutMinutes").value(120));
+    }
+
+    @Test
     void shouldReturnNutritionSummaryForAuthenticatedUser() throws Exception {
         CurrentUserPrincipal principal = principal();
         when(analyticsService.getNutritionSummary(any(), any(), any())).thenReturn(
@@ -102,6 +127,39 @@ class AnalyticsControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCaloriesConsumed").value(5400))
                 .andExpect(jsonPath("$.daysWithinCalorieTargetBand").value(7));
+    }
+
+    @Test
+    void shouldReturnNutritionSeriesForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getNutritionSeries(any(), any(), any(), any())).thenReturn(
+                new AnalyticsNutritionSeriesResponse(
+                        LocalDate.parse("2026-06-01"),
+                        LocalDate.parse("2026-06-14"),
+                        "MONTH",
+                        List.of(new AnalyticsNutritionSeriesResponse.NutritionSeriesPoint(
+                                LocalDate.parse("2026-06-01"), 3800, 270.0, 420.0, 130.0, 4300, 310.0))));
+
+        mockMvc.perform(get("/api/v1/analytics/nutrition/series")
+                        .with(authentication(authToken(principal)))
+                        .param("from", "2026-06-01")
+                        .param("to", "2026-06-14")
+                        .param("bucket", "MONTH"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bucket").value("MONTH"))
+                .andExpect(jsonPath("$.points[0].date").value("2026-06-01"))
+                .andExpect(jsonPath("$.points[0].totalCaloriesConsumed").value(3800))
+                .andExpect(jsonPath("$.points[0].totalProteinGrams").value(270.0));
+    }
+
+    @Test
+    void shouldRejectInvalidSeriesBucket() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/workouts/series")
+                        .with(authentication(authToken(principal())))
+                        .param("from", "2026-06-01")
+                        .param("to", "2026-06-14")
+                        .param("bucket", "YEAR"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

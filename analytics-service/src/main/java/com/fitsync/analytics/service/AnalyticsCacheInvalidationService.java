@@ -12,7 +12,9 @@ public class AnalyticsCacheInvalidationService {
             @CacheEvict(cacheNames = CacheConfig.DASHBOARD_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConfig.BODY_TRENDS_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConfig.WORKOUT_SUMMARY_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConfig.WORKOUT_SERIES_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConfig.NUTRITION_SUMMARY_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConfig.NUTRITION_SERIES_CACHE, allEntries = true),
             @CacheEvict(cacheNames = CacheConfig.GOAL_PROGRESS_CACHE, allEntries = true)
     })
     public void evictAllForUser(java.util.UUID userId) {

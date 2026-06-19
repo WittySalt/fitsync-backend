@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
+import com.fitsync.analytics.dto.BodyTrendBucket;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
@@ -102,5 +103,51 @@ class AnalyticsCachingTests {
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
         verify(dailyWorkoutRepository, times(1))
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, LocalDate.parse("2026-06-15"));
+    }
+
+    @Test
+    void shouldCacheWorkoutSeriesAndEvictAfterInvalidation() {
+        UUID userId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "cara@example.com", "Cara", "USER");
+        LocalDate from = LocalDate.parse("2026-06-01");
+        LocalDate to = LocalDate.parse("2026-06-14");
+
+        when(dailyWorkoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of());
+
+        analyticsService.getWorkoutSeries(principal, from, to, BodyTrendBucket.WEEK);
+        analyticsService.getWorkoutSeries(principal, from, to, BodyTrendBucket.WEEK);
+
+        verify(dailyWorkoutRepository, times(1))
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
+
+        cacheInvalidationService.evictAllForUser(userId);
+        analyticsService.getWorkoutSeries(principal, from, to, BodyTrendBucket.WEEK);
+
+        verify(dailyWorkoutRepository, times(2))
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
+    }
+
+    @Test
+    void shouldCacheNutritionSeriesAndEvictAfterInvalidation() {
+        UUID userId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "dina@example.com", "Dina", "USER");
+        LocalDate from = LocalDate.parse("2026-06-01");
+        LocalDate to = LocalDate.parse("2026-06-30");
+
+        when(dailyNutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of());
+
+        analyticsService.getNutritionSeries(principal, from, to, BodyTrendBucket.MONTH);
+        analyticsService.getNutritionSeries(principal, from, to, BodyTrendBucket.MONTH);
+
+        verify(dailyNutritionRepository, times(1))
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
+
+        cacheInvalidationService.evictAllForUser(userId);
+        analyticsService.getNutritionSeries(principal, from, to, BodyTrendBucket.MONTH);
+
+        verify(dailyNutritionRepository, times(2))
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
     }
 }
