@@ -1,5 +1,6 @@
 package com.fitsync.workout.service;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -82,6 +83,15 @@ public class ExerciseServiceImpl implements ExerciseService {
         ExerciseEntity entity = findEditableCustomExercise(currentUser.userId(), exerciseId);
         entity.setStatus(ExerciseStatus.ARCHIVED);
         exerciseRepository.save(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ExerciseView> exportCustomExercises(CurrentUserPrincipal currentUser) {
+        return exerciseRepository.findByOwnerUserIdOrderByNameAsc(currentUser.userId())
+                .stream()
+                .map(this::toView)
+                .toList();
     }
 
     @Override

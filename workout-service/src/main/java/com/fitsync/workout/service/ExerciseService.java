@@ -1,5 +1,6 @@
 package com.fitsync.workout.service;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.ExerciseEquipment;
@@ -21,6 +22,8 @@ public interface ExerciseService {
     ExerciseView updateCustomExercise(CurrentUserPrincipal currentUser, UUID exerciseId, UpdateExerciseRequest request);
 
     void archiveCustomExercise(CurrentUserPrincipal currentUser, UUID exerciseId);
+
+    List<ExerciseView> exportCustomExercises(CurrentUserPrincipal currentUser);
 
     PageResponse<ExerciseView> listExercises(CurrentUserPrincipal currentUser,
                                              String query,

@@ -1,5 +1,6 @@
 package com.fitsync.workout.repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,6 +19,8 @@ import org.springframework.data.repository.query.Param;
 public interface ExerciseRepository extends JpaRepository<ExerciseEntity, UUID> {
 
     boolean existsByCodeAndOwnerUserId(String code, UUID ownerUserId);
+
+    List<ExerciseEntity> findByOwnerUserIdOrderByNameAsc(UUID ownerUserId);
 
     @Query("""
             select exercise from ExerciseEntity exercise

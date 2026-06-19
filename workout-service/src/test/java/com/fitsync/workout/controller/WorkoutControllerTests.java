@@ -35,6 +35,7 @@ import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
+import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
@@ -96,6 +97,45 @@ class WorkoutControllerTests {
     void shouldRequireAuthenticationForProtectedEndpoint() throws Exception {
         mockMvc.perform(get("/api/v1/workouts/plans"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldExportWorkoutDataForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        Instant exportedAt = Instant.parse("2026-06-19T12:00:00Z");
+        ExerciseView exercise = new ExerciseView(
+                UUID.randomUUID(),
+                principal.userId(),
+                "custom-squat",
+                "Custom Squat",
+                "Custom movement",
+                ExerciseType.STRENGTH,
+                MuscleGroup.LEGS,
+                ExerciseEquipment.BARBELL,
+                WorkoutDifficulty.INTERMEDIATE,
+                ExerciseStatus.ACTIVE,
+                true,
+                exportedAt,
+                exportedAt);
+        WorkoutExportView response = new WorkoutExportView(
+                1,
+                exportedAt,
+                List.of(exercise),
+                List.of(),
+                List.of(sessionView(UUID.randomUUID(), WorkoutSessionStatus.COMPLETED)));
+
+        when(workoutService.exportWorkoutData(any())).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/export")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schemaVersion").value(1))
+                .andExpect(jsonPath("$.exportedAt").value("2026-06-19T12:00:00Z"))
+                .andExpect(jsonPath("$.exercises[0].code").value("custom-squat"))
+                .andExpect(jsonPath("$.plans").isArray())
+                .andExpect(jsonPath("$.sessions[0].status").value("COMPLETED"));
+
+        verify(workoutService).exportWorkoutData(eq(principal));
     }
 
     @Test

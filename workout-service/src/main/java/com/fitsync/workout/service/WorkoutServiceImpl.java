@@ -39,6 +39,7 @@ import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseLogView;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogView;
+import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseSetTargetInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseSetTargetView;
@@ -88,6 +89,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     private final String workoutEventsTopic;
     private final int exerciseHistoryMaxRangeDays;
     private final DomainEventPublisher domainEventPublisher;
+    private final ExerciseService exerciseService;
     private final ExerciseRepository exerciseRepository;
     private final WorkoutExerciseLogRepository workoutExerciseLogRepository;
     private final WorkoutPlanRepository workoutPlanRepository;
@@ -98,6 +100,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     public WorkoutServiceImpl(@Value("${fitsync.kafka.topics.workout-events:workout-events}") String workoutEventsTopic,
                               @Value("${fitsync.workout.exercise-history.max-range-days:370}") int exerciseHistoryMaxRangeDays,
                               DomainEventPublisher domainEventPublisher,
+                              ExerciseService exerciseService,
                               ExerciseRepository exerciseRepository,
                               WorkoutExerciseLogRepository workoutExerciseLogRepository,
                               WorkoutPlanRepository workoutPlanRepository,
@@ -107,6 +110,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         this.workoutEventsTopic = workoutEventsTopic;
         this.exerciseHistoryMaxRangeDays = exerciseHistoryMaxRangeDays;
         this.domainEventPublisher = domainEventPublisher;
+        this.exerciseService = exerciseService;
         this.exerciseRepository = exerciseRepository;
         this.workoutExerciseLogRepository = workoutExerciseLogRepository;
         this.workoutPlanRepository = workoutPlanRepository;
@@ -200,6 +204,22 @@ public class WorkoutServiceImpl implements WorkoutService {
                 exercise.getExerciseId(),
                 null));
         return toExerciseRecordsView(exercise, snapshot);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public WorkoutExportView exportWorkoutData(CurrentUserPrincipal currentUser) {
+        UUID userId = currentUser.userId();
+        return new WorkoutExportView(
+                1,
+                Instant.now(),
+                exerciseService.exportCustomExercises(currentUser),
+                workoutPlanRepository.findByUserIdOrderByDateTimeUpdatedDesc(userId).stream()
+                        .map(this::toPlanView)
+                        .toList(),
+                workoutSessionRepository.findByUserIdOrderByStartedAtDesc(userId).stream()
+                        .map(this::toSessionView)
+                        .toList());
     }
 
     @Override

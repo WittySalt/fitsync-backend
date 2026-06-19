@@ -1,6 +1,7 @@
 package com.fitsync.workout.repository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,6 +26,9 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     Optional<WorkoutSessionEntity> findTopByUserIdAndStatusOrderByStartedAtDesc(UUID userId, WorkoutSessionStatus status);
+
+    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    List<WorkoutSessionEntity> findByUserIdOrderByStartedAtDesc(UUID userId);
 
     @Query("""
             select session from WorkoutSessionEntity session

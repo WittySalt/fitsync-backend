@@ -33,6 +33,7 @@ import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseLogView;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
+import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseSetTargetInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
@@ -56,6 +57,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -1439,6 +1441,108 @@ class WorkoutServicePersistenceTests {
         assertEquals(otherUser.userId(), workoutSessionRepository.findBySessionIdAndUserId(
                 otherImport.results().get(0).sessionId(),
                 otherUser.userId()).orElseThrow().getUserId());
+    }
+
+    @Test
+    void shouldExportOnlyCurrentUserWorkoutDataWithPlansAndSessionDetails() {
+        UUID globalSquatId = createExercise("export-global-squat", "Export Global Squat");
+        ExerciseView currentCustom = createCustomExercise(currentUser, "export-current-row", "Export Current Row");
+        ExerciseView otherCustom = createCustomExercise(otherUser, "export-other-row", "Export Other Row");
+        WorkoutPlanView draftPlan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Export Draft Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of(new WorkoutPlanExerciseInput(
+                        globalSquatId,
+                        1,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        120,
+                        null,
+                        List.of(new WorkoutPlanExerciseSetTargetInput(
+                                1,
+                                5,
+                                new BigDecimal("100.00"),
+                                null,
+                                null,
+                                120))))));
+        WorkoutPlanView archivedPlan = createPlan("Export Archived Plan", currentUser);
+        workoutService.archivePlan(currentUser, archivedPlan.planId());
+        WorkoutPlanView otherPlan = createPlan("Export Other Plan", otherUser);
+        WorkoutSessionView currentSession = workoutService.createSession(currentUser, completedStrengthSession(
+                "Export Completed Session",
+                Instant.parse("2026-06-11T10:00:00Z"),
+                globalSquatId,
+                List.of(new WorkoutExerciseSetLogInput(
+                        1,
+                        6,
+                        new BigDecimal("110.00"),
+                        null,
+                        null,
+                        120,
+                        8,
+                        "Exported set"))));
+        WorkoutSessionView otherSession = workoutService.createSession(otherUser, completedStrengthSession(
+                "Export Other Session",
+                Instant.parse("2026-06-12T10:00:00Z"),
+                globalSquatId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("95.00"), null, null, 120, 7, null))));
+
+        WorkoutExportView export = workoutService.exportWorkoutData(currentUser);
+
+        assertEquals(1, export.schemaVersion());
+        assertNotNull(export.exportedAt());
+        assertEquals(List.of(currentCustom.exerciseId()), export.exercises().stream()
+                .map(ExerciseView::exerciseId)
+                .toList());
+        assertFalse(export.exercises().stream()
+                .anyMatch(exercise -> exercise.exerciseId().equals(otherCustom.exerciseId())
+                        || exercise.exerciseId().equals(globalSquatId)));
+        assertTrue(export.plans().stream().anyMatch(plan -> plan.planId().equals(draftPlan.planId())));
+        assertTrue(export.plans().stream().anyMatch(plan -> plan.planId().equals(archivedPlan.planId())
+                && plan.status() == WorkoutPlanStatus.ARCHIVED));
+        assertFalse(export.plans().stream().anyMatch(plan -> plan.planId().equals(otherPlan.planId())));
+        assertEquals(List.of(currentSession.sessionId()), export.sessions().stream()
+                .map(WorkoutSessionView::sessionId)
+                .toList());
+        assertFalse(export.sessions().stream().anyMatch(session -> session.sessionId().equals(otherSession.sessionId())));
+        WorkoutSessionView exportedSession = export.sessions().get(0);
+        assertEquals(1, exportedSession.exercises().size());
+        assertEquals(1, exportedSession.exercises().get(0).sets().size());
+        assertEquals(6, exportedSession.exercises().get(0).sets().get(0).reps());
+        assertEquals(new BigDecimal("110.00"), exportedSession.exercises().get(0).sets().get(0).weightKg());
+        assertEquals(true, exportedSession.exercises().get(0).sets().get(0).logged());
+        assertEquals(1, export.plans().stream()
+                .filter(plan -> plan.planId().equals(draftPlan.planId()))
+                .findFirst()
+                .orElseThrow()
+                .exercises()
+                .get(0)
+                .setTargets()
+                .size());
+    }
+
+    @Test
+    void shouldExportWellFormedEmptyWorkoutDocumentForUserWithNoData() {
+        CurrentUserPrincipal emptyUser = new CurrentUserPrincipal(
+                UUID.fromString("33333333-3333-3333-3333-333333333333"),
+                "empty@example.com",
+                "Empty",
+                "USER");
+
+        WorkoutExportView export = workoutService.exportWorkoutData(emptyUser);
+
+        assertEquals(1, export.schemaVersion());
+        assertNotNull(export.exportedAt());
+        assertEquals(List.of(), export.exercises());
+        assertEquals(List.of(), export.plans());
+        assertEquals(List.of(), export.sessions());
     }
 
     @Test

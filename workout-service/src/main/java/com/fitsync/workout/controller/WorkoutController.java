@@ -22,6 +22,7 @@ import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -105,6 +106,12 @@ public class WorkoutController {
     public ExerciseRecordsView getExerciseRecords(Authentication authentication,
                                                   @PathVariable UUID exerciseId) {
         return workoutService.getExerciseRecords(currentPrincipal(authentication), exerciseId);
+    }
+
+    @Operation(summary = "Export workout data for the current user")
+    @GetMapping("/export")
+    public WorkoutExportView exportWorkoutData(Authentication authentication) {
+        return workoutService.exportWorkoutData(currentPrincipal(authentication));
     }
 
     @Operation(summary = "Update a custom exercise")

@@ -16,6 +16,7 @@ import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -44,6 +45,8 @@ public interface WorkoutService {
                                                               int size);
 
     ExerciseRecordsView getExerciseRecords(CurrentUserPrincipal currentUser, UUID exerciseId);
+
+    WorkoutExportView exportWorkoutData(CurrentUserPrincipal currentUser);
 
     WorkoutPlanView updatePlan(CurrentUserPrincipal currentUser, UUID planId, UpdateWorkoutPlanRequest request);
 
