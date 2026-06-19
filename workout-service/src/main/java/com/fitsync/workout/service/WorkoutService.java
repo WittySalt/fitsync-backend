@@ -25,9 +25,13 @@ public interface WorkoutService {
 
     WorkoutPlanView getPlan(CurrentUserPrincipal currentUser, UUID planId);
 
+    WorkoutPlanView getActivePlan(CurrentUserPrincipal currentUser);
+
     WorkoutPlanView updatePlan(CurrentUserPrincipal currentUser, UUID planId, UpdateWorkoutPlanRequest request);
 
     void archivePlan(CurrentUserPrincipal currentUser, UUID planId);
+
+    WorkoutPlanView activatePlan(CurrentUserPrincipal currentUser, UUID planId);
 
     WorkoutSessionView startPlan(CurrentUserPrincipal currentUser, UUID planId);
 

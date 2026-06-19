@@ -13,6 +13,7 @@ import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
+import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
@@ -73,6 +74,29 @@ public class WorkoutController {
                 currentPrincipal(authentication), q, exerciseType, primaryMuscleGroup, equipment, difficulty, page, size);
     }
 
+    @Operation(summary = "Get an accessible exercise")
+    @GetMapping("/exercises/{exerciseId}")
+    public ExerciseView getExercise(Authentication authentication,
+                                    @PathVariable UUID exerciseId) {
+        return exerciseService.getExercise(currentPrincipal(authentication), exerciseId);
+    }
+
+    @Operation(summary = "Update a custom exercise")
+    @PutMapping("/exercises/{exerciseId}")
+    public ExerciseView updateExercise(Authentication authentication,
+                                       @PathVariable UUID exerciseId,
+                                       @Valid @RequestBody UpdateExerciseRequest request) {
+        return exerciseService.updateCustomExercise(currentPrincipal(authentication), exerciseId, request);
+    }
+
+    @Operation(summary = "Archive a custom exercise")
+    @DeleteMapping("/exercises/{exerciseId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void archiveExercise(Authentication authentication,
+                                @PathVariable UUID exerciseId) {
+        exerciseService.archiveCustomExercise(currentPrincipal(authentication), exerciseId);
+    }
+
     @PostMapping("/plans")
     @ResponseStatus(HttpStatus.CREATED)
     public WorkoutPlanView createPlan(Authentication authentication,
@@ -87,6 +111,12 @@ public class WorkoutController {
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return workoutService.listPlans(currentPrincipal(authentication), status, page, size);
+    }
+
+    @Operation(summary = "Get the current active workout plan")
+    @GetMapping("/plans/active")
+    public WorkoutPlanView getActivePlan(Authentication authentication) {
+        return workoutService.getActivePlan(currentPrincipal(authentication));
     }
 
     @GetMapping("/plans/{planId}")
@@ -107,6 +137,13 @@ public class WorkoutController {
     public void archivePlan(Authentication authentication,
                             @PathVariable UUID planId) {
         workoutService.archivePlan(currentPrincipal(authentication), planId);
+    }
+
+    @Operation(summary = "Activate a workout plan")
+    @PostMapping("/plans/{planId}/activate")
+    public WorkoutPlanView activatePlan(Authentication authentication,
+                                        @PathVariable UUID planId) {
+        return workoutService.activatePlan(currentPrincipal(authentication), planId);
     }
 
     @Operation(summary = "Start a workout session from a workout plan")

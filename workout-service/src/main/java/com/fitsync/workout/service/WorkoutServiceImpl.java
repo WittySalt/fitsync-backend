@@ -107,6 +107,18 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public WorkoutPlanView getActivePlan(CurrentUserPrincipal currentUser) {
+        return workoutPlanRepository.findByUserIdAndStatusOrderByDateTimeUpdatedDesc(
+                        currentUser.userId(),
+                        WorkoutPlanStatus.ACTIVE)
+                .stream()
+                .findFirst()
+                .map(this::toPlanView)
+                .orElseThrow(() -> new ResourceNotFoundException("Active workout plan not found"));
+    }
+
+    @Override
     @Transactional
     public WorkoutPlanView updatePlan(CurrentUserPrincipal currentUser, UUID planId, UpdateWorkoutPlanRequest request) {
         validatePlanExercises(request.exercises());
@@ -127,6 +139,20 @@ public class WorkoutServiceImpl implements WorkoutService {
         WorkoutPlanEntity entity = findPlan(currentUser.userId(), planId);
         entity.setStatus(WorkoutPlanStatus.ARCHIVED);
         workoutPlanRepository.save(entity);
+    }
+
+    @Override
+    @Transactional
+    public WorkoutPlanView activatePlan(CurrentUserPrincipal currentUser, UUID planId) {
+        UUID userId = currentUser.userId();
+        WorkoutPlanEntity plan = findPlan(userId, planId);
+        for (WorkoutPlanEntity activePlan : workoutPlanRepository.findByUserIdAndStatus(userId, WorkoutPlanStatus.ACTIVE)) {
+            if (!activePlan.getPlanId().equals(plan.getPlanId())) {
+                activePlan.setStatus(WorkoutPlanStatus.DRAFT);
+            }
+        }
+        plan.setStatus(WorkoutPlanStatus.ACTIVE);
+        return toPlanView(workoutPlanRepository.save(plan));
     }
 
     @Override
