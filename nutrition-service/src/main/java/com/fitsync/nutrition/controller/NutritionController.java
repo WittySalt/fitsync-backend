@@ -33,7 +33,10 @@ import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -273,6 +276,18 @@ public class NutritionController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteWater(Authentication authentication, @PathVariable UUID waterId) {
         nutritionService.deleteWater(currentPrincipal(authentication), waterId);
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> exportFoodDiary(Authentication authentication,
+                                                  @RequestParam Instant from,
+                                                  @RequestParam Instant to,
+                                                  @RequestParam(defaultValue = "csv") String format) {
+        byte[] body = nutritionService.exportFoodDiary(currentPrincipal(authentication), from, to, format);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"food-diary.csv\"")
+                .contentType(MediaType.parseMediaType("text/csv"))
+                .body(body);
     }
 
     @PostMapping("/recipes")

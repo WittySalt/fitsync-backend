@@ -2,11 +2,13 @@ package com.fitsync.nutrition.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -112,6 +114,7 @@ public class NutritionServiceImpl implements NutritionService {
     private static final BigDecimal FIBER_TARGET_GRAMS = new BigDecimal("28");
     private static final BigDecimal SUGAR_LIMIT_GRAMS = new BigDecimal("50");
     private static final BigDecimal SODIUM_LIMIT_MG = new BigDecimal("2300");
+    private static final long EXPORT_MAX_DAYS = 370;
 
     private final DomainEventPublisher domainEventPublisher;
     private final MealLogRepository mealLogRepository;
@@ -943,6 +946,64 @@ public class NutritionServiceImpl implements NutritionService {
     private WaterLogView toWaterLogView(WaterLogEntity entity) {
         return new WaterLogView(entity.getWaterId(), entity.getAmountMl(), entity.getLoggedAt(),
                 entity.getTimezone());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] exportFoodDiary(CurrentUserPrincipal principal, Instant from, Instant to, String format) {
+        if (format != null && !format.isBlank() && !"csv".equalsIgnoreCase(format)) {
+            throw new BadRequestException("Unsupported export format: " + format + " (only csv)");
+        }
+        if (from == null || to == null) {
+            throw new BadRequestException("from and to are required");
+        }
+        if (to.isBefore(from)) {
+            throw new BadRequestException("to must not be before from");
+        }
+        if (from.plus(EXPORT_MAX_DAYS, ChronoUnit.DAYS).isBefore(to)) {
+            throw new BadRequestException("Export range exceeds " + EXPORT_MAX_DAYS + " days");
+        }
+        List<MealLogEntity> meals = new ArrayList<>(mealLogRepository
+                .findByUserIdAndConsumedAtGreaterThanEqualAndConsumedAtLessThanEqualOrderByConsumedAtDesc(
+                        principal.userId(), from, to));
+        meals.sort(Comparator.comparing(MealLogEntity::getConsumedAt));
+
+        StringBuilder csv = new StringBuilder();
+        csv.append("consumed_at,meal_type,meal_name,food_name,brand_name,quantity,unit,"
+                + "calories,protein_g,carbs_g,fat_g,fiber_g,sugar_g,sodium_mg\n");
+        for (MealLogEntity meal : meals) {
+            for (MealItemEntity item : mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(meal.getMealId())) {
+                csv.append(csvField(meal.getConsumedAt().toString())).append(',')
+                        .append(csvField(meal.getMealType().name())).append(',')
+                        .append(csvField(meal.getName())).append(',')
+                        .append(csvField(item.getFoodName())).append(',')
+                        .append(csvField(item.getBrandName())).append(',')
+                        .append(csvField(plainNumber(item.getQuantity()))).append(',')
+                        .append(csvField(item.getUnit())).append(',')
+                        .append(csvField(item.getCalories() == null ? "" : item.getCalories().toString())).append(',')
+                        .append(csvField(plainNumber(item.getProteinGrams()))).append(',')
+                        .append(csvField(plainNumber(item.getCarbsGrams()))).append(',')
+                        .append(csvField(plainNumber(item.getFatGrams()))).append(',')
+                        .append(csvField(plainNumber(item.getFiberGrams()))).append(',')
+                        .append(csvField(plainNumber(item.getSugarGrams()))).append(',')
+                        .append(csvField(plainNumber(item.getSodiumMg()))).append('\n');
+            }
+        }
+        return csv.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private String csvField(String value) {
+        if (value == null) {
+            return "";
+        }
+        if (value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
+
+    private String plainNumber(BigDecimal value) {
+        return value == null ? "" : value.stripTrailingZeros().toPlainString();
     }
 
     @Override

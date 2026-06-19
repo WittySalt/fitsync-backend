@@ -523,6 +523,54 @@ class NutritionApiTests {
     }
 
     @Test
+    void canExportFoodDiaryAsCsv() throws Exception {
+        String token = tokenFor("xena@example.com", "Xena");
+
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "BREAKFAST",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-16T08:00:00Z",
+                                  "items": [
+                                    { "foodName": "Oats", "quantity": 1.0, "unit": "bowl", "calories": 300, "proteinGrams": 10.0 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        var response = mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-16T00:00:00Z")
+                        .param("to", "2026-06-17T00:00:00Z"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+        org.assertj.core.api.Assertions.assertThat(response.getContentType()).contains("text/csv");
+        org.assertj.core.api.Assertions.assertThat(response.getContentAsString())
+                .contains("consumed_at,meal_type")
+                .contains("Oats")
+                .contains("BREAKFAST")
+                .contains("300");
+
+        // Over-range -> 400.
+        mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2020-01-01T00:00:00Z")
+                        .param("to", "2026-06-16T00:00:00Z"))
+                .andExpect(status().isBadRequest());
+
+        // Unsupported format -> 400.
+        mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-16T00:00:00Z")
+                        .param("to", "2026-06-17T00:00:00Z")
+                        .param("format", "pdf"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void mealValidationRejectsEmptyItems() throws Exception {
         String token = tokenFor("carol@example.com", "Carol");
 

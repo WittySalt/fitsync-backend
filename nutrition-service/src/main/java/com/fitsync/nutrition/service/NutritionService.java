@@ -109,4 +109,6 @@ public interface NutritionService {
     WaterDaySummaryView getWaterDay(CurrentUserPrincipal principal, LocalDate date, String timezone);
 
     void deleteWater(CurrentUserPrincipal principal, UUID waterId);
+
+    byte[] exportFoodDiary(CurrentUserPrincipal principal, Instant from, Instant to, String format);
 }
