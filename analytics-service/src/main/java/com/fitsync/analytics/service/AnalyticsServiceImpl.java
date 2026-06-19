@@ -312,7 +312,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
      */
     private void validateSummaryRange(LocalDate from, LocalDate to) {
         long rangeDays = validateBaseDateRange(from, to);
-        int maxRangeDays = analyticsProperties.getTrends().getMaxRangeDays().getDay();
+        int maxRangeDays = analyticsProperties.trends().maxRangeDays().day();
         if (rangeDays > maxRangeDays) {
             throw new BadRequestException("Date range must not exceed " + maxRangeDays + " days");
         }
@@ -329,11 +329,11 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     }
 
     private int maxRangeDaysFor(BodyTrendBucket bucket) {
-        AnalyticsProperties.MaxRangeDays maxRangeDays = analyticsProperties.getTrends().getMaxRangeDays();
+        AnalyticsProperties.MaxRangeDays maxRangeDays = analyticsProperties.trends().maxRangeDays();
         return switch (bucket) {
-            case DAY -> maxRangeDays.getDay();
-            case WEEK -> maxRangeDays.getWeek();
-            case MONTH -> maxRangeDays.getMonth();
+            case DAY -> maxRangeDays.day();
+            case WEEK -> maxRangeDays.week();
+            case MONTH -> maxRangeDays.month();
         };
     }
 

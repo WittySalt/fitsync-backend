@@ -533,7 +533,8 @@ class AnalyticsServiceImplTests {
     }
 
     private AnalyticsProperties analyticsProperties() {
-        return new AnalyticsProperties();
+        return new AnalyticsProperties(
+                new AnalyticsProperties.Trends(new AnalyticsProperties.MaxRangeDays(370, 1095, 1830)));
     }
 
     private AnalyticsRebuildServiceImpl rebuildService(
