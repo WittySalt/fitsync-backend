@@ -48,6 +48,9 @@ import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.web.error.ForbiddenException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,6 +91,9 @@ class WorkoutServicePersistenceTests {
 
     @Autowired
     private OutboxEventRepository outboxEventRepository;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private final CurrentUserPrincipal currentUser = new CurrentUserPrincipal(
             UUID.fromString("11111111-1111-1111-1111-111111111111"),
@@ -1225,6 +1231,45 @@ class WorkoutServicePersistenceTests {
     }
 
     @Test
+    void shouldListSessionsWithBoundedQueryCountForExerciseDetails() {
+        UUID squatId = createExercise("history-query-squat", "History Query Squat");
+        for (int index = 0; index < 6; index++) {
+            workoutService.createSession(currentUser, completedStrengthSession(
+                    "Bounded Query Session " + index,
+                    Instant.parse("2026-06-11T10:00:00Z").plus(Duration.ofHours(index)),
+                    squatId,
+                    List.of(new WorkoutExerciseSetLogInput(
+                            1,
+                            5 + index,
+                            new BigDecimal("100.00"),
+                            null,
+                            null,
+                            120,
+                            7,
+                            null))));
+        }
+        Statistics statistics = hibernateStatistics();
+        statistics.clear();
+
+        PageResponse<WorkoutSessionView> page = workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                WorkoutSessionStatus.COMPLETED,
+                null,
+                0,
+                6);
+
+        assertEquals(6, page.content().size());
+        assertEquals("Bounded Query Session 5", page.content().get(0).name());
+        assertTrue(page.content().stream().allMatch(session -> session.exercises().size() == 1));
+        assertTrue(page.content().stream().allMatch(session -> session.exercises().get(0).sets().size() == 1));
+        assertTrue(
+                statistics.getPrepareStatementCount() <= 5,
+                "Expected bounded session history queries, but got " + statistics.getPrepareStatementCount());
+    }
+
+    @Test
     void shouldRejectInvalidSessionTimeline() {
         assertThrows(IllegalArgumentException.class, () -> workoutService.createSession(
                 currentUser,
@@ -1855,6 +1900,12 @@ class WorkoutServicePersistenceTests {
                 .findFirst()
                 .orElseThrow()
                 .getPayload();
+    }
+
+    private Statistics hibernateStatistics() {
+        SessionFactory sessionFactory = entityManagerFactory.unwrap(SessionFactory.class);
+        sessionFactory.getStatistics().setStatisticsEnabled(true);
+        return sessionFactory.getStatistics();
     }
 
     private UUID createExercise(String code, String name) {

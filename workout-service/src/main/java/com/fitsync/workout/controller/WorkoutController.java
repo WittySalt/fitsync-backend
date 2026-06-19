@@ -14,6 +14,7 @@ import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
 import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
@@ -80,6 +81,12 @@ public class WorkoutController {
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return exerciseService.listExercises(
                 currentPrincipal(authentication), q, exerciseType, primaryMuscleGroup, equipment, difficulty, page, size);
+    }
+
+    @Operation(summary = "Get exercise and workout metadata")
+    @GetMapping("/exercises/metadata")
+    public ExerciseMetadataView getExerciseMetadata() {
+        return exerciseService.getExerciseMetadata();
     }
 
     @Operation(summary = "Get an accessible exercise")

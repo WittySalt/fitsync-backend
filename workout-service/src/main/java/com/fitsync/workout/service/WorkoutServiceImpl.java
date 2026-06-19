@@ -66,6 +66,7 @@ import jakarta.validation.Validator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -331,14 +332,30 @@ public class WorkoutServiceImpl implements WorkoutService {
                                                          int page,
                                                          int size) {
         validateTimeRange(from, to);
-        return toPageResponse(workoutSessionRepository.findHistory(
-                        currentUser.userId(),
+        UUID userId = currentUser.userId();
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt"));
+        Page<UUID> sessionIds = workoutSessionRepository.findHistoryIds(
+                        userId,
                         from,
                         to,
                         status,
                         planId,
-                        PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt")))
-                .map(this::toSessionView));
+                        pageable);
+        if (sessionIds.isEmpty()) {
+            return toPageResponse(new PageImpl<>(List.of(), pageable, sessionIds.getTotalElements()));
+        }
+
+        Map<UUID, WorkoutSessionEntity> sessionsById = workoutSessionRepository
+                .findHistoryPageByIds(userId, sessionIds.getContent())
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        WorkoutSessionEntity::getSessionId,
+                        session -> session));
+        List<WorkoutSessionView> views = sessionIds.getContent().stream()
+                .map(sessionsById::get)
+                .map(this::toSessionView)
+                .toList();
+        return toPageResponse(new PageImpl<>(views, pageable, sessionIds.getTotalElements()));
     }
 
     private <T> PageResponse<T> toPageResponse(Page<T> page) {
@@ -411,7 +428,12 @@ public class WorkoutServiceImpl implements WorkoutService {
         validateTransitionAllowed(entity);
         entity.setStatus(WorkoutSessionStatus.COMPLETED);
         entity.setCompletedAt(request == null || request.completedAt() == null ? Instant.now() : request.completedAt());
-        validateTimeRange(entity.getStartedAt(), entity.getCompletedAt());
+        validateSessionTimingAndScalars(
+                entity.getStartedAt(),
+                entity.getCompletedAt(),
+                entity.getStatus(),
+                entity.getDurationMinutes(),
+                entity.getCaloriesBurned());
         deriveSessionMetrics(entity);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         publishWorkoutLoggedAndPersonalRecords(saved);
@@ -980,9 +1002,12 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void validateSessionRequest(UUID userId, UpsertWorkoutSessionRequest request) {
-        validateTimeRange(request.startedAt(), request.completedAt());
-        validateSessionTiming(request);
-        validateSessionScalars(request);
+        validateSessionTimingAndScalars(
+                request.startedAt(),
+                request.completedAt(),
+                request.status(),
+                request.durationMinutes(),
+                request.caloriesBurned());
         validateExerciseLogs(request.exercises());
         if (request.planId() != null) {
             WorkoutPlanEntity plan = findPlan(userId, request.planId());
@@ -992,23 +1017,25 @@ public class WorkoutServiceImpl implements WorkoutService {
         }
     }
 
-    private void validateSessionTiming(UpsertWorkoutSessionRequest request) {
-        if (request.startedAt().isAfter(Instant.now())) {
+    private void validateSessionTimingAndScalars(Instant startedAt,
+                                                 Instant completedAt,
+                                                 WorkoutSessionStatus status,
+                                                 Integer durationMinutes,
+                                                 Integer caloriesBurned) {
+        validateTimeRange(startedAt, completedAt);
+        if (startedAt.isAfter(Instant.now())) {
             throw new IllegalArgumentException("startedAt must not be in the future");
         }
-        if (request.status() == WorkoutSessionStatus.COMPLETED && request.completedAt() == null) {
+        if (status == WorkoutSessionStatus.COMPLETED && completedAt == null) {
             throw new IllegalArgumentException("completedAt is required when status is COMPLETED");
         }
-        if (request.status() != WorkoutSessionStatus.COMPLETED && request.completedAt() != null) {
+        if (status != WorkoutSessionStatus.COMPLETED && completedAt != null) {
             throw new IllegalArgumentException("completedAt is only allowed when status is COMPLETED");
         }
-    }
-
-    private void validateSessionScalars(UpsertWorkoutSessionRequest request) {
-        if (request.durationMinutes() != null && request.durationMinutes() < 0) {
+        if (durationMinutes != null && durationMinutes < 0) {
             throw new IllegalArgumentException("durationMinutes must be non-negative");
         }
-        if (request.caloriesBurned() != null && request.caloriesBurned() < 0) {
+        if (caloriesBurned != null && caloriesBurned < 0) {
             throw new IllegalArgumentException("caloriesBurned must be non-negative");
         }
     }

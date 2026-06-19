@@ -31,17 +31,26 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
     List<WorkoutSessionEntity> findByUserIdOrderByStartedAtDesc(UUID userId);
 
     @Query("""
-            select session from WorkoutSessionEntity session
+            select session.sessionId from WorkoutSessionEntity session
             where session.userId = :userId
               and (:from is null or session.startedAt >= :from)
               and (:to is null or session.startedAt <= :to)
               and (:status is null or session.status = :status)
               and (:planId is null or session.planId = :planId)
             """)
-    Page<WorkoutSessionEntity> findHistory(@Param("userId") UUID userId,
-                                           @Param("from") Instant from,
-                                           @Param("to") Instant to,
-                                           @Param("status") WorkoutSessionStatus status,
-                                           @Param("planId") UUID planId,
-                                           Pageable pageable);
+    Page<UUID> findHistoryIds(@Param("userId") UUID userId,
+                              @Param("from") Instant from,
+                              @Param("to") Instant to,
+                              @Param("status") WorkoutSessionStatus status,
+                              @Param("planId") UUID planId,
+                              Pageable pageable);
+
+    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    @Query("""
+            select distinct session from WorkoutSessionEntity session
+            where session.userId = :userId
+              and session.sessionId in :sessionIds
+            """)
+    List<WorkoutSessionEntity> findHistoryPageByIds(@Param("userId") UUID userId,
+                                                    @Param("sessionIds") List<UUID> sessionIds);
 }

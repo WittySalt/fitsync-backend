@@ -22,6 +22,7 @@ import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseRecordValueView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
@@ -174,6 +175,33 @@ class WorkoutControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.planId").value(planId.toString()))
                 .andExpect(jsonPath("$.name").value("Push Day"));
+    }
+
+    @Test
+    void shouldReturnExerciseMetadataForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        ExerciseMetadataView response = new ExerciseMetadataView(
+                List.of(ExerciseType.values()),
+                List.of(MuscleGroup.values()),
+                List.of(ExerciseEquipment.values()),
+                List.of(WorkoutDifficulty.values()),
+                List.of(WorkoutType.values()),
+                List.of(GoalFocus.values()));
+
+        when(exerciseService.getExerciseMetadata()).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/exercises/metadata")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exerciseTypes.length()").value(ExerciseType.values().length))
+                .andExpect(jsonPath("$.exerciseTypes[0]").value(ExerciseType.STRENGTH.name()))
+                .andExpect(jsonPath("$.muscleGroups.length()").value(MuscleGroup.values().length))
+                .andExpect(jsonPath("$.equipment.length()").value(ExerciseEquipment.values().length))
+                .andExpect(jsonPath("$.difficulties.length()").value(WorkoutDifficulty.values().length))
+                .andExpect(jsonPath("$.workoutTypes.length()").value(WorkoutType.values().length))
+                .andExpect(jsonPath("$.goalFocuses.length()").value(GoalFocus.values().length));
+
+        verify(exerciseService).getExerciseMetadata();
     }
 
     @Test
