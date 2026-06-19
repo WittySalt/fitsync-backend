@@ -470,6 +470,116 @@ class NutritionApiTests {
     }
 
     @Test
+    void canLogWaterAndGetTimezoneAwareDailyTotal() throws Exception {
+        String token = tokenFor("wendy@example.com", "Wendy");
+
+        String first = mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "amountMl": 250, "loggedAt": "2026-06-16T09:00:00Z", "timezone": "UTC" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amountMl").value(250))
+                .andReturn().getResponse().getContentAsString();
+        String waterId = com.jayway.jsonpath.JsonPath.read(first, "$.waterId");
+
+        mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "amountMl": 500, "loggedAt": "2026-06-16T15:00:00Z" }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/nutrition/water")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-16").param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalMl").value(750))
+                .andExpect(jsonPath("$.entries.length()").value(2));
+
+        mockMvc.perform(delete("/api/v1/nutrition/water/{waterId}", waterId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/water")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-16").param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalMl").value(500))
+                .andExpect(jsonPath("$.entries.length()").value(1));
+
+        mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "amountMl": 0 }
+                                """))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(delete("/api/v1/nutrition/water/{waterId}", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void canExportFoodDiaryAsCsv() throws Exception {
+        String token = tokenFor("xena@example.com", "Xena");
+
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "BREAKFAST",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-16T08:00:00Z",
+                                  "items": [
+                                    { "foodName": "Oats", "quantity": 1.0, "unit": "bowl", "calories": 300, "proteinGrams": 10.0 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        var response = mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-16T00:00:00Z")
+                        .param("to", "2026-06-17T00:00:00Z"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+        org.assertj.core.api.Assertions.assertThat(response.getContentType()).contains("text/csv");
+        org.assertj.core.api.Assertions.assertThat(response.getContentAsString())
+                .contains("consumed_at,meal_type")
+                .contains("Oats")
+                .contains("BREAKFAST")
+                .contains("300");
+
+        // Over-range -> 400.
+        mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2020-01-01T00:00:00Z")
+                        .param("to", "2026-06-16T00:00:00Z"))
+                .andExpect(status().isBadRequest());
+
+        // Unsupported format -> 400.
+        mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-16T00:00:00Z")
+                        .param("to", "2026-06-17T00:00:00Z")
+                        .param("format", "pdf"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void unknownBarcodeIs404WhenExternalFallbackDisabled() throws Exception {
+        String token = tokenFor("yan@example.com", "Yan");
+        // External food source defaults to disabled, so a local miss stays a 404.
+        mockMvc.perform(get("/api/v1/nutrition/barcodes/{barcode}", "0000000000000")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void mealValidationRejectsEmptyItems() throws Exception {
         String token = tokenFor("carol@example.com", "Carol");
 
