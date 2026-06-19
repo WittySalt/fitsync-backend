@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import java.time.LocalDate;
 
+import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
@@ -112,6 +113,29 @@ class AnalyticsControllerTests {
                 .andExpect(jsonPath("$.points[0].date").value("2026-06-01"))
                 .andExpect(jsonPath("$.points[0].completedWorkoutCount").value(3))
                 .andExpect(jsonPath("$.points[0].totalWorkoutMinutes").value(120));
+    }
+
+    @Test
+    void shouldReturnActivityCalendarForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getActivityCalendar(any(), any(), any())).thenReturn(
+                new AnalyticsActivityCalendarResponse(
+                        LocalDate.parse("2026-06-01"),
+                        LocalDate.parse("2026-06-03"),
+                        List.of(
+                                new AnalyticsActivityCalendarResponse.ActivityCalendarDay(LocalDate.parse("2026-06-01"), 2, 60),
+                                new AnalyticsActivityCalendarResponse.ActivityCalendarDay(LocalDate.parse("2026-06-02"), 0, 0),
+                                new AnalyticsActivityCalendarResponse.ActivityCalendarDay(LocalDate.parse("2026-06-03"), 1, 30))));
+
+        mockMvc.perform(get("/api/v1/analytics/activity/calendar")
+                        .with(authentication(authToken(principal)))
+                        .param("from", "2026-06-01")
+                        .param("to", "2026-06-03"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].date").value("2026-06-01"))
+                .andExpect(jsonPath("$.days[0].workoutCount").value(2))
+                .andExpect(jsonPath("$.days[1].workoutCount").value(0))
+                .andExpect(jsonPath("$.days[2].workoutMinutes").value(30));
     }
 
     @Test
