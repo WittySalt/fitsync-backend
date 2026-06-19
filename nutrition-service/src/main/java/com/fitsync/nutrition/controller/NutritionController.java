@@ -23,9 +23,12 @@ import com.fitsync.nutrition.dto.FoodSearchCriteria;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
+import com.fitsync.nutrition.dto.LogWaterRequest;
 import com.fitsync.nutrition.dto.MealView;
 import com.fitsync.nutrition.dto.QuickAddMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
+import com.fitsync.nutrition.dto.WaterDaySummaryView;
+import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionService;
 import jakarta.validation.Valid;
@@ -250,6 +253,26 @@ public class NutritionController {
                                            @PathVariable UUID templateId,
                                            @Valid @RequestBody MaterializeTemplateRequest request) {
         return nutritionService.createMealFromTemplate(currentPrincipal(authentication), templateId, request);
+    }
+
+    @PostMapping("/water")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WaterLogView logWater(Authentication authentication,
+                                 @Valid @RequestBody LogWaterRequest request) {
+        return nutritionService.logWater(currentPrincipal(authentication), request);
+    }
+
+    @GetMapping("/water")
+    public WaterDaySummaryView waterDay(Authentication authentication,
+                                        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                        @RequestParam(required = false) String timezone) {
+        return nutritionService.getWaterDay(currentPrincipal(authentication), date, timezone);
+    }
+
+    @DeleteMapping("/water/{waterId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteWater(Authentication authentication, @PathVariable UUID waterId) {
+        nutritionService.deleteWater(currentPrincipal(authentication), waterId);
     }
 
     @PostMapping("/recipes")

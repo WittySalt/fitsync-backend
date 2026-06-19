@@ -44,7 +44,10 @@ import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealItemInput;
 import com.fitsync.nutrition.dto.MealItemView;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.LogWaterRequest;
 import com.fitsync.nutrition.dto.QuickAddMealRequest;
+import com.fitsync.nutrition.dto.WaterDaySummaryView;
+import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.NutrientDetailInput;
 import com.fitsync.nutrition.dto.NutrientDetailView;
@@ -68,6 +71,7 @@ import com.fitsync.nutrition.entity.MealTemplateItemEntity;
 import com.fitsync.nutrition.entity.NutritionTargetEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.entity.RecipeIngredientEntity;
+import com.fitsync.nutrition.entity.WaterLogEntity;
 import com.fitsync.nutrition.messaging.DomainEventPublisher;
 import com.fitsync.nutrition.repository.CustomFoodRepository;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
@@ -86,6 +90,7 @@ import com.fitsync.nutrition.repository.MealTemplateRepository;
 import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import com.fitsync.nutrition.repository.RecipeIngredientRepository;
 import com.fitsync.nutrition.repository.RecipeRepository;
+import com.fitsync.nutrition.repository.WaterLogRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
@@ -126,6 +131,7 @@ public class NutritionServiceImpl implements NutritionService {
     private final FoodFavoriteRepository foodFavoriteRepository;
     private final MealTemplateRepository mealTemplateRepository;
     private final MealTemplateItemRepository mealTemplateItemRepository;
+    private final WaterLogRepository waterLogRepository;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
@@ -144,7 +150,8 @@ public class NutritionServiceImpl implements NutritionService {
                                 RecipeIngredientRepository recipeIngredientRepository,
                                 FoodFavoriteRepository foodFavoriteRepository,
                                 MealTemplateRepository mealTemplateRepository,
-                                MealTemplateItemRepository mealTemplateItemRepository) {
+                                MealTemplateItemRepository mealTemplateItemRepository,
+                                WaterLogRepository waterLogRepository) {
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
@@ -163,6 +170,7 @@ public class NutritionServiceImpl implements NutritionService {
         this.foodFavoriteRepository = foodFavoriteRepository;
         this.mealTemplateRepository = mealTemplateRepository;
         this.mealTemplateItemRepository = mealTemplateItemRepository;
+        this.waterLogRepository = waterLogRepository;
     }
 
     @Override
@@ -896,6 +904,45 @@ public class NutritionServiceImpl implements NutritionService {
         ti.setSodiumMg(draft.sodiumMg());
         ti.setSortOrder(sortOrder);
         return ti;
+    }
+
+    @Override
+    @Transactional
+    public WaterLogView logWater(CurrentUserPrincipal principal, LogWaterRequest request) {
+        WaterLogEntity entity = new WaterLogEntity();
+        entity.setWaterId(UUID.randomUUID());
+        entity.setUserId(principal.userId());
+        entity.setAmountMl(request.amountMl());
+        entity.setLoggedAt(request.loggedAt() == null ? Instant.now() : request.loggedAt());
+        entity.setTimezone(blankToNull(request.timezone()));
+        return toWaterLogView(waterLogRepository.save(entity));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public WaterDaySummaryView getWaterDay(CurrentUserPrincipal principal, LocalDate date, String timezone) {
+        ZoneId zone = resolveZone(timezone);
+        Instant from = date.atStartOfDay(zone).toInstant();
+        Instant to = date.plusDays(1).atStartOfDay(zone).minusNanos(1).toInstant();
+        List<WaterLogEntity> entries = waterLogRepository
+                .findByUserIdAndLoggedAtGreaterThanEqualAndLoggedAtLessThanEqualOrderByLoggedAtAsc(
+                        principal.userId(), from, to);
+        int total = entries.stream().mapToInt(entry -> defaultInteger(entry.getAmountMl())).sum();
+        return new WaterDaySummaryView(date, zone.getId(), total,
+                entries.stream().map(this::toWaterLogView).toList());
+    }
+
+    @Override
+    @Transactional
+    public void deleteWater(CurrentUserPrincipal principal, UUID waterId) {
+        WaterLogEntity entity = waterLogRepository.findByWaterIdAndUserId(waterId, principal.userId())
+                .orElseThrow(() -> new ResourceNotFoundException("Water log not found"));
+        waterLogRepository.delete(entity);
+    }
+
+    private WaterLogView toWaterLogView(WaterLogEntity entity) {
+        return new WaterLogView(entity.getWaterId(), entity.getAmountMl(), entity.getLoggedAt(),
+                entity.getTimezone());
     }
 
     @Override
