@@ -12,5 +12,6 @@ public record WorkoutExerciseSetLogView(
         BigDecimal distanceKm,
         Integer restSeconds,
         Integer perceivedExertion,
+        boolean logged,
         String notes) {
 }

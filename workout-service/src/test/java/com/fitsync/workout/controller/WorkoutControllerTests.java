@@ -1,5 +1,6 @@
 package com.fitsync.workout.controller;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -16,12 +17,16 @@ import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
+import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
@@ -463,6 +468,138 @@ class WorkoutControllerTests {
     }
 
     @Test
+    void shouldCompleteSessionForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        CompleteWorkoutSessionRequest request = new CompleteWorkoutSessionRequest(Instant.parse("2026-06-11T12:45:00Z"));
+        WorkoutSessionView response = sessionView(sessionId, WorkoutSessionStatus.COMPLETED);
+
+        when(workoutService.completeSession(any(), eq(sessionId), any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/complete", sessionId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        verify(workoutService).completeSession(eq(principal), eq(sessionId), any());
+    }
+
+    @Test
+    void shouldCancelSessionForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionView response = sessionView(sessionId, WorkoutSessionStatus.CANCELLED);
+
+        when(workoutService.cancelSession(any(), eq(sessionId))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/cancel", sessionId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        verify(workoutService).cancelSession(eq(principal), eq(sessionId));
+    }
+
+    @Test
+    void shouldAppendExerciseForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID exerciseId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutExerciseLogInput request = new WorkoutExerciseLogInput(
+                exerciseId,
+                1,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseSetLogInput(1, 8, new BigDecimal("55.00"), null, null, 120, 7, null)));
+        WorkoutSessionView response = sessionView(sessionId, WorkoutSessionStatus.IN_PROGRESS);
+
+        when(workoutService.appendOrReplaceExercise(any(), eq(sessionId), any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/exercises", sessionId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()));
+
+        verify(workoutService).appendOrReplaceExercise(eq(principal), eq(sessionId), any());
+    }
+
+    @Test
+    void shouldUpsertSetForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID exerciseLogId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        UpsertWorkoutExerciseSetRequest request = new UpsertWorkoutExerciseSetRequest(
+                8,
+                new BigDecimal("55.00"),
+                null,
+                null,
+                120,
+                7,
+                null);
+        WorkoutSessionView response = sessionView(sessionId, WorkoutSessionStatus.IN_PROGRESS);
+
+        when(workoutService.upsertSet(any(), eq(sessionId), eq(exerciseLogId), eq(1), any())).thenReturn(response);
+
+        mockMvc.perform(put("/api/v1/workouts/sessions/{sessionId}/exercises/{exerciseLogId}/sets/{setNumber}",
+                        sessionId,
+                        exerciseLogId,
+                        1)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()));
+
+        verify(workoutService).upsertSet(eq(principal), eq(sessionId), eq(exerciseLogId), eq(1), any());
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenLiveEditingTerminalSession() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID exerciseId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutExerciseLogInput request = new WorkoutExerciseLogInput(
+                exerciseId,
+                1,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of());
+
+        when(workoutService.appendOrReplaceExercise(any(), eq(sessionId), any()))
+                .thenThrow(new IllegalArgumentException("Only planned or in-progress workout sessions can be edited live"));
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/exercises", sessionId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Only planned or in-progress workout sessions can be edited live"));
+    }
+
+    @Test
     void shouldAllowAdminToPublishOutboxEvents() throws Exception {
         when(outboxEventRelay.publishPendingBatch(10)).thenReturn(1);
 
@@ -493,5 +630,25 @@ class WorkoutControllerTests {
                 "admin@example.com",
                 "Admin",
                 "ADMIN");
+    }
+
+    private WorkoutSessionView sessionView(UUID sessionId, WorkoutSessionStatus status) {
+        return new WorkoutSessionView(
+                sessionId,
+                null,
+                "Live Session",
+                WorkoutType.STRENGTH,
+                status,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T12:00:00Z"),
+                status == WorkoutSessionStatus.COMPLETED ? Instant.parse("2026-06-11T12:45:00Z") : null,
+                status == WorkoutSessionStatus.COMPLETED ? 45 : null,
+                null,
+                null,
+                null,
+                0,
+                List.of(),
+                Instant.parse("2026-06-11T12:00:00Z"),
+                Instant.parse("2026-06-11T12:00:00Z"));
     }
 }

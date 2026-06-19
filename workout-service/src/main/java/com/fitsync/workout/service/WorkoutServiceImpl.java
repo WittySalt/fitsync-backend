@@ -14,8 +14,10 @@ import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
+import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
+import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseLogView;
@@ -262,6 +264,76 @@ public class WorkoutServiceImpl implements WorkoutService {
 
     @Override
     @Transactional
+    public WorkoutSessionView completeSession(CurrentUserPrincipal currentUser,
+                                              UUID sessionId,
+                                              CompleteWorkoutSessionRequest request) {
+        WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
+        validateTransitionAllowed(entity);
+        entity.setStatus(WorkoutSessionStatus.COMPLETED);
+        entity.setCompletedAt(request == null || request.completedAt() == null ? Instant.now() : request.completedAt());
+        validateTimeRange(entity.getStartedAt(), entity.getCompletedAt());
+        deriveSessionMetrics(entity);
+        WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
+        publishWorkoutLogged(saved);
+        return toSessionView(saved);
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView cancelSession(CurrentUserPrincipal currentUser, UUID sessionId) {
+        WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
+        validateTransitionAllowed(entity);
+        entity.setStatus(WorkoutSessionStatus.CANCELLED);
+        return toSessionView(workoutSessionRepository.save(entity));
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView appendOrReplaceExercise(CurrentUserPrincipal currentUser,
+                                                      UUID sessionId,
+                                                      WorkoutExerciseLogInput request) {
+        validateExerciseLog(request);
+        WorkoutSessionEntity session = findSession(currentUser.userId(), sessionId);
+        validateLiveEditable(session);
+        session.getExercises().removeIf(exercise -> exercise.getExercise().getExerciseId().equals(request.exerciseId()));
+        session.getExercises().add(toSessionExerciseLog(currentUser.userId(), session, request, true));
+        validateSessionExerciseSequences(session);
+        deriveSessionMetrics(session);
+        return toSessionView(workoutSessionRepository.save(session));
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView upsertSet(CurrentUserPrincipal currentUser,
+                                        UUID sessionId,
+                                        UUID exerciseLogId,
+                                        int setNumber,
+                                        UpsertWorkoutExerciseSetRequest request) {
+        if (setNumber < 1) {
+            throw new IllegalArgumentException("setNumber must be at least 1");
+        }
+        WorkoutSessionEntity session = findSession(currentUser.userId(), sessionId);
+        validateLiveEditable(session);
+        WorkoutExerciseLogEntity exercise = findExerciseLog(session, exerciseLogId);
+        WorkoutExerciseSetLogEntity setLog = exercise.getSets().stream()
+                .filter(set -> set.getSetNumber().equals(setNumber))
+                .findFirst()
+                .orElseGet(() -> {
+                    WorkoutExerciseSetLogEntity created = new WorkoutExerciseSetLogEntity();
+                    created.setSetLogId(UUID.randomUUID());
+                    created.setExerciseLog(exercise);
+                    created.setSetNumber(setNumber);
+                    exercise.getSets().add(created);
+                    return created;
+                });
+        applySetLogRequest(setLog, request, true);
+        deriveExerciseMetrics(exercise);
+        deriveSessionMetrics(session);
+        return toSessionView(workoutSessionRepository.save(session));
+    }
+
+    @Override
+    @Transactional
     public void deleteSession(CurrentUserPrincipal currentUser, UUID sessionId) {
         WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
         boolean publishDelete = entity.getStatus() == WorkoutSessionStatus.COMPLETED;
@@ -359,24 +431,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             return;
         }
         for (WorkoutExerciseLogInput input : inputs.stream().sorted(java.util.Comparator.comparing(WorkoutExerciseLogInput::sequence)).toList()) {
-            WorkoutExerciseLogEntity exercise = new WorkoutExerciseLogEntity();
-            ExerciseEntity sourceExercise = findAccessibleExercise(userId, input.exerciseId());
-            exercise.setExerciseLogId(UUID.randomUUID());
-            exercise.setSession(session);
-            exercise.setExercise(sourceExercise);
-            exercise.setExerciseNameSnapshot(sourceExercise.getName());
-            exercise.setSequence(input.sequence());
-            exercise.setPerformedSets(input.performedSets());
-            exercise.setPerformedReps(input.performedReps());
-            exercise.setTotalVolumeKg(input.totalVolumeKg());
-            exercise.setDistanceKm(input.distanceKm());
-            exercise.setDurationSeconds(input.durationSeconds());
-            exercise.setAverageHeartRate(input.averageHeartRate());
-            exercise.setMaxHeartRate(input.maxHeartRate());
-            exercise.setNotes(input.notes());
-            replaceSetLogs(exercise, input.sets());
-            deriveExerciseMetrics(exercise, input);
-            session.getExercises().add(exercise);
+            session.getExercises().add(toSessionExerciseLog(userId, session, input, true));
         }
     }
 
@@ -385,19 +440,20 @@ public class WorkoutServiceImpl implements WorkoutService {
             long minutes = Duration.between(session.getStartedAt(), session.getCompletedAt()).toMinutes();
             session.setDurationMinutes(Math.toIntExact(minutes));
         }
+        session.getExercises().forEach(this::deriveExerciseMetrics);
     }
 
-    private void deriveExerciseMetrics(WorkoutExerciseLogEntity exercise, WorkoutExerciseLogInput input) {
-        if (exercise.getSets().isEmpty()) {
-            exercise.setPerformedSets(input.performedSets());
-            exercise.setPerformedReps(input.performedReps());
-            exercise.setTotalVolumeKg(input.totalVolumeKg());
+    private void deriveExerciseMetrics(WorkoutExerciseLogEntity exercise) {
+        List<WorkoutExerciseSetLogEntity> loggedSets = exercise.getSets().stream()
+                .filter(WorkoutExerciseSetLogEntity::isLogged)
+                .toList();
+        if (loggedSets.isEmpty()) {
             return;
         }
 
         int performedReps = 0;
         BigDecimal totalVolumeKg = BigDecimal.ZERO;
-        for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
+        for (WorkoutExerciseSetLogEntity set : loggedSets) {
             if (set.getReps() != null) {
                 performedReps += set.getReps();
                 if (set.getWeightKg() != null) {
@@ -406,13 +462,38 @@ public class WorkoutServiceImpl implements WorkoutService {
             }
         }
 
-        exercise.setPerformedSets(exercise.getSets().size());
+        exercise.setPerformedSets(loggedSets.size());
         exercise.setPerformedReps(performedReps);
         exercise.setTotalVolumeKg(totalVolumeKg);
     }
 
+    private WorkoutExerciseLogEntity toSessionExerciseLog(UUID userId,
+                                                          WorkoutSessionEntity session,
+                                                          WorkoutExerciseLogInput input,
+                                                          boolean logged) {
+        WorkoutExerciseLogEntity exercise = new WorkoutExerciseLogEntity();
+        ExerciseEntity sourceExercise = findAccessibleExercise(userId, input.exerciseId());
+        exercise.setExerciseLogId(UUID.randomUUID());
+        exercise.setSession(session);
+        exercise.setExercise(sourceExercise);
+        exercise.setExerciseNameSnapshot(sourceExercise.getName());
+        exercise.setSequence(input.sequence());
+        exercise.setPerformedSets(input.performedSets());
+        exercise.setPerformedReps(input.performedReps());
+        exercise.setTotalVolumeKg(input.totalVolumeKg());
+        exercise.setDistanceKm(input.distanceKm());
+        exercise.setDurationSeconds(input.durationSeconds());
+        exercise.setAverageHeartRate(input.averageHeartRate());
+        exercise.setMaxHeartRate(input.maxHeartRate());
+        exercise.setNotes(input.notes());
+        replaceSetLogs(exercise, input.sets(), logged);
+        deriveExerciseMetrics(exercise);
+        return exercise;
+    }
+
     private void replaceSetLogs(WorkoutExerciseLogEntity exercise,
-                                List<WorkoutExerciseSetLogInput> inputs) {
+                                List<WorkoutExerciseSetLogInput> inputs,
+                                boolean logged) {
         exercise.getSets().clear();
         if (inputs == null) {
             return;
@@ -424,13 +505,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             setLog.setSetLogId(UUID.randomUUID());
             setLog.setExerciseLog(exercise);
             setLog.setSetNumber(input.setNumber());
-            setLog.setReps(input.reps());
-            setLog.setWeightKg(input.weightKg());
-            setLog.setDurationSeconds(input.durationSeconds());
-            setLog.setDistanceKm(input.distanceKm());
-            setLog.setRestSeconds(input.restSeconds());
-            setLog.setPerceivedExertion(input.perceivedExertion());
-            setLog.setNotes(input.notes());
+            applySetLogInput(setLog, input, logged);
             exercise.getSets().add(setLog);
         }
     }
@@ -462,12 +537,65 @@ public class WorkoutServiceImpl implements WorkoutService {
         setLog.setDurationSeconds(setTarget.getTargetDurationSeconds());
         setLog.setDistanceKm(setTarget.getTargetDistanceKm());
         setLog.setRestSeconds(setTarget.getRestSeconds());
+        setLog.setLogged(false);
         return setLog;
+    }
+
+    private WorkoutExerciseLogEntity findExerciseLog(WorkoutSessionEntity session, UUID exerciseLogId) {
+        return session.getExercises().stream()
+                .filter(exercise -> exercise.getExerciseLogId().equals(exerciseLogId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Workout exercise log not found"));
+    }
+
+    private void applySetLogInput(WorkoutExerciseSetLogEntity setLog,
+                                  WorkoutExerciseSetLogInput input,
+                                  boolean logged) {
+        setLog.setReps(input.reps());
+        setLog.setWeightKg(input.weightKg());
+        setLog.setDurationSeconds(input.durationSeconds());
+        setLog.setDistanceKm(input.distanceKm());
+        setLog.setRestSeconds(input.restSeconds());
+        setLog.setPerceivedExertion(input.perceivedExertion());
+        setLog.setNotes(input.notes());
+        setLog.setLogged(logged);
+    }
+
+    private void applySetLogRequest(WorkoutExerciseSetLogEntity setLog,
+                                    UpsertWorkoutExerciseSetRequest request,
+                                    boolean logged) {
+        setLog.setReps(request.reps());
+        setLog.setWeightKg(request.weightKg());
+        setLog.setDurationSeconds(request.durationSeconds());
+        setLog.setDistanceKm(request.distanceKm());
+        setLog.setRestSeconds(request.restSeconds());
+        setLog.setPerceivedExertion(request.perceivedExertion());
+        setLog.setNotes(request.notes());
+        setLog.setLogged(logged);
     }
 
     private ExerciseEntity findAccessibleExercise(UUID userId, UUID exerciseId) {
         return exerciseRepository.findAccessibleById(exerciseId, userId, ExerciseStatus.ACTIVE)
                 .orElseThrow(() -> new ResourceNotFoundException("Exercise not found"));
+    }
+
+    /*
+     * WO-6 transition matrix:
+     * PLANNED / IN_PROGRESS can be live-edited, completed, or cancelled.
+     * COMPLETED / CANCELLED are terminal for live edit and lifecycle transition endpoints.
+     */
+    private void validateLiveEditable(WorkoutSessionEntity session) {
+        if (session.getStatus() != WorkoutSessionStatus.PLANNED
+                && session.getStatus() != WorkoutSessionStatus.IN_PROGRESS) {
+            throw new IllegalArgumentException("Only planned or in-progress workout sessions can be edited live");
+        }
+    }
+
+    private void validateTransitionAllowed(WorkoutSessionEntity session) {
+        if (session.getStatus() != WorkoutSessionStatus.PLANNED
+                && session.getStatus() != WorkoutSessionStatus.IN_PROGRESS) {
+            throw new IllegalArgumentException("Only planned or in-progress workout sessions can transition");
+        }
     }
 
     private void validateSessionRequest(UUID userId, UpsertWorkoutSessionRequest request) {
@@ -528,6 +656,22 @@ public class WorkoutServiceImpl implements WorkoutService {
                             .toList(),
                     "Set numbers must be unique within an exercise log"));
         }
+    }
+
+    private void validateExerciseLog(WorkoutExerciseLogInput exercise) {
+        validateUniqueNumbers(
+                exercise.sets().stream()
+                        .map(WorkoutExerciseSetLogInput::setNumber)
+                        .toList(),
+                "Set numbers must be unique within an exercise log");
+    }
+
+    private void validateSessionExerciseSequences(WorkoutSessionEntity session) {
+        validateUniqueNumbers(
+                session.getExercises().stream()
+                        .map(WorkoutExerciseLogEntity::getSequence)
+                        .toList(),
+                "Exercise sequence values must be unique within the session");
     }
 
     private void validateUniqueNumbers(List<Integer> numbers, String message) {
@@ -659,6 +803,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                                         setLog.getDistanceKm(),
                                         setLog.getRestSeconds(),
                                         setLog.getPerceivedExertion(),
+                                        setLog.isLogged(),
                                         setLog.getNotes()))
                                 .toList()))
                 .toList();

@@ -6,9 +6,12 @@ import java.util.UUID;
 
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
+import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
+import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -50,6 +53,18 @@ public interface WorkoutService {
     WorkoutSessionView getSession(CurrentUserPrincipal currentUser, UUID sessionId);
 
     WorkoutSessionView updateSession(CurrentUserPrincipal currentUser, UUID sessionId, UpsertWorkoutSessionRequest request);
+
+    WorkoutSessionView completeSession(CurrentUserPrincipal currentUser, UUID sessionId, CompleteWorkoutSessionRequest request);
+
+    WorkoutSessionView cancelSession(CurrentUserPrincipal currentUser, UUID sessionId);
+
+    WorkoutSessionView appendOrReplaceExercise(CurrentUserPrincipal currentUser, UUID sessionId, WorkoutExerciseLogInput request);
+
+    WorkoutSessionView upsertSet(CurrentUserPrincipal currentUser,
+                                 UUID sessionId,
+                                 UUID exerciseLogId,
+                                 int setNumber,
+                                 UpsertWorkoutExerciseSetRequest request);
 
     void deleteSession(CurrentUserPrincipal currentUser, UUID sessionId);
 }
