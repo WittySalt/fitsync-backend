@@ -1,6 +1,7 @@
 package com.fitsync.analytics.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -16,6 +17,7 @@ import java.util.TreeMap;
 
 import com.fitsync.analytics.config.AnalyticsProperties;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
+import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
@@ -23,6 +25,7 @@ import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
+import com.fitsync.analytics.dto.ComparePeriod;
 import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
@@ -123,13 +126,10 @@ public class AnalyticsServiceImpl implements AnalyticsService {
             key = "#principal.userId() + ':' + #from + ':' + #to")
     public AnalyticsWorkoutSummaryResponse getWorkoutSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to) {
         validateSummaryRange(from, to);
-        List<AnalyticsUserDailyWorkoutEntity> rows = dailyWorkoutRepository
-                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
-        int totalWorkoutCount = rows.stream().mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount())).sum();
-        int totalWorkoutMinutes = rows.stream().mapToInt(row -> defaultInteger(row.getTotalWorkoutMinutes())).sum();
-        int totalCaloriesBurned = rows.stream().mapToInt(row -> defaultInteger(row.getTotalCaloriesBurned())).sum();
-        int totalExerciseCount = rows.stream().mapToInt(row -> defaultInteger(row.getTotalExerciseCount())).sum();
-        Double averageDuration = totalWorkoutCount == 0 ? null : ((double) totalWorkoutMinutes) / totalWorkoutCount;
+        WorkoutSummaryAggregation aggregation = aggregateWorkoutSummary(principal.userId(), from, to);
+        Double averageDuration = aggregation.totalWorkoutCount() == 0
+                ? null
+                : ((double) aggregation.totalWorkoutMinutes()) / aggregation.totalWorkoutCount();
         int activeStreakDays = dashboardSnapshotRepository.findById(principal.userId())
                 .map(snapshot -> defaultInteger(snapshot.getActiveStreakDays()))
                 .orElse(0);
@@ -137,10 +137,10 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return new AnalyticsWorkoutSummaryResponse(
                 from,
                 to,
-                totalWorkoutCount,
-                totalWorkoutMinutes,
-                totalCaloriesBurned,
-                totalExerciseCount,
+                aggregation.totalWorkoutCount(),
+                aggregation.totalWorkoutMinutes(),
+                aggregation.totalCaloriesBurned(),
+                aggregation.totalExerciseCount(),
                 averageDuration,
                 activeStreakDays);
     }
@@ -168,55 +168,22 @@ public class AnalyticsServiceImpl implements AnalyticsService {
             key = "#principal.userId() + ':' + #from + ':' + #to")
     public AnalyticsNutritionSummaryResponse getNutritionSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to) {
         validateSummaryRange(from, to);
-        List<AnalyticsUserDailyNutritionEntity> rows = dailyNutritionRepository
-                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
-        int totalCaloriesConsumed = rows.stream().mapToInt(row -> defaultInteger(row.getTotalCaloriesConsumed())).sum();
-        BigDecimal totalProteinGrams = rows.stream()
-                .map(AnalyticsUserDailyNutritionEntity::getTotalProteinGrams)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalCarbsGrams = rows.stream()
-                .map(AnalyticsUserDailyNutritionEntity::getTotalCarbsGrams)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalFatGrams = rows.stream()
-                .map(AnalyticsUserDailyNutritionEntity::getTotalFatGrams)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        int totalCalorieTarget = rows.stream()
-                .map(AnalyticsUserDailyNutritionEntity::getCalorieTarget)
-                .filter(Objects::nonNull)
-                .mapToInt(Integer::intValue)
-                .sum();
-        BigDecimal totalProteinTarget = rows.stream()
-                .map(AnalyticsUserDailyNutritionEntity::getProteinTargetGrams)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        List<BigDecimal> calorieRatios = rows.stream()
-                .map(AnalyticsUserDailyNutritionEntity::getCalorieAdherenceRatio)
-                .filter(Objects::nonNull)
-                .toList();
-        List<BigDecimal> proteinScores = rows.stream()
-                .map(AnalyticsUserDailyNutritionEntity::getMacroAdherenceScore)
-                .filter(Objects::nonNull)
-                .toList();
-        int daysWithinBand = (int) calorieRatios.stream()
-                .filter(ratio -> ratio.compareTo(new BigDecimal("0.90")) >= 0
-                        && ratio.compareTo(new BigDecimal("1.10")) <= 0)
-                .count();
+        NutritionSummaryAggregation aggregation = aggregateNutritionSummary(principal.userId(), from, to);
 
         return new AnalyticsNutritionSummaryResponse(
                 from,
                 to,
-                totalCaloriesConsumed,
-                toNullableDouble(totalProteinGrams),
-                toNullableDouble(totalCarbsGrams),
-                toNullableDouble(totalFatGrams),
-                totalCalorieTarget == 0 ? null : totalCalorieTarget,
-                totalProteinTarget.compareTo(BigDecimal.ZERO) == 0 ? null : totalProteinTarget.doubleValue(),
-                average(calorieRatios),
-                average(proteinScores),
-                daysWithinBand);
+                aggregation.totalCaloriesConsumed(),
+                toNullableDouble(aggregation.totalProteinGrams()),
+                toNullableDouble(aggregation.totalCarbsGrams()),
+                toNullableDouble(aggregation.totalFatGrams()),
+                aggregation.totalCalorieTarget() == 0 ? null : aggregation.totalCalorieTarget(),
+                aggregation.totalProteinTarget().compareTo(BigDecimal.ZERO) == 0
+                        ? null
+                        : aggregation.totalProteinTarget().doubleValue(),
+                aggregation.averageCalorieAdherence(),
+                aggregation.averageMacroAdherence(),
+                aggregation.daysWithinBand());
     }
 
     @Override
@@ -235,6 +202,48 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 : aggregateNutritionSeriesRows(rows, bucket);
 
         return new AnalyticsNutritionSeriesResponse(from, to, bucket.name(), points);
+    }
+
+    @Override
+    @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.COMPARE_CACHE,
+            key = "#principal.userId() + ':' + #period.name() + ':' + #root.target.todayUtcForCacheKey()")
+    public AnalyticsCompareResponse getSummaryCompare(CurrentUserPrincipal principal, ComparePeriod period) {
+        PeriodRanges ranges = compareRanges(todayUtcForCacheKey(), period);
+        WorkoutSummaryAggregation currentWorkout =
+                aggregateWorkoutSummary(principal.userId(), ranges.currentFrom(), ranges.currentTo());
+        WorkoutSummaryAggregation previousWorkout =
+                aggregateWorkoutSummary(principal.userId(), ranges.previousFrom(), ranges.previousTo());
+        NutritionSummaryAggregation currentNutrition =
+                aggregateNutritionSummary(principal.userId(), ranges.currentFrom(), ranges.currentTo());
+        NutritionSummaryAggregation previousNutrition =
+                aggregateNutritionSummary(principal.userId(), ranges.previousFrom(), ranges.previousTo());
+
+        return new AnalyticsCompareResponse(
+                period.name(),
+                new AnalyticsCompareResponse.PeriodWindow(ranges.currentFrom(), ranges.currentTo()),
+                new AnalyticsCompareResponse.PeriodWindow(ranges.previousFrom(), ranges.previousTo()),
+                new AnalyticsCompareResponse.WorkoutComparison(
+                        metricComparison(currentWorkout.totalWorkoutCount(), previousWorkout.totalWorkoutCount()),
+                        metricComparison(currentWorkout.totalWorkoutMinutes(), previousWorkout.totalWorkoutMinutes()),
+                        metricComparison(currentWorkout.totalCaloriesBurned(), previousWorkout.totalCaloriesBurned()),
+                        metricComparison(currentWorkout.totalExerciseCount(), previousWorkout.totalExerciseCount())),
+                new AnalyticsCompareResponse.NutritionComparison(
+                        metricComparison(
+                                currentNutrition.totalCaloriesConsumed(),
+                                previousNutrition.totalCaloriesConsumed()),
+                        nullableMetricComparison(
+                                currentNutrition.totalProteinGrams(),
+                                previousNutrition.totalProteinGrams()),
+                        nullableMetricComparison(
+                                currentNutrition.totalCarbsGrams(),
+                                previousNutrition.totalCarbsGrams()),
+                        nullableMetricComparison(
+                                currentNutrition.totalFatGrams(),
+                                previousNutrition.totalFatGrams())));
+    }
+
+    public LocalDate todayUtcForCacheKey() {
+        return LocalDate.now(clock);
     }
 
     @Override
@@ -277,6 +286,64 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .toList();
     }
 
+    private WorkoutSummaryAggregation aggregateWorkoutSummary(java.util.UUID userId, LocalDate from, LocalDate to) {
+        List<AnalyticsUserDailyWorkoutEntity> rows = dailyWorkoutRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
+        return new WorkoutSummaryAggregation(
+                rows.stream().mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount())).sum(),
+                rows.stream().mapToInt(row -> defaultInteger(row.getTotalWorkoutMinutes())).sum(),
+                rows.stream().mapToInt(row -> defaultInteger(row.getTotalCaloriesBurned())).sum(),
+                rows.stream().mapToInt(row -> defaultInteger(row.getTotalExerciseCount())).sum());
+    }
+
+    private NutritionSummaryAggregation aggregateNutritionSummary(java.util.UUID userId, LocalDate from, LocalDate to) {
+        List<AnalyticsUserDailyNutritionEntity> rows = dailyNutritionRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
+        BigDecimal totalProteinGrams = rows.stream()
+                .map(AnalyticsUserDailyNutritionEntity::getTotalProteinGrams)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalCarbsGrams = rows.stream()
+                .map(AnalyticsUserDailyNutritionEntity::getTotalCarbsGrams)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalFatGrams = rows.stream()
+                .map(AnalyticsUserDailyNutritionEntity::getTotalFatGrams)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalProteinTarget = rows.stream()
+                .map(AnalyticsUserDailyNutritionEntity::getProteinTargetGrams)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<BigDecimal> calorieRatios = rows.stream()
+                .map(AnalyticsUserDailyNutritionEntity::getCalorieAdherenceRatio)
+                .filter(Objects::nonNull)
+                .toList();
+        List<BigDecimal> proteinScores = rows.stream()
+                .map(AnalyticsUserDailyNutritionEntity::getMacroAdherenceScore)
+                .filter(Objects::nonNull)
+                .toList();
+        int daysWithinBand = (int) calorieRatios.stream()
+                .filter(ratio -> ratio.compareTo(new BigDecimal("0.90")) >= 0
+                        && ratio.compareTo(new BigDecimal("1.10")) <= 0)
+                .count();
+
+        return new NutritionSummaryAggregation(
+                rows.stream().mapToInt(row -> defaultInteger(row.getTotalCaloriesConsumed())).sum(),
+                totalProteinGrams,
+                totalCarbsGrams,
+                totalFatGrams,
+                rows.stream()
+                        .map(AnalyticsUserDailyNutritionEntity::getCalorieTarget)
+                        .filter(Objects::nonNull)
+                        .mapToInt(Integer::intValue)
+                        .sum(),
+                totalProteinTarget,
+                average(calorieRatios),
+                average(proteinScores),
+                daysWithinBand);
+    }
+
     private AnalyticsDashboardResponse emptyDashboard(List<AnalyticsDashboardResponse.GoalProgressSummary> goals) {
         return new AnalyticsDashboardResponse(
                 Instant.now(clock),
@@ -285,6 +352,69 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 new AnalyticsDashboardResponse.WorkoutSummary(0, 0, 0, 0),
                 new AnalyticsDashboardResponse.NutritionSummary(null, null, null, null),
                 goals);
+    }
+
+    /**
+     * Builds compare windows from the UTC date supplied by the injected clock. WEEK uses ISO-Monday
+     * calendar weeks and compares the elapsed part of this week with the same weekday span last week.
+     * MONTH compares the elapsed part of this calendar month with the same day-of-month span last
+     * month; when the previous month is shorter, the previous end date is clamped to that month's
+     * final day. That clamp is intentional and makes month-end comparisons behave as "this month vs
+     * last month", even when the window lengths differ.
+     */
+    private PeriodRanges compareRanges(LocalDate todayUtc, ComparePeriod period) {
+        return switch (period) {
+            case WEEK -> {
+                LocalDate currentFrom = todayUtc.with(WeekFields.ISO.dayOfWeek(), 1);
+                long elapsedDays = ChronoUnit.DAYS.between(currentFrom, todayUtc);
+                LocalDate previousFrom = currentFrom.minusWeeks(1);
+                yield new PeriodRanges(currentFrom, todayUtc, previousFrom, previousFrom.plusDays(elapsedDays));
+            }
+            case MONTH -> {
+                LocalDate currentFrom = todayUtc.withDayOfMonth(1);
+                LocalDate previousFrom = currentFrom.minusMonths(1);
+                int previousEndDay = Math.min(todayUtc.getDayOfMonth(), previousFrom.lengthOfMonth());
+                yield new PeriodRanges(
+                        currentFrom,
+                        todayUtc,
+                        previousFrom,
+                        previousFrom.withDayOfMonth(previousEndDay));
+            }
+        };
+    }
+
+    private AnalyticsCompareResponse.MetricComparison metricComparison(int current, int previous) {
+        return metricComparison(BigDecimal.valueOf(current), BigDecimal.valueOf(previous), false);
+    }
+
+    private AnalyticsCompareResponse.MetricComparison nullableMetricComparison(
+            BigDecimal current,
+            BigDecimal previous) {
+        return metricComparison(current, previous, true);
+    }
+
+    private AnalyticsCompareResponse.MetricComparison metricComparison(
+            BigDecimal current,
+            BigDecimal previous,
+            boolean nullWhenBothMissing) {
+        BigDecimal delta = current.subtract(previous);
+        boolean bothZero = current.compareTo(BigDecimal.ZERO) == 0 && previous.compareTo(BigDecimal.ZERO) == 0;
+        // Nullable nutrition gram metrics use zero as "no data"; no-data vs no-data should not show a zero delta.
+        Double visibleDelta = nullWhenBothMissing && bothZero ? null : delta.doubleValue();
+        return new AnalyticsCompareResponse.MetricComparison(
+                nullWhenBothMissing ? toNullableDouble(current) : Double.valueOf(current.doubleValue()),
+                nullWhenBothMissing ? toNullableDouble(previous) : Double.valueOf(previous.doubleValue()),
+                visibleDelta,
+                percentageDelta(delta, previous));
+    }
+
+    private Double percentageDelta(BigDecimal delta, BigDecimal previous) {
+        if (previous.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
+        return delta.multiply(BigDecimal.valueOf(100))
+                .divide(previous, 4, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     /**
@@ -456,6 +586,32 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     private String normalizeStatus(String status) {
         return status == null ? "" : status.toUpperCase(Locale.ROOT);
+    }
+
+    private record PeriodRanges(
+            LocalDate currentFrom,
+            LocalDate currentTo,
+            LocalDate previousFrom,
+            LocalDate previousTo) {
+    }
+
+    private record WorkoutSummaryAggregation(
+            int totalWorkoutCount,
+            int totalWorkoutMinutes,
+            int totalCaloriesBurned,
+            int totalExerciseCount) {
+    }
+
+    private record NutritionSummaryAggregation(
+            int totalCaloriesConsumed,
+            BigDecimal totalProteinGrams,
+            BigDecimal totalCarbsGrams,
+            BigDecimal totalFatGrams,
+            int totalCalorieTarget,
+            BigDecimal totalProteinTarget,
+            Double averageCalorieAdherence,
+            Double averageMacroAdherence,
+            int daysWithinBand) {
     }
 
     private static final class WorkoutSeriesBucketAccumulator {

@@ -3,6 +3,7 @@ package com.fitsync.analytics.controller;
 import java.time.LocalDate;
 
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
+import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
@@ -10,6 +11,7 @@ import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
+import com.fitsync.analytics.dto.ComparePeriod;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import com.fitsync.analytics.service.AnalyticsService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -149,6 +151,21 @@ public class AnalyticsController {
                                                             @Parameter(description = "Aggregation bucket.")
                                                             @RequestParam(defaultValue = "DAY") BodyTrendBucket bucket) {
         return analyticsService.getNutritionSeries(currentPrincipal(authentication), from, to, bucket);
+    }
+
+    @GetMapping("/summary/compare")
+    @Operation(summary = "Get period-over-period summary comparison",
+            description = "Returns current and previous period comparison metrics for the authenticated user.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Summary comparison returned"),
+            @ApiResponse(responseCode = "400", description = "Invalid comparison period"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsCompareResponse summaryCompare(Authentication authentication,
+                                                   @Parameter(description = "Comparison period.")
+                                                   @RequestParam ComparePeriod period) {
+        return analyticsService.getSummaryCompare(currentPrincipal(authentication), period);
     }
 
     @GetMapping("/goals/progress")

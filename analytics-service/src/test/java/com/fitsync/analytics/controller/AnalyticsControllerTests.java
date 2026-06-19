@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.time.LocalDate;
 
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
+import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
@@ -150,6 +151,52 @@ class AnalyticsControllerTests {
                 .andExpect(jsonPath("$.points[0].date").value("2026-06-01"))
                 .andExpect(jsonPath("$.points[0].totalCaloriesConsumed").value(3800))
                 .andExpect(jsonPath("$.points[0].totalProteinGrams").value(270.0));
+    }
+
+    @Test
+    void shouldReturnSummaryCompareForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getSummaryCompare(any(), any())).thenReturn(new AnalyticsCompareResponse(
+                "WEEK",
+                new AnalyticsCompareResponse.PeriodWindow(
+                        LocalDate.parse("2026-06-15"), LocalDate.parse("2026-06-18")),
+                new AnalyticsCompareResponse.PeriodWindow(
+                        LocalDate.parse("2026-06-08"), LocalDate.parse("2026-06-11")),
+                new AnalyticsCompareResponse.WorkoutComparison(
+                        new AnalyticsCompareResponse.MetricComparison(3.0, 2.0, 1.0, 50.0),
+                        new AnalyticsCompareResponse.MetricComparison(90.0, 45.0, 45.0, 100.0),
+                        new AnalyticsCompareResponse.MetricComparison(750.0, 300.0, 450.0, 150.0),
+                        new AnalyticsCompareResponse.MetricComparison(12.0, 6.0, 6.0, 100.0)),
+                new AnalyticsCompareResponse.NutritionComparison(
+                        new AnalyticsCompareResponse.MetricComparison(4000.0, 3000.0, 1000.0, 33.3333),
+                        new AnalyticsCompareResponse.MetricComparison(260.0, 200.0, 60.0, 30.0),
+                        new AnalyticsCompareResponse.MetricComparison(420.0, 300.0, 120.0, 40.0),
+                        new AnalyticsCompareResponse.MetricComparison(130.0, 100.0, 30.0, 30.0))));
+
+        mockMvc.perform(get("/api/v1/analytics/summary/compare")
+                        .with(authentication(authToken(principal)))
+                        .param("period", "WEEK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("WEEK"))
+                .andExpect(jsonPath("$.currentWindow.from").value("2026-06-15"))
+                .andExpect(jsonPath("$.previousWindow.to").value("2026-06-11"))
+                .andExpect(jsonPath("$.workout.completedWorkoutCount.delta").value(1.0))
+                .andExpect(jsonPath("$.nutrition.totalCaloriesConsumed.deltaPct").value(33.3333));
+    }
+
+    @Test
+    void shouldRejectInvalidComparePeriod() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/summary/compare")
+                        .with(authentication(authToken(principal())))
+                        .param("period", "DAY"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldRequireAuthenticationForSummaryCompare() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/summary/compare")
+                        .param("period", "WEEK"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
