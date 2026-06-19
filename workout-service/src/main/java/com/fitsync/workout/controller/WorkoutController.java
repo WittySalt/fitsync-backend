@@ -149,6 +149,14 @@ public class WorkoutController {
         return workoutService.getPlan(currentPrincipal(authentication), planId);
     }
 
+    @Operation(summary = "Duplicate a workout plan")
+    @PostMapping("/plans/{planId}/duplicate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkoutPlanView duplicatePlan(Authentication authentication,
+                                         @PathVariable UUID planId) {
+        return workoutService.duplicatePlan(currentPrincipal(authentication), planId);
+    }
+
     @PutMapping("/plans/{planId}")
     public WorkoutPlanView updatePlan(Authentication authentication,
                                       @PathVariable UUID planId,
@@ -202,10 +210,25 @@ public class WorkoutController {
         return workoutService.getLatestSession(currentPrincipal(authentication));
     }
 
+    @Operation(summary = "Repeat the latest completed workout session")
+    @PostMapping("/sessions/repeat-latest")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkoutSessionView repeatLatestSession(Authentication authentication) {
+        return workoutService.repeatLatestSession(currentPrincipal(authentication));
+    }
+
     @GetMapping("/sessions/{sessionId}")
     public WorkoutSessionView getSession(Authentication authentication,
                                          @PathVariable UUID sessionId) {
         return workoutService.getSession(currentPrincipal(authentication), sessionId);
+    }
+
+    @Operation(summary = "Repeat a workout session")
+    @PostMapping("/sessions/{sessionId}/repeat")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkoutSessionView repeatSession(Authentication authentication,
+                                            @PathVariable UUID sessionId) {
+        return workoutService.repeatSession(currentPrincipal(authentication), sessionId);
     }
 
     @PutMapping("/sessions/{sessionId}")

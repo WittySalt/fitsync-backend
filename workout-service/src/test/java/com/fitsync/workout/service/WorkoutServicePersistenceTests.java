@@ -52,6 +52,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -211,6 +212,66 @@ class WorkoutServicePersistenceTests {
 
         assertThrows(ResourceNotFoundException.class, () -> workoutService.startPlan(otherUser, plan.planId()));
         assertThrows(ResourceNotFoundException.class, () -> workoutService.startPlan(currentUser, UUID.randomUUID()));
+    }
+
+    @Test
+    void shouldDuplicateWorkoutPlanWithIndependentExerciseAndSetTargetIds() {
+        UUID squatId = createExercise("duplicate-squat", "Duplicate Squat");
+        WorkoutPlanView source = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Duplicate Strength",
+                "Plan to copy",
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.INTERMEDIATE,
+                70,
+                List.of(new WorkoutPlanExerciseInput(
+                        squatId,
+                        1,
+                        2,
+                        null,
+                        null,
+                        null,
+                        null,
+                        180,
+                        "Original cue",
+                        List.of(
+                                new WorkoutPlanExerciseSetTargetInput(1, 5, new BigDecimal("100.00"), null, null, 180),
+                                new WorkoutPlanExerciseSetTargetInput(2, 5, new BigDecimal("105.00"), null, null, 180))))));
+        workoutService.activatePlan(currentUser, source.planId());
+
+        WorkoutPlanView copy = workoutService.duplicatePlan(currentUser, source.planId());
+
+        assertNotEquals(source.planId(), copy.planId());
+        assertEquals("Duplicate Strength (Copy)", copy.name());
+        assertEquals(WorkoutPlanStatus.DRAFT, copy.status());
+        assertEquals(currentUser.userId(), workoutPlanRepository.findByPlanIdAndUserId(copy.planId(), currentUser.userId())
+                .orElseThrow()
+                .getUserId());
+        assertEquals(1, copy.exercises().size());
+        assertNotEquals(source.exercises().get(0).planExerciseId(), copy.exercises().get(0).planExerciseId());
+        assertEquals(source.exercises().get(0).exerciseId(), copy.exercises().get(0).exerciseId());
+        assertEquals(2, copy.exercises().get(0).setTargets().size());
+        assertNotEquals(source.exercises().get(0).setTargets().get(0).setTargetId(),
+                copy.exercises().get(0).setTargets().get(0).setTargetId());
+
+        var copyEntity = workoutPlanRepository.findByPlanIdAndUserId(copy.planId(), currentUser.userId()).orElseThrow();
+        copyEntity.setName("Duplicate Strength Edited");
+        workoutPlanRepository.save(copyEntity);
+
+        WorkoutPlanView fetchedSource = workoutService.getPlan(currentUser, source.planId());
+        WorkoutPlanView fetchedCopy = workoutService.getPlan(currentUser, copy.planId());
+        assertEquals("Duplicate Strength", fetchedSource.name());
+        assertEquals(WorkoutPlanStatus.ACTIVE, fetchedSource.status());
+        assertEquals(new BigDecimal("100.00"), fetchedSource.exercises().get(0).setTargets().get(0).targetWeightKg());
+        assertEquals("Duplicate Strength Edited", fetchedCopy.name());
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenDuplicatingMissingOrNonOwnedWorkoutPlan() {
+        WorkoutPlanView plan = createPlan("Owner Only Duplicate Plan", currentUser);
+
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.duplicatePlan(otherUser, plan.planId()));
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.duplicatePlan(currentUser, UUID.randomUUID()));
     }
 
     @Test
@@ -1234,6 +1295,163 @@ class WorkoutServicePersistenceTests {
         assertEquals(new BigDecimal("105.00"), fetchedPlan.exercises().get(0).setTargets().get(1).targetWeightKg());
         assertEquals(2, fetchedSession.exercises().get(0).sets().size());
         assertEquals(8, fetchedSession.exercises().get(0).sets().get(1).perceivedExertion());
+    }
+
+    @Test
+    void shouldRepeatSessionFromLoggedSetsOnlyAsUnloggedEditableSkeletonWithoutEvents() {
+        UUID squatId = createExercise("repeat-seed-squat", "Repeat Seed Squat");
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Repeat Seed Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.INTERMEDIATE,
+                60,
+                List.of(new WorkoutPlanExerciseInput(
+                        squatId,
+                        1,
+                        2,
+                        null,
+                        null,
+                        null,
+                        null,
+                        180,
+                        null,
+                        List.of(
+                                new WorkoutPlanExerciseSetTargetInput(1, 5, new BigDecimal("100.00"), null, null, 180),
+                                new WorkoutPlanExerciseSetTargetInput(2, 5, new BigDecimal("105.00"), null, null, 180))))));
+        WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+        workoutService.upsertSet(
+                currentUser,
+                started.sessionId(),
+                started.exercises().get(0).exerciseLogId(),
+                2,
+                new UpsertWorkoutExerciseSetRequest(6, new BigDecimal("120.00"), null, null, 150, 8, "Touched set"));
+        WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
+        outboxEventRepository.deleteAll();
+
+        WorkoutSessionView repeated = workoutService.repeatSession(currentUser, completed.sessionId());
+
+        assertNotEquals(completed.sessionId(), repeated.sessionId());
+        assertEquals(plan.planId(), repeated.planId());
+        assertEquals("Repeat Seed Plan", repeated.name());
+        assertEquals(WorkoutSessionStatus.IN_PROGRESS, repeated.status());
+        assertEquals(WorkoutSource.MANUAL, repeated.source());
+        assertNotNull(repeated.startedAt());
+        assertNull(repeated.completedAt());
+        assertNull(repeated.durationMinutes());
+        assertNull(repeated.caloriesBurned());
+        assertNull(repeated.perceivedExertion());
+        assertEquals(1, repeated.exerciseCount());
+        assertNull(repeated.exercises().get(0).performedSets());
+        assertNull(repeated.exercises().get(0).performedReps());
+        assertNull(repeated.exercises().get(0).totalVolumeKg());
+        assertEquals(1, repeated.exercises().get(0).sets().size());
+        assertEquals(2, repeated.exercises().get(0).sets().get(0).setNumber());
+        assertEquals(6, repeated.exercises().get(0).sets().get(0).reps());
+        assertEquals(new BigDecimal("120.00"), repeated.exercises().get(0).sets().get(0).weightKg());
+        assertEquals(false, repeated.exercises().get(0).sets().get(0).logged());
+        assertEquals(0, outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).size());
+
+        WorkoutSessionView edited = workoutService.upsertSet(
+                currentUser,
+                repeated.sessionId(),
+                repeated.exercises().get(0).exerciseLogId(),
+                2,
+                new UpsertWorkoutExerciseSetRequest(7, new BigDecimal("122.50"), null, null, 150, 9, "Confirmed"));
+        assertEquals(true, edited.exercises().get(0).sets().get(0).logged());
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenRepeatingNonOwnedWorkoutSession() {
+        UUID squatId = createExercise("repeat-non-owned-squat", "Repeat Non-Owned Squat");
+        WorkoutSessionView session = workoutService.createSession(currentUser, completedStrengthSession(
+                "Owner Session",
+                Instant.parse("2026-06-11T10:00:00Z"),
+                squatId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("90.00"), null, null, 120, 7, null))));
+
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.repeatSession(otherUser, session.sessionId()));
+    }
+
+    @Test
+    void shouldRepeatLatestCompletedSessionOnly() {
+        UUID squatId = createExercise("repeat-latest-squat", "Repeat Latest Squat");
+        workoutService.createSession(currentUser, completedStrengthSession(
+                "Older Strength",
+                Instant.parse("2026-06-10T10:00:00Z"),
+                squatId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("90.00"), null, null, 120, 7, null))));
+        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Not Completed Later",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-12T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        squatId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("110.00"), null, null, 120, 7, null))))));
+        workoutService.createSession(currentUser, completedStrengthSession(
+                "Latest Strength",
+                Instant.parse("2026-06-11T10:00:00Z"),
+                squatId,
+                List.of(new WorkoutExerciseSetLogInput(1, 3, new BigDecimal("130.00"), null, null, 180, 9, null))));
+        outboxEventRepository.deleteAll();
+
+        WorkoutSessionView repeated = workoutService.repeatLatestSession(currentUser);
+
+        assertEquals("Latest Strength", repeated.name());
+        assertEquals(WorkoutSessionStatus.IN_PROGRESS, repeated.status());
+        assertEquals(WorkoutSource.MANUAL, repeated.source());
+        assertEquals(new BigDecimal("130.00"), repeated.exercises().get(0).sets().get(0).weightKg());
+        assertEquals(false, repeated.exercises().get(0).sets().get(0).logged());
+        assertEquals(0, outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).size());
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenRepeatingLatestWithoutCompletedSession() {
+        UUID squatId = createExercise("repeat-latest-empty-squat", "Repeat Latest Empty Squat");
+        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Current Draft",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        squatId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("90.00"), null, null, 120, 7, null))))));
+
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.repeatLatestSession(currentUser));
     }
 
     @Test

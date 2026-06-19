@@ -169,6 +169,52 @@ class WorkoutControllerTests {
     }
 
     @Test
+    void shouldDuplicatePlanForAuthenticatedUser() throws Exception {
+        UUID planId = UUID.randomUUID();
+        UUID duplicatePlanId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutPlanView response = new WorkoutPlanView(
+                duplicatePlanId,
+                "Push Day (Copy)",
+                "Upper body strength",
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.INTERMEDIATE,
+                60,
+                WorkoutPlanStatus.DRAFT,
+                List.of(),
+                Instant.parse("2026-06-11T12:00:00Z"),
+                Instant.parse("2026-06-11T12:00:00Z"));
+
+        when(workoutService.duplicatePlan(any(), eq(planId))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/duplicate", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.planId").value(duplicatePlanId.toString()))
+                .andExpect(jsonPath("$.name").value("Push Day (Copy)"))
+                .andExpect(jsonPath("$.status").value("DRAFT"));
+
+        verify(workoutService).duplicatePlan(eq(principal), eq(planId));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenDuplicatePlanIsNotAccessible() throws Exception {
+        UUID planId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+
+        when(workoutService.duplicatePlan(any(), eq(planId)))
+                .thenThrow(new ResourceNotFoundException("Workout plan not found"));
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/duplicate", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Workout plan not found"));
+    }
+
+    @Test
     void shouldActivatePlanForAuthenticatedUser() throws Exception {
         UUID planId = UUID.randomUUID();
         CurrentUserPrincipal principal = principal();
@@ -601,6 +647,43 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         verify(workoutService).cancelSession(eq(principal), eq(sessionId));
+    }
+
+    @Test
+    void shouldRepeatSessionForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID repeatedSessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionView response = sessionView(repeatedSessionId, WorkoutSessionStatus.IN_PROGRESS);
+
+        when(workoutService.repeatSession(any(), eq(sessionId))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/repeat", sessionId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessionId").value(repeatedSessionId.toString()))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+
+        verify(workoutService).repeatSession(eq(principal), eq(sessionId));
+    }
+
+    @Test
+    void shouldRepeatLatestCompletedSessionForAuthenticatedUser() throws Exception {
+        UUID repeatedSessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionView response = sessionView(repeatedSessionId, WorkoutSessionStatus.IN_PROGRESS);
+
+        when(workoutService.repeatLatestSession(any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/repeat-latest")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessionId").value(repeatedSessionId.toString()))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+
+        verify(workoutService).repeatLatestSession(eq(principal));
     }
 
     @Test

@@ -32,6 +32,8 @@ public interface WorkoutService {
 
     WorkoutPlanView getActivePlan(CurrentUserPrincipal currentUser);
 
+    WorkoutPlanView duplicatePlan(CurrentUserPrincipal currentUser, UUID planId);
+
     PageResponse<ExerciseHistoryEntryView> getExerciseHistory(CurrentUserPrincipal currentUser,
                                                               UUID exerciseId,
                                                               Instant from,
@@ -62,6 +64,10 @@ public interface WorkoutService {
     WorkoutSessionView getLatestSession(CurrentUserPrincipal currentUser);
 
     WorkoutSessionView getSession(CurrentUserPrincipal currentUser, UUID sessionId);
+
+    WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId);
+
+    WorkoutSessionView repeatLatestSession(CurrentUserPrincipal currentUser);
 
     WorkoutSessionView updateSession(CurrentUserPrincipal currentUser, UUID sessionId, UpsertWorkoutSessionRequest request);
 

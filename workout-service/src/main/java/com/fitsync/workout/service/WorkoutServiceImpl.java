@@ -69,6 +69,8 @@ public class WorkoutServiceImpl implements WorkoutService {
     private static final String MAX_SINGLE_SET_VOLUME_KG = "MAX_SINGLE_SET_VOLUME_KG";
     private static final String ESTIMATED_ONE_REP_MAX_KG = "ESTIMATED_ONE_REP_MAX_KG";
     private static final String BEST_SESSION_VOLUME_KG = "BEST_SESSION_VOLUME_KG";
+    private static final String COPY_SUFFIX = " (Copy)";
+    private static final int PLAN_NAME_MAX_LENGTH = 120;
 
     private final String workoutEventsTopic;
     private final int exerciseHistoryMaxRangeDays;
@@ -141,6 +143,14 @@ public class WorkoutServiceImpl implements WorkoutService {
                 .findFirst()
                 .map(this::toPlanView)
                 .orElseThrow(() -> new ResourceNotFoundException("Active workout plan not found"));
+    }
+
+    @Override
+    @Transactional
+    public WorkoutPlanView duplicatePlan(CurrentUserPrincipal currentUser, UUID planId) {
+        WorkoutPlanEntity source = findPlan(currentUser.userId(), planId);
+        WorkoutPlanEntity copy = toDuplicatePlan(currentUser.userId(), source);
+        return toPlanView(workoutPlanRepository.save(copy));
     }
 
     @Override
@@ -296,6 +306,24 @@ public class WorkoutServiceImpl implements WorkoutService {
 
     @Override
     @Transactional
+    public WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId) {
+        WorkoutSessionEntity source = findSession(currentUser.userId(), sessionId);
+        WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source);
+        return toSessionView(workoutSessionRepository.save(repeated));
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView repeatLatestSession(CurrentUserPrincipal currentUser) {
+        WorkoutSessionEntity source = workoutSessionRepository
+                .findTopByUserIdAndStatusOrderByStartedAtDesc(currentUser.userId(), WorkoutSessionStatus.COMPLETED)
+                .orElseThrow(() -> new ResourceNotFoundException("Completed workout session not found"));
+        WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source);
+        return toSessionView(workoutSessionRepository.save(repeated));
+    }
+
+    @Override
+    @Transactional
     public WorkoutSessionView updateSession(CurrentUserPrincipal currentUser,
                                             UUID sessionId,
                                             UpsertWorkoutSessionRequest request) {
@@ -408,6 +436,118 @@ public class WorkoutServiceImpl implements WorkoutService {
     private WorkoutSessionEntity findSession(UUID userId, UUID sessionId) {
         return workoutSessionRepository.findBySessionIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Workout session not found"));
+    }
+
+    private WorkoutPlanEntity toDuplicatePlan(UUID userId, WorkoutPlanEntity source) {
+        WorkoutPlanEntity copy = new WorkoutPlanEntity();
+        copy.setPlanId(UUID.randomUUID());
+        copy.setUserId(userId);
+        copy.setName(toCopyName(source.getName()));
+        copy.setDescription(source.getDescription());
+        copy.setGoalFocus(source.getGoalFocus());
+        copy.setWorkoutType(source.getWorkoutType());
+        copy.setDifficulty(source.getDifficulty());
+        copy.setEstimatedDurationMinutes(source.getEstimatedDurationMinutes());
+        copy.setStatus(WorkoutPlanStatus.DRAFT);
+        for (WorkoutPlanExerciseEntity sourceExercise : source.getExercises()) {
+            copy.getExercises().add(toDuplicatePlanExercise(copy, sourceExercise));
+        }
+        return copy;
+    }
+
+    private String toCopyName(String sourceName) {
+        int maxBaseLength = PLAN_NAME_MAX_LENGTH - COPY_SUFFIX.length();
+        String baseName = sourceName.length() > maxBaseLength ? sourceName.substring(0, maxBaseLength) : sourceName;
+        return baseName + COPY_SUFFIX;
+    }
+
+    private WorkoutPlanExerciseEntity toDuplicatePlanExercise(WorkoutPlanEntity plan,
+                                                              WorkoutPlanExerciseEntity source) {
+        WorkoutPlanExerciseEntity copy = new WorkoutPlanExerciseEntity();
+        copy.setPlanExerciseId(UUID.randomUUID());
+        copy.setPlan(plan);
+        copy.setExercise(source.getExercise());
+        copy.setExerciseNameSnapshot(source.getExerciseNameSnapshot());
+        copy.setSequence(source.getSequence());
+        copy.setTargetSets(source.getTargetSets());
+        copy.setTargetReps(source.getTargetReps());
+        copy.setTargetWeightKg(source.getTargetWeightKg());
+        copy.setTargetDurationSeconds(source.getTargetDurationSeconds());
+        copy.setTargetDistanceKm(source.getTargetDistanceKm());
+        copy.setRestSeconds(source.getRestSeconds());
+        copy.setNotes(source.getNotes());
+        for (WorkoutPlanExerciseSetTargetEntity sourceSet : source.getSetTargets()) {
+            copy.getSetTargets().add(toDuplicateSetTarget(copy, sourceSet));
+        }
+        return copy;
+    }
+
+    private WorkoutPlanExerciseSetTargetEntity toDuplicateSetTarget(WorkoutPlanExerciseEntity exercise,
+                                                                    WorkoutPlanExerciseSetTargetEntity source) {
+        WorkoutPlanExerciseSetTargetEntity copy = new WorkoutPlanExerciseSetTargetEntity();
+        copy.setSetTargetId(UUID.randomUUID());
+        copy.setPlanExercise(exercise);
+        copy.setSetNumber(source.getSetNumber());
+        copy.setTargetReps(source.getTargetReps());
+        copy.setTargetWeightKg(source.getTargetWeightKg());
+        copy.setTargetDurationSeconds(source.getTargetDurationSeconds());
+        copy.setTargetDistanceKm(source.getTargetDistanceKm());
+        copy.setRestSeconds(source.getRestSeconds());
+        return copy;
+    }
+
+    private WorkoutSessionEntity toRepeatedSession(UUID userId, WorkoutSessionEntity source) {
+        WorkoutSessionEntity repeated = new WorkoutSessionEntity();
+        repeated.setSessionId(UUID.randomUUID());
+        repeated.setUserId(userId);
+        repeated.setPlanId(source.getPlanId());
+        repeated.setName(source.getName());
+        repeated.setWorkoutType(source.getWorkoutType());
+        repeated.setStatus(WorkoutSessionStatus.IN_PROGRESS);
+        repeated.setSource(WorkoutSource.MANUAL);
+        repeated.setStartedAt(Instant.now());
+        for (WorkoutExerciseLogEntity sourceExercise : source.getExercises()) {
+            List<WorkoutExerciseSetLogEntity> loggedSets = sourceExercise.getSets().stream()
+                    .filter(WorkoutExerciseSetLogEntity::isLogged)
+                    .toList();
+            if (!loggedSets.isEmpty()) {
+                repeated.getExercises().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets));
+            }
+        }
+        return repeated;
+    }
+
+    private WorkoutExerciseLogEntity toRepeatedExerciseLog(WorkoutSessionEntity session,
+                                                           WorkoutExerciseLogEntity source,
+                                                           List<WorkoutExerciseSetLogEntity> loggedSets) {
+        WorkoutExerciseLogEntity repeated = new WorkoutExerciseLogEntity();
+        repeated.setExerciseLogId(UUID.randomUUID());
+        repeated.setSession(session);
+        repeated.setExercise(source.getExercise());
+        repeated.setExerciseNameSnapshot(source.getExerciseNameSnapshot());
+        repeated.setSequence(source.getSequence());
+        repeated.setNotes(source.getNotes());
+        for (WorkoutExerciseSetLogEntity sourceSet : loggedSets) {
+            repeated.getSets().add(toRepeatedSetLog(repeated, sourceSet));
+        }
+        return repeated;
+    }
+
+    private WorkoutExerciseSetLogEntity toRepeatedSetLog(WorkoutExerciseLogEntity exercise,
+                                                         WorkoutExerciseSetLogEntity source) {
+        WorkoutExerciseSetLogEntity repeated = new WorkoutExerciseSetLogEntity();
+        repeated.setSetLogId(UUID.randomUUID());
+        repeated.setExerciseLog(exercise);
+        repeated.setSetNumber(source.getSetNumber());
+        repeated.setReps(source.getReps());
+        repeated.setWeightKg(source.getWeightKg());
+        repeated.setDurationSeconds(source.getDurationSeconds());
+        repeated.setDistanceKm(source.getDistanceKm());
+        repeated.setRestSeconds(source.getRestSeconds());
+        repeated.setPerceivedExertion(source.getPerceivedExertion());
+        repeated.setNotes(source.getNotes());
+        repeated.setLogged(false);
+        return repeated;
     }
 
     private void applySessionRequest(UUID userId,

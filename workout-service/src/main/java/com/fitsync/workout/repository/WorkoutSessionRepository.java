@@ -20,6 +20,9 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
 
     Optional<WorkoutSessionEntity> findTopByUserIdOrderByStartedAtDesc(UUID userId);
 
+    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    Optional<WorkoutSessionEntity> findTopByUserIdAndStatusOrderByStartedAtDesc(UUID userId, WorkoutSessionStatus status);
+
     @Query("""
             select session from WorkoutSessionEntity session
             where session.userId = :userId
