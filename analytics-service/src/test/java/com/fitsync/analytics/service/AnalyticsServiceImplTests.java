@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.analytics.config.AnalyticsProperties;
+import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
@@ -38,6 +39,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -401,6 +403,65 @@ class AnalyticsServiceImplTests {
                 .getWorkoutSeries(principal(userId), from, from.plusDays(371), BodyTrendBucket.DAY))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Date range for DAY bucket must not exceed 370 days");
+        verify(workoutRepository, never()).findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any());
+    }
+
+    @Test
+    void activityCalendarReturnsDensePointsWithZeroForInactiveDays() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-06-01");
+        LocalDate to = LocalDate.parse("2026-06-05");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of(
+                        workoutDay(userId, "2026-06-01", 1, 30),
+                        workoutDay(userId, "2026-06-03", 2, 60)));
+
+        AnalyticsActivityCalendarResponse response = workoutSeriesService(workoutRepository)
+                .getActivityCalendar(principal(userId), from, to);
+
+        assertThat(response.days())
+                .extracting(
+                        AnalyticsActivityCalendarResponse.ActivityCalendarDay::date,
+                        AnalyticsActivityCalendarResponse.ActivityCalendarDay::workoutCount,
+                        AnalyticsActivityCalendarResponse.ActivityCalendarDay::workoutMinutes)
+                .containsExactly(
+                        tuple(LocalDate.parse("2026-06-01"), 1, 30),
+                        tuple(LocalDate.parse("2026-06-02"), 0, 0),
+                        tuple(LocalDate.parse("2026-06-03"), 2, 60),
+                        tuple(LocalDate.parse("2026-06-04"), 0, 0),
+                        tuple(LocalDate.parse("2026-06-05"), 0, 0));
+    }
+
+    @Test
+    void activityCalendarSingleDayRangeReturnsOnePoint() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate day = LocalDate.parse("2026-06-01");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, day, day))
+                .thenReturn(List.of(workoutDay(userId, "2026-06-01", 3, 95)));
+
+        AnalyticsActivityCalendarResponse response = workoutSeriesService(workoutRepository)
+                .getActivityCalendar(principal(userId), day, day);
+
+        assertThat(response.days())
+                .extracting(
+                        AnalyticsActivityCalendarResponse.ActivityCalendarDay::date,
+                        AnalyticsActivityCalendarResponse.ActivityCalendarDay::workoutCount,
+                        AnalyticsActivityCalendarResponse.ActivityCalendarDay::workoutMinutes)
+                .containsExactly(tuple(day, 3, 95));
+    }
+
+    @Test
+    void activityCalendarRejectsRangesBeyondDayCapBeforeLoadingRows() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-01-01");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+
+        assertThatThrownBy(() -> workoutSeriesService(workoutRepository)
+                .getActivityCalendar(principal(userId), from, from.plusDays(371)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Date range must not exceed 370 days");
         verify(workoutRepository, never()).findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any());
     }
 

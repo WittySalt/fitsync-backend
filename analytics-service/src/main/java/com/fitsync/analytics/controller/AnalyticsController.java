@@ -2,6 +2,7 @@ package com.fitsync.analytics.controller;
 
 import java.time.LocalDate;
 
+import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
@@ -111,6 +112,26 @@ public class AnalyticsController {
                                                         @Parameter(description = "Aggregation bucket.")
                                                         @RequestParam(defaultValue = "DAY") BodyTrendBucket bucket) {
         return analyticsService.getWorkoutSeries(currentPrincipal(authentication), from, to, bucket);
+    }
+
+    @GetMapping("/activity/calendar")
+    @Operation(summary = "Get activity calendar",
+            description = "Returns per-day workout activity intensity for the authenticated user, suitable for a "
+                    + "heatmap. Every day in the range is returned; days with no activity report zero counts.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Activity calendar returned"),
+            @ApiResponse(responseCode = "400", description = "Invalid date range"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsActivityCalendarResponse activityCalendar(Authentication authentication,
+                                                             @Parameter(description = "Inclusive range start date in ISO-8601 format.")
+                                                             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                             LocalDate from,
+                                                             @Parameter(description = "Inclusive range end date in ISO-8601 format.")
+                                                             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                             LocalDate to) {
+        return analyticsService.getActivityCalendar(currentPrincipal(authentication), from, to);
     }
 
     @GetMapping("/nutrition/summary")

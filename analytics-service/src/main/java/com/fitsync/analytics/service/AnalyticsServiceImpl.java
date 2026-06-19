@@ -9,6 +9,7 @@ import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -16,6 +17,7 @@ import java.util.Objects;
 import java.util.TreeMap;
 
 import com.fitsync.analytics.config.AnalyticsProperties;
+import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
@@ -161,6 +163,31 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 : aggregateWorkoutSeriesRows(rows, bucket);
 
         return new AnalyticsWorkoutSeriesResponse(from, to, bucket.name(), points);
+    }
+
+    @Override
+    @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.ACTIVITY_CALENDAR_CACHE,
+            key = "#principal.userId() + ':' + #from + ':' + #to")
+    public AnalyticsActivityCalendarResponse getActivityCalendar(CurrentUserPrincipal principal,
+                                                                 LocalDate from,
+                                                                 LocalDate to) {
+        validateSummaryRange(from, to);
+        Map<LocalDate, AnalyticsUserDailyWorkoutEntity> byDate = new HashMap<>();
+        for (AnalyticsUserDailyWorkoutEntity row : dailyWorkoutRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to)) {
+            byDate.put(row.getActivityDate(), row);
+        }
+
+        // Dense calendar: emit one point per day in range so inactive days are explicit zeros for the heatmap.
+        List<AnalyticsActivityCalendarResponse.ActivityCalendarDay> days = new ArrayList<>();
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            AnalyticsUserDailyWorkoutEntity row = byDate.get(date);
+            days.add(new AnalyticsActivityCalendarResponse.ActivityCalendarDay(
+                    date,
+                    row == null ? 0 : defaultInteger(row.getCompletedWorkoutCount()),
+                    row == null ? 0 : defaultInteger(row.getTotalWorkoutMinutes())));
+        }
+        return new AnalyticsActivityCalendarResponse(from, to, days);
     }
 
     @Override

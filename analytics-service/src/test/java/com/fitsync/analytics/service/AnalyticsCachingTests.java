@@ -135,6 +135,29 @@ class AnalyticsCachingTests {
     }
 
     @Test
+    void shouldCacheActivityCalendarAndEvictAfterInvalidation() {
+        UUID userId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "cara@example.com", "Cara", "USER");
+        LocalDate from = LocalDate.parse("2026-06-01");
+        LocalDate to = LocalDate.parse("2026-06-14");
+
+        when(dailyWorkoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of());
+
+        analyticsService.getActivityCalendar(principal, from, to);
+        analyticsService.getActivityCalendar(principal, from, to);
+
+        verify(dailyWorkoutRepository, times(1))
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
+
+        cacheInvalidationService.evictAllForUser(userId);
+        analyticsService.getActivityCalendar(principal, from, to);
+
+        verify(dailyWorkoutRepository, times(2))
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
+    }
+
+    @Test
     void shouldCacheNutritionSeriesAndEvictAfterInvalidation() {
         UUID userId = UUID.fromString("44444444-4444-4444-4444-444444444444");
         CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "dina@example.com", "Dina", "USER");

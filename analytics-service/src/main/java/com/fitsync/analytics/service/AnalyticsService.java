@@ -2,6 +2,7 @@ package com.fitsync.analytics.service;
 
 import java.time.LocalDate;
 
+import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
@@ -29,6 +30,8 @@ public interface AnalyticsService {
     AnalyticsNutritionSeriesResponse getNutritionSeries(CurrentUserPrincipal principal, LocalDate from, LocalDate to, BodyTrendBucket bucket);
 
     AnalyticsCompareResponse getSummaryCompare(CurrentUserPrincipal principal, ComparePeriod period);
+
+    AnalyticsActivityCalendarResponse getActivityCalendar(CurrentUserPrincipal principal, LocalDate from, LocalDate to);
 
     AnalyticsGoalProgressResponse getGoalProgress(CurrentUserPrincipal principal, String status);
 }
