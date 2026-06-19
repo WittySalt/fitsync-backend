@@ -256,6 +256,50 @@ class NutritionApiTests {
     }
 
     @Test
+    void dailySummaryExposesMicronutrientTotalsAndLimitFlags() throws Exception {
+        String token = tokenFor("rita@example.com", "Rita");
+
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "LUNCH",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-15T12:00:00Z",
+                                  "timezone": "UTC",
+                                  "items": [
+                                    {
+                                      "foodName": "Salty fibrous bowl",
+                                      "quantity": 1.0,
+                                      "unit": "bowl",
+                                      "calories": 500,
+                                      "fiberGrams": 30.0,
+                                      "sugarGrams": 60.0,
+                                      "sodiumMg": 2500.0
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/nutrition/summary/daily")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-15")
+                        .param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalFiberGrams").value(30.00))
+                .andExpect(jsonPath("$.totalSugarGrams").value(60.00))
+                .andExpect(jsonPath("$.totalSodiumMg").value(2500.00))
+                .andExpect(jsonPath("$.fiberTargetGrams").value(28))
+                .andExpect(jsonPath("$.sugarLimitGrams").value(50))
+                .andExpect(jsonPath("$.sodiumLimitMg").value(2300))
+                .andExpect(jsonPath("$.fiberTargetMet").value(true))
+                .andExpect(jsonPath("$.sugarWithinLimit").value(false))
+                .andExpect(jsonPath("$.sodiumWithinLimit").value(false));
+    }
+
+    @Test
     void canManageCustomFoods() throws Exception {
         String token = tokenFor("bob@example.com", "Bob");
 

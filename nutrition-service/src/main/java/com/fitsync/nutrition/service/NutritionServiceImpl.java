@@ -87,6 +87,11 @@ public class NutritionServiceImpl implements NutritionService {
     private static final int LOGGED_FOOD_DEFAULT_LIMIT = 20;
     private static final int LOGGED_FOOD_MAX_LIMIT = 50;
     private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
+    // Daily micronutrient reference values (general adult DRI/WHO/DGA): fiber target,
+    // free-sugar upper limit, sodium upper limit.
+    private static final BigDecimal FIBER_TARGET_GRAMS = new BigDecimal("28");
+    private static final BigDecimal SUGAR_LIMIT_GRAMS = new BigDecimal("50");
+    private static final BigDecimal SODIUM_LIMIT_MG = new BigDecimal("2300");
 
     private final DomainEventPublisher domainEventPublisher;
     private final MealLogRepository mealLogRepository;
@@ -254,12 +259,18 @@ public class NutritionServiceImpl implements NutritionService {
         BigDecimal totalProtein = BigDecimal.ZERO;
         BigDecimal totalCarbs = BigDecimal.ZERO;
         BigDecimal totalFat = BigDecimal.ZERO;
+        BigDecimal totalFiber = BigDecimal.ZERO;
+        BigDecimal totalSugar = BigDecimal.ZERO;
+        BigDecimal totalSodium = BigDecimal.ZERO;
         for (MealLogEntity meal : meals) {
             Totals totals = calculateTotals(mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(meal.getMealId()));
             totalCalories += totals.totalCalories();
             totalProtein = totalProtein.add(totals.totalProteinGrams());
             totalCarbs = totalCarbs.add(totals.totalCarbsGrams());
             totalFat = totalFat.add(totals.totalFatGrams());
+            totalFiber = totalFiber.add(totals.totalFiberGrams());
+            totalSugar = totalSugar.add(totals.totalSugarGrams());
+            totalSodium = totalSodium.add(totals.totalSodiumMg());
         }
         NutritionTargetEntity target = nutritionTargetRepository.findById(principal.userId()).orElse(null);
         Integer targetCalories = target == null ? null : target.getCalorieTarget();
@@ -282,7 +293,16 @@ public class NutritionServiceImpl implements NutritionService {
                 targetProtein == null ? null : targetProtein.subtract(totalProtein),
                 targetCarbs == null ? null : targetCarbs.subtract(totalCarbs),
                 targetFat == null ? null : targetFat.subtract(totalFat),
-                meals.size());
+                meals.size(),
+                scaleTwo(totalFiber),
+                scaleTwo(totalSugar),
+                scaleTwo(totalSodium),
+                FIBER_TARGET_GRAMS,
+                SUGAR_LIMIT_GRAMS,
+                SODIUM_LIMIT_MG,
+                totalFiber.compareTo(FIBER_TARGET_GRAMS) >= 0,
+                totalSugar.compareTo(SUGAR_LIMIT_GRAMS) <= 0,
+                totalSodium.compareTo(SODIUM_LIMIT_MG) <= 0);
     }
 
     @Override
@@ -819,13 +839,19 @@ public class NutritionServiceImpl implements NutritionService {
         BigDecimal protein = BigDecimal.ZERO;
         BigDecimal carbs = BigDecimal.ZERO;
         BigDecimal fat = BigDecimal.ZERO;
+        BigDecimal fiber = BigDecimal.ZERO;
+        BigDecimal sugar = BigDecimal.ZERO;
+        BigDecimal sodium = BigDecimal.ZERO;
         for (MealItemEntity item : items) {
             calories += defaultInteger(item.getCalories());
             protein = protein.add(defaultDecimal(item.getProteinGrams()));
             carbs = carbs.add(defaultDecimal(item.getCarbsGrams()));
             fat = fat.add(defaultDecimal(item.getFatGrams()));
+            fiber = fiber.add(defaultDecimal(item.getFiberGrams()));
+            sugar = sugar.add(defaultDecimal(item.getSugarGrams()));
+            sodium = sodium.add(defaultDecimal(item.getSodiumMg()));
         }
-        return new Totals(calories, protein, carbs, fat);
+        return new Totals(calories, protein, carbs, fat, fiber, sugar, sodium);
     }
 
     private BigDecimal defaultDecimal(BigDecimal value) {
@@ -1308,7 +1334,10 @@ public class NutritionServiceImpl implements NutritionService {
             int totalCalories,
             BigDecimal totalProteinGrams,
             BigDecimal totalCarbsGrams,
-            BigDecimal totalFatGrams) {
+            BigDecimal totalFatGrams,
+            BigDecimal totalFiberGrams,
+            BigDecimal totalSugarGrams,
+            BigDecimal totalSodiumMg) {
     }
 
     private record MealItemDraft(
