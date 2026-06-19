@@ -21,6 +21,8 @@ import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
+import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
@@ -53,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -670,6 +673,273 @@ class WorkoutServicePersistenceTests {
     }
 
     @Test
+    void shouldReturnExerciseHistoryForOwnerOnlyNewestFirstAndRejectOversizedRange() {
+        UUID benchId = createExercise("history-bench", "History Bench");
+        workoutService.createSession(currentUser, completedStrengthSession(
+                "Older Bench",
+                Instant.parse("2026-06-10T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 180, 8, null))));
+        workoutService.createSession(currentUser, completedStrengthSession(
+                "Newer Bench",
+                Instant.parse("2026-06-12T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 3, new BigDecimal("120.00"), null, null, 180, 9, null))));
+        workoutService.createSession(otherUser, completedStrengthSession(
+                "Other User Bench",
+                Instant.parse("2026-06-13T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 1, new BigDecimal("200.00"), null, null, 180, 10, null))));
+        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Unfinished Bench",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-14T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        benchId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkoutExerciseSetLogInput(1, 1, new BigDecimal("300.00"), null, null, 180, 10, null))))));
+
+        PageResponse<ExerciseHistoryEntryView> history = workoutService.getExerciseHistory(
+                currentUser,
+                benchId,
+                Instant.parse("2026-06-01T00:00:00Z"),
+                Instant.parse("2026-06-30T00:00:00Z"),
+                0,
+                10);
+
+        assertEquals(2, history.totalElements());
+        assertEquals("Newer Bench", history.content().get(0).sessionName());
+        assertEquals(new BigDecimal("120.00"), history.content().get(0).weightKg());
+        assertEquals("Older Bench", history.content().get(1).sessionName());
+        assertThrows(IllegalArgumentException.class, () -> workoutService.getExerciseHistory(
+                currentUser,
+                benchId,
+                Instant.parse("2025-01-01T00:00:00Z"),
+                Instant.parse("2026-06-01T00:00:00Z"),
+                0,
+                10));
+    }
+
+    @Test
+    void shouldReturnExerciseRecordsFromCompletedLoggedSetsOnly() {
+        UUID benchId = createExercise("record-bench", "Record Bench");
+        WorkoutSessionView bestVolumeSession = workoutService.createSession(currentUser, completedStrengthSession(
+                "Volume Bench",
+                Instant.parse("2026-06-10T10:00:00Z"),
+                benchId,
+                List.of(
+                        new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 180, 8, null),
+                        new WorkoutExerciseSetLogInput(2, 10, new BigDecimal("80.00"), null, null, 180, 8, null))));
+        WorkoutSessionView topWeightSession = workoutService.createSession(currentUser, completedStrengthSession(
+                "Heavy Bench",
+                Instant.parse("2026-06-12T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 3, new BigDecimal("120.00"), null, null, 180, 9, null))));
+
+        ExerciseRecordsView records = workoutService.getExerciseRecords(currentUser, benchId);
+
+        assertEquals(new BigDecimal("120.00"), records.maxWeightKg().value());
+        assertEquals(topWeightSession.sessionId(), records.maxWeightKg().sessionId());
+        assertEquals(new BigDecimal("10.00"), records.maxReps().value());
+        assertEquals(new BigDecimal("800.00"), records.maxSingleSetVolumeKg().value());
+        assertEquals(new BigDecimal("132.00"), records.estimatedOneRepMaxKg().value());
+        assertEquals(topWeightSession.sessionId(), records.estimatedOneRepMaxKg().sessionId());
+        assertEquals(new BigDecimal("1300.00"), records.bestSessionVolumeKg().value());
+        assertEquals(bestVolumeSession.sessionId(), records.bestSessionVolumeKg().sessionId());
+    }
+
+    @Test
+    void shouldPublishPersonalRecordAchievedExactlyOnceForNewHighOnly() {
+        UUID benchId = createExercise("pr-once-bench", "PR Once Bench");
+        workoutService.createSession(currentUser, completedStrengthSession(
+                "Prior Bench",
+                Instant.parse("2026-06-10T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 180, 8, null))));
+        outboxEventRepository.deleteAll();
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Pending PR Bench",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-12T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        benchId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("110.00"), null, null, 180, 9, null))))));
+
+        workoutService.completeSession(
+                currentUser,
+                session.sessionId(),
+                new CompleteWorkoutSessionRequest(Instant.parse("2026-06-12T11:00:00Z")));
+
+        assertEquals(1, pendingEventCount("WorkoutLogged"));
+        assertEquals(1, pendingEventCount("PersonalRecordAchieved"));
+        assertTrue(pendingEventPayload("PersonalRecordAchieved").contains("MAX_WEIGHT_KG"));
+        assertThrows(IllegalArgumentException.class, () -> workoutService.completeSession(
+                currentUser,
+                session.sessionId(),
+                new CompleteWorkoutSessionRequest(Instant.parse("2026-06-12T11:10:00Z"))));
+        assertEquals(1, pendingEventCount("PersonalRecordAchieved"));
+
+        outboxEventRepository.deleteAll();
+        workoutService.updateSession(currentUser, session.sessionId(), new UpsertWorkoutSessionRequest(
+                null,
+                "Updated Completed PR Bench",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-12T10:00:00Z"),
+                Instant.parse("2026-06-12T11:00:00Z"),
+                60,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        benchId,
+                        2,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkoutExerciseSetLogInput(1, 1, new BigDecimal("200.00"), null, null, 180, 9, null))))));
+
+        assertEquals(1, pendingEventCount("WorkoutUpdated"));
+        assertEquals(0, pendingEventCount("PersonalRecordAchieved"));
+    }
+
+    @Test
+    void shouldNotPublishPersonalRecordForTies() {
+        UUID benchId = createExercise("pr-tie-bench", "PR Tie Bench");
+        workoutService.createSession(currentUser, completedStrengthSession(
+                "Prior Tie Bench",
+                Instant.parse("2026-06-10T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 180, 8, null))));
+        outboxEventRepository.deleteAll();
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Equal Tie Bench",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-12T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        benchId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 180, 8, null))))));
+
+        workoutService.completeSession(
+                currentUser,
+                session.sessionId(),
+                new CompleteWorkoutSessionRequest(Instant.parse("2026-06-12T11:00:00Z")));
+
+        assertEquals(1, pendingEventCount("WorkoutLogged"));
+        assertEquals(0, pendingEventCount("PersonalRecordAchieved"));
+    }
+
+    @Test
+    void shouldExcludeUntouchedSeededSetsFromRecordsAndPublishWhenSeedSetIsLogged() {
+        UUID squatId = createExercise("pr-seed-squat", "PR Seed Squat");
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "PR Seed Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of(new WorkoutPlanExerciseInput(
+                        squatId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        180,
+                        null,
+                        List.of(new WorkoutPlanExerciseSetTargetInput(1, 5, new BigDecimal("100.00"), null, null, 180))))));
+
+        WorkoutSessionView untouched = workoutService.startPlan(currentUser, plan.planId());
+        outboxEventRepository.deleteAll();
+        workoutService.completeSession(
+                currentUser,
+                untouched.sessionId(),
+                null);
+
+        ExerciseRecordsView emptyRecords = workoutService.getExerciseRecords(currentUser, squatId);
+        assertEquals(1, pendingEventCount("WorkoutLogged"));
+        assertEquals(0, pendingEventCount("PersonalRecordAchieved"));
+        assertNull(emptyRecords.maxWeightKg());
+        assertNull(emptyRecords.maxReps());
+
+        WorkoutSessionView touched = workoutService.startPlan(currentUser, plan.planId());
+        UUID exerciseLogId = touched.exercises().get(0).exerciseLogId();
+        workoutService.upsertSet(
+                currentUser,
+                touched.sessionId(),
+                exerciseLogId,
+                1,
+                new UpsertWorkoutExerciseSetRequest(5, new BigDecimal("120.00"), null, null, 180, 9, null));
+        outboxEventRepository.deleteAll();
+        workoutService.completeSession(
+                currentUser,
+                touched.sessionId(),
+                null);
+
+        ExerciseRecordsView records = workoutService.getExerciseRecords(currentUser, squatId);
+        assertEquals(new BigDecimal("120.00"), records.maxWeightKg().value());
+        assertEquals(1, pendingEventCount("PersonalRecordAchieved"));
+    }
+
+    @Test
     void shouldFilterAndPageExercises() {
         UUID squatId = createExercise("search-squat", "Search Squat");
         createExercise("search-row", "Search Row");
@@ -1030,6 +1300,52 @@ class WorkoutServicePersistenceTests {
                 .reduce((first, second) -> second)
                 .orElseThrow()
                 .getEventType());
+    }
+
+    private UpsertWorkoutSessionRequest completedStrengthSession(String name,
+                                                                 Instant startedAt,
+                                                                 UUID exerciseId,
+                                                                 List<WorkoutExerciseSetLogInput> sets) {
+        return new UpsertWorkoutSessionRequest(
+                null,
+                name,
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                startedAt,
+                startedAt.plus(Duration.ofHours(1)),
+                60,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        exerciseId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        sets)));
+    }
+
+    private long pendingEventCount(String eventType) {
+        return outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING)
+                .stream()
+                .filter(event -> eventType.equals(event.getEventType()))
+                .count();
+    }
+
+    private String pendingEventPayload(String eventType) {
+        return outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING)
+                .stream()
+                .filter(event -> eventType.equals(event.getEventType()))
+                .findFirst()
+                .orElseThrow()
+                .getPayload();
     }
 
     private UUID createExercise(String code, String name) {

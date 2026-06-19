@@ -21,6 +21,9 @@ import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
+import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseRecordValueView;
+import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
@@ -37,6 +40,7 @@ import com.fitsync.workout.service.ExerciseService;
 import com.fitsync.workout.service.WorkoutService;
 import com.fitsync.web.error.ForbiddenException;
 import com.fitsync.web.error.ResourceNotFoundException;
+import com.fitsync.web.response.PageResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -331,6 +335,99 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.name").value("Trap Bar Deadlift"));
 
         verify(exerciseService).getExercise(eq(principal), eq(exerciseId));
+    }
+
+    @Test
+    void shouldGetExerciseHistoryForAuthenticatedUser() throws Exception {
+        UUID exerciseId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        ExerciseHistoryEntryView entry = new ExerciseHistoryEntryView(
+                sessionId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                exerciseId,
+                "Barbell Bench Press",
+                "Push Day",
+                Instant.parse("2026-06-12T10:00:00Z"),
+                Instant.parse("2026-06-12T11:00:00Z"),
+                1,
+                1,
+                5,
+                new BigDecimal("100.00"),
+                null,
+                null,
+                180,
+                8,
+                null);
+        PageResponse<ExerciseHistoryEntryView> response = PageResponse.of(List.of(entry), 0, 20, 1, 1, true, true);
+
+        when(workoutService.getExerciseHistory(
+                any(),
+                eq(exerciseId),
+                eq(Instant.parse("2026-06-01T00:00:00Z")),
+                eq(Instant.parse("2026-06-30T00:00:00Z")),
+                eq(0),
+                eq(20))).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/exercises/{exerciseId}/history", exerciseId)
+                        .with(authentication(authToken(principal)))
+                        .param("from", "2026-06-01T00:00:00Z")
+                        .param("to", "2026-06-30T00:00:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.content[0].exerciseNameSnapshot").value("Barbell Bench Press"))
+                .andExpect(jsonPath("$.content[0].setNumber").value(1));
+
+        verify(workoutService).getExerciseHistory(
+                eq(principal),
+                eq(exerciseId),
+                eq(Instant.parse("2026-06-01T00:00:00Z")),
+                eq(Instant.parse("2026-06-30T00:00:00Z")),
+                eq(0),
+                eq(20));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenExerciseHistoryRangeExceedsCap() throws Exception {
+        UUID exerciseId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+
+        when(workoutService.getExerciseHistory(any(), eq(exerciseId), any(), any(), eq(0), eq(20)))
+                .thenThrow(new IllegalArgumentException("Exercise history range must not exceed 370 days"));
+
+        mockMvc.perform(get("/api/v1/workouts/exercises/{exerciseId}/history", exerciseId)
+                        .with(authentication(authToken(principal)))
+                        .param("from", "2025-01-01T00:00:00Z")
+                        .param("to", "2026-06-01T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Exercise history range must not exceed 370 days"));
+    }
+
+    @Test
+    void shouldGetExerciseRecordsForAuthenticatedUser() throws Exception {
+        UUID exerciseId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        ExerciseRecordsView response = new ExerciseRecordsView(
+                exerciseId,
+                "Barbell Bench Press",
+                new ExerciseRecordValueView(new BigDecimal("125.00"), sessionId, Instant.parse("2026-06-12T11:00:00Z")),
+                new ExerciseRecordValueView(new BigDecimal("8.00"), sessionId, Instant.parse("2026-06-12T11:00:00Z")),
+                new ExerciseRecordValueView(new BigDecimal("1000.00"), sessionId, Instant.parse("2026-06-12T11:00:00Z")),
+                new ExerciseRecordValueView(new BigDecimal("158.33"), sessionId, Instant.parse("2026-06-12T11:00:00Z")),
+                new ExerciseRecordValueView(new BigDecimal("3000.00"), sessionId, Instant.parse("2026-06-12T11:00:00Z")));
+
+        when(workoutService.getExerciseRecords(any(), eq(exerciseId))).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/exercises/{exerciseId}/records", exerciseId)
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exerciseId").value(exerciseId.toString()))
+                .andExpect(jsonPath("$.maxWeightKg.value").value(125.00))
+                .andExpect(jsonPath("$.estimatedOneRepMaxKg.value").value(158.33));
+
+        verify(workoutService).getExerciseRecords(eq(principal), eq(exerciseId));
     }
 
     @Test

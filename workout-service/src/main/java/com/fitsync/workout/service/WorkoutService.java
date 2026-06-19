@@ -8,6 +8,8 @@ import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
+import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
@@ -29,6 +31,15 @@ public interface WorkoutService {
     WorkoutPlanView getPlan(CurrentUserPrincipal currentUser, UUID planId);
 
     WorkoutPlanView getActivePlan(CurrentUserPrincipal currentUser);
+
+    PageResponse<ExerciseHistoryEntryView> getExerciseHistory(CurrentUserPrincipal currentUser,
+                                                              UUID exerciseId,
+                                                              Instant from,
+                                                              Instant to,
+                                                              int page,
+                                                              int size);
+
+    ExerciseRecordsView getExerciseRecords(CurrentUserPrincipal currentUser, UUID exerciseId);
 
     WorkoutPlanView updatePlan(CurrentUserPrincipal currentUser, UUID planId, UpdateWorkoutPlanRequest request);
 
