@@ -11,10 +11,14 @@ import java.util.UUID;
 
 import com.fitsync.analytics.config.AnalyticsProperties;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
+import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
+import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
+import com.fitsync.analytics.dto.ComparePeriod;
 import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
@@ -312,6 +316,337 @@ class AnalyticsServiceImplTests {
     }
 
     @Test
+    void workoutSeriesDayReturnsRawDailyPointsAscending() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-06-01");
+        LocalDate to = LocalDate.parse("2026-06-02");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of(
+                        workoutDay(userId, "2026-06-01", 1, 30, 250, 4),
+                        workoutDay(userId, "2026-06-02", 2, 80, 700, 9)));
+
+        AnalyticsWorkoutSeriesResponse response = workoutSeriesService(workoutRepository)
+                .getWorkoutSeries(principal(userId), from, to, BodyTrendBucket.DAY);
+
+        assertThat(response.points()).hasSize(2);
+        assertThat(response.points().get(0))
+                .extracting(
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::date,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::completedWorkoutCount,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalWorkoutMinutes,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalCaloriesBurned,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalExerciseCount)
+                .containsExactly(LocalDate.parse("2026-06-01"), 1, 30, 250, 4);
+        assertThat(response.points().get(1).date()).isEqualTo(LocalDate.parse("2026-06-02"));
+    }
+
+    @Test
+    void workoutSeriesWeekSumsDailyRowsByIsoWeekStartAscending() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-06-02");
+        LocalDate to = LocalDate.parse("2026-06-10");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of(
+                        workoutDay(userId, "2026-06-02", 1, 30, 250, 4),
+                        workoutDay(userId, "2026-06-04", 2, 60, 500, 8),
+                        workoutDay(userId, "2026-06-08", 3, 90, 800, 12),
+                        workoutDay(userId, "2026-06-10", 1, 40, 300, 5)));
+
+        AnalyticsWorkoutSeriesResponse response = workoutSeriesService(workoutRepository)
+                .getWorkoutSeries(principal(userId), from, to, BodyTrendBucket.WEEK);
+
+        assertThat(response.points()).hasSize(2);
+        assertThat(response.points().get(0))
+                .extracting(
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::date,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::completedWorkoutCount,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalWorkoutMinutes,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalCaloriesBurned,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalExerciseCount)
+                .containsExactly(LocalDate.parse("2026-06-01"), 3, 90, 750, 12);
+        assertThat(response.points().get(1))
+                .extracting(
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::date,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::completedWorkoutCount,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalWorkoutMinutes,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalCaloriesBurned,
+                        AnalyticsWorkoutSeriesResponse.WorkoutSeriesPoint::totalExerciseCount)
+                .containsExactly(LocalDate.parse("2026-06-08"), 4, 130, 1100, 17);
+    }
+
+    @Test
+    void workoutSeriesEmptyRangeReturnsEmptyPoints() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-06-01");
+        LocalDate to = LocalDate.parse("2026-06-07");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of());
+
+        AnalyticsWorkoutSeriesResponse response = workoutSeriesService(workoutRepository)
+                .getWorkoutSeries(principal(userId), from, to, BodyTrendBucket.WEEK);
+
+        assertThat(response.points()).isEmpty();
+    }
+
+    @Test
+    void workoutSeriesRejectsRangesBeyondBucketCapBeforeLoadingRows() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-01-01");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+
+        assertThatThrownBy(() -> workoutSeriesService(workoutRepository)
+                .getWorkoutSeries(principal(userId), from, from.plusDays(371), BodyTrendBucket.DAY))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Date range for DAY bucket must not exceed 370 days");
+        verify(workoutRepository, never()).findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any());
+    }
+
+    @Test
+    void nutritionSeriesDayReturnsRawDailyPointsAscending() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-06-01");
+        LocalDate to = LocalDate.parse("2026-06-02");
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of(
+                        nutritionDay(userId, "2026-06-01", 1800, "120.50", "200.00", "60.00", 2100, "150.00"),
+                        nutritionDay(userId, "2026-06-02", 2000, "140.00", "220.00", "70.00", 2200, "160.00")));
+
+        AnalyticsNutritionSeriesResponse response = nutritionSeriesService(nutritionRepository)
+                .getNutritionSeries(principal(userId), from, to, BodyTrendBucket.DAY);
+
+        assertThat(response.points()).hasSize(2);
+        assertThat(response.points().get(0))
+                .extracting(
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::date,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalCaloriesConsumed,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalProteinGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalCarbsGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalFatGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::calorieTarget,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::proteinTargetGrams)
+                .containsExactly(LocalDate.parse("2026-06-01"), 1800, 120.5, 200.0, 60.0, 2100, 150.0);
+        assertThat(response.points().get(1).date()).isEqualTo(LocalDate.parse("2026-06-02"));
+    }
+
+    @Test
+    void nutritionSeriesMonthSumsDailyRowsByMonthStartWithSummaryNullParity() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-01-05");
+        LocalDate to = LocalDate.parse("2026-02-20");
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of(
+                        nutritionDay(userId, "2026-01-05", 1800, "120.50", "200.00", "60.00", 2100, "150.00"),
+                        nutritionDay(userId, "2026-01-31", 1900, "130.00", "210.25", "65.00", 2200, "160.00"),
+                        nutritionDay(userId, "2026-02-01", null, null, null, null, null, null),
+                        nutritionDay(userId, "2026-02-20", null, null, null, null, null, null)));
+
+        AnalyticsNutritionSeriesResponse response = nutritionSeriesService(nutritionRepository)
+                .getNutritionSeries(principal(userId), from, to, BodyTrendBucket.MONTH);
+
+        assertThat(response.points()).hasSize(2);
+        assertThat(response.points().get(0))
+                .extracting(
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::date,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalCaloriesConsumed,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalProteinGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalCarbsGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalFatGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::calorieTarget,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::proteinTargetGrams)
+                .containsExactly(LocalDate.parse("2026-01-01"), 3700, 250.5, 410.25, 125.0, 4300, 310.0);
+        assertThat(response.points().get(1))
+                .extracting(
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::date,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalCaloriesConsumed,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalProteinGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalCarbsGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::totalFatGrams,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::calorieTarget,
+                        AnalyticsNutritionSeriesResponse.NutritionSeriesPoint::proteinTargetGrams)
+                .containsExactly(LocalDate.parse("2026-02-01"), 0, null, null, null, null, null);
+    }
+
+    @Test
+    void nutritionSeriesEmptyRangeReturnsEmptyPoints() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-06-01");
+        LocalDate to = LocalDate.parse("2026-06-07");
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to))
+                .thenReturn(List.of());
+
+        AnalyticsNutritionSeriesResponse response = nutritionSeriesService(nutritionRepository)
+                .getNutritionSeries(principal(userId), from, to, BodyTrendBucket.MONTH);
+
+        assertThat(response.points()).isEmpty();
+    }
+
+    @Test
+    void nutritionSeriesRejectsRangesBeyondBucketCapBeforeLoadingRows() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-01-01");
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+
+        assertThatThrownBy(() -> nutritionSeriesService(nutritionRepository)
+                .getNutritionSeries(principal(userId), from, from.plusDays(371), BodyTrendBucket.DAY))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Date range for DAY bucket must not exceed 370 days");
+        verify(nutritionRepository, never()).findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any());
+    }
+
+    @Test
+    void summaryCompareWeekUsesDayOffsetAlignedIsoWeekWindowsAndComputesDeltas() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-06-15"), LocalDate.parse("2026-06-18")))
+                .thenReturn(List.of(
+                        workoutDay(userId, "2026-06-15", 2, 60, 500, 8),
+                        workoutDay(userId, "2026-06-18", 1, 30, 250, 4)));
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-06-08"), LocalDate.parse("2026-06-11")))
+                .thenReturn(List.of(workoutDay(userId, "2026-06-10", 2, 45, 300, 6)));
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-06-15"), LocalDate.parse("2026-06-18")))
+                .thenReturn(List.of(nutritionDay(userId, "2026-06-18", 4000, "260.00", "420.00", "130.00", 4300, "300.00")));
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-06-08"), LocalDate.parse("2026-06-11")))
+                .thenReturn(List.of(nutritionDay(userId, "2026-06-10", 3000, "200.00", "300.00", "100.00", 3600, "240.00")));
+
+        AnalyticsCompareResponse response = compareService(
+                workoutRepository,
+                nutritionRepository,
+                Clock.fixed(Instant.parse("2026-06-18T10:00:00Z"), ZoneOffset.UTC))
+                .getSummaryCompare(principal(userId), ComparePeriod.WEEK);
+
+        assertThat(response.currentWindow())
+                .extracting(AnalyticsCompareResponse.PeriodWindow::from, AnalyticsCompareResponse.PeriodWindow::to)
+                .containsExactly(LocalDate.parse("2026-06-15"), LocalDate.parse("2026-06-18"));
+        assertThat(response.previousWindow())
+                .extracting(AnalyticsCompareResponse.PeriodWindow::from, AnalyticsCompareResponse.PeriodWindow::to)
+                .containsExactly(LocalDate.parse("2026-06-08"), LocalDate.parse("2026-06-11"));
+        assertThat(response.workout().completedWorkoutCount())
+                .extracting(
+                        AnalyticsCompareResponse.MetricComparison::current,
+                        AnalyticsCompareResponse.MetricComparison::previous,
+                        AnalyticsCompareResponse.MetricComparison::delta,
+                        AnalyticsCompareResponse.MetricComparison::deltaPct)
+                .containsExactly(3.0, 2.0, 1.0, 50.0);
+        assertThat(response.workout().totalWorkoutMinutes().delta()).isEqualTo(45.0);
+        assertThat(response.nutrition().totalCaloriesConsumed())
+                .extracting(
+                        AnalyticsCompareResponse.MetricComparison::current,
+                        AnalyticsCompareResponse.MetricComparison::previous,
+                        AnalyticsCompareResponse.MetricComparison::delta,
+                        AnalyticsCompareResponse.MetricComparison::deltaPct)
+                .containsExactly(4000.0, 3000.0, 1000.0, 33.3333);
+        assertThat(response.nutrition().totalProteinGrams().delta()).isEqualTo(60.0);
+    }
+
+    @Test
+    void summaryCompareMonthUsesPreviousMonthClampAtMonthEnd() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-03-01"), LocalDate.parse("2026-03-31")))
+                .thenReturn(List.of(workoutDay(userId, "2026-03-31", 4, 120, 900, 16)));
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-02-01"), LocalDate.parse("2026-02-28")))
+                .thenReturn(List.of(workoutDay(userId, "2026-02-28", 2, 60, 500, 8)));
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any()))
+                .thenReturn(List.of());
+
+        AnalyticsCompareResponse response = compareService(
+                workoutRepository,
+                nutritionRepository,
+                Clock.fixed(Instant.parse("2026-03-31T10:00:00Z"), ZoneOffset.UTC))
+                .getSummaryCompare(principal(userId), ComparePeriod.MONTH);
+
+        assertThat(response.currentWindow())
+                .extracting(AnalyticsCompareResponse.PeriodWindow::from, AnalyticsCompareResponse.PeriodWindow::to)
+                .containsExactly(LocalDate.parse("2026-03-01"), LocalDate.parse("2026-03-31"));
+        assertThat(response.previousWindow())
+                .extracting(AnalyticsCompareResponse.PeriodWindow::from, AnalyticsCompareResponse.PeriodWindow::to)
+                .containsExactly(LocalDate.parse("2026-02-01"), LocalDate.parse("2026-02-28"));
+    }
+
+    @Test
+    void summaryCompareMonthHandlesCrossYearBoundaryAndPreviousZeroPct() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-01-01"), LocalDate.parse("2026-01-05")))
+                .thenReturn(List.of(workoutDay(userId, "2026-01-05", 1, 30, 250, 4)));
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2025-12-01"), LocalDate.parse("2025-12-05")))
+                .thenReturn(List.of());
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-01-01"), LocalDate.parse("2026-01-05")))
+                .thenReturn(List.of(nutritionDay(userId, "2026-01-05", 1800, null, null, null, null, null)));
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2025-12-01"), LocalDate.parse("2025-12-05")))
+                .thenReturn(List.of());
+
+        AnalyticsCompareResponse response = compareService(
+                workoutRepository,
+                nutritionRepository,
+                Clock.fixed(Instant.parse("2026-01-05T10:00:00Z"), ZoneOffset.UTC))
+                .getSummaryCompare(principal(userId), ComparePeriod.MONTH);
+
+        assertThat(response.previousWindow())
+                .extracting(AnalyticsCompareResponse.PeriodWindow::from, AnalyticsCompareResponse.PeriodWindow::to)
+                .containsExactly(LocalDate.parse("2025-12-01"), LocalDate.parse("2025-12-05"));
+        assertThat(response.workout().completedWorkoutCount())
+                .extracting(
+                        AnalyticsCompareResponse.MetricComparison::current,
+                        AnalyticsCompareResponse.MetricComparison::previous,
+                        AnalyticsCompareResponse.MetricComparison::delta,
+                        AnalyticsCompareResponse.MetricComparison::deltaPct)
+                .containsExactly(1.0, 0.0, 1.0, null);
+        assertThat(response.nutrition().totalCaloriesConsumed())
+                .extracting(
+                        AnalyticsCompareResponse.MetricComparison::current,
+                        AnalyticsCompareResponse.MetricComparison::previous,
+                        AnalyticsCompareResponse.MetricComparison::delta,
+                        AnalyticsCompareResponse.MetricComparison::deltaPct)
+                .containsExactly(1800.0, 0.0, 1800.0, null);
+    }
+
+    @Test
+    void summaryCompareReturnsNullDeltaForNutritionGramsWhenBothPeriodsHaveNoData() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any()))
+                .thenReturn(List.of());
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any()))
+                .thenReturn(List.of(
+                        nutritionDay(userId, "2026-06-18", 0, null, null, null, null, null)));
+
+        AnalyticsCompareResponse response = compareService(
+                workoutRepository,
+                nutritionRepository,
+                Clock.fixed(Instant.parse("2026-06-18T10:00:00Z"), ZoneOffset.UTC))
+                .getSummaryCompare(principal(userId), ComparePeriod.WEEK);
+
+        assertThat(response.nutrition().totalProteinGrams())
+                .extracting(
+                        AnalyticsCompareResponse.MetricComparison::current,
+                        AnalyticsCompareResponse.MetricComparison::previous,
+                        AnalyticsCompareResponse.MetricComparison::delta,
+                        AnalyticsCompareResponse.MetricComparison::deltaPct)
+                .containsExactly(null, null, null, null);
+    }
+
+    @Test
     void shouldAggregateBodyTrendsByIsoWeekStartUsingLastValidValues() {
         Clock fixedClock = Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC);
         AnalyticsUserDashboardSnapshotRepository dashboardRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
@@ -528,6 +863,41 @@ class AnalyticsServiceImplTests {
                 analyticsProperties());
     }
 
+    private AnalyticsServiceImpl workoutSeriesService(AnalyticsUserDailyWorkoutRepository workoutRepository) {
+        return new AnalyticsServiceImpl(
+                mock(AnalyticsUserDashboardSnapshotRepository.class),
+                mock(AnalyticsUserGoalProgressRepository.class),
+                mock(AnalyticsUserDailyBodyRepository.class),
+                workoutRepository,
+                mock(AnalyticsUserDailyNutritionRepository.class),
+                Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC),
+                analyticsProperties());
+    }
+
+    private AnalyticsServiceImpl nutritionSeriesService(AnalyticsUserDailyNutritionRepository nutritionRepository) {
+        return new AnalyticsServiceImpl(
+                mock(AnalyticsUserDashboardSnapshotRepository.class),
+                mock(AnalyticsUserGoalProgressRepository.class),
+                mock(AnalyticsUserDailyBodyRepository.class),
+                mock(AnalyticsUserDailyWorkoutRepository.class),
+                nutritionRepository,
+                Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC),
+                analyticsProperties());
+    }
+
+    private AnalyticsServiceImpl compareService(AnalyticsUserDailyWorkoutRepository workoutRepository,
+                                                AnalyticsUserDailyNutritionRepository nutritionRepository,
+                                                Clock clock) {
+        return new AnalyticsServiceImpl(
+                mock(AnalyticsUserDashboardSnapshotRepository.class),
+                mock(AnalyticsUserGoalProgressRepository.class),
+                mock(AnalyticsUserDailyBodyRepository.class),
+                workoutRepository,
+                nutritionRepository,
+                clock,
+                analyticsProperties());
+    }
+
     private CurrentUserPrincipal principal(UUID userId) {
         return new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER");
     }
@@ -565,6 +935,42 @@ class AnalyticsServiceImplTests {
         workout.setTotalCaloriesBurned(0);
         workout.setTotalExerciseCount(0);
         return workout;
+    }
+
+    private AnalyticsUserDailyWorkoutEntity workoutDay(UUID userId,
+                                                       String date,
+                                                       int count,
+                                                       int minutes,
+                                                       int calories,
+                                                       int exercises) {
+        AnalyticsUserDailyWorkoutEntity workout = new AnalyticsUserDailyWorkoutEntity();
+        workout.setUserId(userId);
+        workout.setActivityDate(LocalDate.parse(date));
+        workout.setCompletedWorkoutCount(count);
+        workout.setTotalWorkoutMinutes(minutes);
+        workout.setTotalCaloriesBurned(calories);
+        workout.setTotalExerciseCount(exercises);
+        return workout;
+    }
+
+    private AnalyticsUserDailyNutritionEntity nutritionDay(UUID userId,
+                                                           String date,
+                                                           Integer totalCaloriesConsumed,
+                                                           String totalProteinGrams,
+                                                           String totalCarbsGrams,
+                                                           String totalFatGrams,
+                                                           Integer calorieTarget,
+                                                           String proteinTargetGrams) {
+        AnalyticsUserDailyNutritionEntity nutrition = new AnalyticsUserDailyNutritionEntity();
+        nutrition.setUserId(userId);
+        nutrition.setActivityDate(LocalDate.parse(date));
+        nutrition.setTotalCaloriesConsumed(totalCaloriesConsumed);
+        nutrition.setTotalProteinGrams(decimal(totalProteinGrams));
+        nutrition.setTotalCarbsGrams(decimal(totalCarbsGrams));
+        nutrition.setTotalFatGrams(decimal(totalFatGrams));
+        nutrition.setCalorieTarget(calorieTarget);
+        nutrition.setProteinTargetGrams(decimal(proteinTargetGrams));
+        return nutrition;
     }
 
     private AnalyticsUserDailyBodyEntity bodyDay(UUID userId,

@@ -3,11 +3,15 @@ package com.fitsync.analytics.controller;
 import java.time.LocalDate;
 
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
+import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
+import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
+import com.fitsync.analytics.dto.ComparePeriod;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import com.fitsync.analytics.service.AnalyticsService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -88,6 +92,27 @@ public class AnalyticsController {
         return analyticsService.getWorkoutSummary(currentPrincipal(authentication), from, to);
     }
 
+    @GetMapping("/workouts/series")
+    @Operation(summary = "Get workout activity series",
+            description = "Returns workout activity points for the authenticated user.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Workout series returned"),
+            @ApiResponse(responseCode = "400", description = "Invalid date range or bucket"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsWorkoutSeriesResponse workoutSeries(Authentication authentication,
+                                                        @Parameter(description = "Inclusive range start date in ISO-8601 format.")
+                                                        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                        LocalDate from,
+                                                        @Parameter(description = "Inclusive range end date in ISO-8601 format.")
+                                                        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                        LocalDate to,
+                                                        @Parameter(description = "Aggregation bucket.")
+                                                        @RequestParam(defaultValue = "DAY") BodyTrendBucket bucket) {
+        return analyticsService.getWorkoutSeries(currentPrincipal(authentication), from, to, bucket);
+    }
+
     @GetMapping("/nutrition/summary")
     @Operation(summary = "Get nutrition summary",
             description = "Returns aggregate nutrition adherence metrics for the authenticated user.",
@@ -105,6 +130,42 @@ public class AnalyticsController {
                                                               @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                                                               LocalDate to) {
         return analyticsService.getNutritionSummary(currentPrincipal(authentication), from, to);
+    }
+
+    @GetMapping("/nutrition/series")
+    @Operation(summary = "Get nutrition intake series",
+            description = "Returns nutrition total points for the authenticated user.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Nutrition series returned"),
+            @ApiResponse(responseCode = "400", description = "Invalid date range or bucket"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsNutritionSeriesResponse nutritionSeries(Authentication authentication,
+                                                            @Parameter(description = "Inclusive range start date in ISO-8601 format.")
+                                                            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                            LocalDate from,
+                                                            @Parameter(description = "Inclusive range end date in ISO-8601 format.")
+                                                            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                            LocalDate to,
+                                                            @Parameter(description = "Aggregation bucket.")
+                                                            @RequestParam(defaultValue = "DAY") BodyTrendBucket bucket) {
+        return analyticsService.getNutritionSeries(currentPrincipal(authentication), from, to, bucket);
+    }
+
+    @GetMapping("/summary/compare")
+    @Operation(summary = "Get period-over-period summary comparison",
+            description = "Returns current and previous period comparison metrics for the authenticated user.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Summary comparison returned"),
+            @ApiResponse(responseCode = "400", description = "Invalid comparison period"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsCompareResponse summaryCompare(Authentication authentication,
+                                                   @Parameter(description = "Comparison period.")
+                                                   @RequestParam ComparePeriod period) {
+        return analyticsService.getSummaryCompare(currentPrincipal(authentication), period);
     }
 
     @GetMapping("/goals/progress")
