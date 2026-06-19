@@ -1,9 +1,12 @@
 package com.fitsync.workout.service;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
@@ -20,6 +23,7 @@ import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutExerciseLogView;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseSetTargetInput;
@@ -53,6 +57,9 @@ class WorkoutServicePersistenceTests {
 
     @Autowired
     private WorkoutService workoutService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private ExerciseService exerciseService;
@@ -300,6 +307,132 @@ class WorkoutServicePersistenceTests {
                 .reduce((first, second) -> second)
                 .orElseThrow()
                 .getEventType());
+    }
+
+    @Test
+    void shouldDeriveStrengthAggregatesAndPayloadDuration() throws Exception {
+        UUID benchId = createExercise("derived-bench", "Derived Bench");
+
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Derived Strength Session",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                Instant.parse("2026-06-11T18:50:00Z"),
+                5,
+                300,
+                8,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        benchId,
+                        1,
+                        99,
+                        999,
+                        new BigDecimal("9999.00"),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(
+                                new WorkoutExerciseSetLogInput(1, 8, new BigDecimal("50.00"), null, null, 120, 7, null),
+                                new WorkoutExerciseSetLogInput(2, 7, new BigDecimal("55.00"), null, null, 120, 8, null))))));
+
+        WorkoutSessionView fetched = workoutService.getSession(currentUser, session.sessionId());
+        JsonNode payload = objectMapper.readTree(outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING)
+                .get(0)
+                .getPayload());
+
+        assertEquals(50, fetched.durationMinutes());
+        assertEquals(2, fetched.exercises().get(0).performedSets());
+        assertEquals(15, fetched.exercises().get(0).performedReps());
+        assertEquals(new BigDecimal("785.00"), fetched.exercises().get(0).totalVolumeKg());
+        assertEquals(50, payload.path("payload").path("durationMinutes").asInt());
+    }
+
+    @Test
+    void shouldKeepClientExerciseScalarsWhenNoSetRowsExist() {
+        UUID bikeId = createExercise("derived-bike", "Derived Bike");
+
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Cardio Scalar Session",
+                WorkoutType.CARDIO,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T06:00:00Z"),
+                Instant.parse("2026-06-11T06:30:00Z"),
+                30,
+                250,
+                6,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        bikeId,
+                        1,
+                        1,
+                        200,
+                        new BigDecimal("123.45"),
+                        new BigDecimal("12.50"),
+                        1800,
+                        130,
+                        155,
+                        null,
+                        List.of()))));
+
+        WorkoutExerciseLogView exercise = workoutService.getSession(currentUser, session.sessionId()).exercises().get(0);
+
+        assertEquals(1, exercise.performedSets());
+        assertEquals(200, exercise.performedReps());
+        assertEquals(new BigDecimal("123.45"), exercise.totalVolumeKg());
+        assertEquals(new BigDecimal("12.50"), exercise.distanceKm());
+        assertEquals(1800, exercise.durationSeconds());
+    }
+
+    @Test
+    void shouldRejectFutureSessionStartAndNegativeScalarsInService() {
+        UUID rowId = createExercise("invalid-derived-row", "Invalid Derived Row");
+
+        assertThrows(IllegalArgumentException.class, () -> workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Future Session",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.now().plus(Duration.ofDays(1)),
+                null,
+                30,
+                100,
+                5,
+                null,
+                List.of())));
+        assertThrows(IllegalArgumentException.class, () -> workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Negative Duration",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                Instant.parse("2026-06-11T18:30:00Z"),
+                -1,
+                100,
+                5,
+                null,
+                List.of(new WorkoutExerciseLogInput(rowId, 1, null, null, null, null, null, null, null, null, List.of())))));
+        assertThrows(IllegalArgumentException.class, () -> workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Negative Calories",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                Instant.parse("2026-06-11T18:30:00Z"),
+                30,
+                -1,
+                5,
+                null,
+                List.of(new WorkoutExerciseLogInput(rowId, 1, null, null, null, null, null, null, null, null, List.of())))));
     }
 
     @Test

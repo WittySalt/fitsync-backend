@@ -70,9 +70,11 @@
 >   stays consistent.
 
 **Recommended execution order:** WO-1 → WO-2 → WO-3 (close the domain gaps) →
-WO-4 (data integrity, unblocks trustworthy analytics) → WO-5 → WO-6 → WO-7 (core UX) →
-WO-8 → WO-9 → WO-10 (integration/scale) → WO-11 (hardening). WO-9 is the heaviest; do not start
-it until P0/P1 are green.
+WO-4 (data integrity, unblocks trustworthy analytics) → **WO-6 → WO-5** (WO-6 before WO-5:
+the `logged` "set actually performed" flag has no clean source under the current full-replace
+`updateSession`; WO-6's granular append/complete endpoints give it one, and WO-5's PRs depend on
+it) → WO-7 (core UX) → WO-8 → WO-9 → WO-10 (integration/scale) → WO-11 (hardening). WO-9 is the
+heaviest; do not start it until P0/P1 are green.
 
 ---
 
@@ -164,6 +166,16 @@ analytics via `WorkoutLoggedPayload`. Garbage in → wrong dashboards.
   - per-exercise `totalVolumeKg = Σ(set.reps × set.weightKg)` over its `sets` (when both present);
   - per-exercise `performedSets = count(sets)` and `performedReps = Σ(set.reps)` when sets are
     provided (fall back to the client-supplied scalar only when no set rows exist — e.g. cardio).
+  - **Beware WO-1 seeded sets — DEFERRED to WO-6 (ratified 2026-06-19).** Sessions started from a
+    plan (`POST /plans/{id}/start`, shipped) arrive with each set's `reps`/`weightKg` pre-filled
+    from the plan *targets*. The `logged` "set actually performed" flag that would exclude
+    untouched seeded sets has **no clean source under the current full-replace `updateSession`**
+    (a diff-against-seeded heuristic was rejected: it false-negatives a user who legitimately hits
+    the exact target, silently dropping real PRs). So **WO-4 does NOT introduce the flag and does
+    NOT special-case seeded sets** — it derives aggregates over all set rows as-is. The flag is
+    owned by WO-6 (granular append/complete endpoints), and WO-5 (PRs) runs after WO-6. Until then
+    a plan completed without edits over-counts; this is acceptable because WO-5 is not yet shipped,
+    so no PR/analytics surface exposes the over-count.
   - session `durationMinutes`: if both `startedAt` and `completedAt` are present, derive from the
     interval; reject (400) a client value that disagrees by more than a small tolerance, OR
     overwrite and document which (recommended: derive-and-overwrite, treat client value as a hint).
@@ -198,11 +210,25 @@ derive without the raw set rows that live here.
   when a completed session beats a prior PR for an exercise. Publish via the existing outbox.
   This gives `notification-service` something real to consume and feeds AN-11.
 
+**Carry-over from WO-1 (must handle — known data-pollution risk).** WO-1's `/plans/{id}/start`
+**pre-fills each seeded set-log's `reps`/`weightKg` with the plan's target values** (the set-log
+entity has no separate target column, so the planned numbers land in the "performed" fields; the
+WO-1 persistence test asserts `reps=5, weightKg=100`). A user who starts a plan and completes it
+**without adjusting any set** records "performed" numbers that are really just the plan targets —
+these must NOT count toward PRs or pollute analytics. **WO-5 runs after WO-6 and relies on the
+`logged` flag that WO-6 introduces** (see ratified ordering note up top). PRs are computed from
+set logs of `COMPLETED` sessions where `logged = true` only, so untouched WO-1-seeded sets are
+excluded. (WO-4 deliberately does not introduce or special-case this flag — the full-replace
+`updateSession` has no clean "user touched it" source; WO-6's granular endpoints do.)
+
 **Acceptance.**
 - History returns only the caller's data, ordered by session `startedAt` desc, range-capped;
   records reflect the true max across completed sessions; logging a new max emits exactly one
   `PersonalRecordAchieved` (idempotent — re-completing the same session does not re-fire); ties do
   not fire.
+- A plan started via WO-1 and completed **without editing any set** produces **no** PR and
+  contributes nothing to `records` (untouched seeded sets excluded); editing a seeded set so it
+  becomes a real max **does** fire. Unit test both paths.
 
 ### WO-6 · Incremental / live logging (status transitions + set append)
 **Problem.** Mid-workout logging today means PUTting the whole session every set, which
@@ -220,6 +246,14 @@ performance. There are also no explicit start/complete transitions; everything i
     set). Keep `validateUniqueNumbers` invariants per the existing rules.
 - A completed/cancelled session should reject further set appends (400) — only `PLANNED` /
   `IN_PROGRESS` sessions are editable live. Document the allowed transition matrix.
+- **Own the `logged` "set actually performed" flag (carried over from WO-1/WO-4/WO-5).** Add a
+  `logged` boolean on the set-log via Flyway migration (default false). WO-1-seeded sets are
+  `logged = false`; a set becomes `logged = true` only when the user explicitly writes it through
+  the granular append/update endpoints above (and through `/complete` if it carries real per-set
+  data). The full-replace `updateSession` keeps its current behavior — do NOT try to infer
+  "touched" by diffing payloads against seeded values (rejected: false-negatives a user who hits
+  the exact target). When this flag lands, **update WO-4's shared derivation helper to filter on
+  `logged = true`** (WO-4 itself ships without the filter), and compute WO-5's PRs the same way.
 
 **Acceptance.**
 - Appending a single set does not touch sibling exercises/sets; completing emits exactly one

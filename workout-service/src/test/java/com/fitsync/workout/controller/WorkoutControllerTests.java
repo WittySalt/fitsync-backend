@@ -1,5 +1,6 @@
 package com.fitsync.workout.controller;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -430,6 +431,35 @@ class WorkoutControllerTests {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Validation failed"));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenSessionStartsInFuture() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Future Session",
+                WorkoutType.CARDIO,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.now().plus(Duration.ofDays(1)),
+                null,
+                10,
+                100,
+                5,
+                null,
+                List.of());
+
+        when(workoutService.createSession(any(), any()))
+                .thenThrow(new IllegalArgumentException("startedAt must not be in the future"));
+
+        mockMvc.perform(post("/api/v1/workouts/sessions")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("startedAt must not be in the future"));
     }
 
     @Test
