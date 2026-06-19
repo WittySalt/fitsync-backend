@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -13,6 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
+import com.fitsync.analytics.config.AnalyticsProperties;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
@@ -45,19 +47,22 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     private final AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository;
     private final AnalyticsUserDailyNutritionRepository dailyNutritionRepository;
     private final Clock clock;
+    private final AnalyticsProperties analyticsProperties;
 
     public AnalyticsServiceImpl(AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                 AnalyticsUserGoalProgressRepository goalProgressRepository,
                                 AnalyticsUserDailyBodyRepository dailyBodyRepository,
                                 AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository,
                                 AnalyticsUserDailyNutritionRepository dailyNutritionRepository,
-                                Clock clock) {
+                                Clock clock,
+                                AnalyticsProperties analyticsProperties) {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.goalProgressRepository = goalProgressRepository;
         this.dailyBodyRepository = dailyBodyRepository;
         this.dailyWorkoutRepository = dailyWorkoutRepository;
         this.dailyNutritionRepository = dailyNutritionRepository;
         this.clock = clock;
+        this.analyticsProperties = analyticsProperties;
     }
 
     @Override
@@ -100,7 +105,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                                      LocalDate from,
                                                      LocalDate to,
                                                      BodyTrendBucket bucket) {
-        validateDateRange(from, to);
+        validateDateRange(from, to, bucket);
         List<AnalyticsUserDailyBodyEntity> rows = dailyBodyRepository
                 .findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(principal.userId(), from, to);
 
@@ -115,7 +120,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.WORKOUT_SUMMARY_CACHE,
             key = "#principal.userId() + ':' + #from + ':' + #to")
     public AnalyticsWorkoutSummaryResponse getWorkoutSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to) {
-        validateDateRange(from, to);
+        validateSummaryRange(from, to);
         List<AnalyticsUserDailyWorkoutEntity> rows = dailyWorkoutRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
         int totalWorkoutCount = rows.stream().mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount())).sum();
@@ -142,7 +147,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.NUTRITION_SUMMARY_CACHE,
             key = "#principal.userId() + ':' + #from + ':' + #to")
     public AnalyticsNutritionSummaryResponse getNutritionSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to) {
-        validateDateRange(from, to);
+        validateSummaryRange(from, to);
         List<AnalyticsUserDailyNutritionEntity> rows = dailyNutritionRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
         int totalCaloriesConsumed = rows.stream().mapToInt(row -> defaultInteger(row.getTotalCaloriesConsumed())).sum();
@@ -289,13 +294,47 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         };
     }
 
-    private void validateDateRange(LocalDate from, LocalDate to) {
+    /**
+     * Validates trend ranges using one ChronoUnit.DAYS day-span cap per bucket. WEEK and MONTH
+     * are allowed longer raw date spans than DAY because they return coarser buckets instead of daily points.
+     */
+    private void validateDateRange(LocalDate from, LocalDate to, BodyTrendBucket bucket) {
+        long rangeDays = validateBaseDateRange(from, to);
+        int maxRangeDays = maxRangeDaysFor(bucket);
+        if (rangeDays > maxRangeDays) {
+            throw new BadRequestException(
+                    "Date range for " + bucket.name() + " bucket must not exceed " + maxRangeDays + " days");
+        }
+    }
+
+    /**
+     * Validates summary ranges with the DAY cap because summary endpoints do not have bucket semantics.
+     */
+    private void validateSummaryRange(LocalDate from, LocalDate to) {
+        long rangeDays = validateBaseDateRange(from, to);
+        int maxRangeDays = analyticsProperties.getTrends().getMaxRangeDays().getDay();
+        if (rangeDays > maxRangeDays) {
+            throw new BadRequestException("Date range must not exceed " + maxRangeDays + " days");
+        }
+    }
+
+    private long validateBaseDateRange(LocalDate from, LocalDate to) {
         if (from == null || to == null) {
             throw new BadRequestException("from and to are required");
         }
         if (to.isBefore(from)) {
             throw new BadRequestException("to must not be before from");
         }
+        return ChronoUnit.DAYS.between(from, to);
+    }
+
+    private int maxRangeDaysFor(BodyTrendBucket bucket) {
+        AnalyticsProperties.MaxRangeDays maxRangeDays = analyticsProperties.getTrends().getMaxRangeDays();
+        return switch (bucket) {
+            case DAY -> maxRangeDays.getDay();
+            case WEEK -> maxRangeDays.getWeek();
+            case MONTH -> maxRangeDays.getMonth();
+        };
     }
 
     private AnalyticsDashboardResponse.GoalProgressSummary toGoalProgressSummary(

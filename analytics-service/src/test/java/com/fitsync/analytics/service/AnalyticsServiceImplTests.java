@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.analytics.config.AnalyticsProperties;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
@@ -27,11 +28,15 @@ import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -50,7 +55,7 @@ class AnalyticsServiceImplTests {
         when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of());
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         AnalyticsDashboardResponse response = service.getDashboard(new CurrentUserPrincipal(
                 userId,
@@ -106,7 +111,7 @@ class AnalyticsServiceImplTests {
         when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of(goal));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         AnalyticsDashboardResponse response = service.getDashboard(new CurrentUserPrincipal(
                 userId,
@@ -191,7 +196,7 @@ class AnalyticsServiceImplTests {
                 .thenReturn(List.of(nutritionDay1, nutritionDay2));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         AnalyticsWorkoutSummaryResponse workoutSummary = service.getWorkoutSummary(
                 new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"),
@@ -235,7 +240,7 @@ class AnalyticsServiceImplTests {
                 .thenReturn(List.of(day1, day2));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         var response = service.getBodyTrends(
                 new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"),
@@ -247,6 +252,63 @@ class AnalyticsServiceImplTests {
         assertThat(response.points().get(1).date()).isEqualTo(LocalDate.parse("2026-06-08"));
         assertThat(response.points().get(1).weightKg()).isEqualTo(79.0);
         assertThat(response.points().get(1).weightDeltaFromPrevious()).isEqualTo(-1.0);
+    }
+
+    @Test
+    void bodyTrendsAllowsRangesExactlyAtConfiguredBucketCaps() {
+        assertTrendRangePasses(BodyTrendBucket.DAY, 370);
+        assertTrendRangePasses(BodyTrendBucket.WEEK, 1095);
+        assertTrendRangePasses(BodyTrendBucket.MONTH, 1830);
+    }
+
+    @Test
+    void bodyTrendsRejectsRangesBeyondConfiguredBucketCapsBeforeLoadingRows() {
+        assertTrendRangeRejected(BodyTrendBucket.DAY, 370);
+        assertTrendRangeRejected(BodyTrendBucket.WEEK, 1095);
+        assertTrendRangeRejected(BodyTrendBucket.MONTH, 1830);
+    }
+
+    @Test
+    void bodyTrendsAllowsLongerRangesForWeekAndMonthBuckets() {
+        assertTrendRangePasses(BodyTrendBucket.WEEK, 800);
+        assertTrendRangePasses(BodyTrendBucket.MONTH, 800);
+    }
+
+    @Test
+    void bodyTrendsKeepsExistingNullAndInvertedRangeValidation() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsServiceImpl service = bodyTrendService(bodyRepository);
+        CurrentUserPrincipal principal = principal(userId);
+
+        assertThatThrownBy(() -> service.getBodyTrends(
+                principal,
+                null,
+                LocalDate.parse("2026-01-01"),
+                BodyTrendBucket.DAY))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("from and to are required");
+        assertThatThrownBy(() -> service.getBodyTrends(
+                principal,
+                LocalDate.parse("2026-01-02"),
+                LocalDate.parse("2026-01-01"),
+                BodyTrendBucket.DAY))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("to must not be before from");
+        verify(bodyRepository, never()).findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(any(), any(), any());
+    }
+
+    @Test
+    void workoutSummaryRejectsRangesBeyondDayCapBeforeLoadingRows() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsServiceImpl service = workoutSummaryService(workoutRepository);
+        LocalDate from = LocalDate.parse("2026-01-01");
+
+        assertThatThrownBy(() -> service.getWorkoutSummary(principal(userId), from, from.plusDays(371)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Date range must not exceed 370 days");
+        verify(workoutRepository, never()).findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any());
     }
 
     @Test
@@ -268,7 +330,7 @@ class AnalyticsServiceImplTests {
                         bodyDay(userId, "2026-06-10", null, "19.20", "88.00", null, null, null)));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         var response = service.getBodyTrends(
                 new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"),
@@ -318,7 +380,7 @@ class AnalyticsServiceImplTests {
                         bodyDay(userId, "2026-02-20", "80.00", "19.10", "90.00", "25.00", "-2.00", "-0.80")));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
-                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock);
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
 
         var response = service.getBodyTrends(
                 new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"),
@@ -414,6 +476,64 @@ class AnalyticsServiceImplTests {
         verify(dashboardRepository).save(captor.capture());
         assertThat(captor.getValue().getTodayWorkoutCount()).isZero();
         assertThat(captor.getValue().getActiveStreakDays()).isZero();
+    }
+
+    private void assertTrendRangePasses(BodyTrendBucket bucket, int days) {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-01-01");
+        LocalDate to = from.plusDays(days);
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        when(bodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(userId, from, to))
+                .thenReturn(List.of());
+
+        AnalyticsServiceImpl service = bodyTrendService(bodyRepository);
+
+        AnalyticsBodyTrendsResponse response = service.getBodyTrends(principal(userId), from, to, bucket);
+
+        assertThat(response.points()).isEmpty();
+        verify(bodyRepository).findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(userId, from, to);
+    }
+
+    private void assertTrendRangeRejected(BodyTrendBucket bucket, int cap) {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        LocalDate from = LocalDate.parse("2026-01-01");
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsServiceImpl service = bodyTrendService(bodyRepository);
+
+        assertThatThrownBy(() -> service.getBodyTrends(principal(userId), from, from.plusDays(cap + 1L), bucket))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Date range for " + bucket.name() + " bucket must not exceed " + cap + " days");
+        verify(bodyRepository, never()).findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(any(), any(), any());
+    }
+
+    private AnalyticsServiceImpl bodyTrendService(AnalyticsUserDailyBodyRepository bodyRepository) {
+        return new AnalyticsServiceImpl(
+                mock(AnalyticsUserDashboardSnapshotRepository.class),
+                mock(AnalyticsUserGoalProgressRepository.class),
+                bodyRepository,
+                mock(AnalyticsUserDailyWorkoutRepository.class),
+                mock(AnalyticsUserDailyNutritionRepository.class),
+                Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC),
+                analyticsProperties());
+    }
+
+    private AnalyticsServiceImpl workoutSummaryService(AnalyticsUserDailyWorkoutRepository workoutRepository) {
+        return new AnalyticsServiceImpl(
+                mock(AnalyticsUserDashboardSnapshotRepository.class),
+                mock(AnalyticsUserGoalProgressRepository.class),
+                mock(AnalyticsUserDailyBodyRepository.class),
+                workoutRepository,
+                mock(AnalyticsUserDailyNutritionRepository.class),
+                Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC),
+                analyticsProperties());
+    }
+
+    private CurrentUserPrincipal principal(UUID userId) {
+        return new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER");
+    }
+
+    private AnalyticsProperties analyticsProperties() {
+        return new AnalyticsProperties();
     }
 
     private AnalyticsRebuildServiceImpl rebuildService(
