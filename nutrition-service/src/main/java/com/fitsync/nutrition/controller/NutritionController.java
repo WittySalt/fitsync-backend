@@ -11,7 +11,10 @@ import com.fitsync.nutrition.dto.CopyDayRequest;
 import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
+import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
+import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
+import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
@@ -216,6 +219,37 @@ public class NutritionController {
     @GetMapping("/favorites")
     public List<FoodSearchResultView> favorites(Authentication authentication) {
         return nutritionService.listFavorites(currentPrincipal(authentication));
+    }
+
+    @PostMapping("/meal-templates")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealTemplateView createMealTemplate(Authentication authentication,
+                                               @Valid @RequestBody CreateMealTemplateRequest request) {
+        return nutritionService.createMealTemplate(currentPrincipal(authentication), request);
+    }
+
+    @GetMapping("/meal-templates")
+    public List<MealTemplateView> mealTemplates(Authentication authentication) {
+        return nutritionService.listMealTemplates(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/meal-templates/{templateId}")
+    public MealTemplateView mealTemplate(Authentication authentication, @PathVariable UUID templateId) {
+        return nutritionService.getMealTemplate(currentPrincipal(authentication), templateId);
+    }
+
+    @DeleteMapping("/meal-templates/{templateId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMealTemplate(Authentication authentication, @PathVariable UUID templateId) {
+        nutritionService.deleteMealTemplate(currentPrincipal(authentication), templateId);
+    }
+
+    @PostMapping("/meals/from-template/{templateId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView createMealFromTemplate(Authentication authentication,
+                                           @PathVariable UUID templateId,
+                                           @Valid @RequestBody MaterializeTemplateRequest request) {
+        return nutritionService.createMealFromTemplate(currentPrincipal(authentication), templateId, request);
     }
 
     @PostMapping("/recipes")

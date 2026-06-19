@@ -29,6 +29,10 @@ import com.fitsync.nutrition.dto.CopyDayRequest;
 import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
+import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
+import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
+import com.fitsync.nutrition.dto.MealTemplateItemView;
+import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
@@ -59,6 +63,8 @@ import com.fitsync.nutrition.entity.FoodServingEntity;
 import com.fitsync.nutrition.entity.MealItemEntity;
 import com.fitsync.nutrition.entity.MealItemNutrientDetailEntity;
 import com.fitsync.nutrition.entity.MealLogEntity;
+import com.fitsync.nutrition.entity.MealTemplateEntity;
+import com.fitsync.nutrition.entity.MealTemplateItemEntity;
 import com.fitsync.nutrition.entity.NutritionTargetEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.entity.RecipeIngredientEntity;
@@ -75,6 +81,8 @@ import com.fitsync.nutrition.repository.FoodServingRepository;
 import com.fitsync.nutrition.repository.MealItemNutrientDetailRepository;
 import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealLogRepository;
+import com.fitsync.nutrition.repository.MealTemplateItemRepository;
+import com.fitsync.nutrition.repository.MealTemplateRepository;
 import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import com.fitsync.nutrition.repository.RecipeIngredientRepository;
 import com.fitsync.nutrition.repository.RecipeRepository;
@@ -116,6 +124,8 @@ public class NutritionServiceImpl implements NutritionService {
     private final RecipeRepository recipeRepository;
     private final RecipeIngredientRepository recipeIngredientRepository;
     private final FoodFavoriteRepository foodFavoriteRepository;
+    private final MealTemplateRepository mealTemplateRepository;
+    private final MealTemplateItemRepository mealTemplateItemRepository;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
@@ -132,7 +142,9 @@ public class NutritionServiceImpl implements NutritionService {
                                 FoodNutrientDetailRepository foodNutrientDetailRepository,
                                 RecipeRepository recipeRepository,
                                 RecipeIngredientRepository recipeIngredientRepository,
-                                FoodFavoriteRepository foodFavoriteRepository) {
+                                FoodFavoriteRepository foodFavoriteRepository,
+                                MealTemplateRepository mealTemplateRepository,
+                                MealTemplateItemRepository mealTemplateItemRepository) {
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
@@ -149,6 +161,8 @@ public class NutritionServiceImpl implements NutritionService {
         this.recipeRepository = recipeRepository;
         this.recipeIngredientRepository = recipeIngredientRepository;
         this.foodFavoriteRepository = foodFavoriteRepository;
+        this.mealTemplateRepository = mealTemplateRepository;
+        this.mealTemplateItemRepository = mealTemplateItemRepository;
     }
 
     @Override
@@ -710,6 +724,178 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(food -> toFoodSearchResultView(food, brandNames, profiles.get(food.getFoodId()),
                         primaryBarcodes.get(food.getFoodId())))
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public MealTemplateView createMealTemplate(CurrentUserPrincipal principal, CreateMealTemplateRequest request) {
+        if (request.fromMealId() != null && !request.items().isEmpty()) {
+            throw new BadRequestException("Provide either fromMealId or items, not both");
+        }
+        MealTemplateEntity template = new MealTemplateEntity();
+        template.setTemplateId(UUID.randomUUID());
+        template.setUserId(principal.userId());
+        template.setName(request.name().trim());
+        template.setMealType(request.mealType());
+        template.setNote(blankToNull(request.note()));
+        MealTemplateEntity saved = mealTemplateRepository.save(template);
+
+        List<MealTemplateItemEntity> items = buildTemplateItems(principal.userId(), saved.getTemplateId(), request);
+        return toMealTemplateView(saved, items);
+    }
+
+    private List<MealTemplateItemEntity> buildTemplateItems(UUID userId, UUID templateId, CreateMealTemplateRequest request) {
+        List<MealTemplateItemEntity> items = new ArrayList<>();
+        int sortOrder = 0;
+        if (request.fromMealId() != null) {
+            MealLogEntity meal = getOwnedMeal(userId, request.fromMealId());
+            for (MealItemEntity src : mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(meal.getMealId())) {
+                items.add(mealTemplateItemRepository.save(templateItemFromMealItem(templateId, src, sortOrder++)));
+            }
+        } else {
+            if (request.items().isEmpty()) {
+                throw new BadRequestException("Provide fromMealId or a non-empty items list");
+            }
+            for (MealItemInput input : request.items()) {
+                MealItemDraft draft = buildMealItemDraft(userId, input);
+                items.add(mealTemplateItemRepository.save(templateItemFromDraft(templateId, draft, sortOrder++)));
+            }
+        }
+        return items;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MealTemplateView> listMealTemplates(CurrentUserPrincipal principal) {
+        return mealTemplateRepository.findByUserIdOrderByNameAsc(principal.userId()).stream()
+                .map(template -> toMealTemplateView(template,
+                        mealTemplateItemRepository.findByTemplateIdOrderBySortOrderAsc(template.getTemplateId())))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MealTemplateView getMealTemplate(CurrentUserPrincipal principal, UUID templateId) {
+        MealTemplateEntity template = getOwnedTemplate(principal.userId(), templateId);
+        return toMealTemplateView(template,
+                mealTemplateItemRepository.findByTemplateIdOrderBySortOrderAsc(template.getTemplateId()));
+    }
+
+    @Override
+    @Transactional
+    public void deleteMealTemplate(CurrentUserPrincipal principal, UUID templateId) {
+        MealTemplateEntity template = getOwnedTemplate(principal.userId(), templateId);
+        mealTemplateItemRepository.deleteByTemplateId(template.getTemplateId());
+        mealTemplateRepository.delete(template);
+    }
+
+    @Override
+    @Transactional
+    public MealView createMealFromTemplate(CurrentUserPrincipal principal, UUID templateId,
+                                           MaterializeTemplateRequest request) {
+        MealTemplateEntity template = getOwnedTemplate(principal.userId(), templateId);
+        List<MealTemplateItemEntity> templateItems = mealTemplateItemRepository
+                .findByTemplateIdOrderBySortOrderAsc(template.getTemplateId());
+        if (templateItems.isEmpty()) {
+            throw new BadRequestException("Template has no items");
+        }
+        List<MealItemInput> items = templateItems.stream()
+                .map(this::mealItemInputFromTemplateItem)
+                .toList();
+        MealType mealType = request.mealType() != null ? request.mealType()
+                : (template.getMealType() != null ? template.getMealType() : MealType.SNACK);
+        CreateMealRequest mealRequest = new CreateMealRequest(
+                mealType,
+                template.getName(),
+                MealSource.MANUAL,
+                request.consumedAt(),
+                blankToNull(request.timezone()),
+                template.getNote(),
+                items);
+        return createMeal(principal, mealRequest);
+    }
+
+    private MealTemplateEntity getOwnedTemplate(UUID userId, UUID templateId) {
+        return mealTemplateRepository.findByTemplateIdAndUserId(templateId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Meal template not found"));
+    }
+
+    private MealItemInput mealItemInputFromTemplateItem(MealTemplateItemEntity ti) {
+        return new MealItemInput(
+                ti.getCustomFoodId(), ti.getFoodCatalogItemId(), ti.getFoodServingId(),
+                ti.getExternalFoodRef(), ti.getBarcode(), ti.getFoodName(), ti.getBrandName(),
+                ti.getQuantity(), ti.getUnit(), ti.getServingSize(), ti.getServingUnit(),
+                ti.getSnapshotServingLabel(), ti.getCalories(), ti.getProteinGrams(), ti.getCarbsGrams(),
+                ti.getFatGrams(), ti.getFiberGrams(), ti.getSugarGrams(), ti.getSodiumMg(), null);
+    }
+
+    private MealTemplateView toMealTemplateView(MealTemplateEntity template, List<MealTemplateItemEntity> items) {
+        int totalCalories = 0;
+        List<MealTemplateItemView> itemViews = new ArrayList<>();
+        for (MealTemplateItemEntity ti : items) {
+            totalCalories += defaultInteger(ti.getCalories());
+            itemViews.add(new MealTemplateItemView(
+                    ti.getTemplateItemId(), ti.getCustomFoodId(), ti.getFoodCatalogItemId(), ti.getFoodServingId(),
+                    ti.getFoodName(), ti.getBrandName(), ti.getQuantity(), ti.getUnit(), ti.getSnapshotServingLabel(),
+                    ti.getCalories(), ti.getProteinGrams(), ti.getCarbsGrams(), ti.getFatGrams(),
+                    ti.getFiberGrams(), ti.getSugarGrams(), ti.getSodiumMg()));
+        }
+        return new MealTemplateView(template.getTemplateId(), template.getName(), template.getMealType(),
+                template.getNote(), totalCalories, itemViews);
+    }
+
+    private MealTemplateItemEntity templateItemFromMealItem(UUID templateId, MealItemEntity src, int sortOrder) {
+        MealTemplateItemEntity ti = new MealTemplateItemEntity();
+        ti.setTemplateItemId(UUID.randomUUID());
+        ti.setTemplateId(templateId);
+        ti.setCustomFoodId(src.getCustomFoodId());
+        ti.setFoodCatalogItemId(src.getFoodCatalogItemId());
+        ti.setFoodServingId(src.getFoodServingId());
+        ti.setExternalFoodRef(src.getExternalFoodRef());
+        ti.setBarcode(src.getBarcode());
+        ti.setFoodName(src.getFoodName());
+        ti.setBrandName(src.getBrandName());
+        ti.setQuantity(src.getQuantity());
+        ti.setUnit(src.getUnit());
+        ti.setServingSize(src.getServingSize());
+        ti.setServingUnit(src.getServingUnit());
+        ti.setSnapshotServingLabel(src.getSnapshotServingLabel());
+        ti.setCalories(src.getCalories());
+        ti.setProteinGrams(src.getProteinGrams());
+        ti.setCarbsGrams(src.getCarbsGrams());
+        ti.setFatGrams(src.getFatGrams());
+        ti.setFiberGrams(src.getFiberGrams());
+        ti.setSugarGrams(src.getSugarGrams());
+        ti.setSodiumMg(src.getSodiumMg());
+        ti.setSortOrder(sortOrder);
+        return ti;
+    }
+
+    private MealTemplateItemEntity templateItemFromDraft(UUID templateId, MealItemDraft draft, int sortOrder) {
+        MealTemplateItemEntity ti = new MealTemplateItemEntity();
+        ti.setTemplateItemId(UUID.randomUUID());
+        ti.setTemplateId(templateId);
+        ti.setCustomFoodId(draft.customFoodId());
+        ti.setFoodCatalogItemId(draft.foodCatalogItemId());
+        ti.setFoodServingId(draft.foodServingId());
+        ti.setExternalFoodRef(draft.externalFoodRef());
+        ti.setBarcode(draft.barcode());
+        ti.setFoodName(draft.foodName());
+        ti.setBrandName(draft.brandName());
+        ti.setQuantity(draft.quantity());
+        ti.setUnit(draft.unit());
+        ti.setServingSize(draft.servingSize());
+        ti.setServingUnit(draft.servingUnit());
+        ti.setSnapshotServingLabel(draft.snapshotServingLabel());
+        ti.setCalories(draft.calories());
+        ti.setProteinGrams(draft.proteinGrams());
+        ti.setCarbsGrams(draft.carbsGrams());
+        ti.setFatGrams(draft.fatGrams());
+        ti.setFiberGrams(draft.fiberGrams());
+        ti.setSugarGrams(draft.sugarGrams());
+        ti.setSodiumMg(draft.sodiumMg());
+        ti.setSortOrder(sortOrder);
+        return ti;
     }
 
     @Override

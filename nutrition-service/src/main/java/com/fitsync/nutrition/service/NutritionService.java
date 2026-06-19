@@ -10,7 +10,10 @@ import com.fitsync.nutrition.dto.CopyDayRequest;
 import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
+import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
+import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
+import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
@@ -87,4 +90,14 @@ public interface NutritionService {
     void removeFavorite(CurrentUserPrincipal principal, UUID foodId);
 
     List<FoodSearchResultView> listFavorites(CurrentUserPrincipal principal);
+
+    MealTemplateView createMealTemplate(CurrentUserPrincipal principal, CreateMealTemplateRequest request);
+
+    List<MealTemplateView> listMealTemplates(CurrentUserPrincipal principal);
+
+    MealTemplateView getMealTemplate(CurrentUserPrincipal principal, UUID templateId);
+
+    void deleteMealTemplate(CurrentUserPrincipal principal, UUID templateId);
+
+    MealView createMealFromTemplate(CurrentUserPrincipal principal, UUID templateId, MaterializeTemplateRequest request);
 }

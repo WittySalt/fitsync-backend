@@ -755,6 +755,91 @@ class NutritionApiTests {
     }
 
     @Test
+    void canCreateMealTemplateAndMaterializeAndSaveFromMeal() throws Exception {
+        UUID foodId = seedFoodCatalog();
+        String token = tokenFor("victor@example.com", "Victor");
+
+        String foodResponse = mockMvc.perform(get("/api/v1/nutrition/foods/{foodId}", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String servingId = com.jayway.jsonpath.JsonPath.read(foodResponse, "$.servings[0].servingId");
+
+        // Inline template: 2 containers of Greek Yogurt -> 240 kcal.
+        String templateResponse = mockMvc.perform(post("/api/v1/nutrition/meal-templates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "name": "Yogurt breakfast",
+                                  "mealType": "BREAKFAST",
+                                  "items": [
+                                    { "foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": 2.0 }
+                                  ]
+                                }
+                                """.formatted(foodId, servingId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Yogurt breakfast"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.items[0].foodName").value("Greek Yogurt"))
+                .andReturn().getResponse().getContentAsString();
+        String templateId = com.jayway.jsonpath.JsonPath.read(templateResponse, "$.templateId");
+
+        mockMvc.perform(get("/api/v1/nutrition/meal-templates")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+
+        // Materialize into a real meal (inherits the template's BREAKFAST type).
+        mockMvc.perform(post("/api/v1/nutrition/meals/from-template/{templateId}", templateId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "consumedAt": "2026-06-16T07:00:00Z" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mealType").value("BREAKFAST"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.items[0].foodName").value("Greek Yogurt"));
+
+        // Save a template from an existing meal.
+        String mealResponse = mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "DINNER",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-16T18:00:00Z",
+                                  "items": [
+                                    { "foodName": "Steak", "quantity": 1.0, "unit": "piece", "calories": 500 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String mealId = com.jayway.jsonpath.JsonPath.read(mealResponse, "$.mealId");
+
+        mockMvc.perform(post("/api/v1/nutrition/meal-templates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "name": "Steak dinner", "fromMealId": "%s" }
+                                """.formatted(mealId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.totalCalories").value(500))
+                .andExpect(jsonPath("$.items[0].foodName").value("Steak"));
+
+        // Delete the first template.
+        mockMvc.perform(delete("/api/v1/nutrition/meal-templates/{templateId}", templateId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/nutrition/meal-templates/{templateId}", templateId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void canFavoriteUnfavoriteAndListFavorites() throws Exception {
         UUID foodId = seedFoodCatalog();
         String token = tokenFor("uma@example.com", "Uma");
