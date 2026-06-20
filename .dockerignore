@@ -1,0 +1,20 @@
+# The universal Dockerfile only copies the compiled Spring Boot jar from
+# <service>/target/. Keep the build context small by excluding everything else.
+.git
+**/src
+**/node_modules
+run-logs
+checkstyle
+nginx
+**/*.md
+**/*.log
+
+# Inside target/ we only need the runnable jar — drop the heavy intermediates.
+**/target/classes
+**/target/test-classes
+**/target/generated-sources
+**/target/generated-test-sources
+**/target/maven-status
+**/target/maven-archiver
+**/target/surefire-reports
+**/target/*.jar.original
