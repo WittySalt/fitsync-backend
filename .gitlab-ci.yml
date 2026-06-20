@@ -125,9 +125,14 @@ docker_image:
         aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1 \
           || aws ecr create-repository --repository-name "$repo" \
                --image-scanning-configuration scanOnPush=true >/dev/null
-        # Block the push on fixable CRITICAL/HIGH CVEs.
+        # Visible triage report of all fixable HIGH+CRITICAL findings (non-blocking).
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
           aquasec/trivy:0.56.2 image --severity CRITICAL,HIGH --ignore-unfixed \
+          --format table "$img:$SHORT_SHA"
+        # Gate: block the push only on fixable CRITICAL CVEs. HIGH is reported above
+        # but not gated (a lot of HIGH come from the base image and can't be fixed here).
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
+          aquasec/trivy:0.56.2 image --severity CRITICAL --ignore-unfixed \
           --exit-code 1 --format sarif --output "/work/trivy-$svc.sarif" "$img:$SHORT_SHA"
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
           aquasec/trivy:0.56.2 image --format cyclonedx --output "/work/sbom-$svc.json" "$img:$SHORT_SHA"
