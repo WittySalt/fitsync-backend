@@ -17,6 +17,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,6 +40,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Testcontainers
+@EnabledIfEnvironmentVariable(named = "MINIO_INTEGRATION_TESTS", matches = "true")
 class UserAvatarUploadIT {
 
     private static final String BUCKET = "fitsync-media";

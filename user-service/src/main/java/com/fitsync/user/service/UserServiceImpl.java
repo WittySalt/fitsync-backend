@@ -79,6 +79,7 @@ import com.fitsync.user.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -95,7 +96,7 @@ public class UserServiceImpl implements UserService {
             "image/webp", "webp");
 
     private final DomainEventPublisher domainEventPublisher;
-    private final MediaStorageService mediaStorageService;
+    private final ObjectProvider<MediaStorageService> mediaStorageServiceProvider;
     private final AccountDataExportRequestRepository accountDataExportRequestRepository;
     private final UserProfileRepository userProfileRepository;
     private final UserAppPreferencesRepository userAppPreferencesRepository;
@@ -107,7 +108,7 @@ public class UserServiceImpl implements UserService {
     private final UserGoalRepository userGoalRepository;
 
     public UserServiceImpl(DomainEventPublisher domainEventPublisher,
-                           MediaStorageService mediaStorageService,
+                           ObjectProvider<MediaStorageService> mediaStorageServiceProvider,
                            AccountDataExportRequestRepository accountDataExportRequestRepository,
                            UserProfileRepository userProfileRepository,
                            UserAppPreferencesRepository userAppPreferencesRepository,
@@ -118,7 +119,7 @@ public class UserServiceImpl implements UserService {
                            BodyMetricEntryRepository bodyMetricEntryRepository,
                            UserGoalRepository userGoalRepository) {
         this.domainEventPublisher = domainEventPublisher;
-        this.mediaStorageService = mediaStorageService;
+        this.mediaStorageServiceProvider = mediaStorageServiceProvider;
         this.accountDataExportRequestRepository = accountDataExportRequestRepository;
         this.userProfileRepository = userProfileRepository;
         this.userAppPreferencesRepository = userAppPreferencesRepository;
@@ -297,7 +298,7 @@ public class UserServiceImpl implements UserService {
         String key = "avatars/" + principal.userId() + "/" + UUID.randomUUID() + "." + extension;
         String avatarUrl;
         try {
-            avatarUrl = mediaStorageService.put(key, file.getBytes(), contentType);
+            avatarUrl = mediaStorageServiceProvider.getObject().put(key, file.getBytes(), contentType);
         } catch (IOException ex) {
             throw new BadRequestException("Avatar file could not be read");
         }
@@ -670,9 +671,10 @@ public class UserServiceImpl implements UserService {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("Avatar file is required");
         }
-        String contentType = file.getContentType() == null
+        String rawContentType = file.getContentType();
+        String contentType = rawContentType == null
                 ? ""
-                : file.getContentType().trim().toLowerCase(Locale.ROOT);
+                : rawContentType.trim().toLowerCase(Locale.ROOT);
         if (!AVATAR_EXTENSIONS.containsKey(contentType)) {
             throw new BadRequestException("Avatar file must be image/png, image/jpeg, or image/webp");
         }
