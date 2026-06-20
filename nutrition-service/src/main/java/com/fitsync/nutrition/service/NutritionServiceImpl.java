@@ -1468,7 +1468,9 @@ public class NutritionServiceImpl implements NutritionService {
                 .stream()
                 .findFirst()
                 .orElse(null);
-        Map<UUID, String> brandNames = loadBrandNames(List.of(food.getBrandId()));
+        Map<UUID, String> brandNames = food.getBrandId() == null
+                ? Map.of()
+                : loadBrandNames(List.of(food.getBrandId()));
         String primaryBarcode = loadPrimaryBarcodes(List.of(food.getFoodId()), today).get(food.getFoodId());
         List<FoodServingView> servings = foodServingRepository.findActiveByFoodId(food.getFoodId(), today).stream()
                 .map(this::toFoodServingView)
@@ -1481,7 +1483,7 @@ public class NutritionServiceImpl implements NutritionService {
                 food.getFoodId(),
                 food.getDisplayName(),
                 food.getNormalizedName(),
-                brandNames.get(food.getBrandId()),
+                food.getBrandId() == null ? null : brandNames.get(food.getBrandId()),
                 food.getCategoryCode(),
                 food.getScope(),
                 food.getBaseFoodId(),
@@ -1653,7 +1655,7 @@ public class NutritionServiceImpl implements NutritionService {
                 input.externalFoodRef(),
                 input.barcode(),
                 food.getDisplayName(),
-                brandNames.get(food.getBrandId()),
+                food.getBrandId() == null ? null : brandNames.get(food.getBrandId()),
                 input.quantity(),
                 serving == null ? requireNonBlank(input.unit(), "unit is required when foodServingId is omitted") : serving.getUnit(),
                 serving == null ? input.servingSize() : serving.getQuantity(),
