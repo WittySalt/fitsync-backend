@@ -17,22 +17,27 @@ x-service-defaults: &service-defaults
 
 # Shared env for every JWT + RDS-backed service. Kafka stays disabled in phase 1
 # (no MSK) — listeners are off by default so nothing tries to reach a broker.
+# DB_URL is shared (one RDS instance, one `fitsync` db); each service connects
+# with its OWN least-privilege DB user (auth_svc/user_svc/...) scoped to its
+# schema, so DB_USERNAME/DB_PASSWORD are set per-service below, not here.
 x-app-env: &app-env
   SPRING_PROFILES_ACTIVE: prod
   DB_URL: ${DB_URL}
-  DB_USERNAME: ${DB_USERNAME}
-  DB_PASSWORD: ${DB_PASSWORD}
   JWT_SECRET: ${JWT_SECRET}
   JWT_EXPIRATION: ${JWT_EXPIRATION:-PT2H}
   KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
 
+# Object storage for workout exercise images. Defaults keep credentials non-blank
+# so the eager S3Client bean builds and the service starts even when media is not
+# wired in prod (upload is lazy — only used on exercise-image import). Override
+# FITSYNC_MEDIA_* via the deploy .env to point at a real S3/MinIO bucket.
 x-media-env: &media-env
-  FITSYNC_MEDIA_ENDPOINT: ${FITSYNC_MEDIA_ENDPOINT}
+  FITSYNC_MEDIA_ENDPOINT: ${FITSYNC_MEDIA_ENDPOINT:-http://localhost:9000}
   FITSYNC_MEDIA_REGION: ${FITSYNC_MEDIA_REGION:-ap-southeast-1}
-  FITSYNC_MEDIA_ACCESS_KEY: ${FITSYNC_MEDIA_ACCESS_KEY}
-  FITSYNC_MEDIA_SECRET_KEY: ${FITSYNC_MEDIA_SECRET_KEY}
-  FITSYNC_MEDIA_BUCKET: ${FITSYNC_MEDIA_BUCKET}
-  FITSYNC_MEDIA_PUBLIC_BASE_URL: ${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+  FITSYNC_MEDIA_ACCESS_KEY: ${FITSYNC_MEDIA_ACCESS_KEY:-fitsync}
+  FITSYNC_MEDIA_SECRET_KEY: ${FITSYNC_MEDIA_SECRET_KEY:-fitsync-password}
+  FITSYNC_MEDIA_BUCKET: ${FITSYNC_MEDIA_BUCKET:-fitsync-media}
+  FITSYNC_MEDIA_PUBLIC_BASE_URL: ${FITSYNC_MEDIA_PUBLIC_BASE_URL:-http://localhost:9000/fitsync-media}
 
 services:
   redis:
@@ -88,6 +93,8 @@ services:
     container_name: fitsync-auth-service
     environment:
       <<: *app-env
+      DB_USERNAME: auth_svc
+      DB_PASSWORD: ${AUTH_DB_PASSWORD}
       SERVER_PORT: 8080
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
@@ -106,6 +113,8 @@ services:
     container_name: fitsync-user-service
     environment:
       <<: *app-env
+      DB_USERNAME: user_svc
+      DB_PASSWORD: ${USER_DB_PASSWORD}
       SERVER_PORT: 8081
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
@@ -120,6 +129,8 @@ services:
     container_name: fitsync-workout-service
     environment:
       <<: [*app-env, *media-env]
+      DB_USERNAME: workout_svc
+      DB_PASSWORD: ${WORKOUT_DB_PASSWORD}
       SERVER_PORT: 8082
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
@@ -134,6 +145,8 @@ services:
     container_name: fitsync-nutrition-service
     environment:
       <<: *app-env
+      DB_USERNAME: nutrition_svc
+      DB_PASSWORD: ${NUTRITION_DB_PASSWORD}
       SERVER_PORT: 8083
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
@@ -148,6 +161,8 @@ services:
     container_name: fitsync-analytics-service
     environment:
       <<: *app-env
+      DB_USERNAME: analytics_svc
+      DB_PASSWORD: ${ANALYTICS_DB_PASSWORD}
       SERVER_PORT: 8085
       # analytics uses the SPRING_DATA_REDIS_* names (not REDIS_HOST). Cache stays
       # 'simple' in phase 1; set SPRING_CACHE_TYPE=redis to use the redis container.
