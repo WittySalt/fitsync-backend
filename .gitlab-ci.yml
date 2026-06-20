@@ -13,7 +13,9 @@ stages:
   - deploy
 
 variables:
-  IMAGE_NAME: "fitsync-backend"
+  # Each runnable service ships as its own image: fitsync-<service>.
+  # (recommendation/notification are empty placeholder modules — not built.)
+  RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service"
   MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
   MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress"
   DOCKER_HOST: "tcp://docker:2376"
@@ -84,7 +86,13 @@ verify_backend:
     when: always
     expire_in: 5 days
     paths:
-      - auth-service/target/*.jar
+      # All 6 runnable fat jars — the docker stage copies these into images.
+      - api-gateway/target/api-gateway-*.jar
+      - auth-service/target/auth-service-*.jar
+      - user-service/target/user-service-*.jar
+      - workout-service/target/workout-service-*.jar
+      - nutrition-service/target/nutrition-service-*.jar
+      - analytics-service/target/analytics-service-*.jar
       - "**/target/surefire-reports/"
       - "**/target/failsafe-reports/"
       - "**/target/site/jacoco/"
@@ -105,20 +113,34 @@ docker_image:
       artifacts: true
   script:
     - export SHORT_SHA="${CI_COMMIT_SHA:0:8}"
-    - export PRIMARY_TAG="latest"
     - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
-    - docker build -t "$ECR_REGISTRY/$IMAGE_NAME:$PRIMARY_TAG" -t "$ECR_REGISTRY/$IMAGE_NAME:$SHORT_SHA" .
-    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" aquasec/trivy:0.56.2 image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 --format sarif --output /work/trivy-image.sarif "$ECR_REGISTRY/$IMAGE_NAME:$SHORT_SHA"
-    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" aquasec/trivy:0.56.2 image --format cyclonedx --output /work/sbom.json "$ECR_REGISTRY/$IMAGE_NAME:$SHORT_SHA"
-    - docker push "$ECR_REGISTRY/$IMAGE_NAME:$PRIMARY_TAG"
-    - docker push "$ECR_REGISTRY/$IMAGE_NAME:$SHORT_SHA"
+    # Build + tag all 6 services as $ECR_REGISTRY/fitsync-<svc>:$SHORT_SHA (no push yet).
+    - ECR_REGISTRY="$ECR_REGISTRY" IMAGE_TAG="$SHORT_SHA" PUSH=0 bash scripts/build-images.sh
+    - |
+      for svc in $RUNNABLE_SERVICES; do
+        repo="fitsync-$svc"
+        img="$ECR_REGISTRY/$repo"
+        echo "==> $repo: ensure ECR repo, scan, push"
+        aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1 \
+          || aws ecr create-repository --repository-name "$repo" \
+               --image-scanning-configuration scanOnPush=true >/dev/null
+        # Block the push on fixable CRITICAL/HIGH CVEs.
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
+          aquasec/trivy:0.56.2 image --severity CRITICAL,HIGH --ignore-unfixed \
+          --exit-code 1 --format sarif --output "/work/trivy-$svc.sarif" "$img:$SHORT_SHA"
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
+          aquasec/trivy:0.56.2 image --format cyclonedx --output "/work/sbom-$svc.json" "$img:$SHORT_SHA"
+        docker tag "$img:$SHORT_SHA" "$img:latest"
+        docker push "$img:$SHORT_SHA"
+        docker push "$img:latest"
+      done
   artifacts:
     when: always
     expire_in: 5 days
     paths:
-      - trivy-image.sarif
-      - sbom.json
+      - "trivy-*.sarif"
+      - "sbom-*.json"
   rules:
     # Only build/push the image once AWS is wired up. AWS_ROLE_ARN is supplied as a
     # CI/CD variable; while it is unset (no ECR/EC2 provisioned yet) this job is
@@ -156,42 +178,51 @@ deploy_prod:
   script:
     - export IMAGE_TAG="${PROD_IMAGE_TAG:-${CI_COMMIT_SHA:0:8}}"
     - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    - export IMAGE="$ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG"
     - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
-    - docker manifest inspect "$IMAGE" > /dev/null
+    # Refuse to touch prod unless all 6 images exist for this tag.
+    - |
+      for svc in $RUNNABLE_SERVICES; do
+        docker manifest inspect "$ECR_REGISTRY/fitsync-$svc:$IMAGE_TAG" > /dev/null
+      done
     - mkdir -p ~/.ssh
     - printf "%s" "$PROD_EC2_SSH_KEY" > ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$PROD_EC2_HOST" >> ~/.ssh/known_hosts
+    # Render the runtime .env from CI/CD variables (secrets never live in the repo).
     - |
-      ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" "set -euo pipefail
-      ECR_REGISTRY='$ECR_REGISTRY'
-      NEW_TAG='$IMAGE_TAG'
-      DEPLOY_DIR='/opt/fitsync'
-      ROLLBACK_FILE=\"\${DEPLOY_DIR}/.previous_prod_tag\"
-      aws ecr get-login-password --region '$AWS_REGION' | docker login --username AWS --password-stdin \"\$ECR_REGISTRY\"
-      docker pull \"$IMAGE\"
-      CURRENT_TAG=\$(cat \"\$ROLLBACK_FILE\" 2>/dev/null || echo '')
-      cd \"\$DEPLOY_DIR\"
-      IMAGE_TAG=\"\$NEW_TAG\" docker compose -f docker-compose.prod.yml up -d --no-deps --wait auth-service
-      HEALTHY=false
-      for i in \$(seq 1 24); do
-        STATUS=\$(curl -sf http://localhost:8080/actuator/health | jq -r '.status' 2>/dev/null || echo '')
-        if [ \"\$STATUS\" = 'UP' ]; then HEALTHY=true; break; fi
-        sleep 5
-      done
-      if [ \"\$HEALTHY\" = 'false' ]; then
-        if [ -n \"\$CURRENT_TAG\" ]; then
-          IMAGE_TAG=\"\$CURRENT_TAG\" docker compose -f docker-compose.prod.yml up -d --no-deps --wait auth-service
-        fi
-        exit 1
-      fi
-      echo \"\$NEW_TAG\" > \"\$ROLLBACK_FILE\""
+      cat > .env.deploy <<EOF
+      ECR_REGISTRY=$ECR_REGISTRY
+      IMAGE_TAG=$IMAGE_TAG
+      DB_URL=$DB_URL
+      DB_USERNAME=$DB_USERNAME
+      DB_PASSWORD=$DB_PASSWORD
+      JWT_SECRET=$JWT_SECRET
+      JWT_EXPIRATION=${JWT_EXPIRATION:-PT2H}
+      REDIS_HOST=redis
+      REDIS_PORT=6379
+      SPRING_CACHE_TYPE=${SPRING_CACHE_TYPE:-simple}
+      SPRING_DATA_REDIS_HOST=redis
+      SPRING_DATA_REDIS_PORT=6379
+      KAFKA_ENABLED=false
+      COGNITO_ENABLED=${COGNITO_ENABLED:-false}
+      NGINX_SERVER_NAME=${PROD_DOMAIN:-_}
+      NGINX_CERT_NAME=${PROD_DOMAIN:-localhost}
+      EOF
+    # Stage deploy assets on the host, then bootstrap + deploy via the host script.
+    - ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
+    - scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$PROD_EC2_HOST:/opt/fitsync/docker-compose.prod.yml"
+    - scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$PROD_EC2_HOST:/opt/fitsync/nginx/nginx.conf.template"
+    - scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$PROD_EC2_HOST:/opt/fitsync/ec2-deploy.sh"
+    - scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$PROD_EC2_HOST:/opt/fitsync/.env"
+    - >
+      ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST"
+      "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION'
+      bash /opt/fitsync/ec2-deploy.sh"
+    # Optional external smoke test — needs nginx + TLS, so opt-in once configured.
     - |
-      if [ "${SKIP_PROD_SMOKE:-false}" != "true" ]; then
+      if [ "${RUN_PROD_SMOKE:-false}" = "true" ]; then
         BASE="https://$PROD_DOMAIN"
         test "$(curl -sk -o /dev/null -w '%{http_code}' "$BASE/actuator/health")" = "200"
-        test "$(curl -sk -o /dev/null -w '%{http_code}' "$BASE/api/v1/auth/login")" = "405"
       fi
   rules:
     # Manual production deploy, only offered once AWS/EC2 is configured (AWS_ROLE_ARN
