@@ -13,6 +13,8 @@ import com.fitsync.user.dto.BodyMetricView;
 import com.fitsync.user.dto.CompleteOnboardingRequest;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
+import com.fitsync.user.dto.HealthReadinessView;
+import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
 import com.fitsync.user.dto.UpsertUserProfileRequest;
@@ -83,6 +85,17 @@ public class UserController {
     public UserPreferencesView upsertPreferences(Authentication authentication,
                                                  @Valid @RequestBody UpsertUserPreferencesRequest request) {
         return userService.upsertPreferences(currentPrincipal(authentication), request);
+    }
+
+    @GetMapping("/me/health-readiness")
+    public HealthReadinessView healthReadiness(Authentication authentication) {
+        return userService.getHealthReadiness(currentPrincipal(authentication));
+    }
+
+    @PutMapping("/me/health-readiness")
+    public HealthReadinessView upsertHealthReadiness(Authentication authentication,
+                                                     @Valid @RequestBody UpsertHealthReadinessRequest request) {
+        return userService.upsertHealthReadiness(currentPrincipal(authentication), request);
     }
 
     @PostMapping("/me/body-metrics")

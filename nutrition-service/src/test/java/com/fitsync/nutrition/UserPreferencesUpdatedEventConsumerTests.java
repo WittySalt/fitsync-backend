@@ -35,7 +35,7 @@ class UserPreferencesUpdatedEventConsumerTests {
                 Instant.parse("2026-06-12T00:20:00Z"),
                 "user-service",
                 userId,
-                new UserPreferencesUpdatedPayload("100001", 4, "300003", true)));
+                new UserPreferencesUpdatedPayload("100001", 4, "300003", true, List.of(), List.of())));
 
         assertThat(repository.findById(userId))
                 .isPresent()

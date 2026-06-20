@@ -13,7 +13,9 @@ import com.fitsync.user.dto.BodyMetricView;
 import com.fitsync.user.dto.CompleteOnboardingRequest;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
+import com.fitsync.user.dto.HealthReadinessView;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
+import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
 import com.fitsync.user.dto.UpsertUserProfileRequest;
 import com.fitsync.user.dto.UserGoalView;
@@ -33,6 +35,10 @@ public interface UserService {
     UserPreferencesView getPreferences(CurrentUserPrincipal principal);
 
     UserPreferencesView upsertPreferences(CurrentUserPrincipal principal, UpsertUserPreferencesRequest request);
+
+    HealthReadinessView getHealthReadiness(CurrentUserPrincipal principal);
+
+    HealthReadinessView upsertHealthReadiness(CurrentUserPrincipal principal, UpsertHealthReadinessRequest request);
 
     BodyMetricView addBodyMetrics(CurrentUserPrincipal principal, CreateBodyMetricRequest request);
 

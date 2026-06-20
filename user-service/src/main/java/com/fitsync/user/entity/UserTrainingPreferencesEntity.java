@@ -1,17 +1,26 @@
 package com.fitsync.user.entity;
 
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseAuditableEntity;
 import com.fitsync.user.domain.FitnessLevel;
 import com.fitsync.user.domain.IntensityPreference;
+import com.fitsync.user.domain.TrainingEquipment;
+import com.fitsync.user.domain.TrainingFocusArea;
 import com.fitsync.user.domain.TrainingLocation;
+import jakarta.persistence.CollectionTable;
 import com.fitsync.user.entity.converter.CodeEnumConverters;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
 
 @Entity
@@ -43,6 +52,20 @@ public class UserTrainingPreferencesEntity extends BaseAuditableEntity {
     @Column(name = "intensity_preference_code", nullable = false, length = 40)
     private IntensityPreference intensityPreference;
 
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_training_preference_equipment", joinColumns = @JoinColumn(name = "user_id"))
+    @OrderColumn(name = "sort_order")
+    @Column(name = "equipment_code", nullable = false, length = 40)
+    @Convert(converter = CodeEnumConverters.TrainingEquipmentConverter.class)
+    private List<TrainingEquipment> equipmentInventory = new ArrayList<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_training_preference_focus_areas", joinColumns = @JoinColumn(name = "user_id"))
+    @OrderColumn(name = "sort_order")
+    @Column(name = "focus_area_code", nullable = false, length = 40)
+    @Convert(converter = CodeEnumConverters.TrainingFocusAreaConverter.class)
+    private List<TrainingFocusArea> focusAreas = new ArrayList<>();
+
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public FitnessLevel getFitnessLevel() { return fitnessLevel; }
@@ -57,4 +80,12 @@ public class UserTrainingPreferencesEntity extends BaseAuditableEntity {
     public void setPreferredWorkoutTime(LocalTime preferredWorkoutTime) { this.preferredWorkoutTime = preferredWorkoutTime; }
     public IntensityPreference getIntensityPreference() { return intensityPreference; }
     public void setIntensityPreference(IntensityPreference intensityPreference) { this.intensityPreference = intensityPreference; }
+    public List<TrainingEquipment> getEquipmentInventory() { return equipmentInventory; }
+    public void setEquipmentInventory(List<TrainingEquipment> equipmentInventory) {
+        this.equipmentInventory = equipmentInventory == null ? new ArrayList<>() : new ArrayList<>(equipmentInventory);
+    }
+    public List<TrainingFocusArea> getFocusAreas() { return focusAreas; }
+    public void setFocusAreas(List<TrainingFocusArea> focusAreas) {
+        this.focusAreas = focusAreas == null ? new ArrayList<>() : new ArrayList<>(focusAreas);
+    }
 }
