@@ -81,6 +81,7 @@ import com.fitsync.nutrition.repository.CustomFoodRepository;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
 import com.fitsync.nutrition.repository.FoodBrandRepository;
 import com.fitsync.nutrition.repository.FoodCatalogItemRepository;
+import com.fitsync.nutrition.repository.FoodCatalogSearchSpecification;
 import com.fitsync.nutrition.repository.FoodCategoryRepository;
 import com.fitsync.nutrition.repository.FoodFavoriteRepository;
 import com.fitsync.nutrition.repository.FoodNutrientDetailRepository;
@@ -473,9 +474,11 @@ public class NutritionServiceImpl implements NutritionService {
 
         int size = Math.min(Math.max(criteria.size(), 1), FOOD_SEARCH_MAX_SIZE);
         int page = Math.max(criteria.page(), 0);
-        List<FoodCatalogItemEntity> foods = foodCatalogItemRepository.searchAccessibleFoods(
-                principal.userId(), normalizedQuery, today, categoryCode, pathPrefix,
-                criteria.brandId(), criteria.verified(), criteria.scope(), PageRequest.of(page, size));
+        List<FoodCatalogItemEntity> foods = foodCatalogItemRepository.findAll(
+                FoodCatalogSearchSpecification.accessibleSearch(
+                        principal.userId(), normalizedQuery, today, categoryCode, pathPrefix,
+                        criteria.brandId(), criteria.verified(), criteria.scope()),
+                PageRequest.of(page, size)).getContent();
 
         Map<UUID, String> brandNames = loadBrandNames(foods.stream()
                 .map(FoodCatalogItemEntity::getBrandId)

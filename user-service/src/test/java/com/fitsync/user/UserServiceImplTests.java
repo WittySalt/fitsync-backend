@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.media.MediaStorageService;
 import com.fitsync.user.domain.CalorieTrackingMode;
 import com.fitsync.user.domain.DietaryPreference;
 import com.fitsync.user.domain.FitnessLevel;
@@ -47,6 +48,7 @@ import com.fitsync.user.repository.UserTrainingPreferencesRepository;
 import com.fitsync.user.security.CurrentUserPrincipal;
 import com.fitsync.user.service.UserServiceImpl;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 class UserServiceImplTests {
 
@@ -128,6 +130,9 @@ class UserServiceImplTests {
 
     private static final class Fixtures {
         private final DomainEventPublisher domainEventPublisher = mock(DomainEventPublisher.class);
+        private final MediaStorageService mediaStorageService = mock(MediaStorageService.class);
+        @SuppressWarnings("unchecked")
+        private final ObjectProvider<MediaStorageService> mediaStorageServiceProvider = mock(ObjectProvider.class);
         private final AccountDataExportRequestRepository accountDataExportRequestRepository =
                 mock(AccountDataExportRequestRepository.class);
         private final UserProfileRepository userProfileRepository = mock(UserProfileRepository.class);
@@ -143,8 +148,14 @@ class UserServiceImplTests {
                 mock(UserNotificationPreferencesRepository.class);
         private final BodyMetricEntryRepository bodyMetricEntryRepository = mock(BodyMetricEntryRepository.class);
         private final UserGoalRepository userGoalRepository = mock(UserGoalRepository.class);
+
+        private Fixtures() {
+            when(mediaStorageServiceProvider.getObject()).thenReturn(mediaStorageService);
+        }
+
         private final UserServiceImpl service = new UserServiceImpl(
                 domainEventPublisher,
+                mediaStorageServiceProvider,
                 accountDataExportRequestRepository,
                 userProfileRepository,
                 userAppPreferencesRepository,
