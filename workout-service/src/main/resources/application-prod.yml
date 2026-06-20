@@ -1,0 +1,16 @@
+# Production overrides for workout-service.
+# DB (DB_URL/DB_USERNAME/DB_PASSWORD), Kafka (KAFKA_BOOTSTRAP_SERVERS),
+# JWT (JWT_SECRET) and ports are all supplied via env vars resolved in
+# application.yml — this file only tightens prod-specific behaviour.
+spring:
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

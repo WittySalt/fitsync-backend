@@ -1,0 +1,17 @@
+# Production overrides for analytics-service.
+# DB (DB_URL/DB_USERNAME/DB_PASSWORD), Redis (SPRING_DATA_REDIS_*),
+# Kafka (KAFKA_BOOTSTRAP_SERVERS) and JWT (JWT_SECRET) are all supplied via
+# env vars resolved in application.yml — this file only tightens prod behaviour.
+# To use ElastiCache as the cache backend in prod, set SPRING_CACHE_TYPE=redis.
+spring:
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

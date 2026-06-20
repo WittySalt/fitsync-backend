@@ -1,8 +1,50 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FitSync production stack — single-host (EC2) deployment.
+#
+#   Managed externally : PostgreSQL  -> Amazon RDS  (DB_URL / DB_USERNAME / DB_PASSWORD)
+#   On this host       : Redis (cache/session), the 6 services, nginx (TLS).
+#
+# Images are built + pushed by scripts/build-images.sh as fitsync-<service>.
+# Provide the env values via a .env file next to this compose file
+# (see .env.prod.example).
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks: [fitsync-net]
+
+# Shared env for every JWT + RDS-backed service. Kafka stays disabled in phase 1
+# (no MSK) — listeners are off by default so nothing tries to reach a broker.
+x-app-env: &app-env
+  SPRING_PROFILES_ACTIVE: prod
+  DB_URL: ${DB_URL}
+  DB_USERNAME: ${DB_USERNAME}
+  DB_PASSWORD: ${DB_PASSWORD}
+  JWT_SECRET: ${JWT_SECRET}
+  JWT_EXPIRATION: ${JWT_EXPIRATION:-PT2H}
+  KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+
 services:
-  api-gateway:
-    image: ${ECR_REGISTRY}/fitsync-backend-gateway:${IMAGE_TAG:-latest}
-    container_name: fitsync-api-gateway
+  redis:
+    image: redis:7-alpine
+    container_name: fitsync-redis
     restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [fitsync-net]
+
+  api-gateway:
+    <<: *service-defaults
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-api-gateway:${IMAGE_TAG:-latest}
+    container_name: fitsync-api-gateway
     environment:
       SPRING_PROFILES_ACTIVE: prod
       SERVER_PORT: 8088
@@ -14,6 +56,9 @@ services:
       COGNITO_PRINCIPAL_CLAIM: ${COGNITO_PRINCIPAL_CLAIM:-username}
       AUTH_SERVICE_BASE_URL: http://auth-service:8080
       USER_SERVICE_BASE_URL: http://user-service:8081
+      WORKOUT_SERVICE_BASE_URL: http://workout-service:8082
+      NUTRITION_SERVICE_BASE_URL: http://nutrition-service:8083
+      ANALYTICS_SERVICE_BASE_URL: http://analytics-service:8085
     ports:
       - "8088:8088"
     healthcheck:
@@ -23,53 +68,93 @@ services:
       retries: 3
       start_period: 30s
     depends_on:
-      auth-service:
-        condition: service_healthy
-    networks:
-      - fitsync-net
+      auth-service: {condition: service_healthy}
+      user-service: {condition: service_healthy}
+      workout-service: {condition: service_healthy}
+      nutrition-service: {condition: service_healthy}
+      analytics-service: {condition: service_healthy}
 
   auth-service:
-    image: ${ECR_REGISTRY}/fitsync-backend:${IMAGE_TAG:-latest}
+    <<: *service-defaults
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-auth-service:${IMAGE_TAG:-latest}
     container_name: fitsync-auth-service
-    restart: unless-stopped
     environment:
-      SPRING_PROFILES_ACTIVE: prod
-      DB_URL: ${DB_URL}
-      DB_USERNAME: ${DB_USERNAME}
-      DB_PASSWORD: ${DB_PASSWORD}
-      REDIS_HOST: ${REDIS_HOST}
+      <<: *app-env
+      SERVER_PORT: 8080
+      REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
-    ports:
-      - "8080:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 40s
-    networks:
-      - fitsync-net
+    depends_on:
+      redis: {condition: service_healthy}
 
   user-service:
-    profiles: ["future-services"]
-    image: ${ECR_REGISTRY}/fitsync-backend-user:${IMAGE_TAG:-latest}
+    <<: *service-defaults
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-user-service:${IMAGE_TAG:-latest}
     container_name: fitsync-user-service
-    restart: unless-stopped
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      <<: *app-env
       SERVER_PORT: 8081
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
-    networks:
-      - fitsync-net
+      start_period: 40s
+
+  workout-service:
+    <<: *service-defaults
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-workout-service:${IMAGE_TAG:-latest}
+    container_name: fitsync-workout-service
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8082
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  nutrition-service:
+    <<: *service-defaults
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-nutrition-service:${IMAGE_TAG:-latest}
+    container_name: fitsync-nutrition-service
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8083
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  analytics-service:
+    <<: *service-defaults
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-analytics-service:${IMAGE_TAG:-latest}
+    container_name: fitsync-analytics-service
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8085
+      # analytics uses the SPRING_DATA_REDIS_* names (not REDIS_HOST). Cache stays
+      # 'simple' in phase 1; set SPRING_CACHE_TYPE=redis to use the redis container.
+      SPRING_CACHE_TYPE: ${SPRING_CACHE_TYPE:-simple}
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
+      SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      redis: {condition: service_healthy}
 
   nginx:
     image: nginx:1.27-alpine
@@ -92,9 +177,11 @@ services:
     depends_on:
       api-gateway:
         condition: service_healthy
-    networks:
-      - fitsync-net
+    networks: [fitsync-net]
 
 networks:
   fitsync-net:
     driver: bridge
+
+volumes:
+  redis-data:
