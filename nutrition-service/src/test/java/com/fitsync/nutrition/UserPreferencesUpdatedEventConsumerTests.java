@@ -3,6 +3,7 @@ package com.fitsync.nutrition;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
