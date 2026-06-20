@@ -22,6 +22,8 @@ public interface ExerciseRepository extends JpaRepository<ExerciseEntity, UUID>,
 
     Optional<ExerciseEntity> findByExternalSourceAndExternalRef(String externalSource, String externalRef);
 
+    long countByExternalSource(String externalSource);
+
     @Query("""
             select exercise from ExerciseEntity exercise
             where exercise.exerciseId = :exerciseId
