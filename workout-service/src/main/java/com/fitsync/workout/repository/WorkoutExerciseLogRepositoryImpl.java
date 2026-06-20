@@ -13,6 +13,7 @@ import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -26,11 +27,8 @@ import org.springframework.data.domain.Pageable;
 public class WorkoutExerciseLogRepositoryImpl extends AbstractCriteriaRepositorySupport
         implements WorkoutExerciseLogRepositoryCustom {
 
-    private final EntityManager entityManager;
-
-    public WorkoutExerciseLogRepositoryImpl(EntityManager entityManager) {
-        this.entityManager = entityManager;
-    }
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Override
     public Page<ExerciseHistoryEntryView> findExerciseHistory(UUID userId,

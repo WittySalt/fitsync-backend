@@ -16,6 +16,7 @@ import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.web.response.PageResponse;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,6 +24,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.DockerClientFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -31,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 @ActiveProfiles("test")
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class WorkoutServicePostgresIT {
 
     private static final UUID ALICE_USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -66,6 +68,8 @@ class WorkoutServicePostgresIT {
 
     @Test
     void shouldListExercisesWhenQueryIsBlankOrFilteredOnPostgres() {
+        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
+
         PageResponse<ExerciseView> blankQuery = exerciseService.listExercises(
                 currentUser,
                 "",
@@ -92,6 +96,8 @@ class WorkoutServicePostgresIT {
 
     @Test
     void shouldListPlansAndSessionsWithNullableFiltersOnPostgres() {
+        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
+
         PageResponse<WorkoutPlanView> allPlans = workoutService.listPlans(currentUser, null, 0, 20);
         PageResponse<WorkoutPlanView> activePlans = workoutService.listPlans(currentUser, WorkoutPlanStatus.ACTIVE, 0, 20);
 
@@ -121,6 +127,8 @@ class WorkoutServicePostgresIT {
 
     @Test
     void shouldLoadExerciseRecordsAndHistoryOnPostgres() {
+        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
+
         var records = workoutService.getExerciseRecords(currentUser, GOBLET_SQUAT_ID);
         var history = workoutService.getExerciseHistory(
                 currentUser,

@@ -8,6 +8,7 @@ import java.util.UUID;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -20,11 +21,8 @@ import org.springframework.data.domain.Pageable;
 public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupport
         implements WorkoutSessionRepositoryCustom {
 
-    private final EntityManager entityManager;
-
-    public WorkoutSessionRepositoryImpl(EntityManager entityManager) {
-        this.entityManager = entityManager;
-    }
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Override
     public Page<UUID> findHistoryIds(UUID userId,
