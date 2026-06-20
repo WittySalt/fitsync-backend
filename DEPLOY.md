@@ -154,8 +154,17 @@ aws rds describe-db-instances --db-instance-identifier fitsync-prod \
   --query 'DBInstances[0].Endpoint.Address' --output text
 ```
 - `DB_URL` = `jdbc:postgresql://<that-endpoint>:5432/fitsync`
-- The master user `fitsync` has `CREATE` on the DB, so Flyway can create the 5
-  schemas on first boot. Nothing else to pre-create.
+- **Per-service least-privilege users (not the master).** Each service connects as
+  its own DB user (`auth_svc`/`user_svc`/`workout_svc`/`nutrition_svc`/`analytics_svc`),
+  scoped to its schema, so a compromise of one service can't reach another's tables.
+  One-time setup, run as the master once after the instance is up:
+  ```sql
+  CREATE SCHEMA IF NOT EXISTS auth;        -- + user_domain, workout, nutrition, analytics
+  CREATE USER auth_svc WITH PASSWORD '<AUTH_DB_PASSWORD>';   -- one per service
+  GRANT ALL ON SCHEMA auth TO auth_svc;    ALTER ROLE auth_svc SET search_path = auth;
+  ```
+  Flyway then runs as each service user and creates that schema's tables on first boot.
+  Note schema names: user-service uses **`user_domain`**, the rest match the service name.
 
 ## 6. EC2 instance
 
@@ -201,9 +210,12 @@ Set on the **fitsync-backend** project. Mark secrets **Masked**, and everything
 | `AWS_ROLE_ARN` | arn of `fitsync-gitlab-ci` (step 2c) | no | **set LAST — this un-gates the pipeline** |
 | `AWS_REGION` | `ap-southeast-1` | no | |
 | `AWS_ACCOUNT_ID` | your 12-digit account id | yes | |
-| `DB_URL` | `jdbc:postgresql://<rds>:5432/fitsync` | no | |
-| `DB_USERNAME` | `fitsync` | no | |
-| `DB_PASSWORD` | the RDS master password | yes | |
+| `DB_URL` | `jdbc:postgresql://<rds>:5432/fitsync` | no | shared (one db) |
+| `AUTH_DB_PASSWORD` | password for DB user `auth_svc` | yes | per-service least-privilege user |
+| `USER_DB_PASSWORD` | password for DB user `user_svc` | yes | |
+| `WORKOUT_DB_PASSWORD` | password for DB user `workout_svc` | yes | |
+| `NUTRITION_DB_PASSWORD` | password for DB user `nutrition_svc` | yes | |
+| `ANALYTICS_DB_PASSWORD` | password for DB user `analytics_svc` | yes | |
 | `JWT_SECRET` | long random string | yes | `openssl rand -base64 48` |
 | `PROD_EC2_HOST` | the Elastic IP | no | |
 | `PROD_EC2_SSH_KEY` | contents of `fitsync_ed25519` | yes | the **private** key, full file |

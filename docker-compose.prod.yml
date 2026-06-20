@@ -17,11 +17,12 @@ x-service-defaults: &service-defaults
 
 # Shared env for every JWT + RDS-backed service. Kafka stays disabled in phase 1
 # (no MSK) — listeners are off by default so nothing tries to reach a broker.
+# DB_URL is shared (one RDS instance, one `fitsync` db); each service connects
+# with its OWN least-privilege DB user (auth_svc/user_svc/...) scoped to its
+# schema, so DB_USERNAME/DB_PASSWORD are set per-service below, not here.
 x-app-env: &app-env
   SPRING_PROFILES_ACTIVE: prod
   DB_URL: ${DB_URL}
-  DB_USERNAME: ${DB_USERNAME}
-  DB_PASSWORD: ${DB_PASSWORD}
   JWT_SECRET: ${JWT_SECRET}
   JWT_EXPIRATION: ${JWT_EXPIRATION:-PT2H}
   KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
@@ -80,6 +81,8 @@ services:
     container_name: fitsync-auth-service
     environment:
       <<: *app-env
+      DB_USERNAME: auth_svc
+      DB_PASSWORD: ${AUTH_DB_PASSWORD}
       SERVER_PORT: 8080
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
@@ -98,6 +101,8 @@ services:
     container_name: fitsync-user-service
     environment:
       <<: *app-env
+      DB_USERNAME: user_svc
+      DB_PASSWORD: ${USER_DB_PASSWORD}
       SERVER_PORT: 8081
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
@@ -112,6 +117,8 @@ services:
     container_name: fitsync-workout-service
     environment:
       <<: *app-env
+      DB_USERNAME: workout_svc
+      DB_PASSWORD: ${WORKOUT_DB_PASSWORD}
       SERVER_PORT: 8082
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
@@ -126,6 +133,8 @@ services:
     container_name: fitsync-nutrition-service
     environment:
       <<: *app-env
+      DB_USERNAME: nutrition_svc
+      DB_PASSWORD: ${NUTRITION_DB_PASSWORD}
       SERVER_PORT: 8083
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
@@ -140,6 +149,8 @@ services:
     container_name: fitsync-analytics-service
     environment:
       <<: *app-env
+      DB_USERNAME: analytics_svc
+      DB_PASSWORD: ${ANALYTICS_DB_PASSWORD}
       SERVER_PORT: 8085
       # analytics uses the SPRING_DATA_REDIS_* names (not REDIS_HOST). Cache stays
       # 'simple' in phase 1; set SPRING_CACHE_TYPE=redis to use the redis container.
