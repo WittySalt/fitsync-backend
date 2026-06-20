@@ -1,5 +1,6 @@
 package com.fitsync.user.service;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -7,6 +8,7 @@ import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -15,6 +17,7 @@ import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
+import com.fitsync.media.MediaStorageService;
 import com.fitsync.user.domain.AccountDataExportStatus;
 import com.fitsync.user.domain.CalorieTrackingMode;
 import com.fitsync.user.domain.DietaryPreference;
@@ -73,18 +76,26 @@ import com.fitsync.user.repository.UserNutritionPreferencesRepository;
 import com.fitsync.user.repository.UserProfileRepository;
 import com.fitsync.user.repository.UserTrainingPreferencesRepository;
 import com.fitsync.user.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class UserServiceImpl implements UserService {
 
     private static final String SOURCE = "user-service";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
+    private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
+    private static final Map<String, String> AVATAR_EXTENSIONS = Map.of(
+            "image/png", "png",
+            "image/jpeg", "jpg",
+            "image/webp", "webp");
 
     private final DomainEventPublisher domainEventPublisher;
+    private final MediaStorageService mediaStorageService;
     private final AccountDataExportRequestRepository accountDataExportRequestRepository;
     private final UserProfileRepository userProfileRepository;
     private final UserAppPreferencesRepository userAppPreferencesRepository;
@@ -96,6 +107,7 @@ public class UserServiceImpl implements UserService {
     private final UserGoalRepository userGoalRepository;
 
     public UserServiceImpl(DomainEventPublisher domainEventPublisher,
+                           MediaStorageService mediaStorageService,
                            AccountDataExportRequestRepository accountDataExportRequestRepository,
                            UserProfileRepository userProfileRepository,
                            UserAppPreferencesRepository userAppPreferencesRepository,
@@ -106,6 +118,7 @@ public class UserServiceImpl implements UserService {
                            BodyMetricEntryRepository bodyMetricEntryRepository,
                            UserGoalRepository userGoalRepository) {
         this.domainEventPublisher = domainEventPublisher;
+        this.mediaStorageService = mediaStorageService;
         this.accountDataExportRequestRepository = accountDataExportRequestRepository;
         this.userProfileRepository = userProfileRepository;
         this.userAppPreferencesRepository = userAppPreferencesRepository;
@@ -270,16 +283,29 @@ public class UserServiceImpl implements UserService {
         entity.setBio(request.bio());
         entity.setOnboardingCompleted(request.onboardingCompleted());
         UserProfileEntity saved = userProfileRepository.save(entity);
-        domainEventPublisher.publish(
-                "user-events", "UserProfile", principal.userId().toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "UserProfileUpdated", 1, Instant.now(), SOURCE, principal.userId(),
-                new UserProfileUpdatedPayload(
-                        saved.getDisplayName(),
-                        saved.getHeightCm(),
-                        saved.getActivityLevel() == null ? null : saved.getActivityLevel().name(),
-                        saved.isOnboardingCompleted(),
-                        List.of("displayName", "firstName", "lastName", "avatarUrl", "birthDate",
-                                "gender", "heightCm", "activityLevel", "timezone", "bio", "onboardingCompleted"))));
+        publishProfileUpdated(principal.userId(), saved, List.of("displayName", "firstName", "lastName",
+                "avatarUrl", "birthDate", "gender", "heightCm", "activityLevel", "timezone", "bio",
+                "onboardingCompleted"));
+        return toProfileView(saved);
+    }
+
+    @Override
+    @Transactional
+    public UserProfileView uploadAvatar(CurrentUserPrincipal principal, MultipartFile file) {
+        String contentType = validateAvatar(file);
+        String extension = AVATAR_EXTENSIONS.get(contentType);
+        String key = "avatars/" + principal.userId() + "/" + UUID.randomUUID() + "." + extension;
+        String avatarUrl;
+        try {
+            avatarUrl = mediaStorageService.put(key, file.getBytes(), contentType);
+        } catch (IOException ex) {
+            throw new BadRequestException("Avatar file could not be read");
+        }
+
+        UserProfileEntity entity = getOrCreateProfileEntity(principal);
+        entity.setAvatarUrl(avatarUrl);
+        UserProfileEntity saved = userProfileRepository.save(entity);
+        publishProfileUpdated(principal.userId(), saved, List.of("avatarUrl"));
         return toProfileView(saved);
     }
 
@@ -638,6 +664,34 @@ public class UserServiceImpl implements UserService {
     private BodyMetricEntryEntity getOwnedBodyMetric(UUID userId, UUID metricId) {
         return bodyMetricEntryRepository.findByMetricIdAndUserId(metricId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Body metric not found"));
+    }
+
+    private String validateAvatar(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("Avatar file is required");
+        }
+        String contentType = file.getContentType() == null
+                ? ""
+                : file.getContentType().trim().toLowerCase(Locale.ROOT);
+        if (!AVATAR_EXTENSIONS.containsKey(contentType)) {
+            throw new BadRequestException("Avatar file must be image/png, image/jpeg, or image/webp");
+        }
+        if (file.getSize() > MAX_AVATAR_BYTES) {
+            throw new BadRequestException("Avatar file size must be 2MB or less");
+        }
+        return contentType;
+    }
+
+    private void publishProfileUpdated(UUID userId, UserProfileEntity saved, List<String> changedFields) {
+        domainEventPublisher.publish(
+                "user-events", "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "UserProfileUpdated", 1, Instant.now(), SOURCE, userId,
+                new UserProfileUpdatedPayload(
+                        saved.getDisplayName(),
+                        saved.getHeightCm(),
+                        saved.getActivityLevel() == null ? null : saved.getActivityLevel().name(),
+                        saved.isOnboardingCompleted(),
+                        changedFields)));
     }
 
     private void applyBodyMetricRequest(BodyMetricEntryEntity entity, CreateBodyMetricRequest request) {

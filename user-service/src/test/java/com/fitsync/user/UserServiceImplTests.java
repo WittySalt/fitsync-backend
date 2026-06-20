@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.media.MediaStorageService;
 import com.fitsync.user.domain.CalorieTrackingMode;
 import com.fitsync.user.domain.DietaryPreference;
 import com.fitsync.user.domain.FitnessLevel;
@@ -128,6 +129,7 @@ class UserServiceImplTests {
 
     private static final class Fixtures {
         private final DomainEventPublisher domainEventPublisher = mock(DomainEventPublisher.class);
+        private final MediaStorageService mediaStorageService = mock(MediaStorageService.class);
         private final AccountDataExportRequestRepository accountDataExportRequestRepository =
                 mock(AccountDataExportRequestRepository.class);
         private final UserProfileRepository userProfileRepository = mock(UserProfileRepository.class);
@@ -145,6 +147,7 @@ class UserServiceImplTests {
         private final UserGoalRepository userGoalRepository = mock(UserGoalRepository.class);
         private final UserServiceImpl service = new UserServiceImpl(
                 domainEventPublisher,
+                mediaStorageService,
                 accountDataExportRequestRepository,
                 userProfileRepository,
                 userAppPreferencesRepository,

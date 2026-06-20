@@ -34,6 +34,10 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
     listener:
       missing-topics-fatal: false
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 3MB
 
 server:
   port: ${SERVER_PORT:8081}
@@ -58,6 +62,13 @@ security:
     expiration: ${JWT_EXPIRATION:PT2H}
 
 fitsync:
+  media:
+    endpoint: ${FITSYNC_MEDIA_ENDPOINT:http://localhost:9000}
+    region: ${FITSYNC_MEDIA_REGION:us-east-1}
+    access-key: ${FITSYNC_MEDIA_ACCESS_KEY:${MINIO_ROOT_USER:fitsync}}
+    secret-key: ${FITSYNC_MEDIA_SECRET_KEY:${MINIO_ROOT_PASSWORD:fitsync-password}}
+    bucket: ${FITSYNC_MEDIA_BUCKET:${MINIO_BUCKET:fitsync-media}}
+    public-base-url: ${FITSYNC_MEDIA_PUBLIC_BASE_URL:http://localhost:9000/fitsync-media}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:
