@@ -142,6 +142,10 @@ services:
       DB_USERNAME: workout_svc
       DB_PASSWORD: ${WORKOUT_DB_PASSWORD}
       SERVER_PORT: 8082
+      FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY: ${FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY:-/opt/fitsync/free-exercise-db/exercises}
+      WORKOUT_CATALOG_AUTO_IMPORT: ${WORKOUT_CATALOG_AUTO_IMPORT:-true}
+    volumes:
+      - ${FREE_EXERCISE_DB_IMAGES_DIR:-./.local/free-exercise-db/exercises}:/opt/fitsync/free-exercise-db/exercises:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
       interval: 30s

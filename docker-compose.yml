@@ -10,6 +10,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitsync -d fitsync"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   redis:
     image: redis:7-alpine
@@ -51,6 +56,46 @@ services:
       mc mb --ignore-existing local/\"$${MINIO_BUCKET}\";
       mc anonymous set download local/\"$${MINIO_BUCKET}\";
       "
+
+  workout-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: workout-service
+        SERVER_PORT: 8082
+    image: fitsync-workout-service:${IMAGE_TAG:-latest}
+    container_name: fitsync-workout-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DB_URL: jdbc:postgresql://postgres:5432/fitsync
+      DB_USERNAME: fitsync
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-fitsync}
+      SERVER_PORT: 8082
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+      FITSYNC_MEDIA_ENDPOINT: http://minio:9000
+      FITSYNC_MEDIA_REGION: ${FITSYNC_MEDIA_REGION:-us-east-1}
+      FITSYNC_MEDIA_ACCESS_KEY: ${MINIO_ROOT_USER:-fitsync}
+      FITSYNC_MEDIA_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-fitsync-password}
+      FITSYNC_MEDIA_BUCKET: ${MINIO_BUCKET:-fitsync-media}
+      FITSYNC_MEDIA_PUBLIC_BASE_URL: http://localhost:9000/${MINIO_BUCKET:-fitsync-media}
+      FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY: /opt/fitsync/free-exercise-db/exercises
+      WORKOUT_CATALOG_AUTO_IMPORT: ${WORKOUT_CATALOG_AUTO_IMPORT:-true}
+    ports:
+      - "8082:8082"
+    volumes:
+      - ${FREE_EXERCISE_DB_IMAGES_DIR:-./.local/free-exercise-db/exercises}:/opt/fitsync/free-exercise-db/exercises:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   kafka:
     image: apache/kafka:3.7.0

@@ -67,6 +67,7 @@ fitsync:
     public-base-url: ${FITSYNC_MEDIA_PUBLIC_BASE_URL:http://localhost:9000/fitsync-media}
   workout:
     catalog:
+      auto-import: ${WORKOUT_CATALOG_AUTO_IMPORT:true}
       free-exercise-db:
         image-source-directory: ${FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY:}
     exercise-history:
