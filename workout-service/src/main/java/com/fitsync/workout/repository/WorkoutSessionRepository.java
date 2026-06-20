@@ -1,6 +1,5 @@
 package com.fitsync.workout.repository;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -8,14 +7,12 @@ import java.util.UUID;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEntity, UUID> {
+public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEntity, UUID>, WorkoutSessionRepositoryCustom {
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     Optional<WorkoutSessionEntity> findBySessionIdAndUserId(UUID sessionId, UUID userId);
@@ -31,21 +28,6 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     List<WorkoutSessionEntity> findByUserIdOrderByStartedAtDesc(UUID userId);
-
-    @Query("""
-            select session.sessionId from WorkoutSessionEntity session
-            where session.userId = :userId
-              and (:from is null or session.startedAt >= :from)
-              and (:to is null or session.startedAt <= :to)
-              and (:status is null or session.status = :status)
-              and (:planId is null or session.planId = :planId)
-            """)
-    Page<UUID> findHistoryIds(@Param("userId") UUID userId,
-                              @Param("from") Instant from,
-                              @Param("to") Instant to,
-                              @Param("status") WorkoutSessionStatus status,
-                              @Param("planId") UUID planId,
-                              Pageable pageable);
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     @Query("""
