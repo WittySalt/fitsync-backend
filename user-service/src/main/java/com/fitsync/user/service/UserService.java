@@ -22,6 +22,7 @@ import com.fitsync.user.dto.UserGoalView;
 import com.fitsync.user.dto.UserPreferencesView;
 import com.fitsync.user.dto.UserProfileView;
 import com.fitsync.user.security.CurrentUserPrincipal;
+import org.springframework.web.multipart.MultipartFile;
 public interface UserService {
 
     CurrentUserResponse getCurrentUser(CurrentUserPrincipal principal);
@@ -31,6 +32,8 @@ public interface UserService {
     UserProfileView getProfile(CurrentUserPrincipal principal);
 
     UserProfileView upsertProfile(CurrentUserPrincipal principal, UpsertUserProfileRequest request);
+
+    UserProfileView uploadAvatar(CurrentUserPrincipal principal, MultipartFile file);
 
     UserPreferencesView getPreferences(CurrentUserPrincipal principal);
 

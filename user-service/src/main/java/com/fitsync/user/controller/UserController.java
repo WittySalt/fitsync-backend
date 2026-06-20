@@ -40,8 +40,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/users")
@@ -74,6 +76,12 @@ public class UserController {
     public UserProfileView upsertProfile(Authentication authentication,
                                          @Valid @RequestBody UpsertUserProfileRequest request) {
         return userService.upsertProfile(currentPrincipal(authentication), request);
+    }
+
+    @PostMapping(value = "/me/profile/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public UserProfileView uploadAvatar(Authentication authentication,
+                                        @RequestPart("file") MultipartFile file) {
+        return userService.uploadAvatar(currentPrincipal(authentication), file);
     }
 
     @GetMapping("/me/preferences")
