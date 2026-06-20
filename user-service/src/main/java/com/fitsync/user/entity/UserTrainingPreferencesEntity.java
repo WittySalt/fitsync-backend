@@ -80,11 +80,11 @@ public class UserTrainingPreferencesEntity extends BaseAuditableEntity {
     public void setPreferredWorkoutTime(LocalTime preferredWorkoutTime) { this.preferredWorkoutTime = preferredWorkoutTime; }
     public IntensityPreference getIntensityPreference() { return intensityPreference; }
     public void setIntensityPreference(IntensityPreference intensityPreference) { this.intensityPreference = intensityPreference; }
-    public List<TrainingEquipment> getEquipmentInventory() { return equipmentInventory; }
+    public List<TrainingEquipment> getEquipmentInventory() { return List.copyOf(equipmentInventory); }
     public void setEquipmentInventory(List<TrainingEquipment> equipmentInventory) {
         this.equipmentInventory = equipmentInventory == null ? new ArrayList<>() : new ArrayList<>(equipmentInventory);
     }
-    public List<TrainingFocusArea> getFocusAreas() { return focusAreas; }
+    public List<TrainingFocusArea> getFocusAreas() { return List.copyOf(focusAreas); }
     public void setFocusAreas(List<TrainingFocusArea> focusAreas) {
         this.focusAreas = focusAreas == null ? new ArrayList<>() : new ArrayList<>(focusAreas);
     }

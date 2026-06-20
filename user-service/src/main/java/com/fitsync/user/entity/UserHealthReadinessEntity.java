@@ -65,7 +65,7 @@ public class UserHealthReadinessEntity extends BaseAuditableEntity {
     public void setBpOrHeartMeds(boolean bpOrHeartMeds) { this.bpOrHeartMeds = bpOrHeartMeds; }
     public boolean isOtherReason() { return otherReason; }
     public void setOtherReason(boolean otherReason) { this.otherReason = otherReason; }
-    public List<String> getInjuryAreas() { return injuryAreas; }
+    public List<String> getInjuryAreas() { return List.copyOf(injuryAreas); }
     public void setInjuryAreas(List<String> injuryAreas) {
         this.injuryAreas = injuryAreas == null ? new ArrayList<>() : new ArrayList<>(injuryAreas);
     }
