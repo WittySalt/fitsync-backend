@@ -15,6 +15,8 @@ spring:
         default_schema: nutrition
   flyway:
     enabled: true
+    # Core only — exclude db/seed (the large USDA prod seed) so tests stay fast.
+    locations: classpath:db/migration
     default-schema: nutrition
     schemas: nutrition
     table: nutrition_flyway_schema_history

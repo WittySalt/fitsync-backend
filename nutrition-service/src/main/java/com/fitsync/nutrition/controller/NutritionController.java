@@ -31,6 +31,9 @@ import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
@@ -202,6 +205,18 @@ public class NutritionController {
     @GetMapping("/barcodes/{barcode}")
     public FoodDetailView barcodeLookup(Authentication authentication, @PathVariable String barcode) {
         return nutritionService.getFoodByBarcode(currentPrincipal(authentication), barcode);
+    }
+
+    @Operation(summary = "Import an external food by barcode into the reusable food catalog")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "External food imported or existing catalog food returned"),
+            @ApiResponse(responseCode = "400", description = "External food cannot be imported"),
+            @ApiResponse(responseCode = "404", description = "External food not found or external source disabled")
+    })
+    @PostMapping("/foods/import/barcode/{barcode}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public FoodDetailView importFoodByBarcode(Authentication authentication, @PathVariable String barcode) {
+        return nutritionService.importFoodByBarcode(currentPrincipal(authentication), barcode);
     }
 
     @PostMapping("/foods/{foodId}/clone")

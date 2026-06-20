@@ -1,8 +1,13 @@
 package com.fitsync.nutrition.external;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -12,8 +17,10 @@ import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.FoodCatalogSource;
 import com.fitsync.nutrition.domain.FoodCreationMode;
 import com.fitsync.nutrition.dto.FoodDetailView;
+import com.fitsync.nutrition.dto.FoodSearchResultView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -30,12 +37,15 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
     private final ExternalFoodProperties properties;
     private final RestClient restClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Object throttleMonitor = new Object();
+    private Instant lastRequestAt = Instant.EPOCH;
 
     public OpenFoodFactsFoodSource(ExternalFoodProperties properties) {
         this.properties = properties;
         this.restClient = RestClient.builder()
                 .baseUrl(properties.baseUrl())
                 .defaultHeader("User-Agent", properties.userAgent())
+                .requestFactory(requestFactory(properties))
                 .build();
     }
 
@@ -45,8 +55,10 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
             return Optional.empty();
         }
         try {
+            throttle();
             String body = restClient.get()
-                    .uri("/api/v2/product/{barcode}.json?fields=code,product_name,brands,nutriments", barcode)
+                    .uri("/api/v2/product/{barcode}.json?fields=code,product_name,brands,categories_tags,categories,nutriments",
+                            barcode)
                     .retrieve()
                     .body(String.class);
             if (body == null) {
@@ -64,6 +76,51 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
         }
     }
 
+    @Override
+    public List<FoodSearchResultView> search(String query, int limit) {
+        if (!properties.enabled() || query == null || query.isBlank() || limit <= 0) {
+            return List.of();
+        }
+        try {
+            throttle();
+            String body = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/cgi/search.pl")
+                            .queryParam("search_terms", query)
+                            .queryParam("search_simple", "1")
+                            .queryParam("action", "process")
+                            .queryParam("json", "1")
+                            .queryParam("page_size", limit)
+                            .queryParam("fields", "code,product_name,brands,categories_tags,categories,nutriments")
+                            .build())
+                    .retrieve()
+                    .body(String.class);
+            if (body == null) {
+                return List.of();
+            }
+            JsonNode products = objectMapper.readTree(body).path("products");
+            if (!products.isArray()) {
+                return List.of();
+            }
+            Map<String, FoodSearchResultView> resultsByBarcode = new LinkedHashMap<>();
+            for (JsonNode product : products) {
+                String code = text(product, "code");
+                if (code == null || resultsByBarcode.containsKey(code)) {
+                    continue;
+                }
+                FoodDetailView detail = toFoodDetailView(product, code);
+                resultsByBarcode.put(code, toFoodSearchResultView(detail));
+                if (resultsByBarcode.size() >= limit) {
+                    break;
+                }
+            }
+            return new ArrayList<>(resultsByBarcode.values());
+        } catch (Exception ex) {
+            log.warn("OpenFoodFacts search failed", ex);
+            return List.of();
+        }
+    }
+
     /** Maps an OpenFoodFacts product node (per-100g nutriments) to a non-persisted FoodDetailView. */
     FoodDetailView toFoodDetailView(JsonNode product, String barcode) {
         String name = text(product, "product_name");
@@ -77,7 +134,7 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
                 displayName,
                 displayName.toLowerCase(Locale.ROOT),
                 firstBrand(text(product, "brands")),
-                null,
+                categoryCode(product),
                 FoodCatalogScope.GLOBAL,
                 null,
                 FoodCreationMode.MANUAL,
@@ -100,6 +157,128 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
                 barcode,
                 List.of(),
                 List.of());
+    }
+
+    private static SimpleClientHttpRequestFactory requestFactory(ExternalFoodProperties properties) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(properties.connectTimeout());
+        requestFactory.setReadTimeout(properties.readTimeout());
+        return requestFactory;
+    }
+
+    private void throttle() throws InterruptedException {
+        Duration minInterval = properties.minRequestInterval();
+        if (minInterval.isZero()) {
+            return;
+        }
+        long waitMillis;
+        synchronized (throttleMonitor) {
+            Instant now = Instant.now();
+            Instant nextAllowed = lastRequestAt.plus(minInterval);
+            if (now.isBefore(nextAllowed)) {
+                waitMillis = Duration.between(now, nextAllowed).toMillis();
+                lastRequestAt = nextAllowed;
+            } else {
+                waitMillis = 0L;
+                lastRequestAt = now;
+            }
+        }
+        if (waitMillis > 0L) {
+            Thread.sleep(waitMillis);
+        }
+    }
+
+    private FoodSearchResultView toFoodSearchResultView(FoodDetailView detail) {
+        String basisLabel = detail.basisQuantity() == null || detail.basisUnit() == null
+                ? null
+                : detail.basisQuantity().stripTrailingZeros().toPlainString() + " " + detail.basisUnit();
+        return new FoodSearchResultView(
+                detail.foodId(),
+                detail.displayName(),
+                detail.brandName(),
+                detail.categoryCode(),
+                detail.scope(),
+                detail.source(),
+                detail.verified(),
+                detail.calories(),
+                basisLabel,
+                detail.primaryBarcode());
+    }
+
+    private String categoryCode(JsonNode product) {
+        List<String> tags = new ArrayList<>();
+        JsonNode categoryTags = product.path("categories_tags");
+        if (categoryTags.isArray()) {
+            for (JsonNode tag : categoryTags) {
+                if (tag.isTextual()) {
+                    tags.add(tag.asText());
+                }
+            }
+        }
+        String categories = text(product, "categories");
+        if (categories != null) {
+            tags.add(categories);
+        }
+        if (containsAny(tags, "en:yogurts", "en:dairies", "en:cheeses", "en:milks")) {
+            return "DAIRY";
+        }
+        if (containsAny(tags, "en:meats", "en:poultries", "en:beef", "en:chicken", "en:pork")) {
+            return "MEAT_POULTRY";
+        }
+        if (containsAny(tags, "en:fishes", "en:seafood", "en:seafoods")) {
+            return "SEAFOOD";
+        }
+        if (containsAny(tags, "en:eggs")) {
+            return "EGGS";
+        }
+        if (containsAny(tags, "en:plant-based-foods", "en:tofu", "en:legumes")) {
+            return "PLANT_PROTEIN";
+        }
+        if (containsAny(tags, "en:cereals-and-potatoes", "en:breads", "en:pastas", "en:rices", "en:grains")) {
+            return "GRAINS";
+        }
+        if (containsAny(tags, "en:vegetables")) {
+            return "VEGETABLES";
+        }
+        if (containsAny(tags, "en:fruits")) {
+            return "FRUITS";
+        }
+        if (containsAny(tags, "en:nuts", "en:seeds")) {
+            return "NUTS_SEEDS";
+        }
+        if (containsAny(tags, "en:fats", "en:oils")) {
+            return "FATS_OILS";
+        }
+        if (containsAny(tags, "en:beverages", "en:drinks")) {
+            return "BEVERAGES";
+        }
+        if (containsAny(tags, "en:snacks")) {
+            return "SNACKS";
+        }
+        if (containsAny(tags, "en:sweets", "en:chocolates", "en:candies")) {
+            return "SWEETS";
+        }
+        if (containsAny(tags, "en:soups", "en:sauces")) {
+            return "SOUPS_SAUCES";
+        }
+        if (containsAny(tags, "en:spices", "en:herbs")) {
+            return "SPICES";
+        }
+        if (containsAny(tags, "en:prepared-meals", "en:prepared-foods")) {
+            return "PREPARED";
+        }
+        return "OTHER";
+    }
+
+    private boolean containsAny(List<String> values, String... candidates) {
+        for (String value : values) {
+            for (String candidate : candidates) {
+                if (value.contains(candidate)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String text(JsonNode node, String field) {

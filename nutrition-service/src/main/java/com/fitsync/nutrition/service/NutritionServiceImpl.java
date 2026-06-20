@@ -25,6 +25,7 @@ import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
 import com.fitsync.nutrition.domain.FoodCatalogScope;
+import com.fitsync.nutrition.domain.FoodCatalogSource;
 import com.fitsync.nutrition.domain.FoodCreationMode;
 import com.fitsync.nutrition.domain.MealSource;
 import com.fitsync.nutrition.domain.MealType;
@@ -99,9 +100,12 @@ import com.fitsync.nutrition.repository.WaterLogRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class NutritionServiceImpl implements NutritionService {
@@ -109,6 +113,7 @@ public class NutritionServiceImpl implements NutritionService {
     private static final String SOURCE = "nutrition-service";
     private static final String NUTRITION_EVENTS_TOPIC = "nutrition-events";
     private static final int FOOD_SEARCH_MAX_SIZE = 50;
+    private static final int EXTERNAL_SEARCH_FALLBACK_THRESHOLD = 5;
     private static final int LOGGED_FOOD_DEFAULT_LIMIT = 20;
     private static final int LOGGED_FOOD_MAX_LIMIT = 50;
     private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
@@ -139,6 +144,7 @@ public class NutritionServiceImpl implements NutritionService {
     private final MealTemplateItemRepository mealTemplateItemRepository;
     private final WaterLogRepository waterLogRepository;
     private final ExternalFoodSource externalFoodSource;
+    private final TransactionTemplate transactionTemplate;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
@@ -159,7 +165,8 @@ public class NutritionServiceImpl implements NutritionService {
                                 MealTemplateRepository mealTemplateRepository,
                                 MealTemplateItemRepository mealTemplateItemRepository,
                                 WaterLogRepository waterLogRepository,
-                                ExternalFoodSource externalFoodSource) {
+                                ExternalFoodSource externalFoodSource,
+                                PlatformTransactionManager transactionManager) {
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
@@ -180,6 +187,7 @@ public class NutritionServiceImpl implements NutritionService {
         this.mealTemplateItemRepository = mealTemplateItemRepository;
         this.waterLogRepository = waterLogRepository;
         this.externalFoodSource = externalFoodSource;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @Override
@@ -490,10 +498,48 @@ public class NutritionServiceImpl implements NutritionService {
         Map<UUID, String> primaryBarcodes = loadPrimaryBarcodes(foods.stream()
                 .map(FoodCatalogItemEntity::getFoodId)
                 .toList(), today);
-        return foods.stream()
+        List<FoodSearchResultView> localResults = foods.stream()
                 .map(food -> toFoodSearchResultView(food, brandNames, profiles.get(food.getFoodId()),
                         primaryBarcodes.get(food.getFoodId())))
                 .toList();
+        if (!shouldSearchExternalFoods(criteria, normalizedQuery, page, localResults.size())) {
+            return localResults;
+        }
+        int externalLimit = Math.min(size - localResults.size(), EXTERNAL_SEARCH_FALLBACK_THRESHOLD - localResults.size());
+        if (externalLimit <= 0) {
+            return localResults;
+        }
+        List<String> localBarcodes = primaryBarcodes.values().stream()
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        List<FoodSearchResultView> externalResults;
+        try {
+            externalResults = externalFoodSource.search(normalizedQuery, externalLimit).stream()
+                    .filter(result -> result.primaryBarcode() == null || !localBarcodes.contains(result.primaryBarcode()))
+                    .limit(externalLimit)
+                    .toList();
+        } catch (RuntimeException ex) {
+            return localResults;
+        }
+        if (externalResults.isEmpty()) {
+            return localResults;
+        }
+        List<FoodSearchResultView> combined = new ArrayList<>(localResults);
+        combined.addAll(externalResults);
+        return combined;
+    }
+
+    private boolean shouldSearchExternalFoods(FoodSearchCriteria criteria,
+                                              String normalizedQuery,
+                                              int page,
+                                              int localResultCount) {
+        return normalizedQuery != null
+                && page == 0
+                && localResultCount < EXTERNAL_SEARCH_FALLBACK_THRESHOLD
+                && criteria.categoryId() == null
+                && criteria.brandId() == null
+                && criteria.verified() == null
+                && criteria.scope() == null;
     }
 
     @Override
@@ -1124,6 +1170,44 @@ public class NutritionServiceImpl implements NutritionService {
     }
 
     @Override
+    public FoodDetailView importFoodByBarcode(CurrentUserPrincipal principal, String barcode) {
+        String normalizedBarcode = requireNonBlank(barcode, "barcode is required");
+        LocalDate today = LocalDate.now();
+        Optional<FoodBarcodeEntity> existing = foodBarcodeRepository.findActiveByBarcode(normalizedBarcode, today);
+        if (existing.isPresent()) {
+            return toFoodDetailView(getAccessibleFood(principal.userId(), existing.get().getFoodId(), today));
+        }
+
+        FoodDetailView externalFood = externalFoodSource.findByBarcode(normalizedBarcode)
+                .orElseThrow(() -> new ResourceNotFoundException("Food not found"));
+        if (externalFood.calories() == null) {
+            throw new BadRequestException("External food is missing calories and cannot be imported");
+        }
+
+        try {
+            return transactionTemplate.execute(status -> importFoodByBarcodeInTransaction(
+                    principal.userId(), normalizedBarcode, externalFood, today));
+        } catch (DataIntegrityViolationException ex) {
+            return foodBarcodeRepository.findActiveByBarcode(normalizedBarcode, today)
+                    .map(barcodeEntity -> toFoodDetailView(
+                            getAccessibleFood(principal.userId(), barcodeEntity.getFoodId(), today)))
+                    .orElseThrow(() -> ex);
+        }
+    }
+
+    private FoodDetailView importFoodByBarcodeInTransaction(UUID userId,
+                                                            String barcode,
+                                                            FoodDetailView externalFood,
+                                                            LocalDate today) {
+        Optional<FoodBarcodeEntity> existing = foodBarcodeRepository.findActiveByBarcode(barcode, today);
+        if (existing.isPresent()) {
+            return toFoodDetailView(getAccessibleFood(userId, existing.get().getFoodId(), today));
+        }
+        FoodCatalogItemEntity importedFood = persistExternalFood(barcode, externalFood);
+        return toFoodDetailView(importedFood);
+    }
+
+    @Override
     @Transactional
     public FoodDetailView cloneFood(CurrentUserPrincipal principal, UUID foodId) {
         LocalDate today = LocalDate.now();
@@ -1514,6 +1598,14 @@ public class NutritionServiceImpl implements NutritionService {
         return normalized.isEmpty() ? null : normalized;
     }
 
+    private String normalizeName(String value) {
+        return truncate(value.toLowerCase(Locale.ROOT), 120);
+    }
+
+    private String truncate(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
+    }
+
     private MealItemDraft buildMealItemDraft(UUID userId, MealItemInput input) {
         if (input.foodCatalogItemId() != null) {
             return buildMealItemFromCatalog(userId, input);
@@ -1665,6 +1757,100 @@ public class NutritionServiceImpl implements NutritionService {
             clonedServings.add(foodServingRepository.save(clonedServing));
         }
         return clonedServings;
+    }
+
+    private FoodCatalogItemEntity persistExternalFood(String barcode, FoodDetailView externalFood) {
+        UUID foodId = UUID.randomUUID();
+        UUID brandId = resolveImportedBrandId(externalFood.brandName());
+        FoodCatalogItemEntity food = new FoodCatalogItemEntity();
+        food.setFoodId(foodId);
+        food.setScope(FoodCatalogScope.GLOBAL);
+        food.setSource(FoodCatalogSource.IMPORTED);
+        food.setCreationMode(FoodCreationMode.MANUAL);
+        food.setDisplayName(truncate(requireNonBlank(externalFood.displayName(), "food name is required"), 120));
+        food.setNormalizedName(normalizeName(food.getDisplayName()));
+        food.setCategoryCode(Optional.ofNullable(blankToNull(externalFood.categoryCode())).orElse("OTHER"));
+        food.setBrandId(brandId);
+        food.setVerified(false);
+        food.setDensityGramsPerMl(externalFood.densityGramsPerMl());
+        food.setActive(true);
+        foodCatalogItemRepository.save(food);
+
+        FoodNutrientProfileEntity profile = new FoodNutrientProfileEntity();
+        profile.setNutrientProfileId(UUID.randomUUID());
+        profile.setFoodId(foodId);
+        profile.setBasisQuantity(Optional.ofNullable(externalFood.basisQuantity()).orElse(new BigDecimal("100.00")));
+        profile.setBasisUnit(Optional.ofNullable(blankToNull(externalFood.basisUnit())).orElse("g"));
+        profile.setCalories(externalFood.calories());
+        profile.setProteinGrams(externalFood.proteinGrams());
+        profile.setCarbsGrams(externalFood.carbsGrams());
+        profile.setFatGrams(externalFood.fatGrams());
+        profile.setSaturatedFatGrams(externalFood.saturatedFatGrams());
+        profile.setTransFatGrams(externalFood.transFatGrams());
+        profile.setFiberGrams(externalFood.fiberGrams());
+        profile.setSugarGrams(externalFood.sugarGrams());
+        profile.setSodiumMg(externalFood.sodiumMg());
+        profile.setPotassiumMg(externalFood.potassiumMg());
+        profile.setCholesterolMg(externalFood.cholesterolMg());
+        profile.setActive(true);
+        foodNutrientProfileRepository.save(profile);
+
+        FoodServingEntity serving = new FoodServingEntity();
+        serving.setServingId(UUID.randomUUID());
+        serving.setFoodId(foodId);
+        serving.setLabel(profile.getBasisQuantity().stripTrailingZeros().toPlainString() + " " + profile.getBasisUnit());
+        serving.setQuantity(profile.getBasisQuantity());
+        serving.setUnit(profile.getBasisUnit());
+        if ("g".equals(profile.getBasisUnit())) {
+            serving.setGramsEquivalent(profile.getBasisQuantity());
+        }
+        serving.setSortOrder(1);
+        serving.setDefaultServing(true);
+        serving.setActive(true);
+        foodServingRepository.save(serving);
+
+        for (NutrientDetailView nutrientDetail : externalFood.nutrientDetails()) {
+            FoodNutrientDetailEntity detail = new FoodNutrientDetailEntity();
+            detail.setDetailId(UUID.randomUUID());
+            detail.setFoodId(foodId);
+            detail.setNutrientCode(nutrientDetail.nutrientCode());
+            detail.setDisplayName(nutrientDetail.displayName());
+            detail.setAmount(nutrientDetail.amount());
+            detail.setUnit(nutrientDetail.unit());
+            detail.setSortOrder(nutrientDetail.sortOrder());
+            detail.setActive(true);
+            foodNutrientDetailRepository.save(detail);
+        }
+
+        FoodBarcodeEntity barcodeEntity = new FoodBarcodeEntity();
+        barcodeEntity.setBarcodeId(UUID.randomUUID());
+        barcodeEntity.setFoodId(foodId);
+        barcodeEntity.setBarcode(barcode);
+        barcodeEntity.setPrimaryBarcode(true);
+        barcodeEntity.setActive(true);
+        foodBarcodeRepository.saveAndFlush(barcodeEntity);
+
+        food.setDefaultServingId(serving.getServingId());
+        return foodCatalogItemRepository.save(food);
+    }
+
+    private UUID resolveImportedBrandId(String brandName) {
+        String normalizedBrandName = blankToNull(brandName);
+        if (normalizedBrandName == null) {
+            return null;
+        }
+        String safeBrandName = truncate(normalizedBrandName, 120);
+        String normalizedName = normalizeName(safeBrandName);
+        return foodBrandRepository.findByNormalizedNameAndActiveTrue(normalizedName)
+                .map(FoodBrandEntity::getBrandId)
+                .orElseGet(() -> {
+                    FoodBrandEntity brand = new FoodBrandEntity();
+                    brand.setBrandId(UUID.randomUUID());
+                    brand.setName(safeBrandName);
+                    brand.setNormalizedName(normalizedName);
+                    brand.setActive(true);
+                    return foodBrandRepository.save(brand).getBrandId();
+                });
     }
 
     private void cloneFoodProfiles(UUID sourceFoodId, UUID targetFoodId, LocalDate today) {
