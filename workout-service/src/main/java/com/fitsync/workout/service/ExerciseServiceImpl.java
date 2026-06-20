@@ -1,18 +1,27 @@
 package com.fitsync.workout.service;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
+import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.dto.CreateExerciseRequest;
+import com.fitsync.workout.dto.ExerciseImageView;
+import com.fitsync.workout.dto.ExerciseInstructionView;
+import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseView;
+import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
+import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.entity.ExerciseEntity;
 import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import com.fitsync.web.error.ForbiddenException;
+import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -33,7 +42,7 @@ public class ExerciseServiceImpl implements ExerciseService {
     @Transactional
     public ExerciseView createCustomExercise(CurrentUserPrincipal currentUser, CreateExerciseRequest request) {
         String code = normalizeCode(request.code());
-        if (exerciseRepository.existsByCode(code)) {
+        if (exerciseRepository.existsByCodeAndOwnerUserId(code, currentUser.userId())) {
             throw new IllegalArgumentException("Exercise code already exists");
         }
 
@@ -49,7 +58,56 @@ public class ExerciseServiceImpl implements ExerciseService {
         entity.setDifficulty(request.difficulty());
         entity.setStatus(ExerciseStatus.ACTIVE);
         entity.setCustom(true);
-        return toView(exerciseRepository.save(entity));
+        return toSummaryView(exerciseRepository.save(entity));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ExerciseView getExercise(CurrentUserPrincipal currentUser, UUID exerciseId) {
+        return toDetailView(findAccessibleExercise(currentUser.userId(), exerciseId));
+    }
+
+    @Override
+    public ExerciseMetadataView getExerciseMetadata() {
+        return new ExerciseMetadataView(
+                List.of(ExerciseType.values()),
+                List.of(MuscleGroup.values()),
+                List.of(ExerciseEquipment.values()),
+                List.of(WorkoutDifficulty.values()),
+                List.of(WorkoutType.values()),
+                List.of(GoalFocus.values()));
+    }
+
+    @Override
+    @Transactional
+    public ExerciseView updateCustomExercise(CurrentUserPrincipal currentUser,
+                                             UUID exerciseId,
+                                             UpdateExerciseRequest request) {
+        ExerciseEntity entity = findEditableCustomExercise(currentUser.userId(), exerciseId);
+        entity.setName(request.name());
+        entity.setDescription(request.description());
+        entity.setExerciseType(request.exerciseType());
+        entity.setPrimaryMuscleGroup(request.primaryMuscleGroup());
+        entity.setEquipment(request.equipment());
+        entity.setDifficulty(request.difficulty());
+        return toSummaryView(exerciseRepository.save(entity));
+    }
+
+    @Override
+    @Transactional
+    public void archiveCustomExercise(CurrentUserPrincipal currentUser, UUID exerciseId) {
+        ExerciseEntity entity = findEditableCustomExercise(currentUser.userId(), exerciseId);
+        entity.setStatus(ExerciseStatus.ARCHIVED);
+        exerciseRepository.save(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ExerciseView> exportCustomExercises(CurrentUserPrincipal currentUser) {
+        return exerciseRepository.findByOwnerUserIdOrderByNameAsc(currentUser.userId())
+                .stream()
+                .map(this::toSummaryView)
+                .toList();
     }
 
     @Override
@@ -71,11 +129,27 @@ public class ExerciseServiceImpl implements ExerciseService {
                         equipment,
                         difficulty,
                         PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "name")))
-                .map(this::toView));
+                .map(this::toSummaryView));
     }
 
     private String normalizeCode(String code) {
         return code.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private ExerciseEntity findAccessibleExercise(UUID userId, UUID exerciseId) {
+        return exerciseRepository.findAccessibleById(exerciseId, userId, ExerciseStatus.ACTIVE)
+                .orElseThrow(() -> new ResourceNotFoundException("Exercise not found"));
+    }
+
+    private ExerciseEntity findEditableCustomExercise(UUID userId, UUID exerciseId) {
+        ExerciseEntity entity = findAccessibleExercise(userId, exerciseId);
+        if (entity.getOwnerUserId() == null) {
+            throw new ForbiddenException("Global exercises cannot be modified");
+        }
+        if (!entity.getOwnerUserId().equals(userId)) {
+            throw new ResourceNotFoundException("Exercise not found");
+        }
+        return entity;
     }
 
     private String normalizeQuery(String query) {
@@ -96,7 +170,7 @@ public class ExerciseServiceImpl implements ExerciseService {
                 page.isLast());
     }
 
-    private ExerciseView toView(ExerciseEntity entity) {
+    private ExerciseView toSummaryView(ExerciseEntity entity) {
         return new ExerciseView(
                 entity.getExerciseId(),
                 entity.getOwnerUserId(),
@@ -111,5 +185,39 @@ public class ExerciseServiceImpl implements ExerciseService {
                 entity.isCustom(),
                 entity.getDateTimeCreated(),
                 entity.getDateTimeUpdated());
+    }
+
+    private ExerciseView toDetailView(ExerciseEntity entity) {
+        return new ExerciseView(
+                entity.getExerciseId(),
+                entity.getOwnerUserId(),
+                entity.getCode(),
+                entity.getName(),
+                entity.getDescription(),
+                entity.getExerciseType(),
+                entity.getPrimaryMuscleGroup(),
+                entity.getEquipment(),
+                entity.getDifficulty(),
+                entity.getStatus(),
+                entity.isCustom(),
+                entity.getDateTimeCreated(),
+                entity.getDateTimeUpdated(),
+                entity.getVideoUrl(),
+                entity.getAnimationUrl(),
+                entity.getExternalSource(),
+                entity.getExternalRef(),
+                entity.getInstructions().stream()
+                        .map(instruction -> new ExerciseInstructionView(
+                                instruction.getStepNumber(),
+                                instruction.getText()))
+                        .toList(),
+                entity.getImages().stream()
+                        .map(image -> new ExerciseImageView(
+                                image.getPosition(),
+                                image.getUrl()))
+                        .toList(),
+                entity.getSecondaryMuscles().stream()
+                        .map(secondaryMuscle -> secondaryMuscle.getMuscleGroup())
+                        .toList());
     }
 }

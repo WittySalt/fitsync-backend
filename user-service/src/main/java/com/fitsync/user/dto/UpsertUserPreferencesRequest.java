@@ -20,7 +20,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
             "weeklyWorkoutDays": 4,
             "preferredDurationMinutes": 60,
             "preferredWorkoutTime": "19:30:00",
-            "intensityPreference": "220002"
+            "intensityPreference": "220002",
+            "equipmentInventory": ["230002", "230004"],
+            "focusAreas": ["240001", "240005"]
           },
           "nutrition": {
             "dietaryPattern": "300001",

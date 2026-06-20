@@ -18,5 +18,14 @@ public record DailyNutritionSummaryView(
         BigDecimal remainingProteinGrams,
         BigDecimal remainingCarbsGrams,
         BigDecimal remainingFatGrams,
-        Integer mealCount) {
+        Integer mealCount,
+        BigDecimal totalFiberGrams,
+        BigDecimal totalSugarGrams,
+        BigDecimal totalSodiumMg,
+        BigDecimal fiberTargetGrams,
+        BigDecimal sugarLimitGrams,
+        BigDecimal sodiumLimitMg,
+        Boolean fiberTargetMet,
+        Boolean sugarWithinLimit,
+        Boolean sodiumWithinLimit) {
 }

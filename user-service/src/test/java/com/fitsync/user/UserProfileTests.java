@@ -108,16 +108,25 @@ class UserProfileTests {
                                   },
                                   "training": {
                                     "fitnessLevel": "200002",
-                                    "trainingLocation": "210002",
-                                    "weeklyWorkoutDays": 5,
-                                    "preferredDurationMinutes": 45,
-                                    "preferredWorkoutTime": "19:30:00",
-                                    "intensityPreference": "220003"
-                                  },
-                                  "nutrition": {
-                                    "dietaryPattern": "300002",
-                                    "mealFrequency": 4,
-                                    "calorieTrackingMode": "310003",
+                                  "trainingLocation": "210002",
+                                  "weeklyWorkoutDays": 5,
+                                  "preferredDurationMinutes": 45,
+                                  "preferredWorkoutTime": "19:30:00",
+                                  "intensityPreference": "220003",
+                                  "equipmentInventory": [
+                                    "230002",
+                                    "230004",
+                                    "230006"
+                                  ],
+                                  "focusAreas": [
+                                    "240001",
+                                    "240005"
+                                  ]
+                                },
+                                "nutrition": {
+                                  "dietaryPattern": "300002",
+                                  "mealFrequency": 4,
+                                  "calorieTrackingMode": "310003",
                                     "macroPreference": "320002",
                                     "waterGoalMl": 2500
                                   },
@@ -140,6 +149,10 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.app.preferredUnits").value("100002"))
                 .andExpect(jsonPath("$.app.language").value("110002"))
                 .andExpect(jsonPath("$.training.trainingLocation").value("210002"))
+                .andExpect(jsonPath("$.training.equipmentInventory", hasSize(3)))
+                .andExpect(jsonPath("$.training.equipmentInventory[0]").value("230002"))
+                .andExpect(jsonPath("$.training.focusAreas", hasSize(2)))
+                .andExpect(jsonPath("$.training.focusAreas[1]").value("240005"))
                 .andExpect(jsonPath("$.nutrition.dietaryPattern").value("300002"))
                 .andExpect(jsonPath("$.notifications.emailEnabled").value(true))
                 .andExpect(jsonPath("$.notifications.weeklyProgressReportEnabled").value(true))
@@ -151,9 +164,60 @@ class UserProfileTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.app.privacyLevel").value("120002"))
                 .andExpect(jsonPath("$.training.weeklyWorkoutDays").value(5))
+                .andExpect(jsonPath("$.training.equipmentInventory[2]").value("230006"))
+                .andExpect(jsonPath("$.training.focusAreas[0]").value("240001"))
                 .andExpect(jsonPath("$.nutrition.waterGoalMl").value(2500))
                 .andExpect(jsonPath("$.notifications.quietHoursStart").value("22:00:00"))
                 .andExpect(jsonPath("$.notifications.weeklyProgressReportEnabled").value(true));
+    }
+
+    @Test
+    void canManageHealthReadinessWithoutLeakingIntoCurrentUserView() throws Exception {
+        String token = tokenFor("health@example.com", "Health User");
+
+        mockMvc.perform(put("/api/v1/users/me/health-readiness")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "heartCondition": true,
+                                  "chestPainActivity": false,
+                                  "dizziness": true,
+                                  "boneJointIssue": true,
+                                  "bpOrHeartMeds": false,
+                                  "otherReason": false,
+                                  "injuryAreas": [
+                                    "LEFT_KNEE",
+                                    "LOWER_BACK"
+                                  ],
+                                  "acknowledgedDisclaimerAt": "2026-06-20T09:15:00Z"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.heartCondition").value(true))
+                .andExpect(jsonPath("$.dizziness").value(true))
+                .andExpect(jsonPath("$.injuryAreas", hasSize(2)))
+                .andExpect(jsonPath("$.injuryAreas[1]").value("LOWER_BACK"))
+                .andExpect(jsonPath("$.acknowledgedDisclaimerAt").value("2026-06-20T09:15:00Z"));
+
+        mockMvc.perform(get("/api/v1/users/me/health-readiness")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.boneJointIssue").value(true))
+                .andExpect(jsonPath("$.injuryAreas[0]").value("LEFT_KNEE"));
+
+        mockMvc.perform(get("/api/v1/users/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.healthReadiness").doesNotExist());
+    }
+
+    @Test
+    void healthReadinessRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/users/me/health-readiness"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

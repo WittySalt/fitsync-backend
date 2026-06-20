@@ -1,6 +1,8 @@
 package com.fitsync.contracts.events.workout;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -82,5 +84,29 @@ class WorkoutEventContractsTests {
         assertEquals(sessionId, payload.sessionId());
         assertEquals(planId, payload.planId());
         assertEquals(deletedAt, payload.deletedAt());
+    }
+
+    @Test
+    void shouldExposePersonalRecordAchievedPayloadFields() {
+        UUID exerciseId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Instant achievedAt = Instant.parse("2026-06-11T20:00:00Z");
+
+        PersonalRecordAchievedPayload payload = new PersonalRecordAchievedPayload(
+                exerciseId,
+                "Barbell Bench Press",
+                sessionId,
+                List.of(new PersonalRecordAchievedPayload.RecordAchievement(
+                        "MAX_WEIGHT_KG",
+                        new BigDecimal("125.00"))),
+                achievedAt);
+
+        assertEquals(exerciseId, payload.exerciseId());
+        assertEquals("Barbell Bench Press", payload.exerciseNameSnapshot());
+        assertEquals(sessionId, payload.sessionId());
+        assertEquals(1, payload.records().size());
+        assertEquals("MAX_WEIGHT_KG", payload.records().get(0).recordType());
+        assertEquals(new BigDecimal("125.00"), payload.records().get(0).value());
+        assertEquals(achievedAt, payload.achievedAt());
     }
 }

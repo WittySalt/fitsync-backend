@@ -1,57 +1,71 @@
 # FitSync AI Backend
 
-Multi-module Spring Boot backend foundation for FitSync. The current runnable implementation lives in `auth-service`, and `user-service` now includes persisted profile, preferences, body metrics, and goals APIs for incremental extraction.
+Multi-module Spring Boot backend for FitSync — a microservices fitness platform (auth, user,
+workout, nutrition, analytics) communicating over REST through an edge gateway and asynchronously
+via Kafka domain events. Most domain services are fully implemented with JPA + Flyway persistence;
+`recommendation-service` and `notification-service` are still scaffolds.
 
 ## Stack
 
-- Java 17 locally, ready to move to Java 21
-- Spring Boot 3.3
-- Maven
+- Java 17 (ready to move to Java 21), Spring Boot 3.3, Maven multi-module
 - Spring Web, Security, Validation, Data JPA, Actuator
-- PostgreSQL, Redis, and Kafka
-- OpenAPI 3 with Swagger UI
+- PostgreSQL (per-service schemas, Flyway migrations), Redis (caching), Kafka (domain events)
+- MinIO / S3-compatible object storage for media (exercise demo images)
+- OpenAPI 3 + Swagger UI; JWT auth (local issuance + optional AWS Cognito)
 
 ## Modules
 
-- `auth-service`: current runnable implementation for auth and token issuance
-- `user-service`: persisted user domain implementation for profile, preferences, body metrics, and goals
-- `api-gateway`: edge gateway scaffold with design documented in `api-gateway/README.md`
-- `workout-service`: persisted workout domain implementation for plans, sessions, and outbox-backed workout events
-- `nutrition-service`: persisted nutrition domain implementation for meals, custom foods, food catalog reads, daily summaries, and outbox-backed nutrition events
-- `analytics-service`: derived analytics read service with event-driven projections, dashboard APIs, internal rebuild endpoints, and optional Redis-backed caching
-- `recommendation-service`, `notification-service`: module scaffolds
-- `event-contracts`: shared event contract scaffold
+**Domain services**
+- `auth-service` — auth, credentials, JWT issuance; optional AWS Cognito validation + bootstrap.
+- `user-service` — profile, preferences, body metrics, goals.
+- `workout-service` — exercises (catalog + custom), plans, sessions with **live set-by-set logging**,
+  per-exercise history + personal records, import/export; outbox-backed workout events.
+- `nutrition-service` — meals, custom foods, food catalog + categories, recent/frequent/favorites,
+  meal templates, quick-add/copy, daily summaries; outbox-backed nutrition events.
+- `analytics-service` — CQRS read model: consumes domain events, maintains projections, serves
+  dashboard / trends / summaries / goal progress; nightly rollup; optional Redis cache.
+- `api-gateway` — edge gateway (routing, edge JWT, rate limiting); see `api-gateway/README.md`.
+- `recommendation-service`, `notification-service` — scaffolds.
+
+**Shared modules**
+- `event-contracts` — shared Kafka event payload contracts (`com.fitsync.contracts.events.*`).
+- `persistence-support` — `BaseAuditableEntity` and JPA/auditing support.
+- `web-support` — shared web layer (error handling, `PageResponse`, security helpers).
+- `media-support` — `MediaStorageService` (AWS SDK v2 S3 client) for object-storage media; backs
+  exercise demo images and is reusable for avatars and other uploads.
 
 ## Run Locally
 
-Start infrastructure:
+Start infrastructure (PostgreSQL, Redis, Kafka, MinIO):
 
 ```powershell
 docker compose up -d
 ```
 
-Run tests:
+Run all tests:
 
 ```powershell
 mvn test
 ```
 
-Start the current runnable services:
+Start services (default profile):
 
 ```powershell
 mvn -pl auth-service spring-boot:run
 mvn -pl user-service spring-boot:run
 mvn -pl workout-service spring-boot:run
+mvn -pl nutrition-service spring-boot:run
 mvn -pl analytics-service spring-boot:run
 mvn -pl api-gateway spring-boot:run
 ```
 
-Start the services with Kafka event delivery enabled:
+Start with Kafka event delivery enabled (`local,kafka` profiles):
 
 ```powershell
 mvn -pl auth-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
 mvn -pl user-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
 mvn -pl workout-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
+mvn -pl nutrition-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
 mvn -pl analytics-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka"
 ```
 
@@ -59,72 +73,81 @@ Kafka defaults:
 
 - `KAFKA_BOOTSTRAP_SERVERS=localhost:9092`
 - `KAFKA_ENABLED=false` unless the `kafka` Spring profile is active
-- `KAFKA_USER_REGISTERED_LISTENER_ENABLED=false` unless the `kafka` Spring profile is active
-- `KAFKA_WORKOUT_EVENTS_TOPIC=workout-events` by default for `workout-service`
+- per-service topics, e.g. `KAFKA_WORKOUT_EVENTS_TOPIC=workout-events`
 
-Run the broker-backed `WorkoutRelayKafkaIT` integration test after `docker compose up -d kafka`:
+Run a broker-backed integration test after `docker compose up -d kafka`:
 
 ```powershell
 $env:KAFKA_INTEGRATION_TESTS="true"
 mvn "-Dmaven.repo.local=E:/Code/NUS-ISS/Capstone/backend/.m2/repository" -pl workout-service -am verify
 ```
 
-Run the broker-backed `UserRegistered` integration test after `docker compose up -d kafka`:
+## Media storage & exercise demo catalog (seed)
 
-```powershell
-$env:KAFKA_INTEGRATION_TESTS="true"
-mvn "-Dmaven.repo.local=E:/Code/NUS-ISS/Capstone/backend/.m2/repository" -pl user-service -am verify
-```
+Exercise demonstration images are **not stored in git or the jar** — they live in object storage
+(MinIO locally, S3/CDN in prod) and the database stores only the image URL. `media-support`'s
+`MediaStorageService` handles uploads. `docker compose up -d` starts `minio` + a `minio-init` job
+that creates the `fitsync-media` bucket (anonymous read) at `http://localhost:9000`.
 
-Useful endpoints:
+The global exercise catalog is seeded from the open-source **free-exercise-db**
+(github.com/yuhonas/free-exercise-db, Unlicense / public domain). The catalog JSON + LICENSE are
+committed; the ~94 MB of images are fetched once and uploaded to object storage by the importer.
 
-- `GET /actuator/health` for internal service health
-- `GET /api/v1/health` on `api-gateway` for edge health
-- `POST /api/v1/auth/register`
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/bootstrap`
-- `GET /api/v1/auth/me`
-- `GET /api/v1/analytics/dashboard`
-- `POST /api/v1/internal/analytics/users/{userId}/dashboard/rebuild`
-- `POST /api/v1/workouts/plans`
-- `POST /api/v1/workouts/sessions`
-- `POST /api/v1/internal/outbox/publish`
+**One-time seed (per fresh environment):**
+
+1. Ensure `docker compose up -d` is running (MinIO healthy, bucket created).
+2. Download the free-exercise-db images into a local directory and point the importer at it:
+   `fitsync.workout.catalog.free-exercise-db.image-source-directory=<path>`.
+3. Trigger the admin import (uploads images to the bucket, writes exercise rows + media URLs):
+   `POST /api/v1/internal/workouts/exercises/import-catalog`.
+
+The importer is idempotent (keyed on `(external_source, external_ref)`); re-running won't duplicate.
+Production points media at a real bucket/CDN via `FITSYNC_MEDIA_*` env (no code change).
+
+## Domain events (Kafka, via transactional outbox)
+
+- `workout-service`: `WorkoutLogged`, `WorkoutUpdated`, `WorkoutDeleted`, `PersonalRecordAchieved`
+- `nutrition-service`: meal logged / updated / deleted events
+- `user-service`: `UserRegistered`, body-metric / goal events
+- `analytics-service` consumes the above to build read-model projections.
+
+## Useful endpoints
+
+- `GET /actuator/health` — per-service health; `GET /api/v1/health` — edge health on `api-gateway`
+- `POST /api/v1/auth/register`, `/login`, `/bootstrap`; `GET /api/v1/auth/me`
+- `GET /api/v1/workouts/exercises`, `/exercises/{id}` (with demo media), `/exercises/metadata`
+- `POST /api/v1/workouts/plans`, `/plans/{id}/start`, `/plans/{id}/activate`
+- `POST /api/v1/workouts/sessions`, `/sessions/{id}/complete`, `/sessions/{id}/exercises/...`
+- `GET /api/v1/workouts/exercises/{id}/records` + `/history`
+- `GET /api/v1/analytics/dashboard`; `POST /api/v1/internal/analytics/.../rebuild`
 - `GET /swagger-ui.html`
 
-Gateway design reference:
+## Gateway
 
-- `backend/api-gateway/README.md` defines the recommended ingress path, route ownership, edge JWT validation, rate limiting, observability, and rollout phases.
+- `backend/api-gateway/README.md` defines ingress, route ownership, edge JWT validation, rate
+  limiting, observability, and rollout phases.
 - `api-gateway` defaults to port `8088` and routes to:
   - `AUTH_SERVICE_BASE_URL=http://localhost:8080`
   - `USER_SERVICE_BASE_URL=http://localhost:8081`
   - `WORKOUT_SERVICE_BASE_URL=http://localhost:8082`
   - `NUTRITION_SERVICE_BASE_URL=http://localhost:8083`
+- Only `/api/v1/auth/bootstrap` is permitted unauthenticated (to forward the Cognito token to
+  `auth-service`); other protected APIs use the local FitSync JWT returned by bootstrap.
 
-Cognito transition settings for `auth-service`:
+## AWS Cognito (auth-service)
 
-- `COGNITO_ENABLED=false` keeps the legacy local JWT flow only
-- `COGNITO_ENABLED=true` enables JWT validation against AWS Cognito
+- `COGNITO_ENABLED=false` keeps the legacy local JWT flow only; `true` validates against Cognito.
 - `COGNITO_ISSUER_URI=https://cognito-idp.<region>.amazonaws.com/<userPoolId>`
-- `COGNITO_AUDIENCE=<app-client-id>`
-- `COGNITO_JWK_SET_URI` is optional when the default Cognito JWKS path is used
-- `COGNITO_PRINCIPAL_CLAIM` defaults to `username`
+- `COGNITO_AUDIENCE=<app-client-id>`; `COGNITO_PRINCIPAL_CLAIM` defaults to `username`;
+  `COGNITO_JWK_SET_URI` optional when the default JWKS path is used.
 
-Current local Cognito SPA setup confirmed on 2026-06-14:
+Current local Cognito SPA setup (confirmed 2026-06-14):
 
-- Region: `ap-southeast-1`
-- User pool ID: `ap-southeast-1_myVyuOmPD`
-- SPA app client name: `FitSync`
-- SPA app client ID: `4mvse0cgmkplgocfg827uolvad`
-- Managed login domain: `https://ap-southeast-1myvyuompd.auth.ap-southeast-1.amazoncognito.com`
-- Allowed callback URL: `http://localhost:3000/auth/callback`
-- Allowed sign-out URL: `http://localhost:3000/logout/callback`
-- OAuth grant type: `Authorization code grant`
-- Custom Angular auth UI requires app-client auth flow: `USER_PASSWORD_AUTH`
-- OIDC scopes: `openid`, `email`, `profile`
-- Identity provider: `Cognito user pool directory`
-- Client secret: not generated for the SPA client
-
-Recommended local environment values for the current backend implementation:
+- Region `ap-southeast-1`, user pool `ap-southeast-1_myVyuOmPD`, SPA client `FitSync`
+  (`4mvse0cgmkplgocfg827uolvad`), no client secret.
+- Managed login domain `https://ap-southeast-1myvyuompd.auth.ap-southeast-1.amazoncognito.com`
+- Callback `http://localhost:3000/auth/callback`, sign-out `http://localhost:3000/logout/callback`
+- Auth-code grant; app-client flow `USER_PASSWORD_AUTH`; scopes `openid email profile`.
 
 ```text
 COGNITO_ENABLED=true
@@ -133,25 +156,16 @@ COGNITO_AUDIENCE=4mvse0cgmkplgocfg827uolvad
 COGNITO_PRINCIPAL_CLAIM=username
 ```
 
-For local Cognito testing, run `auth-service` with the `cognito` profile so `/api/v1/auth/bootstrap` validates the Cognito ID token from the custom Angular auth UI and returns a local FitSync JWT for downstream services:
+Run `auth-service` with the `cognito` profile so `/api/v1/auth/bootstrap` validates the Cognito ID
+token and returns a local FitSync JWT for downstream services:
 
 ```powershell
 mvn -pl auth-service spring-boot:run "-Dspring-boot.run.profiles=local,kafka,cognito"
 ```
 
-`api-gateway` permits only `/api/v1/auth/bootstrap` through unauthenticated so the Cognito token can be forwarded to `auth-service`; regular protected APIs continue to use the local FitSync JWT returned by bootstrap.
+## Production (docker-compose.prod.yml)
 
-## Notes
-
-- The repository has been converted to a Maven multi-module layout.
-- `auth-service` owns auth credentials and token issuance.
-- `auth-service` now also supports optional AWS Cognito JWT validation plus local user bootstrapping for managed-login migration.
-- `user-service` owns user profile, preferences, body metrics, and goals with JPA + Flyway persistence.
-- `workout-service` owns workout plans and sessions with JPA + Flyway persistence plus outbox-backed Kafka delivery for `WorkoutLogged`, `WorkoutUpdated`, and `WorkoutDeleted`.
-- `analytics-service` owns derived projections for dashboard, body trends, workout summaries, nutrition summaries, and goal progress reads.
-- `analytics-service` supports optional Redis-backed Spring Cache by setting `SPRING_CACHE_TYPE=redis`.
-- Additional services remain scaffolded.
-- Production compose now runs `nginx -> api-gateway -> domain services` and expects host-level TLS material under `/etc/letsencrypt`.
-- Set `NGINX_CERT_NAME` to the Let's Encrypt certificate directory name and optionally set `NGINX_SERVER_NAME` for the generated Nginx config.
-- `docker-compose.prod.yml` also defines a profile-gated `user-service` container for future rollout. Enable it with `COMPOSE_PROFILES=future-services`.
-- The `user-service` container stays internal-only and is intended to be reached through `api-gateway`.
+- Runs `nginx -> api-gateway -> domain services`; expects host TLS material under `/etc/letsencrypt`.
+- Set `NGINX_CERT_NAME` to the Let's Encrypt cert directory; optionally `NGINX_SERVER_NAME`.
+- Media: set `FITSYNC_MEDIA_*` (endpoint, bucket, keys, public base URL) to a real S3/CDN.
+- Per-service containers reach each other internally and are exposed only through `api-gateway`.

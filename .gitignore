@@ -15,3 +15,11 @@ trivy-*.sarif
 sbom.json
 memory.md
 uiux.md
+
+# AI-agent / assistant working files — keep local, never track
+**/CODEX-BACKLOG.md
+workout-service/src/main/resources/static/workout/catalog/free-exercise-db/images/
+AGENTS.md
+.agents/
+.claude/
+.codex/

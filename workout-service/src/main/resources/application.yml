@@ -58,6 +58,19 @@ security:
     expiration: ${JWT_EXPIRATION:PT2H}
 
 fitsync:
+  media:
+    endpoint: ${FITSYNC_MEDIA_ENDPOINT:http://localhost:9000}
+    region: ${FITSYNC_MEDIA_REGION:us-east-1}
+    access-key: ${FITSYNC_MEDIA_ACCESS_KEY:${MINIO_ROOT_USER:fitsync}}
+    secret-key: ${FITSYNC_MEDIA_SECRET_KEY:${MINIO_ROOT_PASSWORD:fitsync-password}}
+    bucket: ${FITSYNC_MEDIA_BUCKET:${MINIO_BUCKET:fitsync-media}}
+    public-base-url: ${FITSYNC_MEDIA_PUBLIC_BASE_URL:http://localhost:9000/fitsync-media}
+  workout:
+    catalog:
+      free-exercise-db:
+        image-source-directory: ${FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY:}
+    exercise-history:
+      max-range-days: ${WORKOUT_EXERCISE_HISTORY_MAX_RANGE_DAYS:370}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

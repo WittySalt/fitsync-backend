@@ -19,7 +19,11 @@ public class CacheConfig {
     public static final String DASHBOARD_CACHE = "analyticsDashboard";
     public static final String BODY_TRENDS_CACHE = "analyticsBodyTrends";
     public static final String WORKOUT_SUMMARY_CACHE = "analyticsWorkoutSummary";
+    public static final String WORKOUT_SERIES_CACHE = "analyticsWorkoutSeries";
     public static final String NUTRITION_SUMMARY_CACHE = "analyticsNutritionSummary";
+    public static final String NUTRITION_SERIES_CACHE = "analyticsNutritionSeries";
+    public static final String COMPARE_CACHE = "analyticsCompare";
+    public static final String ACTIVITY_CALENDAR_CACHE = "analyticsActivityCalendar";
     public static final String GOAL_PROGRESS_CACHE = "analyticsGoalProgress";
 
     @Bean
@@ -55,7 +59,31 @@ public class CacheConfig {
                                 .entryTtl(Duration.ofMinutes(10))
                                 .serializeValuesWith(valuePair))
                 .withCacheConfiguration(
+                        WORKOUT_SERIES_CACHE,
+                        org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
+                                .disableCachingNullValues()
+                                .entryTtl(Duration.ofMinutes(10))
+                                .serializeValuesWith(valuePair))
+                .withCacheConfiguration(
                         NUTRITION_SUMMARY_CACHE,
+                        org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
+                                .disableCachingNullValues()
+                                .entryTtl(Duration.ofMinutes(10))
+                                .serializeValuesWith(valuePair))
+                .withCacheConfiguration(
+                        NUTRITION_SERIES_CACHE,
+                        org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
+                                .disableCachingNullValues()
+                                .entryTtl(Duration.ofMinutes(10))
+                                .serializeValuesWith(valuePair))
+                .withCacheConfiguration(
+                        COMPARE_CACHE,
+                        org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
+                                .disableCachingNullValues()
+                                .entryTtl(Duration.ofMinutes(10))
+                                .serializeValuesWith(valuePair))
+                .withCacheConfiguration(
+                        ACTIVITY_CALENDAR_CACHE,
                         org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
                                 .disableCachingNullValues()
                                 .entryTtl(Duration.ofMinutes(10))

@@ -5,22 +5,38 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.MealType;
+import com.fitsync.nutrition.dto.CopyDayRequest;
+import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
+import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
+import com.fitsync.nutrition.dto.CreateRecipeRequest;
+import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
+import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
+import com.fitsync.nutrition.dto.FoodSearchCriteria;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.dto.FoodServingView;
 import com.fitsync.nutrition.dto.LoggedFoodView;
+import com.fitsync.nutrition.dto.LogWaterRequest;
 import com.fitsync.nutrition.dto.MealView;
+import com.fitsync.nutrition.dto.QuickAddMealRequest;
+import com.fitsync.nutrition.dto.RecipeView;
+import com.fitsync.nutrition.dto.WaterDaySummaryView;
+import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -48,6 +64,13 @@ public class NutritionController {
     public MealView createMeal(Authentication authentication,
                                @Valid @RequestBody CreateMealRequest request) {
         return nutritionService.createMeal(currentPrincipal(authentication), request);
+    }
+
+    @PostMapping("/meals/quick-add")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView quickAddMeal(Authentication authentication,
+                                 @Valid @RequestBody QuickAddMealRequest request) {
+        return nutritionService.quickAddMeal(currentPrincipal(authentication), request);
     }
 
     @GetMapping("/meals")
@@ -79,6 +102,22 @@ public class NutritionController {
     @GetMapping("/meals/latest")
     public MealView latestMeal(Authentication authentication) {
         return nutritionService.getLatestMeal(currentPrincipal(authentication));
+    }
+
+    @PostMapping("/meals/{mealId}/copy")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView copyMeal(Authentication authentication,
+                             @PathVariable UUID mealId,
+                             @Valid @RequestBody CopyMealRequest request) {
+        return nutritionService.copyMeal(currentPrincipal(authentication), mealId, request);
+    }
+
+    @PostMapping("/days/{date}/copy-to")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<MealView> copyDay(Authentication authentication,
+                                  @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                  @Valid @RequestBody CopyDayRequest request) {
+        return nutritionService.copyDay(currentPrincipal(authentication), date, request);
     }
 
     @PostMapping("/custom-foods")
@@ -122,8 +161,15 @@ public class NutritionController {
     public List<FoodSearchResultView> searchFoods(Authentication authentication,
                                                   @RequestParam(required = false) String q,
                                                   @RequestParam(required = false) UUID categoryId,
-                                                  @RequestParam(defaultValue = "true") boolean includeSubcategories) {
-        return nutritionService.searchFoods(currentPrincipal(authentication), q, categoryId, includeSubcategories);
+                                                  @RequestParam(defaultValue = "true") boolean includeSubcategories,
+                                                  @RequestParam(required = false) UUID brandId,
+                                                  @RequestParam(required = false) Boolean verified,
+                                                  @RequestParam(required = false) FoodCatalogScope scope,
+                                                  @RequestParam(defaultValue = "0") int page,
+                                                  @RequestParam(defaultValue = "20") int size) {
+        FoodSearchCriteria criteria = new FoodSearchCriteria(
+                q, categoryId, includeSubcategories, brandId, verified, scope, page, size);
+        return nutritionService.searchFoods(currentPrincipal(authentication), criteria);
     }
 
     @GetMapping("/categories")
@@ -162,6 +208,116 @@ public class NutritionController {
     @ResponseStatus(HttpStatus.CREATED)
     public FoodDetailView cloneFood(Authentication authentication, @PathVariable UUID foodId) {
         return nutritionService.cloneFood(currentPrincipal(authentication), foodId);
+    }
+
+    @PostMapping("/foods/{foodId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void addFavorite(Authentication authentication, @PathVariable UUID foodId) {
+        nutritionService.addFavorite(currentPrincipal(authentication), foodId);
+    }
+
+    @DeleteMapping("/foods/{foodId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeFavorite(Authentication authentication, @PathVariable UUID foodId) {
+        nutritionService.removeFavorite(currentPrincipal(authentication), foodId);
+    }
+
+    @GetMapping("/favorites")
+    public List<FoodSearchResultView> favorites(Authentication authentication) {
+        return nutritionService.listFavorites(currentPrincipal(authentication));
+    }
+
+    @PostMapping("/meal-templates")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealTemplateView createMealTemplate(Authentication authentication,
+                                               @Valid @RequestBody CreateMealTemplateRequest request) {
+        return nutritionService.createMealTemplate(currentPrincipal(authentication), request);
+    }
+
+    @GetMapping("/meal-templates")
+    public List<MealTemplateView> mealTemplates(Authentication authentication) {
+        return nutritionService.listMealTemplates(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/meal-templates/{templateId}")
+    public MealTemplateView mealTemplate(Authentication authentication, @PathVariable UUID templateId) {
+        return nutritionService.getMealTemplate(currentPrincipal(authentication), templateId);
+    }
+
+    @DeleteMapping("/meal-templates/{templateId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMealTemplate(Authentication authentication, @PathVariable UUID templateId) {
+        nutritionService.deleteMealTemplate(currentPrincipal(authentication), templateId);
+    }
+
+    @PostMapping("/meals/from-template/{templateId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView createMealFromTemplate(Authentication authentication,
+                                           @PathVariable UUID templateId,
+                                           @Valid @RequestBody MaterializeTemplateRequest request) {
+        return nutritionService.createMealFromTemplate(currentPrincipal(authentication), templateId, request);
+    }
+
+    @PostMapping("/water")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WaterLogView logWater(Authentication authentication,
+                                 @Valid @RequestBody LogWaterRequest request) {
+        return nutritionService.logWater(currentPrincipal(authentication), request);
+    }
+
+    @GetMapping("/water")
+    public WaterDaySummaryView waterDay(Authentication authentication,
+                                        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                        @RequestParam(required = false) String timezone) {
+        return nutritionService.getWaterDay(currentPrincipal(authentication), date, timezone);
+    }
+
+    @DeleteMapping("/water/{waterId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteWater(Authentication authentication, @PathVariable UUID waterId) {
+        nutritionService.deleteWater(currentPrincipal(authentication), waterId);
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> exportFoodDiary(Authentication authentication,
+                                                  @RequestParam Instant from,
+                                                  @RequestParam Instant to,
+                                                  @RequestParam(defaultValue = "csv") String format) {
+        byte[] body = nutritionService.exportFoodDiary(currentPrincipal(authentication), from, to, format);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"food-diary.csv\"")
+                .contentType(MediaType.parseMediaType("text/csv"))
+                .body(body);
+    }
+
+    @PostMapping("/recipes")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RecipeView createRecipe(Authentication authentication,
+                                   @Valid @RequestBody CreateRecipeRequest request) {
+        return nutritionService.createRecipe(currentPrincipal(authentication), request);
+    }
+
+    @GetMapping("/recipes")
+    public List<RecipeView> recipes(Authentication authentication) {
+        return nutritionService.listRecipes(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/recipes/{recipeId}")
+    public RecipeView recipe(Authentication authentication, @PathVariable UUID recipeId) {
+        return nutritionService.getRecipe(currentPrincipal(authentication), recipeId);
+    }
+
+    @PutMapping("/recipes/{recipeId}")
+    public RecipeView updateRecipe(Authentication authentication,
+                                   @PathVariable UUID recipeId,
+                                   @Valid @RequestBody CreateRecipeRequest request) {
+        return nutritionService.updateRecipe(currentPrincipal(authentication), recipeId, request);
+    }
+
+    @DeleteMapping("/recipes/{recipeId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteRecipe(Authentication authentication, @PathVariable UUID recipeId) {
+        nutritionService.deleteRecipe(currentPrincipal(authentication), recipeId);
     }
 
     private CurrentUserPrincipal currentPrincipal(Authentication authentication) {

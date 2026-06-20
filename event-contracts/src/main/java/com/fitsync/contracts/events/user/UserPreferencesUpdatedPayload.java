@@ -1,8 +1,17 @@
 package com.fitsync.contracts.events.user;
 
+import java.util.List;
+
 public record UserPreferencesUpdatedPayload(
         String preferredUnits,
         Integer workoutDaysPerWeek,
         String dietaryPreference,
-        boolean notificationsEnabled) {
+        boolean notificationsEnabled,
+        List<String> equipmentInventory,
+        List<String> focusAreas) {
+
+    public UserPreferencesUpdatedPayload {
+        equipmentInventory = equipmentInventory == null ? List.of() : List.copyOf(equipmentInventory);
+        focusAreas = focusAreas == null ? List.of() : List.copyOf(focusAreas);
+    }
 }

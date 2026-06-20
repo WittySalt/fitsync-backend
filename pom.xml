@@ -29,6 +29,7 @@
         <module>notification-service</module>
         <module>event-contracts</module>
         <module>persistence-support</module>
+        <module>media-support</module>
         <module>web-support</module>
     </modules>
 

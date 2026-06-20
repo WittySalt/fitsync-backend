@@ -256,6 +256,50 @@ class NutritionApiTests {
     }
 
     @Test
+    void dailySummaryExposesMicronutrientTotalsAndLimitFlags() throws Exception {
+        String token = tokenFor("rita@example.com", "Rita");
+
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "LUNCH",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-15T12:00:00Z",
+                                  "timezone": "UTC",
+                                  "items": [
+                                    {
+                                      "foodName": "Salty fibrous bowl",
+                                      "quantity": 1.0,
+                                      "unit": "bowl",
+                                      "calories": 500,
+                                      "fiberGrams": 30.0,
+                                      "sugarGrams": 60.0,
+                                      "sodiumMg": 2500.0
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/nutrition/summary/daily")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-15")
+                        .param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalFiberGrams").value(30.00))
+                .andExpect(jsonPath("$.totalSugarGrams").value(60.00))
+                .andExpect(jsonPath("$.totalSodiumMg").value(2500.00))
+                .andExpect(jsonPath("$.fiberTargetGrams").value(28))
+                .andExpect(jsonPath("$.sugarLimitGrams").value(50))
+                .andExpect(jsonPath("$.sodiumLimitMg").value(2300))
+                .andExpect(jsonPath("$.fiberTargetMet").value(true))
+                .andExpect(jsonPath("$.sugarWithinLimit").value(false))
+                .andExpect(jsonPath("$.sodiumWithinLimit").value(false));
+    }
+
+    @Test
     void canManageCustomFoods() throws Exception {
         String token = tokenFor("bob@example.com", "Bob");
 
@@ -306,6 +350,233 @@ class NutritionApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Greek Yogurt Light"))
                 .andExpect(jsonPath("$.calories").value(100));
+    }
+
+    @Test
+    void quickAddCreatesSingleItemMealWithDefaults() throws Exception {
+        String token = tokenFor("sam@example.com", "Sam");
+
+        // Only calories supplied -> defaults: SNACK, "Quick add" item, now.
+        mockMvc.perform(post("/api/v1/nutrition/meals/quick-add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "calories": 450 }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mealType").value("SNACK"))
+                .andExpect(jsonPath("$.totalCalories").value(450))
+                .andExpect(jsonPath("$.itemCount").value(1))
+                .andExpect(jsonPath("$.items[0].foodName").value("Quick add"))
+                .andExpect(jsonPath("$.items[0].unit").value("serving"));
+
+        // With macros + explicit fields.
+        mockMvc.perform(post("/api/v1/nutrition/meals/quick-add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "LUNCH",
+                                  "name": "Food court plate",
+                                  "consumedAt": "2026-06-15T05:00:00Z",
+                                  "calories": 700,
+                                  "proteinGrams": 35.0,
+                                  "carbsGrams": 80.0,
+                                  "fatGrams": 22.0
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mealType").value("LUNCH"))
+                .andExpect(jsonPath("$.name").value("Food court plate"))
+                .andExpect(jsonPath("$.totalProteinGrams").value(35.0))
+                .andExpect(jsonPath("$.items[0].foodName").value("Food court plate"));
+
+        // calories is required.
+        mockMvc.perform(post("/api/v1/nutrition/meals/quick-add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "name": "No calories" }
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void canCopyMealAndCopyEntireDay() throws Exception {
+        String token = tokenFor("tina@example.com", "Tina");
+
+        String mealResponse = mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "BREAKFAST",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-14T08:00:00Z",
+                                  "timezone": "UTC",
+                                  "items": [
+                                    { "foodName": "Oats", "quantity": 1.0, "unit": "bowl", "calories": 300 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String mealId = com.jayway.jsonpath.JsonPath.read(mealResponse, "$.mealId");
+
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "LUNCH",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-14T12:00:00Z",
+                                  "timezone": "UTC",
+                                  "items": [
+                                    { "foodName": "Salad", "quantity": 1.0, "unit": "bowl", "calories": 400 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        // Copy a single meal to a new day, overriding the meal type.
+        mockMvc.perform(post("/api/v1/nutrition/meals/{mealId}/copy", mealId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "consumedAt": "2026-06-20T08:00:00Z", "mealType": "SNACK" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mealType").value("SNACK"))
+                .andExpect(jsonPath("$.totalCalories").value(300))
+                .andExpect(jsonPath("$.items[0].foodName").value("Oats"));
+
+        // Copy the whole 2026-06-14 day (2 meals) to 2026-06-21.
+        mockMvc.perform(post("/api/v1/nutrition/days/{date}/copy-to", "2026-06-14")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "targetDate": "2026-06-21", "timezone": "UTC" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.length()").value(2));
+
+        mockMvc.perform(get("/api/v1/nutrition/summary/daily")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-21").param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mealCount").value(2))
+                .andExpect(jsonPath("$.totalCalories").value(700));
+    }
+
+    @Test
+    void canLogWaterAndGetTimezoneAwareDailyTotal() throws Exception {
+        String token = tokenFor("wendy@example.com", "Wendy");
+
+        String first = mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "amountMl": 250, "loggedAt": "2026-06-16T09:00:00Z", "timezone": "UTC" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amountMl").value(250))
+                .andReturn().getResponse().getContentAsString();
+        String waterId = com.jayway.jsonpath.JsonPath.read(first, "$.waterId");
+
+        mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "amountMl": 500, "loggedAt": "2026-06-16T15:00:00Z" }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/nutrition/water")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-16").param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalMl").value(750))
+                .andExpect(jsonPath("$.entries.length()").value(2));
+
+        mockMvc.perform(delete("/api/v1/nutrition/water/{waterId}", waterId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/water")
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-16").param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalMl").value(500))
+                .andExpect(jsonPath("$.entries.length()").value(1));
+
+        mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "amountMl": 0 }
+                                """))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(delete("/api/v1/nutrition/water/{waterId}", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void canExportFoodDiaryAsCsv() throws Exception {
+        String token = tokenFor("xena@example.com", "Xena");
+
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "BREAKFAST",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-16T08:00:00Z",
+                                  "items": [
+                                    { "foodName": "Oats", "quantity": 1.0, "unit": "bowl", "calories": 300, "proteinGrams": 10.0 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        var response = mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-16T00:00:00Z")
+                        .param("to", "2026-06-17T00:00:00Z"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+        org.assertj.core.api.Assertions.assertThat(response.getContentType()).contains("text/csv");
+        org.assertj.core.api.Assertions.assertThat(response.getContentAsString())
+                .contains("consumed_at,meal_type")
+                .contains("Oats")
+                .contains("BREAKFAST")
+                .contains("300");
+
+        // Over-range -> 400.
+        mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2020-01-01T00:00:00Z")
+                        .param("to", "2026-06-16T00:00:00Z"))
+                .andExpect(status().isBadRequest());
+
+        // Unsupported format -> 400.
+        mockMvc.perform(get("/api/v1/nutrition/export")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-16T00:00:00Z")
+                        .param("to", "2026-06-17T00:00:00Z")
+                        .param("format", "pdf"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void unknownBarcodeIs404WhenExternalFallbackDisabled() throws Exception {
+        String token = tokenFor("yan@example.com", "Yan");
+        // External food source defaults to disabled, so a local miss stays a 404.
+        mockMvc.perform(get("/api/v1/nutrition/barcodes/{barcode}", "0000000000000")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -474,6 +745,242 @@ class NutritionApiTests {
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
                         .header("Authorization", "Bearer " + token)
                         .param("categoryId", UUID.randomUUID().toString()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void searchRanksByRelevanceAndSupportsPaginationAndFilters() throws Exception {
+        String token = tokenFor("paul@example.com", "Paul");
+        seedGlobalFood("a0000001-0000-0000-0000-000000000000", "Rice", "GRAINS", true);
+        seedGlobalFood("a0000002-0000-0000-0000-000000000000", "Rice Cake", "GRAINS", true);
+        seedGlobalFood("a0000003-0000-0000-0000-000000000000", "Brown Rice", "GRAINS", false);
+
+        // Relevance: exact ("Rice") > prefix ("Rice Cake") > substring ("Brown Rice").
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].displayName").value("Rice"))
+                .andExpect(jsonPath("$[1].displayName").value("Rice Cake"))
+                .andExpect(jsonPath("$[2].displayName").value("Brown Rice"));
+
+        // Pagination: page 0 size 2, then page 1 size 2.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("size", "2").param("page", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].displayName").value("Rice"));
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("size", "2").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].displayName").value("Brown Rice"));
+
+        // verified filter.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("verified", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].displayName").value("Brown Rice"));
+
+        // scope filter: all seeded foods are GLOBAL, so USER scope returns none.
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "rice").param("scope", "USER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void canManageRecipeAndAggregateNutritionFromIngredients() throws Exception {
+        UUID foodId = seedFoodCatalog();
+        String token = tokenFor("quinn@example.com", "Quinn");
+
+        String foodResponse = mockMvc.perform(get("/api/v1/nutrition/foods/{foodId}", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String servingId = com.jayway.jsonpath.JsonPath.read(foodResponse, "$.servings[0].servingId");
+
+        // 1 container (170 g) x 2 of Greek Yogurt (120 kcal / 170 g) -> 240 kcal, 34 g protein.
+        String recipeResponse = mockMvc.perform(post("/api/v1/nutrition/recipes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "name": "Yogurt Bowl",
+                                  "servings": 2,
+                                  "note": "Snack",
+                                  "ingredients": [
+                                    { "foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": 2.0 }
+                                  ]
+                                }
+                                """.formatted(foodId, servingId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Yogurt Bowl"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.totalProteinGrams").value(34.00))
+                .andExpect(jsonPath("$.perServingCalories").value(120))
+                .andExpect(jsonPath("$.perServingProteinGrams").value(17.00))
+                .andExpect(jsonPath("$.ingredients[0].foodName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.ingredients[0].calories").value(240))
+                .andReturn().getResponse().getContentAsString();
+
+        String recipeId = com.jayway.jsonpath.JsonPath.read(recipeResponse, "$.recipeId");
+
+        mockMvc.perform(get("/api/v1/nutrition/recipes")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Yogurt Bowl"));
+
+        // Scaling servings to 4 halves the per-serving values (total unchanged).
+        mockMvc.perform(put("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "name": "Yogurt Bowl XL",
+                                  "servings": 4,
+                                  "ingredients": [
+                                    { "foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": 2.0 }
+                                  ]
+                                }
+                                """.formatted(foodId, servingId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Yogurt Bowl XL"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.perServingCalories").value(60));
+
+        mockMvc.perform(delete("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/recipes/{recipeId}", recipeId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void canCreateMealTemplateAndMaterializeAndSaveFromMeal() throws Exception {
+        UUID foodId = seedFoodCatalog();
+        String token = tokenFor("victor@example.com", "Victor");
+
+        String foodResponse = mockMvc.perform(get("/api/v1/nutrition/foods/{foodId}", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String servingId = com.jayway.jsonpath.JsonPath.read(foodResponse, "$.servings[0].servingId");
+
+        // Inline template: 2 containers of Greek Yogurt -> 240 kcal.
+        String templateResponse = mockMvc.perform(post("/api/v1/nutrition/meal-templates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "name": "Yogurt breakfast",
+                                  "mealType": "BREAKFAST",
+                                  "items": [
+                                    { "foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": 2.0 }
+                                  ]
+                                }
+                                """.formatted(foodId, servingId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Yogurt breakfast"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.items[0].foodName").value("Greek Yogurt"))
+                .andReturn().getResponse().getContentAsString();
+        String templateId = com.jayway.jsonpath.JsonPath.read(templateResponse, "$.templateId");
+
+        mockMvc.perform(get("/api/v1/nutrition/meal-templates")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+
+        // Materialize into a real meal (inherits the template's BREAKFAST type).
+        mockMvc.perform(post("/api/v1/nutrition/meals/from-template/{templateId}", templateId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "consumedAt": "2026-06-16T07:00:00Z" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mealType").value("BREAKFAST"))
+                .andExpect(jsonPath("$.totalCalories").value(240))
+                .andExpect(jsonPath("$.items[0].foodName").value("Greek Yogurt"));
+
+        // Save a template from an existing meal.
+        String mealResponse = mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "DINNER",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-16T18:00:00Z",
+                                  "items": [
+                                    { "foodName": "Steak", "quantity": 1.0, "unit": "piece", "calories": 500 }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String mealId = com.jayway.jsonpath.JsonPath.read(mealResponse, "$.mealId");
+
+        mockMvc.perform(post("/api/v1/nutrition/meal-templates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                { "name": "Steak dinner", "fromMealId": "%s" }
+                                """.formatted(mealId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.totalCalories").value(500))
+                .andExpect(jsonPath("$.items[0].foodName").value("Steak"));
+
+        // Delete the first template.
+        mockMvc.perform(delete("/api/v1/nutrition/meal-templates/{templateId}", templateId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/nutrition/meal-templates/{templateId}", templateId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void canFavoriteUnfavoriteAndListFavorites() throws Exception {
+        UUID foodId = seedFoodCatalog();
+        String token = tokenFor("uma@example.com", "Uma");
+
+        // Favorite is idempotent.
+        mockMvc.perform(post("/api/v1/nutrition/foods/{foodId}/favorite", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/nutrition/foods/{foodId}/favorite", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/favorites")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].foodId").value(foodId.toString()))
+                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"));
+
+        mockMvc.perform(delete("/api/v1/nutrition/foods/{foodId}/favorite", foodId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/nutrition/favorites")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        // Favoriting an unknown food is a 404.
+        mockMvc.perform(post("/api/v1/nutrition/foods/{foodId}/favorite", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
     }
 
@@ -657,6 +1164,19 @@ class NutritionApiTests {
                 .parseSignedClaims(token)
                 .getPayload()
                 .get("userId", String.class);
+    }
+
+    private void seedGlobalFood(String id, String displayName, String categoryCode, boolean verified) {
+        FoodCatalogItemEntity food = new FoodCatalogItemEntity();
+        food.setFoodId(UUID.fromString(id));
+        food.setScope(FoodCatalogScope.GLOBAL);
+        food.setSource(FoodCatalogSource.OFFICIAL);
+        food.setDisplayName(displayName);
+        food.setNormalizedName(displayName.toLowerCase(java.util.Locale.ROOT));
+        food.setCategoryCode(categoryCode);
+        food.setVerified(verified);
+        food.setActive(true);
+        foodCatalogItemRepository.save(food);
     }
 
     private UUID seedFoodCatalog() {

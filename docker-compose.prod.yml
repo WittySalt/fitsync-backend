@@ -27,6 +27,18 @@ x-app-env: &app-env
   JWT_EXPIRATION: ${JWT_EXPIRATION:-PT2H}
   KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
 
+# Object storage for workout exercise images. Defaults keep credentials non-blank
+# so the eager S3Client bean builds and the service starts even when media is not
+# wired in prod (upload is lazy — only used on exercise-image import). Override
+# FITSYNC_MEDIA_* via the deploy .env to point at a real S3/MinIO bucket.
+x-media-env: &media-env
+  FITSYNC_MEDIA_ENDPOINT: ${FITSYNC_MEDIA_ENDPOINT:-http://localhost:9000}
+  FITSYNC_MEDIA_REGION: ${FITSYNC_MEDIA_REGION:-ap-southeast-1}
+  FITSYNC_MEDIA_ACCESS_KEY: ${FITSYNC_MEDIA_ACCESS_KEY:-fitsync}
+  FITSYNC_MEDIA_SECRET_KEY: ${FITSYNC_MEDIA_SECRET_KEY:-fitsync-password}
+  FITSYNC_MEDIA_BUCKET: ${FITSYNC_MEDIA_BUCKET:-fitsync-media}
+  FITSYNC_MEDIA_PUBLIC_BASE_URL: ${FITSYNC_MEDIA_PUBLIC_BASE_URL:-http://localhost:9000/fitsync-media}
+
 services:
   redis:
     image: redis:7-alpine
@@ -116,7 +128,7 @@ services:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-workout-service:${IMAGE_TAG:-latest}
     container_name: fitsync-workout-service
     environment:
-      <<: *app-env
+      <<: [*app-env, *media-env]
       DB_USERNAME: workout_svc
       DB_PASSWORD: ${WORKOUT_DB_PASSWORD}
       SERVER_PORT: 8082

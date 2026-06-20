@@ -1,5 +1,6 @@
 package com.fitsync.workout.repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,4 +26,11 @@ public interface WorkoutPlanRepository extends JpaRepository<WorkoutPlanEntity, 
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     Optional<WorkoutPlanEntity> findByPlanIdAndUserId(UUID planId, UUID userId);
+
+    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    List<WorkoutPlanEntity> findByUserIdOrderByDateTimeUpdatedDesc(UUID userId);
+
+    List<WorkoutPlanEntity> findByUserIdAndStatusOrderByDateTimeUpdatedDesc(UUID userId, WorkoutPlanStatus status);
+
+    List<WorkoutPlanEntity> findByUserIdAndStatus(UUID userId, WorkoutPlanStatus status);
 }
