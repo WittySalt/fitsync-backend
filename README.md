@@ -39,7 +39,7 @@ via Kafka domain events. Most domain services are fully implemented with JPA + F
 Start infrastructure (PostgreSQL, Redis, Kafka, MinIO):
 
 ```powershell
-docker compose up -d
+docker compose up -d postgres redis kafka minio minio-init
 ```
 
 Run all tests:
@@ -91,18 +91,28 @@ that creates the `fitsync-media` bucket (anonymous read) at `http://localhost:90
 
 The global exercise catalog is seeded from the open-source **free-exercise-db**
 (github.com/yuhonas/free-exercise-db, Unlicense / public domain). The catalog JSON + LICENSE are
-committed; the ~94 MB of images are fetched once and uploaded to object storage by the importer.
+committed; the ~94 MB of images are fetched once into `.local/free-exercise-db/exercises` and
+uploaded to object storage by the importer.
 
-**One-time seed (per fresh environment):**
+**Seed through compose (per fresh environment):**
 
-1. Ensure `docker compose up -d` is running (MinIO healthy, bucket created).
-2. Download the free-exercise-db images into a local directory and point the importer at it:
-   `fitsync.workout.catalog.free-exercise-db.image-source-directory=<path>`.
-3. Trigger the admin import (uploads images to the bucket, writes exercise rows + media URLs):
-   `POST /api/v1/internal/workouts/exercises/import-catalog`.
+1. Build the service jars and runtime image:
+   `mvn -DskipTests package` then `scripts/build-images.ps1` (Windows) or
+   `scripts/build-images.sh` (bash).
+2. Fetch the free-exercise-db `exercises/` tree into the ignored local cache:
+   `scripts/fetch-free-exercise-db-images.ps1` or `scripts/fetch-free-exercise-db-images.sh`.
+3. Start compose: `docker compose up -d`.
+
+Compose mounts `${FREE_EXERCISE_DB_IMAGES_DIR:-./.local/free-exercise-db/exercises}` read-only at
+`/opt/fitsync/free-exercise-db/exercises` and sets
+`FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY` to that container path. The startup runner imports the
+catalog automatically when `WORKOUT_CATALOG_AUTO_IMPORT` is unset or `true`; set
+`WORKOUT_CATALOG_AUTO_IMPORT=false` to disable it. The manual admin import endpoint remains
+available at `POST /api/v1/internal/workouts/exercises/import-catalog`.
 
 The importer is idempotent (keyed on `(external_source, external_ref)`); re-running won't duplicate.
-Production points media at a real bucket/CDN via `FITSYNC_MEDIA_*` env (no code change).
+Production points media at a real bucket/CDN via `FITSYNC_MEDIA_*` env and uses the same
+`FREE_EXERCISE_DB_IMAGES_DIR` read-only mount contract.
 
 ## Domain events (Kafka, via transactional outbox)
 

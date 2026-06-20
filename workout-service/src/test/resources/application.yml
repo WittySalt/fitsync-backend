@@ -26,5 +26,8 @@ security:
     expiration: PT1H
 
 fitsync:
+  workout:
+    catalog:
+      auto-import: false
   kafka:
     enabled: false
