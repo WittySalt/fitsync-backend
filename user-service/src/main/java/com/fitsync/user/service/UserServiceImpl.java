@@ -4,7 +4,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -26,6 +28,8 @@ import com.fitsync.user.domain.MembershipStatus;
 import com.fitsync.user.domain.MembershipTier;
 import com.fitsync.user.domain.NotificationChannel;
 import com.fitsync.user.domain.PrivacyLevel;
+import com.fitsync.user.domain.TrainingEquipment;
+import com.fitsync.user.domain.TrainingFocusArea;
 import com.fitsync.user.domain.TrainingLocation;
 import com.fitsync.user.domain.UnitSystem;
 import com.fitsync.user.dto.AppPreferencesView;
@@ -38,9 +42,11 @@ import com.fitsync.user.dto.BodyMetricView;
 import com.fitsync.user.dto.CompleteOnboardingRequest;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
+import com.fitsync.user.dto.HealthReadinessView;
 import com.fitsync.user.dto.NotificationPreferencesView;
 import com.fitsync.user.dto.NutritionPreferencesView;
 import com.fitsync.user.dto.TrainingPreferencesView;
+import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
 import com.fitsync.user.dto.UpsertUserProfileRequest;
@@ -51,6 +57,7 @@ import com.fitsync.user.entity.BodyMetricEntryEntity;
 import com.fitsync.user.entity.AccountDataExportRequestEntity;
 import com.fitsync.user.entity.UserAppPreferencesEntity;
 import com.fitsync.user.entity.UserGoalEntity;
+import com.fitsync.user.entity.UserHealthReadinessEntity;
 import com.fitsync.user.entity.UserNotificationPreferencesEntity;
 import com.fitsync.user.entity.UserNutritionPreferencesEntity;
 import com.fitsync.user.entity.UserProfileEntity;
@@ -60,6 +67,7 @@ import com.fitsync.user.repository.AccountDataExportRequestRepository;
 import com.fitsync.user.repository.BodyMetricEntryRepository;
 import com.fitsync.user.repository.UserAppPreferencesRepository;
 import com.fitsync.user.repository.UserGoalRepository;
+import com.fitsync.user.repository.UserHealthReadinessRepository;
 import com.fitsync.user.repository.UserNotificationPreferencesRepository;
 import com.fitsync.user.repository.UserNutritionPreferencesRepository;
 import com.fitsync.user.repository.UserProfileRepository;
@@ -82,6 +90,7 @@ public class UserServiceImpl implements UserService {
     private final UserAppPreferencesRepository userAppPreferencesRepository;
     private final UserTrainingPreferencesRepository userTrainingPreferencesRepository;
     private final UserNutritionPreferencesRepository userNutritionPreferencesRepository;
+    private final UserHealthReadinessRepository userHealthReadinessRepository;
     private final UserNotificationPreferencesRepository userNotificationPreferencesRepository;
     private final BodyMetricEntryRepository bodyMetricEntryRepository;
     private final UserGoalRepository userGoalRepository;
@@ -92,6 +101,7 @@ public class UserServiceImpl implements UserService {
                            UserAppPreferencesRepository userAppPreferencesRepository,
                            UserTrainingPreferencesRepository userTrainingPreferencesRepository,
                            UserNutritionPreferencesRepository userNutritionPreferencesRepository,
+                           UserHealthReadinessRepository userHealthReadinessRepository,
                            UserNotificationPreferencesRepository userNotificationPreferencesRepository,
                            BodyMetricEntryRepository bodyMetricEntryRepository,
                            UserGoalRepository userGoalRepository) {
@@ -101,6 +111,7 @@ public class UserServiceImpl implements UserService {
         this.userAppPreferencesRepository = userAppPreferencesRepository;
         this.userTrainingPreferencesRepository = userTrainingPreferencesRepository;
         this.userNutritionPreferencesRepository = userNutritionPreferencesRepository;
+        this.userHealthReadinessRepository = userHealthReadinessRepository;
         this.userNotificationPreferencesRepository = userNotificationPreferencesRepository;
         this.bodyMetricEntryRepository = bodyMetricEntryRepository;
         this.userGoalRepository = userGoalRepository;
@@ -169,7 +180,9 @@ public class UserServiceImpl implements UserService {
                         request.weeklyWorkoutDays(),
                         request.preferredDurationMinutes(),
                         request.preferredWorkoutTime(),
-                        request.intensityPreference()),
+                        request.intensityPreference(),
+                        request.equipmentInventory(),
+                        request.focusAreas()),
                 new com.fitsync.user.dto.UpsertNutritionPreferencesRequest(
                         request.dietaryPattern(),
                         request.mealFrequency(),
@@ -188,6 +201,10 @@ public class UserServiceImpl implements UserService {
                         false,
                         null,
                         null)));
+
+        if (request.healthReadiness() != null) {
+            upsertHealthReadiness(principal, request.healthReadiness());
+        }
 
         upsertOnboardingBodyMetrics(principal, new CreateBodyMetricRequest(
                 request.currentWeightKg(),
@@ -289,6 +306,8 @@ public class UserServiceImpl implements UserService {
         training.setPreferredDurationMinutes(request.training().preferredDurationMinutes());
         training.setPreferredWorkoutTime(request.training().preferredWorkoutTime());
         training.setIntensityPreference(request.training().intensityPreference());
+        training.setEquipmentInventory(normalizeEquipmentInventory(request.training().equipmentInventory()));
+        training.setFocusAreas(normalizeFocusAreas(request.training().focusAreas()));
 
         UserNutritionPreferencesEntity nutrition = getOrCreateNutritionPreferencesEntity(principal.userId());
         nutrition.setDietaryPattern(request.nutrition().dietaryPattern());
@@ -328,8 +347,31 @@ public class UserServiceImpl implements UserService {
                         savedNutrition.getDietaryPattern() == null
                                 ? null
                                 : savedNutrition.getDietaryPattern().getCode(),
-                        savedNotifications.isPushEnabled() || savedNotifications.isEmailEnabled())));
+                        savedNotifications.isPushEnabled() || savedNotifications.isEmailEnabled(),
+                        savedTraining.getEquipmentInventory().stream().map(TrainingEquipment::getCode).toList(),
+                        savedTraining.getFocusAreas().stream().map(TrainingFocusArea::getCode).toList())));
         return toPreferencesView(savedApp, savedTraining, savedNutrition, savedNotifications);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public HealthReadinessView getHealthReadiness(CurrentUserPrincipal principal) {
+        return toHealthReadinessView(getOrCreateHealthReadinessEntity(principal.userId()));
+    }
+
+    @Override
+    @Transactional
+    public HealthReadinessView upsertHealthReadiness(CurrentUserPrincipal principal, UpsertHealthReadinessRequest request) {
+        UserHealthReadinessEntity entity = getOrCreateHealthReadinessEntity(principal.userId());
+        entity.setHeartCondition(request.heartCondition());
+        entity.setChestPainActivity(request.chestPainActivity());
+        entity.setDizziness(request.dizziness());
+        entity.setBoneJointIssue(request.boneJointIssue());
+        entity.setBpOrHeartMeds(request.bpOrHeartMeds());
+        entity.setOtherReason(request.otherReason());
+        entity.setInjuryAreas(normalizeInjuryAreas(request.injuryAreas()));
+        entity.setAcknowledgedDisclaimerAt(request.acknowledgedDisclaimerAt());
+        return toHealthReadinessView(userHealthReadinessRepository.save(entity));
     }
 
     @Override
@@ -557,6 +599,14 @@ public class UserServiceImpl implements UserService {
         });
     }
 
+    private UserHealthReadinessEntity getOrCreateHealthReadinessEntity(UUID userId) {
+        return userHealthReadinessRepository.findById(userId).orElseGet(() -> {
+            UserHealthReadinessEntity entity = new UserHealthReadinessEntity();
+            entity.setUserId(userId);
+            return userHealthReadinessRepository.save(entity);
+        });
+    }
+
     private UserNutritionPreferencesEntity getOrCreateNutritionPreferencesEntity(UUID userId) {
         return userNutritionPreferencesRepository.findById(userId).orElseGet(() -> {
             UserNutritionPreferencesEntity entity = new UserNutritionPreferencesEntity();
@@ -641,7 +691,9 @@ public class UserServiceImpl implements UserService {
                         training.getWeeklyWorkoutDays(),
                         training.getPreferredDurationMinutes(),
                         training.getPreferredWorkoutTime(),
-                        training.getIntensityPreference()),
+                        training.getIntensityPreference(),
+                        training.getEquipmentInventory(),
+                        training.getFocusAreas()),
                 new NutritionPreferencesView(
                         nutrition.getDietaryPattern(),
                         nutrition.getMealFrequency(),
@@ -660,6 +712,18 @@ public class UserServiceImpl implements UserService {
                         notifications.isMarketingEmailsEnabled(),
                         notifications.getQuietHoursStart(),
                         notifications.getQuietHoursEnd()));
+    }
+
+    private HealthReadinessView toHealthReadinessView(UserHealthReadinessEntity entity) {
+        return new HealthReadinessView(
+                entity.isHeartCondition(),
+                entity.isChestPainActivity(),
+                entity.isDizziness(),
+                entity.isBoneJointIssue(),
+                entity.isBpOrHeartMeds(),
+                entity.isOtherReason(),
+                entity.getInjuryAreas(),
+                entity.getAcknowledgedDisclaimerAt());
     }
 
     private UserGoalView toGoalView(UserGoalEntity entity) {
@@ -774,5 +838,30 @@ public class UserServiceImpl implements UserService {
                 && request.calfCm() == null) {
             throw new IllegalArgumentException("At least one body measurement must be provided");
         }
+    }
+
+    private List<TrainingEquipment> normalizeEquipmentInventory(List<TrainingEquipment> equipmentInventory) {
+        List<TrainingEquipment> normalized = distinctPreservingOrder(equipmentInventory);
+        if (normalized.contains(TrainingEquipment.NONE) && normalized.size() > 1) {
+            throw new IllegalArgumentException("equipmentInventory cannot combine NONE with other equipment");
+        }
+        return normalized;
+    }
+
+    private List<TrainingFocusArea> normalizeFocusAreas(List<TrainingFocusArea> focusAreas) {
+        return distinctPreservingOrder(focusAreas);
+    }
+
+    private List<String> normalizeInjuryAreas(List<String> injuryAreas) {
+        return distinctPreservingOrder(injuryAreas).stream()
+                .map(value -> value.trim().toUpperCase(Locale.ROOT))
+                .toList();
+    }
+
+    private <T> List<T> distinctPreservingOrder(List<T> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(new LinkedHashSet<>(values));
     }
 }

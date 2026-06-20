@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,7 +30,7 @@ class UserPreferencesUpdatedKafkaListenerTests {
                 Instant.parse("2026-06-12T00:20:00Z"),
                 "user-service",
                 UUID.randomUUID(),
-                new UserPreferencesUpdatedPayload("100001", 4, "300003", true));
+                new UserPreferencesUpdatedPayload("100001", 4, "300003", true, List.of(), List.of()));
 
         listener.onMessage(objectMapper.writeValueAsString(event), "user-events", event.userId().toString());
 
@@ -47,7 +48,7 @@ class UserPreferencesUpdatedKafkaListenerTests {
                 Instant.parse("2026-06-12T00:20:00Z"),
                 "user-service",
                 UUID.randomUUID(),
-                new UserPreferencesUpdatedPayload("100001", 4, "300003", true));
+                new UserPreferencesUpdatedPayload("100001", 4, "300003", true, List.of(), List.of()));
 
         listener.onMessage(objectMapper.writeValueAsString(event), "user-events", event.userId().toString());
 

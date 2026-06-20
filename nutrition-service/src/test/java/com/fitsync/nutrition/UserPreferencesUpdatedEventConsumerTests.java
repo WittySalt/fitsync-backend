@@ -3,6 +3,7 @@ package com.fitsync.nutrition;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -35,7 +36,7 @@ class UserPreferencesUpdatedEventConsumerTests {
                 Instant.parse("2026-06-12T00:20:00Z"),
                 "user-service",
                 userId,
-                new UserPreferencesUpdatedPayload("100001", 4, "300003", true)));
+                new UserPreferencesUpdatedPayload("100001", 4, "300003", true, List.of(), List.of())));
 
         assertThat(repository.findById(userId))
                 .isPresent()

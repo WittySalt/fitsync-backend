@@ -3,6 +3,7 @@ package com.fitsync.user.dto;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 import com.fitsync.user.domain.ActivityLevel;
 import com.fitsync.user.domain.CalorieTrackingMode;
@@ -13,8 +14,11 @@ import com.fitsync.user.domain.IntensityPreference;
 import com.fitsync.user.domain.LanguagePreference;
 import com.fitsync.user.domain.MacroPreference;
 import com.fitsync.user.domain.PrivacyLevel;
+import com.fitsync.user.domain.TrainingEquipment;
+import com.fitsync.user.domain.TrainingFocusArea;
 import com.fitsync.user.domain.TrainingLocation;
 import com.fitsync.user.domain.UnitSystem;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
@@ -45,6 +49,8 @@ public record CompleteOnboardingRequest(
         @NotNull @Min(5) @Max(240) Integer preferredDurationMinutes,
         LocalTime preferredWorkoutTime,
         @NotNull IntensityPreference intensityPreference,
+        @Size(max = 8) List<@NotNull TrainingEquipment> equipmentInventory,
+        @Size(max = 6) List<@NotNull TrainingFocusArea> focusAreas,
         @NotNull DietaryPreference dietaryPattern,
         @NotNull @Min(1) @Max(12) Integer mealFrequency,
         @NotNull CalorieTrackingMode calorieTrackingMode,
@@ -52,5 +58,21 @@ public record CompleteOnboardingRequest(
         @Min(0) @Max(10000) Integer waterGoalMl,
         boolean workoutReminderEnabled,
         boolean mealReminderEnabled,
-        boolean weighInReminderEnabled) {
+        boolean weighInReminderEnabled,
+        @Valid UpsertHealthReadinessRequest healthReadiness) {
+
+    public CompleteOnboardingRequest {
+        equipmentInventory = equipmentInventory == null ? List.of() : List.copyOf(equipmentInventory);
+        focusAreas = focusAreas == null ? List.of() : List.copyOf(focusAreas);
+    }
+
+    @Override
+    public List<TrainingEquipment> equipmentInventory() {
+        return List.copyOf(equipmentInventory);
+    }
+
+    @Override
+    public List<TrainingFocusArea> focusAreas() {
+        return List.copyOf(focusAreas);
+    }
 }

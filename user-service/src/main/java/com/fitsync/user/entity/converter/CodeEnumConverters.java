@@ -9,6 +9,8 @@ import com.fitsync.user.domain.IntensityPreference;
 import com.fitsync.user.domain.LanguagePreference;
 import com.fitsync.user.domain.MacroPreference;
 import com.fitsync.user.domain.PrivacyLevel;
+import com.fitsync.user.domain.TrainingEquipment;
+import com.fitsync.user.domain.TrainingFocusArea;
 import com.fitsync.user.domain.TrainingLocation;
 import com.fitsync.user.domain.UnitSystem;
 import jakarta.persistence.Converter;
@@ -58,6 +60,16 @@ public final class CodeEnumConverters {
     @Converter(autoApply = true)
     public static class IntensityPreferenceConverter extends BaseConverter<IntensityPreference> {
         public IntensityPreferenceConverter() { super(IntensityPreference.class); }
+    }
+
+    @Converter(autoApply = true)
+    public static class TrainingEquipmentConverter extends BaseConverter<TrainingEquipment> {
+        public TrainingEquipmentConverter() { super(TrainingEquipment.class); }
+    }
+
+    @Converter(autoApply = true)
+    public static class TrainingFocusAreaConverter extends BaseConverter<TrainingFocusArea> {
+        public TrainingFocusAreaConverter() { super(TrainingFocusArea.class); }
     }
 
     @Converter(autoApply = true)
