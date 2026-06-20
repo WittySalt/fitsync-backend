@@ -39,6 +39,15 @@ if ! sudo docker compose version >/dev/null 2>&1; then
     -o /usr/libexec/docker/cli-plugins/docker-compose
   sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
 fi
+if ! command -v aws >/dev/null 2>&1; then
+  echo "==> installing AWS CLI"
+  sudo dnf install -y awscli >/dev/null 2>&1 || {
+    sudo dnf install -y unzip >/dev/null
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscliv2.zip
+    unzip -q -o /tmp/awscliv2.zip -d /tmp
+    sudo /tmp/aws/install --update
+  }
+fi
 
 cd "$DEPLOY_DIR"
 
