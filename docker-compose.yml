@@ -128,3 +128,13 @@ volumes:
   postgres-data:
   kafka-data:
   minio-data:
+
+# Put every service in this file on the SAME docker network that the
+# docker-compose.prod.yml app services use (project `backend` -> `backend_fitsync-net`).
+# Without this, this file's services default to `backend_default`, which splits
+# redis/kafka/minio off from prod-compose app services in the hybrid local run
+# (app from prod compose, infra from here) -> auth/analytics can't reach `redis`
+# and time out. See memory: project-local-run-auth (DOCKER NETWORK SPLIT gotcha).
+networks:
+  default:
+    name: backend_fitsync-net
