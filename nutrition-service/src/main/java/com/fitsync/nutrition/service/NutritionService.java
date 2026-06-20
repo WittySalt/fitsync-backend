@@ -86,6 +86,8 @@ public interface NutritionService {
 
     FoodDetailView getFoodByBarcode(CurrentUserPrincipal principal, String barcode);
 
+    FoodDetailView importFoodByBarcode(CurrentUserPrincipal principal, String barcode);
+
     FoodDetailView cloneFood(CurrentUserPrincipal principal, UUID foodId);
 
     void addFavorite(CurrentUserPrincipal principal, UUID foodId);

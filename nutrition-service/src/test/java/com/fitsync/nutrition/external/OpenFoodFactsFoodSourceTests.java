@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class OpenFoodFactsFoodSourceTests {
 
     private final OpenFoodFactsFoodSource source =
-            new OpenFoodFactsFoodSource(new ExternalFoodProperties(false, null, null));
+            new OpenFoodFactsFoodSource(new ExternalFoodProperties(false, null, null, null, null, null));
 
     @Test
     void mapsProductNutrimentsToFoodDetailView() throws Exception {
@@ -22,6 +22,7 @@ class OpenFoodFactsFoodSourceTests {
                     "code": "737628064502",
                     "product_name": "Greek Yogurt",
                     "brands": "FAGE, Total",
+                    "categories_tags": ["en:yogurts", "en:dairies"],
                     "nutriments": {
                       "energy-kcal_100g": 59,
                       "proteins_100g": 10.3,
@@ -41,6 +42,7 @@ class OpenFoodFactsFoodSourceTests {
         assertThat(view.foodId()).isNull();
         assertThat(view.displayName()).isEqualTo("Greek Yogurt");
         assertThat(view.brandName()).isEqualTo("FAGE");
+        assertThat(view.categoryCode()).isEqualTo("DAIRY");
         assertThat(view.source()).isEqualTo(FoodCatalogSource.IMPORTED);
         assertThat(view.calories()).isEqualTo(59);
         assertThat(view.proteinGrams()).isEqualByComparingTo("10.30");

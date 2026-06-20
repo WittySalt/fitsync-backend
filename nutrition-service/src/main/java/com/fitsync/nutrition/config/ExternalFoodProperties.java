@@ -1,5 +1,7 @@
 package com.fitsync.nutrition.config;
 
+import java.time.Duration;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -10,7 +12,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record ExternalFoodProperties(
         boolean enabled,
         String baseUrl,
-        String userAgent) {
+        String userAgent,
+        Duration connectTimeout,
+        Duration readTimeout,
+        Duration minRequestInterval) {
 
     public ExternalFoodProperties {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -18,6 +23,15 @@ public record ExternalFoodProperties(
         }
         if (userAgent == null || userAgent.isBlank()) {
             userAgent = "FitSync/1.0 (nutrition-service)";
+        }
+        if (connectTimeout == null || connectTimeout.isNegative() || connectTimeout.isZero()) {
+            connectTimeout = Duration.ofSeconds(2);
+        }
+        if (readTimeout == null || readTimeout.isNegative() || readTimeout.isZero()) {
+            readTimeout = Duration.ofSeconds(3);
+        }
+        if (minRequestInterval == null || minRequestInterval.isNegative()) {
+            minRequestInterval = Duration.ofMillis(250);
         }
     }
 }
