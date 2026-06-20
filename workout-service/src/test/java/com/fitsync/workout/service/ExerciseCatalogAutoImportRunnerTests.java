@@ -10,6 +10,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.boot.DefaultApplicationArguments;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -31,6 +32,19 @@ class ExerciseCatalogAutoImportRunnerTests {
         runner.run(new DefaultApplicationArguments());
 
         verify(exerciseCatalogImportService).importFreeExerciseDbCatalog();
+    }
+
+    @Test
+    void shouldSkipCatalogImportWhenCatalogAlreadyPresent() {
+        when(exerciseCatalogImportService.isFreeExerciseDbCatalogPresent()).thenReturn(true);
+        ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
+                exerciseCatalogImportService,
+                true);
+
+        runner.run(new DefaultApplicationArguments());
+
+        verify(exerciseCatalogImportService).isFreeExerciseDbCatalogPresent();
+        verify(exerciseCatalogImportService, never()).importFreeExerciseDbCatalog();
     }
 
     @Test

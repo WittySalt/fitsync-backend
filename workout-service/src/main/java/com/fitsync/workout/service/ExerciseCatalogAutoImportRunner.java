@@ -30,6 +30,11 @@ public class ExerciseCatalogAutoImportRunner implements ApplicationRunner {
             return;
         }
 
+        if (exerciseCatalogImportService.isFreeExerciseDbCatalogPresent()) {
+            LOGGER.info("free-exercise-db catalog already present, skipping auto import");
+            return;
+        }
+
         try {
             ExerciseCatalogImportResponse response = exerciseCatalogImportService.importFreeExerciseDbCatalog();
             LOGGER.info(

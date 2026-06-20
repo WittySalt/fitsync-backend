@@ -111,6 +111,11 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         return new ExerciseCatalogImportResponse(sourceExercises.size(), created, updated, rejected, unmappedTerms);
     }
 
+    @Override
+    public boolean isFreeExerciseDbCatalogPresent() {
+        return exerciseRepository.countByExternalSource(FREE_EXERCISE_DB) > 0;
+    }
+
     private boolean upsertSourceExercise(FreeExercise source, Map<FallbackKey, Integer> fallbackCounts) {
         ExerciseEntity entity = exerciseRepository
                 .findByExternalSourceAndExternalRef(FREE_EXERCISE_DB, source.id())
