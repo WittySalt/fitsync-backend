@@ -93,6 +93,11 @@ services:
     container_name: fitsync-auth-service
     environment:
       <<: *app-env
+      # auth-service validates the Cognito ID token at /api/v1/auth/bootstrap and
+      # exchanges it for a local FitSync JWT. The `cognito` profile turns this on
+      # (issuer/audience baked into application-cognito.yml). The gateway must NOT
+      # enable Cognito — it crashes when Cognito is on, so it only proxies bootstrap.
+      SPRING_PROFILES_ACTIVE: prod,cognito
       DB_USERNAME: auth_svc
       DB_PASSWORD: ${AUTH_DB_PASSWORD}
       SERVER_PORT: 8080

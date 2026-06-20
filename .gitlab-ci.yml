@@ -111,6 +111,12 @@ docker_image:
   needs:
     - job: verify_backend
       artifacts: true
+  # Persist Trivy's vuln + Java DB (~1GB) across runs so the 6-image loop and
+  # subsequent pipelines reuse it instead of re-downloading from ghcr.io.
+  cache:
+    key: trivy-db
+    paths:
+      - .trivycache/
   script:
     - export SHORT_SHA="${CI_COMMIT_SHA:0:8}"
     - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -126,15 +132,19 @@ docker_image:
           || aws ecr create-repository --repository-name "$repo" \
                --image-scanning-configuration scanOnPush=true >/dev/null
         # Visible triage report of all fixable HIGH+CRITICAL findings (non-blocking).
+        # The cached Trivy DB is mounted so it is not re-downloaded for every image.
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
-          aquasec/trivy:0.56.2 image --severity CRITICAL,HIGH --ignore-unfixed \
+          -v "$PWD/.trivycache:/root/.cache/trivy" \
+          aquasec/trivy:0.56.2 image --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed \
           --format table "$img:$SHORT_SHA"
         # Gate: block the push only on fixable CRITICAL CVEs. HIGH is reported above
         # but not gated (a lot of HIGH come from the base image and can't be fixed here).
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
-          aquasec/trivy:0.56.2 image --severity CRITICAL --ignore-unfixed \
+          -v "$PWD/.trivycache:/root/.cache/trivy" \
+          aquasec/trivy:0.56.2 image --scanners vuln --severity CRITICAL --ignore-unfixed \
           --exit-code 1 --format sarif --output "/work/trivy-$svc.sarif" "$img:$SHORT_SHA"
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
+          -v "$PWD/.trivycache:/root/.cache/trivy" \
           aquasec/trivy:0.56.2 image --format cyclonedx --output "/work/sbom-$svc.json" "$img:$SHORT_SHA"
         docker tag "$img:$SHORT_SHA" "$img:latest"
         docker push "$img:$SHORT_SHA"
