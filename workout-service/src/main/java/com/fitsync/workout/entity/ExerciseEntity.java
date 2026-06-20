@@ -1,5 +1,7 @@
 package com.fitsync.workout.entity;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseAuditableEntity;
@@ -9,11 +11,15 @@ import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import jakarta.persistence.Column;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.BatchSize;
 
 @Entity
 @Table(name = "exercises")
@@ -58,6 +64,33 @@ public class ExerciseEntity extends BaseAuditableEntity {
     @Column(name = "custom", nullable = false)
     private boolean custom;
 
+    @Column(name = "video_url", length = 500)
+    private String videoUrl;
+
+    @Column(name = "animation_url", length = 500)
+    private String animationUrl;
+
+    @Column(name = "external_source", length = 120)
+    private String externalSource;
+
+    @Column(name = "external_ref", length = 200)
+    private String externalRef;
+
+    @OneToMany(mappedBy = "exercise", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("stepNumber asc")
+    @BatchSize(size = 100)
+    private List<ExerciseInstructionEntity> instructions = new ArrayList<>();
+
+    @OneToMany(mappedBy = "exercise", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("position asc")
+    @BatchSize(size = 100)
+    private List<ExerciseImageEntity> images = new ArrayList<>();
+
+    @OneToMany(mappedBy = "exercise", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("muscleGroup asc")
+    @BatchSize(size = 100)
+    private List<ExerciseSecondaryMuscleEntity> secondaryMuscles = new ArrayList<>();
+
     public UUID getExerciseId() { return exerciseId; }
     public void setExerciseId(UUID exerciseId) { this.exerciseId = exerciseId; }
     public UUID getOwnerUserId() { return ownerUserId; }
@@ -80,4 +113,18 @@ public class ExerciseEntity extends BaseAuditableEntity {
     public void setStatus(ExerciseStatus status) { this.status = status; }
     public boolean isCustom() { return custom; }
     public void setCustom(boolean custom) { this.custom = custom; }
+    public String getVideoUrl() { return videoUrl; }
+    public void setVideoUrl(String videoUrl) { this.videoUrl = videoUrl; }
+    public String getAnimationUrl() { return animationUrl; }
+    public void setAnimationUrl(String animationUrl) { this.animationUrl = animationUrl; }
+    public String getExternalSource() { return externalSource; }
+    public void setExternalSource(String externalSource) { this.externalSource = externalSource; }
+    public String getExternalRef() { return externalRef; }
+    public void setExternalRef(String externalRef) { this.externalRef = externalRef; }
+    public List<ExerciseInstructionEntity> getInstructions() { return instructions; }
+    public void setInstructions(List<ExerciseInstructionEntity> instructions) { this.instructions = instructions; }
+    public List<ExerciseImageEntity> getImages() { return images; }
+    public void setImages(List<ExerciseImageEntity> images) { this.images = images; }
+    public List<ExerciseSecondaryMuscleEntity> getSecondaryMuscles() { return secondaryMuscles; }
+    public void setSecondaryMuscles(List<ExerciseSecondaryMuscleEntity> secondaryMuscles) { this.secondaryMuscles = secondaryMuscles; }
 }

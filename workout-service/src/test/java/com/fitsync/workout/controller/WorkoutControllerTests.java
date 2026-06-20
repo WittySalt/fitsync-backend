@@ -20,6 +20,8 @@ import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
+import com.fitsync.workout.dto.ExerciseCatalogImportResponse;
+import com.fitsync.workout.dto.ExerciseCatalogUnmappedTermView;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseMetadataView;
@@ -43,6 +45,7 @@ import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.workout.security.JwtService;
 import com.fitsync.workout.messaging.OutboxEventRelay;
+import com.fitsync.workout.service.ExerciseCatalogImportService;
 import com.fitsync.workout.service.ExerciseService;
 import com.fitsync.workout.service.WorkoutService;
 import com.fitsync.web.error.ForbiddenException;
@@ -87,6 +90,9 @@ class WorkoutControllerTests {
 
     @MockBean
     private ExerciseService exerciseService;
+
+    @MockBean
+    private ExerciseCatalogImportService exerciseCatalogImportService;
 
     @MockBean
     private JwtService jwtService;
@@ -910,6 +916,32 @@ class WorkoutControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requestedBatchSize").value(10))
                 .andExpect(jsonPath("$.publishedCount").value(1));
+    }
+
+    @Test
+    void shouldAllowAdminToImportExerciseCatalog() throws Exception {
+        ExerciseCatalogImportResponse response = new ExerciseCatalogImportResponse(
+                2,
+                1,
+                1,
+                0,
+                List.of(new ExerciseCatalogUnmappedTermView("equipment", "mystery sled", "OTHER", 1)));
+        when(exerciseCatalogImportService.importFreeExerciseDbCatalog()).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/internal/workouts/exercises/import-catalog")
+                        .with(authentication(authToken(adminPrincipal())))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.processed").value(2))
+                .andExpect(jsonPath("$.created").value(1))
+                .andExpect(jsonPath("$.updated").value(1))
+                .andExpect(jsonPath("$.rejected").value(0))
+                .andExpect(jsonPath("$.unmappedTerms[0].field").value("equipment"))
+                .andExpect(jsonPath("$.unmappedTerms[0].term").value("mystery sled"))
+                .andExpect(jsonPath("$.unmappedTerms[0].mappedTo").value("OTHER"))
+                .andExpect(jsonPath("$.unmappedTerms[0].count").value(1));
+
+        verify(exerciseCatalogImportService).importFreeExerciseDbCatalog();
     }
 
     private UsernamePasswordAuthenticationToken authToken(CurrentUserPrincipal principal) {

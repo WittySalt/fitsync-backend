@@ -22,6 +22,8 @@ public interface ExerciseRepository extends JpaRepository<ExerciseEntity, UUID> 
 
     List<ExerciseEntity> findByOwnerUserIdOrderByNameAsc(UUID ownerUserId);
 
+    Optional<ExerciseEntity> findByExternalSourceAndExternalRef(String externalSource, String externalRef);
+
     @Query("""
             select exercise from ExerciseEntity exercise
             where exercise.exerciseId = :exerciseId
