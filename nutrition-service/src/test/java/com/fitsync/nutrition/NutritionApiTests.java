@@ -656,6 +656,42 @@ class NutritionApiTests {
     }
 
     @Test
+    void brandlessFoodDetailAndMealLogDoNotError() throws Exception {
+        String token = tokenFor("zoe@example.com", "Zoe");
+
+        // Brandless food (like the USDA seed) — GET /foods/{id} must not 500 (brand NPE).
+        seedGlobalFood("b0000001-0000-0000-0000-000000000000", "Generic Oats", "GRAINS", true);
+        mockMvc.perform(get("/api/v1/nutrition/foods/{id}", "b0000001-0000-0000-0000-000000000000")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Generic Oats"));
+
+        // Logging a brandless catalog food into a meal must not 500 (brand NPE in resolution).
+        seedBrandlessFoodWithNutrition("b0000002-0000-0000-0000-000000000000",
+                "b0000003-0000-0000-0000-000000000000", "Generic Chicken", "MEAT_POULTRY");
+        mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "LUNCH",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-16T12:00:00Z",
+                                  "items": [
+                                    {
+                                      "foodCatalogItemId": "b0000002-0000-0000-0000-000000000000",
+                                      "foodServingId": "b0000003-0000-0000-0000-000000000000",
+                                      "quantity": 1.0
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.items[0].foodName").value("Generic Chicken"))
+                .andExpect(jsonPath("$.items[0].calories").value(165));
+    }
+
+    @Test
     void canSearchFoodsLookupBarcodeAndViewNutrientDetails() throws Exception {
         UUID foodId = seedFoodCatalog();
         String token = tokenFor("frank@example.com", "Frank");
@@ -1177,6 +1213,42 @@ class NutritionApiTests {
         food.setVerified(verified);
         food.setActive(true);
         foodCatalogItemRepository.save(food);
+    }
+
+    private void seedBrandlessFoodWithNutrition(String foodId, String servingId, String name, String categoryCode) {
+        FoodCatalogItemEntity food = new FoodCatalogItemEntity();
+        food.setFoodId(UUID.fromString(foodId));
+        food.setScope(FoodCatalogScope.GLOBAL);
+        food.setSource(FoodCatalogSource.IMPORTED);
+        food.setDisplayName(name);
+        food.setNormalizedName(name.toLowerCase(java.util.Locale.ROOT));
+        food.setCategoryCode(categoryCode);
+        food.setVerified(false);
+        food.setActive(true);
+        food.setDefaultServingId(UUID.fromString(servingId));
+        foodCatalogItemRepository.save(food);
+
+        FoodServingEntity serving = new FoodServingEntity();
+        serving.setServingId(UUID.fromString(servingId));
+        serving.setFoodId(UUID.fromString(foodId));
+        serving.setLabel("100 g");
+        serving.setQuantity(new BigDecimal("100.00"));
+        serving.setUnit("g");
+        serving.setGramsEquivalent(new BigDecimal("100.00"));
+        serving.setSortOrder(1);
+        serving.setDefaultServing(true);
+        serving.setActive(true);
+        foodServingRepository.save(serving);
+
+        FoodNutrientProfileEntity profile = new FoodNutrientProfileEntity();
+        profile.setNutrientProfileId(UUID.randomUUID());
+        profile.setFoodId(UUID.fromString(foodId));
+        profile.setBasisQuantity(new BigDecimal("100.00"));
+        profile.setBasisUnit("g");
+        profile.setCalories(165);
+        profile.setProteinGrams(new BigDecimal("31.00"));
+        profile.setActive(true);
+        foodNutrientProfileRepository.save(profile);
     }
 
     private UUID seedFoodCatalog() {
