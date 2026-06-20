@@ -8,6 +8,8 @@ import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.dto.CreateExerciseRequest;
+import com.fitsync.workout.dto.ExerciseImageView;
+import com.fitsync.workout.dto.ExerciseInstructionView;
 import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
@@ -56,13 +58,13 @@ public class ExerciseServiceImpl implements ExerciseService {
         entity.setDifficulty(request.difficulty());
         entity.setStatus(ExerciseStatus.ACTIVE);
         entity.setCustom(true);
-        return toView(exerciseRepository.save(entity));
+        return toSummaryView(exerciseRepository.save(entity));
     }
 
     @Override
     @Transactional(readOnly = true)
     public ExerciseView getExercise(CurrentUserPrincipal currentUser, UUID exerciseId) {
-        return toView(findAccessibleExercise(currentUser.userId(), exerciseId));
+        return toDetailView(findAccessibleExercise(currentUser.userId(), exerciseId));
     }
 
     @Override
@@ -88,7 +90,7 @@ public class ExerciseServiceImpl implements ExerciseService {
         entity.setPrimaryMuscleGroup(request.primaryMuscleGroup());
         entity.setEquipment(request.equipment());
         entity.setDifficulty(request.difficulty());
-        return toView(exerciseRepository.save(entity));
+        return toSummaryView(exerciseRepository.save(entity));
     }
 
     @Override
@@ -104,7 +106,7 @@ public class ExerciseServiceImpl implements ExerciseService {
     public List<ExerciseView> exportCustomExercises(CurrentUserPrincipal currentUser) {
         return exerciseRepository.findByOwnerUserIdOrderByNameAsc(currentUser.userId())
                 .stream()
-                .map(this::toView)
+                .map(this::toSummaryView)
                 .toList();
     }
 
@@ -127,7 +129,7 @@ public class ExerciseServiceImpl implements ExerciseService {
                         equipment,
                         difficulty,
                         PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "name")))
-                .map(this::toView));
+                .map(this::toSummaryView));
     }
 
     private String normalizeCode(String code) {
@@ -168,7 +170,7 @@ public class ExerciseServiceImpl implements ExerciseService {
                 page.isLast());
     }
 
-    private ExerciseView toView(ExerciseEntity entity) {
+    private ExerciseView toSummaryView(ExerciseEntity entity) {
         return new ExerciseView(
                 entity.getExerciseId(),
                 entity.getOwnerUserId(),
@@ -183,5 +185,39 @@ public class ExerciseServiceImpl implements ExerciseService {
                 entity.isCustom(),
                 entity.getDateTimeCreated(),
                 entity.getDateTimeUpdated());
+    }
+
+    private ExerciseView toDetailView(ExerciseEntity entity) {
+        return new ExerciseView(
+                entity.getExerciseId(),
+                entity.getOwnerUserId(),
+                entity.getCode(),
+                entity.getName(),
+                entity.getDescription(),
+                entity.getExerciseType(),
+                entity.getPrimaryMuscleGroup(),
+                entity.getEquipment(),
+                entity.getDifficulty(),
+                entity.getStatus(),
+                entity.isCustom(),
+                entity.getDateTimeCreated(),
+                entity.getDateTimeUpdated(),
+                entity.getVideoUrl(),
+                entity.getAnimationUrl(),
+                entity.getExternalSource(),
+                entity.getExternalRef(),
+                entity.getInstructions().stream()
+                        .map(instruction -> new ExerciseInstructionView(
+                                instruction.getStepNumber(),
+                                instruction.getText()))
+                        .toList(),
+                entity.getImages().stream()
+                        .map(image -> new ExerciseImageView(
+                                image.getPosition(),
+                                image.getUrl()))
+                        .toList(),
+                entity.getSecondaryMuscles().stream()
+                        .map(secondaryMuscle -> secondaryMuscle.getMuscleGroup())
+                        .toList());
     }
 }

@@ -26,6 +26,14 @@ x-app-env: &app-env
   JWT_EXPIRATION: ${JWT_EXPIRATION:-PT2H}
   KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
 
+x-media-env: &media-env
+  FITSYNC_MEDIA_ENDPOINT: ${FITSYNC_MEDIA_ENDPOINT}
+  FITSYNC_MEDIA_REGION: ${FITSYNC_MEDIA_REGION:-ap-southeast-1}
+  FITSYNC_MEDIA_ACCESS_KEY: ${FITSYNC_MEDIA_ACCESS_KEY}
+  FITSYNC_MEDIA_SECRET_KEY: ${FITSYNC_MEDIA_SECRET_KEY}
+  FITSYNC_MEDIA_BUCKET: ${FITSYNC_MEDIA_BUCKET}
+  FITSYNC_MEDIA_PUBLIC_BASE_URL: ${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+
 services:
   redis:
     image: redis:7-alpine
@@ -111,7 +119,7 @@ services:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-workout-service:${IMAGE_TAG:-latest}
     container_name: fitsync-workout-service
     environment:
-      <<: *app-env
+      <<: [*app-env, *media-env]
       SERVER_PORT: 8082
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]

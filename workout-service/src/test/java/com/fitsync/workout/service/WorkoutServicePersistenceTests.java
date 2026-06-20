@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.media.MediaStorageService;
 import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
@@ -20,6 +21,7 @@ import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
+import com.fitsync.workout.dto.ExerciseCatalogImportResponse;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
@@ -55,6 +57,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
@@ -66,8 +69,16 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "fitsync.workout.catalog.free-exercise-db.resource=classpath:fixtures/free-exercise-db-exercises.json",
+        "fitsync.workout.catalog.free-exercise-db.image-source-directory=src/test/resources/fixtures/free-exercise-db-images"
+})
 @ActiveProfiles("test")
 class WorkoutServicePersistenceTests {
 
@@ -79,6 +90,12 @@ class WorkoutServicePersistenceTests {
 
     @Autowired
     private ExerciseService exerciseService;
+
+    @MockBean
+    private MediaStorageService mediaStorageService;
+
+    @Autowired
+    private ExerciseCatalogImportService exerciseCatalogImportService;
 
     @Autowired
     private WorkoutPlanRepository workoutPlanRepository;
@@ -1161,6 +1178,91 @@ class WorkoutServicePersistenceTests {
     }
 
     @Test
+    void shouldImportCatalogIdempotentlyWithDemoContentAndFallbackSummary() {
+        when(mediaStorageService.put(eq("exercises/Fixture_Bench_Press/0.jpg"), any(byte[].class), eq("image/jpeg")))
+                .thenReturn("http://media.test/fitsync-media/exercises/Fixture_Bench_Press/0.jpg");
+        when(mediaStorageService.put(eq("exercises/Fixture_Bench_Press/1.jpg"), any(byte[].class), eq("image/jpeg")))
+                .thenReturn("http://media.test/fitsync-media/exercises/Fixture_Bench_Press/1.jpg");
+
+        ExerciseCatalogImportResponse first = exerciseCatalogImportService.importFreeExerciseDbCatalog();
+
+        assertEquals(2, first.processed());
+        assertEquals(2, first.created());
+        assertEquals(0, first.updated());
+        assertEquals(0, first.rejected());
+        assertFallback(first, "level", "alien", "INTERMEDIATE", 1);
+        assertFallback(first, "category", "unknown category", "STRENGTH", 1);
+        assertFallback(first, "equipment", "mystery sled", "OTHER", 1);
+        assertFallback(first, "primaryMuscles", "neck", "FULL_BODY", 1);
+        assertFallback(first, "secondaryMuscles", "unknown muscle", "FULL_BODY", 1);
+
+        ExerciseEntity bench = exerciseRepository
+                .findByExternalSourceAndExternalRef("free-exercise-db", "Fixture_Bench_Press")
+                .orElseThrow();
+        ExerciseView benchDetail = exerciseService.getExercise(currentUser, bench.getExerciseId());
+        assertNull(benchDetail.ownerUserId());
+        assertFalse(benchDetail.custom());
+        assertEquals("fixture_bench_press", benchDetail.code());
+        assertEquals("free-exercise-db", benchDetail.externalSource());
+        assertEquals("Fixture_Bench_Press", benchDetail.externalRef());
+        assertEquals(3, benchDetail.instructions().size());
+        assertEquals(1, benchDetail.instructions().get(0).stepNumber());
+        assertEquals("Lie on the bench with your eyes under the bar.", benchDetail.instructions().get(0).text());
+        assertEquals(2, benchDetail.images().size());
+        assertEquals(0, benchDetail.images().get(0).position());
+        assertEquals("http://media.test/fitsync-media/exercises/Fixture_Bench_Press/0.jpg", benchDetail.images().get(0).url());
+        assertEquals(List.of(MuscleGroup.ARMS, MuscleGroup.SHOULDERS), benchDetail.secondaryMuscleGroups());
+
+        ExerciseEntity fallback = exerciseRepository
+                .findByExternalSourceAndExternalRef("free-exercise-db", "Fixture_Fallback_Move")
+                .orElseThrow();
+        assertEquals(WorkoutDifficulty.INTERMEDIATE, fallback.getDifficulty());
+        assertEquals(ExerciseType.STRENGTH, fallback.getExerciseType());
+        assertEquals(ExerciseEquipment.OTHER, fallback.getEquipment());
+        assertEquals(MuscleGroup.FULL_BODY, fallback.getPrimaryMuscleGroup());
+
+        ExerciseCatalogImportResponse second = exerciseCatalogImportService.importFreeExerciseDbCatalog();
+        ExerciseView benchAfterSecondImport = exerciseService.getExercise(currentUser, bench.getExerciseId());
+
+        assertEquals(2, second.processed());
+        assertEquals(0, second.created());
+        assertEquals(2, second.updated());
+        assertEquals(0, second.rejected());
+        assertEquals(2, exerciseRepository.findAll().stream()
+                .filter(exercise -> "free-exercise-db".equals(exercise.getExternalSource()))
+                .count());
+        assertEquals(3, benchAfterSecondImport.instructions().size());
+        assertEquals(2, benchAfterSecondImport.images().size());
+        assertEquals(2, benchAfterSecondImport.secondaryMuscleGroups().size());
+        verify(mediaStorageService, times(2))
+                .put(eq("exercises/Fixture_Bench_Press/0.jpg"), any(byte[].class), eq("image/jpeg"));
+        verify(mediaStorageService, times(2))
+                .put(eq("exercises/Fixture_Bench_Press/1.jpg"), any(byte[].class), eq("image/jpeg"));
+    }
+
+    @Test
+    void shouldSerializeExerciseWithoutDemoContent() {
+        ExerciseView created = createCustomExercise(currentUser, "no-media", "No Media Lift");
+
+        ExerciseView detail = exerciseService.getExercise(currentUser, created.exerciseId());
+        JsonNode json = objectMapper.valueToTree(detail);
+
+        assertNull(detail.videoUrl());
+        assertNull(detail.animationUrl());
+        assertNull(detail.externalSource());
+        assertNull(detail.externalRef());
+        assertTrue(detail.instructions().isEmpty());
+        assertTrue(detail.images().isEmpty());
+        assertTrue(detail.secondaryMuscleGroups().isEmpty());
+        assertTrue(json.get("instructions").isArray());
+        assertEquals(0, json.get("instructions").size());
+        assertTrue(json.get("images").isArray());
+        assertEquals(0, json.get("images").size());
+        assertTrue(json.get("secondaryMuscleGroups").isArray());
+        assertEquals(0, json.get("secondaryMuscleGroups").size());
+    }
+
+    @Test
     void shouldFilterAndPagePlansByStatus() {
         UUID squatId = createExercise("plan-page-squat", "Plan Page Squat");
         WorkoutPlanView active = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
@@ -1891,6 +1993,20 @@ class WorkoutServicePersistenceTests {
                 .stream()
                 .filter(event -> eventType.equals(event.getEventType()))
                 .count();
+    }
+
+    private void assertFallback(ExerciseCatalogImportResponse response,
+                                String field,
+                                String term,
+                                String mappedTo,
+                                int count) {
+        assertTrue(response.unmappedTerms().stream().anyMatch(unmappedTerm ->
+                        field.equals(unmappedTerm.field())
+                                && term.equals(unmappedTerm.term())
+                                && mappedTo.equals(unmappedTerm.mappedTo())
+                                && count == unmappedTerm.count()),
+                () -> "Expected fallback " + field + "=" + term + " -> " + mappedTo
+                        + " in " + response.unmappedTerms());
     }
 
     private String pendingEventPayload(String eventType) {

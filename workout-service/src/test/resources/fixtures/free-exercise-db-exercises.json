@@ -1,0 +1,32 @@
+[
+  {
+    "id": "Fixture_Bench_Press",
+    "name": "Fixture Bench Press",
+    "force": "push",
+    "level": "beginner",
+    "mechanic": "compound",
+    "equipment": "barbell",
+    "primaryMuscles": ["chest"],
+    "secondaryMuscles": ["triceps", "shoulders"],
+    "instructions": [
+      "Lie on the bench with your eyes under the bar.",
+      "Lower the bar under control.",
+      "Press the bar back to the start."
+    ],
+    "category": "strength",
+    "images": ["Fixture_Bench_Press/0.data", "Fixture_Bench_Press/1.data"]
+  },
+  {
+    "id": "Fixture_Fallback_Move",
+    "name": "Fixture Fallback Move",
+    "force": null,
+    "level": "alien",
+    "mechanic": null,
+    "equipment": "mystery sled",
+    "primaryMuscles": ["neck"],
+    "secondaryMuscles": ["unknown muscle"],
+    "instructions": [],
+    "category": "unknown category",
+    "images": []
+  }
+]
