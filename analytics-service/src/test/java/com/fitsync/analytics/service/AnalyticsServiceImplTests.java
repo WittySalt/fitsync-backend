@@ -984,6 +984,7 @@ class AnalyticsServiceImplTests {
                 mock(AnalyticsMealContributionRepository.class),
                 mock(AnalyticsWorkoutContributionRepository.class),
                 mock(AnalyticsCacheInvalidationService.class),
+                mock(com.fitsync.analytics.messaging.AnalyticsEventPublisher.class),
                 clock);
     }
 
