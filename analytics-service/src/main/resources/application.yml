@@ -67,6 +67,8 @@ fitsync:
   analytics:
     rollup:
       cron: "${ANALYTICS_ROLLUP_CRON:0 5 0 * * *}"
+    weekly-recap:
+      cron: "${ANALYTICS_WEEKLY_RECAP_CRON:0 15 0 * * MON}"
     trends:
       max-range-days:
         day: ${ANALYTICS_TRENDS_MAX_RANGE_DAYS_DAY:370}
@@ -79,6 +81,7 @@ fitsync:
       progress-events: ${KAFKA_PROGRESS_EVENTS_TOPIC:progress-events}
       nutrition-events: ${KAFKA_NUTRITION_EVENTS_TOPIC:nutrition-events}
       workout-events: ${KAFKA_WORKOUT_EVENTS_TOPIC:workout-events}
+      analytics-events: ${KAFKA_ANALYTICS_EVENTS_TOPIC:analytics-events}
     consumer-groups:
       analytics-service: ${KAFKA_ANALYTICS_SERVICE_GROUP:analytics-consumer-group}
     listeners:
@@ -98,3 +101,8 @@ fitsync:
         enabled: ${KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED:false}
       workout-deleted:
         enabled: ${KAFKA_WORKOUT_DELETED_LISTENER_ENABLED:false}
+  outbox:
+    relay:
+      enabled: ${OUTBOX_RELAY_ENABLED:false}
+      batch-size: ${OUTBOX_RELAY_BATCH_SIZE:50}
+      fixed-delay-ms: ${OUTBOX_RELAY_FIXED_DELAY_MS:30000}

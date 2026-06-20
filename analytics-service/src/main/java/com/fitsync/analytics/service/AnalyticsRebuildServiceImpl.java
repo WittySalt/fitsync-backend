@@ -18,6 +18,7 @@ import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
 import com.fitsync.analytics.entity.AnalyticsWorkoutContributionEntity;
+import com.fitsync.analytics.messaging.AnalyticsEventPublisher;
 import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
@@ -34,6 +35,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
     private static final String ACTIVE_STATUS = "ACTIVE";
     private static final String CALORIES_GOAL_TYPE = "CALORIES";
     private static final String PROTEIN_GOAL_TYPE = "PROTEIN";
+    private static final List<Integer> STREAK_MILESTONES = List.of(7, 14, 30, 60, 100, 180, 365);
 
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsUserDailyBodyRepository dailyBodyRepository;
@@ -43,6 +45,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
     private final AnalyticsMealContributionRepository mealContributionRepository;
     private final AnalyticsWorkoutContributionRepository workoutContributionRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
+    private final AnalyticsEventPublisher analyticsEventPublisher;
     private final Clock clock;
 
     public AnalyticsRebuildServiceImpl(AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
@@ -53,6 +56,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
                                        AnalyticsMealContributionRepository mealContributionRepository,
                                        AnalyticsWorkoutContributionRepository workoutContributionRepository,
                                        AnalyticsCacheInvalidationService cacheInvalidationService,
+                                       AnalyticsEventPublisher analyticsEventPublisher,
                                        Clock clock) {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.dailyBodyRepository = dailyBodyRepository;
@@ -62,6 +66,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         this.mealContributionRepository = mealContributionRepository;
         this.workoutContributionRepository = workoutContributionRepository;
         this.cacheInvalidationService = cacheInvalidationService;
+        this.analyticsEventPublisher = analyticsEventPublisher;
         this.clock = clock;
     }
 
@@ -97,13 +102,33 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
                 .orElse(0));
         snapshot.setWeekWorkoutCount(lastSeven.stream().mapToInt(row -> defaultInt(row.getCompletedWorkoutCount())).sum());
         snapshot.setWeekWorkoutMinutes(lastSeven.stream().mapToInt(row -> defaultInt(row.getTotalWorkoutMinutes())).sum());
-        snapshot.setActiveStreakDays(calculateActiveStreak(lastSeven, today));
+        int previousStreak = defaultInt(snapshot.getActiveStreakDays());
+        int newStreak = calculateActiveStreak(lastSeven, today);
+        snapshot.setActiveStreakDays(newStreak);
 
         applyTargetsFromGoals(snapshot, userId);
         snapshot.setGeneratedAt(Instant.now(clock));
         dashboardSnapshotRepository.save(snapshot);
+        emitStreakMilestones(userId, previousStreak, newStreak, today);
         cacheInvalidationService.evictAllForUser(userId);
         return new AnalyticsRebuildResponse(userId, "dashboard", null, snapshot.getGeneratedAt());
+    }
+
+    /**
+     * Emits a StreakMilestoneReached event for each configured milestone the streak crossed upward in
+     * this rebuild (previous &lt; milestone &le; new). Emission is in the same transaction as the
+     * snapshot save; the publisher de-duplicates via a deterministic event id so a milestone is never
+     * announced twice.
+     */
+    private void emitStreakMilestones(UUID userId, int previousStreak, int newStreak, LocalDate today) {
+        if (newStreak <= previousStreak) {
+            return;
+        }
+        for (Integer milestone : STREAK_MILESTONES) {
+            if (previousStreak < milestone && newStreak >= milestone) {
+                analyticsEventPublisher.publishStreakMilestone(userId, newStreak, milestone, today);
+            }
+        }
     }
 
     @Override
