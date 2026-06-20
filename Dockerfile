@@ -28,9 +28,10 @@ WORKDIR /app
 # Copy ONLY the runnable Spring Boot jar. The "${SERVICE}-" prefix avoids picking
 # up tool jars that also land in target/ (e.g. findsecbugs-plugin-*.jar), and
 # the repackaged ".jar.original" does not match "*.jar".
-COPY ${SERVICE}/target/${SERVICE}-*.jar app.jar
+# --chown sets ownership during COPY in a single layer; a separate `RUN chown`
+# would rewrite the whole ~140MB jar into a second layer (doubling its on-disk size).
+COPY --chown=fitsync:fitsync ${SERVICE}/target/${SERVICE}-*.jar app.jar
 
-RUN chown fitsync:fitsync app.jar
 USER fitsync
 
 EXPOSE ${SERVER_PORT}

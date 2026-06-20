@@ -93,6 +93,16 @@ services:
     container_name: fitsync-auth-service
     environment:
       <<: *app-env
+      # auth-service validates the Cognito ID token at /api/v1/auth/bootstrap and
+      # exchanges it for a local FitSync JWT. Enabled via env vars, NOT the `cognito`
+      # profile: application-cognito.yml is gitignored, so it is absent from the
+      # CI-built jar and the profile would be a no-op (every bootstrap returns 401).
+      # Pool id + app client id are public (the SPA app client has no secret). The
+      # gateway must NOT enable Cognito — it crashes when Cognito is on there.
+      COGNITO_ENABLED: "true"
+      COGNITO_ISSUER_URI: https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_myVyuOmPD
+      COGNITO_AUDIENCE: 4mvse0cgmkplgocfg827uolvad
+      COGNITO_PRINCIPAL_CLAIM: username
       DB_USERNAME: auth_svc
       DB_PASSWORD: ${AUTH_DB_PASSWORD}
       SERVER_PORT: 8080
