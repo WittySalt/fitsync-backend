@@ -8,10 +8,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
-import com.fitsync.nutrition.messaging.UserPreferencesUpdatedEventConsumer;
 import com.fitsync.nutrition.messaging.UserPreferencesUpdatedKafkaListener;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +21,7 @@ class UserPreferencesUpdatedKafkaListenerTests {
 
     @Test
     void consumesUserPreferencesUpdatedEventFromKafkaPayload() throws Exception {
-        UserPreferencesUpdatedEventConsumer consumer = mock(UserPreferencesUpdatedEventConsumer.class);
+        DomainEventConsumer<UserPreferencesUpdatedPayload> consumer = mock(DomainEventConsumer.class);
         UserPreferencesUpdatedKafkaListener listener = new UserPreferencesUpdatedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<UserPreferencesUpdatedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
@@ -39,7 +39,7 @@ class UserPreferencesUpdatedKafkaListenerTests {
 
     @Test
     void ignoresNonUserPreferencesUpdatedEventsOnSharedTopic() throws Exception {
-        UserPreferencesUpdatedEventConsumer consumer = mock(UserPreferencesUpdatedEventConsumer.class);
+        DomainEventConsumer<UserPreferencesUpdatedPayload> consumer = mock(DomainEventConsumer.class);
         UserPreferencesUpdatedKafkaListener listener = new UserPreferencesUpdatedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<UserPreferencesUpdatedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),

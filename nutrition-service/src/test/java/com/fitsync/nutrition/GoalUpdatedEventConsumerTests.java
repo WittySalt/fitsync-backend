@@ -7,9 +7,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
-import com.fitsync.nutrition.messaging.GoalUpdatedEventConsumer;
 import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +21,7 @@ import org.springframework.test.context.ActiveProfiles;
 class GoalUpdatedEventConsumerTests {
 
     @Autowired
-    private GoalUpdatedEventConsumer consumer;
+    private DomainEventConsumer<GoalUpdatedPayload> consumer;
 
     @Autowired
     private NutritionTargetRepository nutritionTargetRepository;

@@ -6,8 +6,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
-import com.fitsync.analytics.messaging.BodyMetricsRecordedEventConsumer;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
@@ -23,7 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
 class BodyMetricsRecordedEventConsumerTests {
 
     @Autowired
-    private BodyMetricsRecordedEventConsumer consumer;
+    private DomainEventConsumer<BodyMetricsRecordedPayload> consumer;
 
     @Autowired
     private AnalyticsUserDailyBodyRepository dailyBodyRepository;

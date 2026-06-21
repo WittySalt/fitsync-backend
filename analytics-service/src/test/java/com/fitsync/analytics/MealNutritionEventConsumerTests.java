@@ -8,9 +8,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-import com.fitsync.analytics.messaging.MealDeletedEventConsumer;
-import com.fitsync.analytics.messaging.MealLoggedEventConsumer;
-import com.fitsync.analytics.messaging.MealUpdatedEventConsumer;
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
@@ -29,13 +27,13 @@ import org.springframework.test.context.ActiveProfiles;
 class MealNutritionEventConsumerTests {
 
     @Autowired
-    private MealLoggedEventConsumer mealLoggedEventConsumer;
+    private DomainEventConsumer<MealLoggedPayload> mealLoggedEventConsumer;
 
     @Autowired
-    private MealUpdatedEventConsumer mealUpdatedEventConsumer;
+    private DomainEventConsumer<MealUpdatedPayload> mealUpdatedEventConsumer;
 
     @Autowired
-    private MealDeletedEventConsumer mealDeletedEventConsumer;
+    private DomainEventConsumer<MealDeletedPayload> mealDeletedEventConsumer;
 
     @Autowired
     private AnalyticsMealContributionRepository mealContributionRepository;

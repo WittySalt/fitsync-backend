@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
@@ -17,7 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class BodyMetricsRecordedEventConsumerImpl implements BodyMetricsRecordedEventConsumer {
+public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer<BodyMetricsRecordedPayload> {
 
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsUserDailyBodyRepository dailyBodyRepository;

@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.nutrition.domain.FoodCatalogScope;
@@ -40,7 +41,6 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import com.fitsync.nutrition.messaging.GoalUpdatedEventConsumer;
 import com.fitsync.nutrition.messaging.OutboxEventStatus;
 import com.fitsync.nutrition.messaging.repository.OutboxEventRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,7 +62,7 @@ class NutritionApiTests {
     private OutboxEventRepository outboxEventRepository;
 
     @Autowired
-    private GoalUpdatedEventConsumer goalUpdatedEventConsumer;
+    private DomainEventConsumer<GoalUpdatedPayload> goalUpdatedEventConsumer;
 
     @Autowired
     private CustomFoodRepository customFoodRepository;

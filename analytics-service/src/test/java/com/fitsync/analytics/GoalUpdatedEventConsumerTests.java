@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
-import com.fitsync.analytics.messaging.GoalUpdatedEventConsumer;
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
@@ -23,7 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
 class GoalUpdatedEventConsumerTests {
 
     @Autowired
-    private GoalUpdatedEventConsumer consumer;
+    private DomainEventConsumer<GoalUpdatedPayload> consumer;
 
     @Autowired
     private AnalyticsUserGoalProgressRepository goalProgressRepository;

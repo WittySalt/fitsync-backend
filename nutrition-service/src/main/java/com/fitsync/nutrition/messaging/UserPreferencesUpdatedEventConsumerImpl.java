@@ -2,6 +2,7 @@ package com.fitsync.nutrition.messaging;
 
 import java.time.Instant;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.nutrition.entity.NutritionPreferenceProjectionEntity;
@@ -10,7 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class UserPreferencesUpdatedEventConsumerImpl implements UserPreferencesUpdatedEventConsumer {
+public class UserPreferencesUpdatedEventConsumerImpl implements DomainEventConsumer<UserPreferencesUpdatedPayload> {
 
     private final NutritionPreferenceProjectionRepository repository;
 

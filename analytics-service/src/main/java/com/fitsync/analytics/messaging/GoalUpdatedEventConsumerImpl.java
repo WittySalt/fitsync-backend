@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
@@ -18,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class GoalUpdatedEventConsumerImpl implements GoalUpdatedEventConsumer {
+public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpdatedPayload> {
 
     private static final String CALORIES = "CALORIES";
     private static final String PROTEIN = "PROTEIN";

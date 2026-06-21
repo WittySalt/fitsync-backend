@@ -2,6 +2,7 @@ package com.fitsync.nutrition.messaging;
 
 import java.time.Instant;
 
+import com.fitsync.contracts.events.DomainEventPublisher;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;

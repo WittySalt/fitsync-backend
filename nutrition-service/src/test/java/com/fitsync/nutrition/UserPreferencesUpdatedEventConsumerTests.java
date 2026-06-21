@@ -6,9 +6,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
-import com.fitsync.nutrition.messaging.UserPreferencesUpdatedEventConsumer;
 import com.fitsync.nutrition.repository.NutritionPreferenceProjectionRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +20,7 @@ import org.springframework.test.context.ActiveProfiles;
 class UserPreferencesUpdatedEventConsumerTests {
 
     @Autowired
-    private UserPreferencesUpdatedEventConsumer consumer;
+    private DomainEventConsumer<UserPreferencesUpdatedPayload> consumer;
 
     @Autowired
     private NutritionPreferenceProjectionRepository repository;

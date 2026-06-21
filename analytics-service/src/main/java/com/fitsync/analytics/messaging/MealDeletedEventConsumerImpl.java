@@ -1,11 +1,12 @@
 package com.fitsync.analytics.messaging;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
 import org.springframework.stereotype.Service;
 
 @Service
-public class MealDeletedEventConsumerImpl implements MealDeletedEventConsumer {
+public class MealDeletedEventConsumerImpl implements DomainEventConsumer<MealDeletedPayload> {
 
     private final MealNutritionProjectionService projectionService;
 

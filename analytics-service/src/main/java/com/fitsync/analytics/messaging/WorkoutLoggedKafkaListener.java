@@ -1,5 +1,6 @@
 package com.fitsync.analytics.messaging;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,9 +22,9 @@ public class WorkoutLoggedKafkaListener {
     private static final Logger log = LoggerFactory.getLogger(WorkoutLoggedKafkaListener.class);
 
     private final ObjectReader eventReader;
-    private final WorkoutLoggedEventConsumer consumer;
+    private final DomainEventConsumer<WorkoutLoggedPayload> consumer;
 
-    public WorkoutLoggedKafkaListener(ObjectMapper objectMapper, WorkoutLoggedEventConsumer consumer) {
+    public WorkoutLoggedKafkaListener(ObjectMapper objectMapper, DomainEventConsumer<WorkoutLoggedPayload> consumer) {
         this.consumer = consumer;
         JavaType eventType = objectMapper.getTypeFactory()
                 .constructParametricType(FitSyncDomainEvent.class, WorkoutLoggedPayload.class);

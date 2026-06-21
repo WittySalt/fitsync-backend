@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventPublisher;
 import com.fitsync.analytics.messaging.repository.OutboxEventRepository;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.analytics.StreakMilestoneReachedPayload;
