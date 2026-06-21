@@ -101,6 +101,17 @@ class GatewayProxyServiceImplTests {
     }
 
     @Test
+    void rejectsEncodedPathTraversalRequestUri() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/%2e%2e/admin");
+        request.setRequestURI("/api/v1/auth/%2e%2e/admin");
+
+        assertThatThrownBy(() -> service.forwardToAuthService(request, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("path traversal");
+    }
+
+    @Test
     void rejectsBaseUrlWithNonHttpScheme() {
         GatewayProxyService service = newServiceWithAuthBaseUrl("ftp://auth-service:8080");
 

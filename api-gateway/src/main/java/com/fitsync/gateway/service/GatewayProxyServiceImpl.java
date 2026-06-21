@@ -1,6 +1,7 @@
 package com.fitsync.gateway.service;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Locale;
@@ -24,6 +25,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
 @Service
 public class GatewayProxyServiceImpl implements GatewayProxyService {
@@ -172,6 +174,9 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         if (!StringUtils.hasText(requestUri) || !requestUri.startsWith("/")) {
             throw new IllegalArgumentException("Proxy request URI must be an absolute path");
         }
+        if (containsPathTraversalSegment(requestUri)) {
+            throw new IllegalArgumentException("Proxy request URI must not contain path traversal segments");
+        }
 
         return UriComponentsBuilder.fromUri(baseUri)
                 .replacePath(requestUri)
@@ -191,6 +196,16 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         if (StringUtils.hasText(baseUri.getQuery()) || StringUtils.hasText(baseUri.getFragment())) {
             throw new IllegalArgumentException("Gateway route base URL must not include query or fragment components");
         }
+    }
+
+    private boolean containsPathTraversalSegment(String requestUri) {
+        String decodedPath = UriUtils.decode(requestUri, StandardCharsets.UTF_8);
+        for (String segment : decodedPath.split("/")) {
+            if ("..".equals(segment)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String normalizeBaseUrl(String baseUrl) {
