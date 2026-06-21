@@ -130,6 +130,11 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       SERVER_PORT: 8088
+      # Gateway auto-parses multipart/form-data; Spring Boot default max-file-size is 1MB,
+      # which rejects avatar uploads (frontend caps at 2MB) before they reach user-service.
+      # Raise to cover the 2MB avatar + multipart overhead.
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${MULTIPART_MAX_FILE_SIZE:-3MB}
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${MULTIPART_MAX_REQUEST_SIZE:-4MB}
       JWT_SECRET: ${JWT_SECRET}
       COGNITO_ENABLED: ${COGNITO_ENABLED:-false}
       COGNITO_ISSUER_URI: ${COGNITO_ISSUER_URI:-}
