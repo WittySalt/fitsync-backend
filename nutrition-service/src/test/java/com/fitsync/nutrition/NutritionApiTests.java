@@ -700,10 +700,12 @@ class NutritionApiTests {
                         .header("Authorization", "Bearer " + token)
                         .param("q", "greek"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].foodId").value(foodId.toString()))
-                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"))
-                .andExpect(jsonPath("$[0].basisLabel").value("170 g"))
-                .andExpect(jsonPath("$[0].primaryBarcode").value("8880001112223"));
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.content[0].foodId").value(foodId.toString()))
+                .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.content[0].basisLabel").value("170 g"))
+                .andExpect(jsonPath("$.content[0].primaryBarcode").value("8880001112223"));
 
         mockMvc.perform(get("/api/v1/nutrition/foods/{foodId}", foodId)
                         .header("Authorization", "Bearer " + token))
@@ -758,15 +760,19 @@ class NutritionApiTests {
                         .header("Authorization", "Bearer " + token)
                         .param("categoryId", "ca700004-0000-0000-0000-000000000000")) // DAIRY_GROUP
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"));
 
         // Unrelated group → no results.
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
                         .header("Authorization", "Bearer " + token)
                         .param("categoryId", "ca700001-0000-0000-0000-000000000000")) // PROTEINS
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
 
         // Exact leaf category (no subcategories) → still finds it.
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
@@ -774,8 +780,10 @@ class NutritionApiTests {
                         .param("categoryId", "ca710009-0000-0000-0000-000000000000") // DAIRY leaf
                         .param("includeSubcategories", "false"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"));
 
         // Unknown category id → 404.
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
@@ -796,39 +804,88 @@ class NutritionApiTests {
                         .header("Authorization", "Bearer " + token)
                         .param("q", "rice"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3))
-                .andExpect(jsonPath("$[0].displayName").value("Rice"))
-                .andExpect(jsonPath("$[1].displayName").value("Rice Cake"))
-                .andExpect(jsonPath("$[2].displayName").value("Brown Rice"));
+                .andExpect(jsonPath("$.content.length()").value(3))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.content[0].displayName").value("Rice"))
+                .andExpect(jsonPath("$.content[1].displayName").value("Rice Cake"))
+                .andExpect(jsonPath("$.content[2].displayName").value("Brown Rice"));
 
         // Pagination: page 0 size 2, then page 1 size 2.
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
                         .header("Authorization", "Bearer " + token)
                         .param("q", "rice").param("size", "2").param("page", "0"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].displayName").value("Rice"));
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.number").value(0))
+                .andExpect(jsonPath("$.size").value(2))
+                .andExpect(jsonPath("$.first").value(true))
+                .andExpect(jsonPath("$.last").value(false))
+                .andExpect(jsonPath("$.content[0].displayName").value("Rice"));
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
                         .header("Authorization", "Bearer " + token)
                         .param("q", "rice").param("size", "2").param("page", "1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].displayName").value("Brown Rice"));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.number").value(1))
+                .andExpect(jsonPath("$.first").value(false))
+                .andExpect(jsonPath("$.last").value(true))
+                .andExpect(jsonPath("$.content[0].displayName").value("Brown Rice"));
 
         // verified filter.
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
                         .header("Authorization", "Bearer " + token)
                         .param("q", "rice").param("verified", "false"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].displayName").value("Brown Rice"));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.content[0].displayName").value("Brown Rice"));
 
         // scope filter: all seeded foods are GLOBAL, so USER scope returns none.
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
                         .header("Authorization", "Bearer " + token)
                         .param("q", "rice").param("scope", "USER"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
+    }
+
+    @Test
+    void searchPageMetadataReportsMultiplePagesAndDifferentSecondPage() throws Exception {
+        String token = tokenFor("page-search@example.com", "Page Search");
+        seedGlobalFood("a0000004-0000-0000-0000-000000000000", "Apple", "FRUITS", true);
+        seedGlobalFood("a0000005-0000-0000-0000-000000000000", "Apple Butter", "FRUITS", true);
+        seedGlobalFood("a0000006-0000-0000-0000-000000000000", "Apple Cider", "FRUITS", true);
+
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "apple").param("size", "2").param("page", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.number").value(0))
+                .andExpect(jsonPath("$.first").value(true))
+                .andExpect(jsonPath("$.last").value(false))
+                .andExpect(jsonPath("$.content[0].displayName").value("Apple"));
+
+        mockMvc.perform(get("/api/v1/nutrition/foods/search")
+                        .header("Authorization", "Bearer " + token)
+                        .param("q", "apple").param("size", "2").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.number").value(1))
+                .andExpect(jsonPath("$.first").value(false))
+                .andExpect(jsonPath("$.last").value(true))
+                .andExpect(jsonPath("$.content[0].displayName").value("Apple Cider"));
     }
 
     @Test

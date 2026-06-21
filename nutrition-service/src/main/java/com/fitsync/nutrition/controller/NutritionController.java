@@ -35,6 +35,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -161,7 +162,7 @@ public class NutritionController {
     }
 
     @GetMapping("/foods/search")
-    public List<FoodSearchResultView> searchFoods(Authentication authentication,
+    public Page<FoodSearchResultView> searchFoods(Authentication authentication,
                                                   @RequestParam(required = false) String q,
                                                   @RequestParam(required = false) UUID categoryId,
                                                   @RequestParam(defaultValue = "true") boolean includeSubcategories,
