@@ -45,7 +45,7 @@
         <owasp.dependency-check.version>10.0.4</owasp.dependency-check.version>
         <sonar.maven.plugin.version>4.0.0.4121</sonar.maven.plugin.version>
         <!-- Coverage gate: fail build if line coverage drops below this -->
-        <jacoco.minimum.coverage>0.60</jacoco.minimum.coverage>
+        <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>
         <!-- Whether the per-module JaCoCo check breaks the build. Off by default so
              every module still reports coverage to Sonar without going red; the real
              project-wide gate is the Sonar Quality Gate (sonar.qualitygate.wait).
