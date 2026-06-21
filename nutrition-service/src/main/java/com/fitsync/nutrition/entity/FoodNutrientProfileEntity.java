@@ -5,13 +5,14 @@ import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseEffectiveEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "food_nutrient_profiles")
-public class FoodNutrientProfileEntity extends BaseEffectiveEntity {
+public class FoodNutrientProfileEntity extends BaseEffectiveEntity implements NutritionFactsCarrier {
 
     @Id
     @Column(name = "nutrient_profile_id", nullable = false)
@@ -26,32 +27,14 @@ public class FoodNutrientProfileEntity extends BaseEffectiveEntity {
     @Column(name = "basis_unit", nullable = false, length = 30)
     private String basisUnit;
 
-    @Column(name = "calories", nullable = false)
-    private Integer calories;
-
-    @Column(name = "protein_grams", precision = 10, scale = 2)
-    private BigDecimal proteinGrams;
-
-    @Column(name = "carbs_grams", precision = 10, scale = 2)
-    private BigDecimal carbsGrams;
-
-    @Column(name = "fat_grams", precision = 10, scale = 2)
-    private BigDecimal fatGrams;
+    @Embedded
+    private NutritionFacts nutritionFacts = new NutritionFacts();
 
     @Column(name = "saturated_fat_grams", precision = 10, scale = 2)
     private BigDecimal saturatedFatGrams;
 
     @Column(name = "trans_fat_grams", precision = 10, scale = 2)
     private BigDecimal transFatGrams;
-
-    @Column(name = "fiber_grams", precision = 10, scale = 2)
-    private BigDecimal fiberGrams;
-
-    @Column(name = "sugar_grams", precision = 10, scale = 2)
-    private BigDecimal sugarGrams;
-
-    @Column(name = "sodium_mg", precision = 10, scale = 2)
-    private BigDecimal sodiumMg;
 
     @Column(name = "potassium_mg", precision = 10, scale = 2)
     private BigDecimal potassiumMg;
@@ -91,36 +74,14 @@ public class FoodNutrientProfileEntity extends BaseEffectiveEntity {
         this.basisUnit = basisUnit;
     }
 
-    public Integer getCalories() {
-        return calories;
+    @Override
+    public NutritionFacts nutritionFactsSnapshot() {
+        return NutritionFacts.copyOf(nutritionFacts);
     }
 
-    public void setCalories(Integer calories) {
-        this.calories = calories;
-    }
-
-    public BigDecimal getProteinGrams() {
-        return proteinGrams;
-    }
-
-    public void setProteinGrams(BigDecimal proteinGrams) {
-        this.proteinGrams = proteinGrams;
-    }
-
-    public BigDecimal getCarbsGrams() {
-        return carbsGrams;
-    }
-
-    public void setCarbsGrams(BigDecimal carbsGrams) {
-        this.carbsGrams = carbsGrams;
-    }
-
-    public BigDecimal getFatGrams() {
-        return fatGrams;
-    }
-
-    public void setFatGrams(BigDecimal fatGrams) {
-        this.fatGrams = fatGrams;
+    @Override
+    public void replaceNutritionFacts(NutritionFacts nutritionFacts) {
+        this.nutritionFacts = NutritionFacts.copyOf(nutritionFacts);
     }
 
     public BigDecimal getSaturatedFatGrams() {
@@ -137,30 +98,6 @@ public class FoodNutrientProfileEntity extends BaseEffectiveEntity {
 
     public void setTransFatGrams(BigDecimal transFatGrams) {
         this.transFatGrams = transFatGrams;
-    }
-
-    public BigDecimal getFiberGrams() {
-        return fiberGrams;
-    }
-
-    public void setFiberGrams(BigDecimal fiberGrams) {
-        this.fiberGrams = fiberGrams;
-    }
-
-    public BigDecimal getSugarGrams() {
-        return sugarGrams;
-    }
-
-    public void setSugarGrams(BigDecimal sugarGrams) {
-        this.sugarGrams = sugarGrams;
-    }
-
-    public BigDecimal getSodiumMg() {
-        return sodiumMg;
-    }
-
-    public void setSodiumMg(BigDecimal sodiumMg) {
-        this.sodiumMg = sodiumMg;
     }
 
     public BigDecimal getPotassiumMg() {

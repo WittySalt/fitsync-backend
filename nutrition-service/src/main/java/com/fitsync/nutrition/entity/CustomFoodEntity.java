@@ -5,13 +5,14 @@ import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseAuditableEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "custom_foods")
-public class CustomFoodEntity extends BaseAuditableEntity {
+public class CustomFoodEntity extends BaseAuditableEntity implements NutritionFactsCarrier {
 
     @Id
     @Column(name = "custom_food_id", nullable = false)
@@ -32,26 +33,8 @@ public class CustomFoodEntity extends BaseAuditableEntity {
     @Column(name = "serving_unit", nullable = false, length = 30)
     private String servingUnit;
 
-    @Column(name = "calories", nullable = false)
-    private Integer calories;
-
-    @Column(name = "protein_grams", precision = 10, scale = 2)
-    private BigDecimal proteinGrams;
-
-    @Column(name = "carbs_grams", precision = 10, scale = 2)
-    private BigDecimal carbsGrams;
-
-    @Column(name = "fat_grams", precision = 10, scale = 2)
-    private BigDecimal fatGrams;
-
-    @Column(name = "fiber_grams", precision = 10, scale = 2)
-    private BigDecimal fiberGrams;
-
-    @Column(name = "sugar_grams", precision = 10, scale = 2)
-    private BigDecimal sugarGrams;
-
-    @Column(name = "sodium_mg", precision = 10, scale = 2)
-    private BigDecimal sodiumMg;
+    @Embedded
+    private NutritionFacts nutritionFacts = new NutritionFacts();
 
     @Column(name = "verified", nullable = false)
     private boolean verified;
@@ -104,60 +87,14 @@ public class CustomFoodEntity extends BaseAuditableEntity {
         this.servingUnit = servingUnit;
     }
 
-    public Integer getCalories() {
-        return calories;
+    @Override
+    public NutritionFacts nutritionFactsSnapshot() {
+        return NutritionFacts.copyOf(nutritionFacts);
     }
 
-    public void setCalories(Integer calories) {
-        this.calories = calories;
-    }
-
-    public BigDecimal getProteinGrams() {
-        return proteinGrams;
-    }
-
-    public void setProteinGrams(BigDecimal proteinGrams) {
-        this.proteinGrams = proteinGrams;
-    }
-
-    public BigDecimal getCarbsGrams() {
-        return carbsGrams;
-    }
-
-    public void setCarbsGrams(BigDecimal carbsGrams) {
-        this.carbsGrams = carbsGrams;
-    }
-
-    public BigDecimal getFatGrams() {
-        return fatGrams;
-    }
-
-    public void setFatGrams(BigDecimal fatGrams) {
-        this.fatGrams = fatGrams;
-    }
-
-    public BigDecimal getFiberGrams() {
-        return fiberGrams;
-    }
-
-    public void setFiberGrams(BigDecimal fiberGrams) {
-        this.fiberGrams = fiberGrams;
-    }
-
-    public BigDecimal getSugarGrams() {
-        return sugarGrams;
-    }
-
-    public void setSugarGrams(BigDecimal sugarGrams) {
-        this.sugarGrams = sugarGrams;
-    }
-
-    public BigDecimal getSodiumMg() {
-        return sodiumMg;
-    }
-
-    public void setSodiumMg(BigDecimal sodiumMg) {
-        this.sodiumMg = sodiumMg;
+    @Override
+    public void replaceNutritionFacts(NutritionFacts nutritionFacts) {
+        this.nutritionFacts = NutritionFacts.copyOf(nutritionFacts);
     }
 
     public boolean isVerified() {
