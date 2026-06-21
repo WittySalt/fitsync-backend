@@ -9,6 +9,7 @@ stages:
   - precheck
   - verify
   - security
+  - stress
   - docker
   - deploy
 
@@ -81,7 +82,21 @@ verify_backend:
   variables:
     TESTCONTAINERS_RYUK_DISABLED: "true"
   script:
-    - mvn $MAVEN_CLI_OPTS verify -Psast -Dspring.profiles.active=test
+    # Build, test, coverage (JaCoCo) + SAST (SpotBugs) for all modules. When a
+    # SONAR_TOKEN is configured, also publish to SonarQube/SonarCloud and block on
+    # the Quality Gate (code smells, coverage, duplication, security hotspots).
+    # Sonar stays off until the token is set, so the pipeline is green by default.
+    - |
+      SONAR_ARGS=""
+      if [ -n "$SONAR_TOKEN" ]; then
+        SONAR_ARGS="sonar:sonar \
+          -Dsonar.host.url=${SONAR_HOST_URL:-https://sonarcloud.io} \
+          -Dsonar.token=$SONAR_TOKEN \
+          -Dsonar.projectKey=$SONAR_PROJECT_KEY \
+          -Dsonar.organization=$SONAR_ORGANIZATION \
+          -Dsonar.qualitygate.wait=${SONAR_QUALITYGATE_WAIT:-true}"
+      fi
+    - mvn $MAVEN_CLI_OPTS verify -Psast -Dspring.profiles.active=test $SONAR_ARGS
   artifacts:
     when: always
     expire_in: 5 days
@@ -161,6 +176,39 @@ docker_image:
     # CI/CD variable; while it is unset (no ECR/EC2 provisioned yet) this job is
     # skipped so the main pipeline stays green. Set the variable to auto-enable it.
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+    - when: never
+
+stress_test:
+  stage: stress
+  image:
+    name: grafana/k6:0.49.0
+    entrypoint: [""]
+  needs: []
+  script:
+    - |
+      if [ -z "$STRESS_TARGET_URL" ]; then
+        echo "STRESS_TARGET_URL is not set — define it (and STRESS_USER_EMAIL/PASSWORD) as CI/CD variables."
+        exit 1
+      fi
+    - >
+      k6 run
+      -e BASE_URL="$STRESS_TARGET_URL"
+      -e USER_EMAIL="$STRESS_USER_EMAIL"
+      -e USER_PASSWORD="$STRESS_USER_PASSWORD"
+      -e PROFILE="${STRESS_PROFILE:-load}"
+      stress/k6/load-test.js
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - stress/k6/summary.json
+      - stress/k6/summary.txt
+  rules:
+    # Manual: it hits a live deployed environment, so it is opt-in from the
+    # pipeline UI ("Run pipeline") rather than firing on every MR.
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
     - when: never
 
 dependency_audit:

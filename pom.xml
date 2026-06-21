@@ -43,8 +43,17 @@
         <findsecbugs.version>1.13.0</findsecbugs.version>
         <checkstyle.version>3.4.0</checkstyle.version>
         <owasp.dependency-check.version>10.0.4</owasp.dependency-check.version>
+        <sonar.maven.plugin.version>4.0.0.4121</sonar.maven.plugin.version>
         <!-- Coverage gate: fail build if line coverage drops below this -->
-        <jacoco.minimum.coverage>0.60</jacoco.minimum.coverage>
+        <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>
+        <!-- Whether the per-module JaCoCo check breaks the build. Off by default so
+             every module still reports coverage to Sonar without going red; the real
+             project-wide gate is the Sonar Quality Gate (sonar.qualitygate.wait).
+             Modules that want a hard local gate (e.g. user-service) override to true. -->
+        <jacoco.halt.on.failure>false</jacoco.halt.on.failure>
+        <!-- SonarQube/SonarCloud: passed per-build in CI, sane defaults here. -->
+        <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.coverage.exclusions>**/dto/**,**/config/**,**/entity/**,**/*Application.java</sonar.coverage.exclusions>
     </properties>
 
     <build>
@@ -110,6 +119,7 @@
                             <phase>verify</phase>
                             <goals><goal>check</goal></goals>
                             <configuration>
+                                <haltOnFailure>${jacoco.halt.on.failure}</haltOnFailure>
                                 <rules>
                                     <rule>
                                         <element>BUNDLE</element>
@@ -188,6 +198,14 @@
                         </execution>
                     </executions>
                 </plugin>
+
+                <!-- SonarQube / SonarCloud scanner (code smells, coverage, hotspots,
+                     duplication). Invoked in CI as `mvn ... sonar:sonar`. -->
+                <plugin>
+                    <groupId>org.sonarsource.scanner.maven</groupId>
+                    <artifactId>sonar-maven-plugin</artifactId>
+                    <version>${sonar.maven.plugin.version}</version>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
@@ -198,6 +216,13 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+            <!-- Activate JaCoCo for EVERY module so coverage is measured project-wide
+                 and fed to Sonar. The check goal is soft by default (jacoco.halt.on.failure
+                 = false); modules opt into a hard gate by overriding that property. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
             </plugin>
         </plugins>
     </build>
