@@ -1,10 +1,9 @@
 package com.fitsync.user.domain;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonValue;
 import com.fitsync.persistence.code.CodeEnum;
 
-public enum TrainingFocusArea implements CodeEnum {
+public enum TrainingFocusArea implements UserCodeEnum {
     FULL_BODY("240001", "Full body", "Balanced full body training", "full_body"),
     UPPER("240002", "Upper body", "Upper body emphasis", "upper"),
     CORE("240003", "Core", "Core strength and stability", "core"),
@@ -12,30 +11,16 @@ public enum TrainingFocusArea implements CodeEnum {
     MOBILITY("240005", "Mobility", "Mobility and movement quality", "mobility"),
     CARDIO("240006", "Cardio", "Cardiovascular conditioning", "cardio");
 
-    private final String code;
-    private final String displayName;
-    private final String description;
-    private final String[] legacyCodes;
+    private final CodeEnumMetadata metadata;
 
     TrainingFocusArea(String code, String displayName, String description, String... legacyCodes) {
-        this.code = code;
-        this.displayName = displayName;
-        this.description = description;
-        this.legacyCodes = legacyCodes;
+        this.metadata = new CodeEnumMetadata(code, displayName, description, legacyCodes);
     }
 
     @Override
-    @JsonValue
-    public String getCode() { return code; }
-
-    @Override
-    public String getDefaultDisplayName() { return displayName; }
-
-    @Override
-    public String getDefaultDescription() { return description; }
-
-    @Override
-    public String[] getLegacyCodes() { return legacyCodes.clone(); }
+    public CodeEnumMetadata metadata() {
+        return metadata;
+    }
 
     @JsonCreator
     public static TrainingFocusArea fromCode(String value) {
