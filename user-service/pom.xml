@@ -17,6 +17,8 @@
 
     <properties>
         <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>
+        <!-- user-service keeps a hard local coverage gate (parent default is soft). -->
+        <jacoco.halt.on.failure>true</jacoco.halt.on.failure>
     </properties>
 
     <dependencies>
@@ -132,10 +134,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-            </plugin>
+            <!-- JaCoCo is now activated for all modules in the parent POM. -->
         </plugins>
     </build>
 </project>
