@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
 import jakarta.persistence.MappedSuperclass;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +47,9 @@ class FoodLineItemEntityTests {
             new ColumnCase("unit", "unit", true, 30, 0, 0),
             new ColumnCase("servingSize", "serving_size", false, 255, 10, 2),
             new ColumnCase("servingUnit", "serving_unit", false, 30, 0, 0),
-            new ColumnCase("snapshotServingLabel", "snapshot_serving_label", false, 80, 0, 0),
+            new ColumnCase("snapshotServingLabel", "snapshot_serving_label", false, 80, 0, 0));
+
+    private static final List<ColumnCase> NUTRITION_FACT_COLUMN_CASES = List.of(
             new ColumnCase("calories", "calories", true, 255, 0, 0),
             new ColumnCase("proteinGrams", "protein_grams", false, 255, 10, 2),
             new ColumnCase("carbsGrams", "carbs_grams", false, 255, 10, 2),
@@ -107,6 +110,37 @@ class FoodLineItemEntityTests {
             assertThat(column.precision()).isEqualTo(columnCase.precision());
             assertThat(column.scale()).isEqualTo(columnCase.scale());
         }
+
+        assertThat(NutritionFacts.class).hasAnnotation(Embeddable.class);
+
+        for (ColumnCase columnCase : NUTRITION_FACT_COLUMN_CASES) {
+            Column column = NutritionFacts.class
+                    .getDeclaredField(columnCase.fieldName())
+                    .getAnnotation(Column.class);
+
+            assertThat(column).isNotNull();
+            assertThat(column.name()).isEqualTo(columnCase.columnName());
+            assertThat(column.nullable()).isEqualTo(!columnCase.required());
+            assertThat(column.length()).isEqualTo(columnCase.length());
+            assertThat(column.precision()).isEqualTo(columnCase.precision());
+            assertThat(column.scale()).isEqualTo(columnCase.scale());
+        }
+    }
+
+    @Test
+    void sharedNutritionFactsAccessorsRemainAvailableOnFoodEntities() {
+        CustomFoodEntity customFood = new CustomFoodEntity();
+        FoodNutrientProfileEntity nutrientProfile = new FoodNutrientProfileEntity();
+
+        customFood.setCalories(120);
+        customFood.setProteinGrams(new BigDecimal("17.00"));
+        nutrientProfile.setCalories(95);
+        nutrientProfile.setProteinGrams(new BigDecimal("3.50"));
+
+        assertThat(customFood.getCalories()).isEqualTo(120);
+        assertThat(customFood.getProteinGrams()).isEqualByComparingTo("17.00");
+        assertThat(nutrientProfile.getCalories()).isEqualTo(95);
+        assertThat(nutrientProfile.getProteinGrams()).isEqualByComparingTo("3.50");
     }
 
     private record AccessorCase(String suffix, Class<?> type, Object value) {
