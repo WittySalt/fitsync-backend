@@ -73,6 +73,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
@@ -93,6 +94,9 @@ class WorkoutServicePersistenceTests {
 
     @MockBean
     private MediaStorageService mediaStorageService;
+
+    @MockBean
+    private UpstreamHttpImageSource upstreamHttpImageSource;
 
     @Autowired
     private ExerciseCatalogImportService exerciseCatalogImportService;
@@ -1238,6 +1242,7 @@ class WorkoutServicePersistenceTests {
                 .put(eq("exercises/Fixture_Bench_Press/0.jpg"), any(byte[].class), eq("image/jpeg"));
         verify(mediaStorageService, times(2))
                 .put(eq("exercises/Fixture_Bench_Press/1.jpg"), any(byte[].class), eq("image/jpeg"));
+        verifyNoInteractions(upstreamHttpImageSource);
     }
 
     @Test

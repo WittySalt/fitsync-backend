@@ -2,8 +2,6 @@ package com.fitsync.workout.service;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -46,30 +44,31 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ExerciseCatalogImportServiceImpl.class);
     private static final String CATALOG_IMAGE_KEY_PREFIX = "exercises/";
-    private static final String JPEG_CONTENT_TYPE = "image/jpeg";
 
     private final ObjectReader catalogReader;
     private final ExerciseRepository exerciseRepository;
     private final ObjectProvider<MediaStorageService> mediaStorageServiceProvider;
+    private final LocalDirectoryImageSource localDirectoryImageSource;
+    private final UpstreamHttpImageSource upstreamHttpImageSource;
     private final TransactionTemplate transactionTemplate;
     private final Resource catalogResource;
-    private final Optional<Path> imageSourceDirectory;
 
     public ExerciseCatalogImportServiceImpl(
             ObjectMapper objectMapper,
             ExerciseRepository exerciseRepository,
             ObjectProvider<MediaStorageService> mediaStorageServiceProvider,
+            LocalDirectoryImageSource localDirectoryImageSource,
+            UpstreamHttpImageSource upstreamHttpImageSource,
             PlatformTransactionManager transactionManager,
             @Value("${fitsync.workout.catalog.free-exercise-db.resource:classpath:catalog/free-exercise-db/exercises.json}")
-            Resource catalogResource,
-            @Value("${fitsync.workout.catalog.free-exercise-db.image-source-directory:}")
-            String imageSourceDirectory) {
+            Resource catalogResource) {
         this.catalogReader = objectMapper.readerFor(FreeExercise[].class);
         this.exerciseRepository = exerciseRepository;
         this.mediaStorageServiceProvider = mediaStorageServiceProvider;
+        this.localDirectoryImageSource = localDirectoryImageSource;
+        this.upstreamHttpImageSource = upstreamHttpImageSource;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.catalogResource = catalogResource;
-        this.imageSourceDirectory = normalizeImageSourceDirectory(imageSourceDirectory);
     }
 
     @Override
@@ -201,30 +200,35 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
             entity.getImages().clear();
             return;
         }
-        if (imageSourceDirectory.isEmpty()) {
+        Optional<CatalogImageSource> selectedImageSource = selectImageSource();
+        if (selectedImageSource.isEmpty()) {
             if (!entity.getImages().isEmpty()) {
                 LOGGER.debug("Skipping free-exercise-db image refresh for {} because no image source directory is configured",
                         sanitizeForLog(externalRef));
             }
             return;
         }
-        Set<Integer> retainedPositions = new LinkedHashSet<>();
+        CatalogImageSource imageSource = selectedImageSource.orElseThrow();
+        // This admin seed operation is intentionally synchronous. The full upstream catalog
+        // downloads roughly 1700 images sequentially and can take several minutes; async job
+        // tracking is a later operational enhancement, not part of this importer contract.
+        Set<Integer> expectedPositions = new LinkedHashSet<>();
         for (int index = 0; index < images.size(); index++) {
             String image = images.get(index);
             if (image == null || image.isBlank()) {
                 continue;
             }
             int position = index;
-            Optional<byte[]> imageBytes = readImageBytes(image);
-            if (imageBytes.isEmpty()) {
+            expectedPositions.add(position);
+            Optional<CatalogImage> catalogImage = loadImage(imageSource, image, externalRef);
+            if (catalogImage.isEmpty()) {
                 LOGGER.warn("Skipping free-exercise-db image {} for {} because the source file is unavailable",
                         sanitizeForLog(image),
                         sanitizeForLog(externalRef));
                 continue;
             }
             String imageUrl = mediaStorageServiceProvider.getObject()
-                    .put(imageStorageKey(externalRef, position), imageBytes.get(), contentType(image));
-            retainedPositions.add(position);
+                    .put(imageStorageKey(externalRef, position), catalogImage.get().bytes(), catalogImage.get().contentType());
             ExerciseImageEntity imageEntity = entity.getImages().stream()
                     .filter(existing -> position == existing.getPosition())
                     .findFirst()
@@ -235,48 +239,36 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
                         created.setPosition(position);
                         entity.getImages().add(created);
                         return created;
-                    });
+            });
             imageEntity.setUrl(imageUrl);
         }
-        entity.getImages().removeIf(image -> !retainedPositions.contains(image.getPosition()));
+        entity.getImages().removeIf(image -> !expectedPositions.contains(image.getPosition()));
     }
 
-    private Optional<Path> normalizeImageSourceDirectory(String configuredDirectory) {
-        if (configuredDirectory == null || configuredDirectory.isBlank()) {
-            return Optional.empty();
+    private Optional<CatalogImageSource> selectImageSource() {
+        if (localDirectoryImageSource.isAvailable()) {
+            return Optional.of(localDirectoryImageSource);
         }
-        return Optional.of(Path.of(configuredDirectory).toAbsolutePath().normalize());
+        if (upstreamHttpImageSource.isAvailable()) {
+            return Optional.of(upstreamHttpImageSource);
+        }
+        return Optional.empty();
     }
 
-    private Optional<byte[]> readImageBytes(String sourceImage) {
-        Path baseDirectory = imageSourceDirectory.orElseThrow();
-        Path imagePath = baseDirectory.resolve(sourceImage.replace('\\', '/')).normalize();
-        if (!imagePath.startsWith(baseDirectory)) {
-            throw new IllegalArgumentException("free-exercise-db image path escapes the configured source directory");
-        }
-        if (!Files.isRegularFile(imagePath)) {
-            return Optional.empty();
-        }
+    private Optional<CatalogImage> loadImage(CatalogImageSource imageSource, String image, String externalRef) {
         try {
-            return Optional.of(Files.readAllBytes(imagePath));
-        } catch (IOException ex) {
-            throw new IllegalArgumentException("Unable to read free-exercise-db image " + sourceImage, ex);
+            return imageSource.load(image);
+        } catch (RuntimeException ex) {
+            LOGGER.warn("Skipping free-exercise-db image {} for {} because it could not be loaded",
+                    sanitizeForLog(image),
+                    sanitizeForLog(externalRef));
+            LOGGER.debug("free-exercise-db image load failure", ex);
+            return Optional.empty();
         }
     }
 
     private String imageStorageKey(String externalRef, int position) {
         return CATALOG_IMAGE_KEY_PREFIX + externalRef + "/" + position + ".jpg";
-    }
-
-    private String contentType(String sourceImage) {
-        String normalized = normalize(sourceImage);
-        if (normalized.endsWith(".png")) {
-            return "image/png";
-        }
-        if (normalized.endsWith(".webp")) {
-            return "image/webp";
-        }
-        return JPEG_CONTENT_TYPE;
     }
 
     private void replaceSecondaryMuscles(ExerciseEntity entity,
