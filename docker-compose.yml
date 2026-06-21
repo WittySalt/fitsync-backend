@@ -71,6 +71,8 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: local
       DB_URL: jdbc:postgresql://postgres:5432/fitsync
@@ -78,6 +80,8 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:-fitsync}
       SERVER_PORT: 8082
       KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
+      OUTBOX_RELAY_ENABLED: ${OUTBOX_RELAY_ENABLED:-false}
       FITSYNC_MEDIA_ENDPOINT: http://minio:9000
       FITSYNC_MEDIA_REGION: ${FITSYNC_MEDIA_REGION:-us-east-1}
       FITSYNC_MEDIA_ACCESS_KEY: ${MINIO_ROOT_USER:-fitsync}
@@ -104,11 +108,15 @@ services:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # Dual listener: INTERNAL (kafka:29092) for other containers on this network,
+      # EXTERNAL (localhost:9092) for host clients (e.g. broker-backed integration
+      # tests). A CONTAINER must bootstrap to kafka:29092 — the EXTERNAL advert is
+      # localhost, which from inside another container points at that container itself.
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1

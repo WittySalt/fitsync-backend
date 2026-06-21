@@ -253,3 +253,53 @@ aws ec2 start-instances --instance-ids "$INSTANCE_ID"
 ```
 The Elastic IP keeps the address stable across stop/start. RDS also supports
 stop (up to 7 days at a time). Destroy everything after the capstone to stop billing.
+
+## 11. Event bus (Kafka) — enabling cross-service projections
+
+Cross-service projections (analytics streak/PR rollups, and the **nutrition daily
+budget targets** that come from a user's calorie/protein goals) flow over Kafka via
+a transactional-outbox → listener pipeline. It ships **off by default** so the base
+deploy is unchanged: the `kafka` service sits behind the `events` compose profile and
+every `KAFKA_*` flag defaults to `false`. With it off, goal targets never reach
+nutrition, so the budget shows no targets (the frontend renders that as an honest
+"set a target" empty state).
+
+To turn it on for a single-host (EC2) deploy:
+
+1. In the deploy `.env`, flip the switches (all 4 groups are required — outbox relay
+   on the producer side **and** the consumer listeners):
+   ```bash
+   KAFKA_ENABLED=true
+   OUTBOX_RELAY_ENABLED=true
+   KAFKA_BOOTSTRAP_SERVERS=kafka:29092            # in-stack broker's INTERNAL listener
+   # consumer listeners (user/nutrition/analytics):
+   KAFKA_USER_REGISTERED_LISTENER_ENABLED=true
+   KAFKA_GOAL_UPDATED_LISTENER_ENABLED=true
+   KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED=true
+   KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED=true
+   KAFKA_MEAL_LOGGED_LISTENER_ENABLED=true
+   KAFKA_MEAL_UPDATED_LISTENER_ENABLED=true
+   KAFKA_MEAL_DELETED_LISTENER_ENABLED=true
+   KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED=true
+   KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED=true
+   KAFKA_WORKOUT_DELETED_LISTENER_ENABLED=true
+   ```
+2. Bring the stack up **including the `events` profile** (so the broker actually starts):
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env --profile events up -d
+   ```
+   Enablement is **env-var only** — there is deliberately no `kafka` Spring profile
+   (same lesson as Cognito: a per-service `application-kafka.yml` could be absent from
+   the CI jar, making the profile a silent no-op; the env flags above always apply).
+3. Verify: complete an onboarding for a fresh account, then
+   `GET /api/v1/nutrition/summary/daily` should return non-null `targetCalories` /
+   `targetProtein` (the budget now has targets). `docker exec fitsync-kafka
+   /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list` shows the
+   auto-created topics; check each consumer service's logs for assigned partitions.
+
+**Memory:** the broker adds a JVM to the host, so the compose now caps every container
+— each Spring service `mem_limit 768m` + `-XX:MaxRAMPercentage=70`, Kafka `768m` +
+`-Xmx512m`, redis `256m`, nginx `128m` (≈5.8 GB total). This fits a **t3.large (8 GB)**
+with headroom; a t3.medium (4 GB) is **not** enough with events on. Failed records
+retry 3× (2 s back-off) then log-and-skip; poison/deserialization payloads are
+classified non-retryable and skipped immediately (no retry storm).
