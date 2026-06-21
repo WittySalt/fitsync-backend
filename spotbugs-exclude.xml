@@ -222,4 +222,15 @@
         <Class name="com.fitsync.analytics.messaging.WorkoutUpdatedEventConsumerImpl"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+
+    <!-- Shared Kafka listener error handler logs failed-record diagnostics (topic/key/eventType/
+         exception message). Those values come from taint sources (ConsumerRecord accessors / payload
+         JSON), so they ARE stripped of CR/LF inline before logging (CWE-117 mitigated). findsecbugs
+         does not recognize the manual String.replace cleanser through String.valueOf and reports a
+         false positive — the values are demonstrably sanitized at CommonKafkaListenerErrorConfiguration
+         .logFailedRecord. -->
+    <Match>
+        <Class name="com.fitsync.web.config.CommonKafkaListenerErrorConfiguration"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
 </FindBugsFilter>

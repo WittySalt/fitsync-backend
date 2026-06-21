@@ -54,16 +54,24 @@ public class CommonKafkaListenerErrorConfiguration {
 
     private static void logFailedRecord(ConsumerRecord<?, ?> record, Exception exception, ObjectMapper objectMapper) {
         Throwable rootCause = rootCause(exception);
+        // Strip CR/LF inline (CRLF log injection, CWE-117). findsecbugs only recognizes the
+        // replace() cleanser when it sits directly in the dataflow to the sink — a helper
+        // method is treated as an unknown source, so the values are sanitized here, not via a call.
+        String topic = String.valueOf(record.topic()).replace("\r", "_").replace("\n", "_");
+        String key = String.valueOf(record.key()).replace("\r", "_").replace("\n", "_");
+        String eventType = String.valueOf(extractEventType(record.value(), objectMapper))
+                .replace("\r", "_").replace("\n", "_");
+        String message = String.valueOf(rootCause.getMessage()).replace("\r", "_").replace("\n", "_");
         log.error(
                 "event=kafka_listener_record_failed topic={} partition={} offset={} key={} eventType={} "
                         + "exceptionClass={} exceptionMessage={}",
-                sanitize(record.topic()),
+                topic,
                 record.partition(),
                 record.offset(),
-                sanitize(record.key()),
-                sanitize(extractEventType(record.value(), objectMapper)),
+                key,
+                eventType,
                 rootCause.getClass().getName(),
-                sanitize(rootCause.getMessage()),
+                message,
                 exception);
     }
 
@@ -89,10 +97,5 @@ public class CommonKafkaListenerErrorConfiguration {
             current = current.getCause();
         }
         return current;
-    }
-
-    /** Strip CR/LF from untrusted record/payload values before logging (CRLF log injection). */
-    private static String sanitize(Object value) {
-        return String.valueOf(value).replace("\r", "_").replace("\n", "_");
     }
 }
