@@ -1,5 +1,6 @@
 package com.fitsync.web.config;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -56,13 +57,13 @@ public class CommonKafkaListenerErrorConfiguration {
         log.error(
                 "event=kafka_listener_record_failed topic={} partition={} offset={} key={} eventType={} "
                         + "exceptionClass={} exceptionMessage={}",
-                record.topic(),
+                sanitize(record.topic()),
                 record.partition(),
                 record.offset(),
-                record.key(),
-                extractEventType(record.value(), objectMapper),
+                sanitize(record.key()),
+                sanitize(extractEventType(record.value(), objectMapper)),
                 rootCause.getClass().getName(),
-                rootCause.getMessage(),
+                sanitize(rootCause.getMessage()),
                 exception);
     }
 
@@ -77,7 +78,7 @@ public class CommonKafkaListenerErrorConfiguration {
                 return null;
             }
             return eventType.asText();
-        } catch (Exception ignored) {
+        } catch (JsonProcessingException | RuntimeException ignored) {
             return null;
         }
     }
@@ -88,5 +89,10 @@ public class CommonKafkaListenerErrorConfiguration {
             current = current.getCause();
         }
         return current;
+    }
+
+    /** Strip CR/LF from untrusted record/payload values before logging (CRLF log injection). */
+    private static String sanitize(Object value) {
+        return String.valueOf(value).replace("\r", "_").replace("\n", "_");
     }
 }
