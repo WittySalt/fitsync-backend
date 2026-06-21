@@ -20,6 +20,7 @@ import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -40,12 +41,16 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
     private final Object throttleMonitor = new Object();
     private Instant lastRequestAt = Instant.EPOCH;
 
+    @Autowired
     public OpenFoodFactsFoodSource(ExternalFoodProperties properties) {
+        this(properties, RestClient.builder().requestFactory(requestFactory(properties)));
+    }
+
+    OpenFoodFactsFoodSource(ExternalFoodProperties properties, RestClient.Builder restClientBuilder) {
         this.properties = properties;
-        this.restClient = RestClient.builder()
+        this.restClient = restClientBuilder
                 .baseUrl(properties.baseUrl())
                 .defaultHeader("User-Agent", properties.userAgent())
-                .requestFactory(requestFactory(properties))
                 .build();
     }
 
