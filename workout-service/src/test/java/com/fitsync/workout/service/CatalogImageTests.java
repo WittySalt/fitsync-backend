@@ -54,4 +54,11 @@ class CatalogImageTests {
 
         assertThat(image.bytes()).isEqualTo("image".getBytes(StandardCharsets.UTF_8));
     }
+
+    @Test
+    void toStringIncludesArrayContent() {
+        CatalogImage image = new CatalogImage(new byte[] {1, 2}, "image/png");
+
+        assertThat(image).hasToString("CatalogImage[bytes=[1, 2], contentType=image/png]");
+    }
 }

@@ -3,6 +3,7 @@ package com.fitsync.nutrition.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -226,7 +227,7 @@ public class NutritionServiceImpl implements NutritionService {
                 request.mealType() == null ? MealType.SNACK : request.mealType(),
                 blankToNull(request.name()),
                 MealSource.MANUAL,
-                request.consumedAt() == null ? Instant.now() : request.consumedAt(),
+                request.consumedAt() == null ? Instant.now(Clock.systemUTC()) : request.consumedAt(),
                 blankToNull(request.timezone()),
                 null,
                 List.of(item));
@@ -272,10 +273,10 @@ public class NutritionServiceImpl implements NutritionService {
                 UUID.randomUUID(),
                 "MealDeleted",
                 1,
-                Instant.now(),
+                Instant.now(Clock.systemUTC()),
                 SOURCE,
                 principal.userId(),
-                new MealDeletedPayload(meal.getMealId(), Instant.now())));
+                new MealDeletedPayload(meal.getMealId(), Instant.now(Clock.systemUTC()))));
     }
 
     @Override
@@ -467,7 +468,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional(readOnly = true)
     public Page<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         String normalizedQuery = normalizeQuery(criteria.query());
 
         String categoryCode = null;
@@ -747,7 +748,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional
     public void addFavorite(CurrentUserPrincipal principal, UUID foodId) {
-        FoodCatalogItemEntity food = getAccessibleFood(principal.userId(), foodId, LocalDate.now());
+        FoodCatalogItemEntity food = getAccessibleFood(principal.userId(), foodId, LocalDate.now(ZoneId.systemDefault()));
         if (!foodFavoriteRepository.existsByUserIdAndFoodId(principal.userId(), food.getFoodId())) {
             FoodFavoriteEntity favorite = new FoodFavoriteEntity();
             favorite.setFavoriteId(UUID.randomUUID());
@@ -772,7 +773,7 @@ public class NutritionServiceImpl implements NutritionService {
         if (foodIds.isEmpty()) {
             return List.of();
         }
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         Map<UUID, FoodCatalogItemEntity> foodsById = new HashMap<>();
         for (FoodCatalogItemEntity food : foodCatalogItemRepository.findAllById(foodIds)) {
             foodsById.put(food.getFoodId(), food);
@@ -974,7 +975,7 @@ public class NutritionServiceImpl implements NutritionService {
         entity.setWaterId(UUID.randomUUID());
         entity.setUserId(principal.userId());
         entity.setAmountMl(request.amountMl());
-        entity.setLoggedAt(request.loggedAt() == null ? Instant.now() : request.loggedAt());
+        entity.setLoggedAt(request.loggedAt() == null ? Instant.now(Clock.systemUTC()) : request.loggedAt());
         entity.setTimezone(blankToNull(request.timezone()));
         return toWaterLogView(waterLogRepository.save(entity));
     }
@@ -1148,14 +1149,14 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional(readOnly = true)
     public FoodDetailView getFood(CurrentUserPrincipal principal, UUID foodId) {
-        return toFoodDetailView(getAccessibleFood(principal.userId(), foodId, LocalDate.now()));
+        return toFoodDetailView(getAccessibleFood(principal.userId(), foodId, LocalDate.now(ZoneId.systemDefault())));
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<FoodServingView> listFoodServings(CurrentUserPrincipal principal, UUID foodId) {
-        FoodCatalogItemEntity food = getAccessibleFood(principal.userId(), foodId, LocalDate.now());
-        return foodServingRepository.findActiveByFoodId(food.getFoodId(), LocalDate.now()).stream()
+        FoodCatalogItemEntity food = getAccessibleFood(principal.userId(), foodId, LocalDate.now(ZoneId.systemDefault()));
+        return foodServingRepository.findActiveByFoodId(food.getFoodId(), LocalDate.now(ZoneId.systemDefault())).stream()
                 .map(this::toFoodServingView)
                 .toList();
     }
@@ -1163,7 +1164,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional(readOnly = true)
     public FoodDetailView getFoodByBarcode(CurrentUserPrincipal principal, String barcode) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         Optional<FoodBarcodeEntity> barcodeEntity = foodBarcodeRepository.findActiveByBarcode(barcode, today);
         if (barcodeEntity.isPresent()) {
             return toFoodDetailView(getAccessibleFood(principal.userId(), barcodeEntity.get().getFoodId(), today));
@@ -1176,7 +1177,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     public FoodDetailView importFoodByBarcode(CurrentUserPrincipal principal, String barcode) {
         String normalizedBarcode = requireNonBlank(barcode, "barcode is required");
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         Optional<FoodBarcodeEntity> existing = foodBarcodeRepository.findActiveByBarcode(normalizedBarcode, today);
         if (existing.isPresent()) {
             return toFoodDetailView(getAccessibleFood(principal.userId(), existing.get().getFoodId(), today));
@@ -1214,7 +1215,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional
     public FoodDetailView cloneFood(CurrentUserPrincipal principal, UUID foodId) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         FoodCatalogItemEntity baseFood = getAccessibleFood(principal.userId(), foodId, today);
         if (baseFood.getScope() != FoodCatalogScope.GLOBAL) {
             throw new BadRequestException("Only global foods can be cloned");
@@ -1467,7 +1468,7 @@ public class NutritionServiceImpl implements NutritionService {
     }
 
     private FoodDetailView toFoodDetailView(FoodCatalogItemEntity food) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         FoodNutrientProfileEntity profile = foodNutrientProfileRepository.findActiveProfilesByFoodId(food.getFoodId(), today)
                 .stream()
                 .findFirst()
@@ -1641,7 +1642,7 @@ public class NutritionServiceImpl implements NutritionService {
     }
 
     private MealItemDraft buildMealItemFromCatalog(UUID userId, MealItemInput input) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         FoodCatalogItemEntity food = foodCatalogItemRepository.findAccessibleFoodById(input.foodCatalogItemId(), userId, today)
                 .orElseThrow(() -> new ResourceNotFoundException("Food not found"));
         FoodServingEntity serving = resolveServing(food, input.foodServingId(), today);
@@ -1942,7 +1943,7 @@ public class NutritionServiceImpl implements NutritionService {
                 UUID.randomUUID(),
                 "MealLogged",
                 1,
-                Instant.now(),
+                Instant.now(Clock.systemUTC()),
                 SOURCE,
                 meal.getUserId(),
                 new MealLoggedPayload(
@@ -1963,7 +1964,7 @@ public class NutritionServiceImpl implements NutritionService {
                 UUID.randomUUID(),
                 "MealUpdated",
                 1,
-                Instant.now(),
+                Instant.now(Clock.systemUTC()),
                 SOURCE,
                 meal.getUserId(),
                 new MealUpdatedPayload(
