@@ -225,6 +225,13 @@ deploy_prod:
       COGNITO_ENABLED=${COGNITO_ENABLED:-false}
       NGINX_SERVER_NAME=${PROD_DOMAIN:-_}
       NGINX_CERT_NAME=${PROD_DOMAIN:-localhost}
+      FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
+      FITSYNC_MEDIA_REGION=${FITSYNC_MEDIA_REGION:-ap-southeast-1}
+      FITSYNC_MEDIA_ACCESS_KEY=${FITSYNC_MEDIA_ACCESS_KEY}
+      FITSYNC_MEDIA_SECRET_KEY=${FITSYNC_MEDIA_SECRET_KEY}
+      FITSYNC_MEDIA_BUCKET=${FITSYNC_MEDIA_BUCKET:-fitsync-media}
+      FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+      FREE_EXERCISE_DB_IMAGES_DIR=${FREE_EXERCISE_DB_IMAGES_DIR:-/opt/fitsync/free-exercise-db/exercises}
       EOF
     # Stage deploy assets on the host, then bootstrap + deploy via the host script.
     - ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"

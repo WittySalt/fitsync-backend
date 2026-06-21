@@ -221,6 +221,22 @@ Set on the **fitsync-backend** project. Mark secrets **Masked**, and everything
 | `PROD_EC2_SSH_KEY` | contents of `fitsync_ed25519` | yes | the **private** key, full file |
 | `PROD_DOMAIN` | your domain (optional, for TLS/smoke) | no | leave unset until you add DNS |
 
+Media / images (only if you want exercise images + avatars — see §8.5):
+
+| Variable | Value | Masked | Notes |
+|---|---|---|---|
+| `FITSYNC_MEDIA_ENDPOINT` | `https://s3.ap-southeast-1.amazonaws.com` | no | S3 API the SDK writes through (path-style) |
+| `FITSYNC_MEDIA_REGION` | `ap-southeast-1` | no | defaults to this if unset |
+| `FITSYNC_MEDIA_ACCESS_KEY` | IAM user key id (§8.5) | yes | static key — **not** the EC2 instance role |
+| `FITSYNC_MEDIA_SECRET_KEY` | IAM user secret | yes | |
+| `FITSYNC_MEDIA_BUCKET` | `fitsync-media` | no | defaults to this if unset |
+| `FITSYNC_MEDIA_PUBLIC_BASE_URL` | `https://fitsync-media.s3.ap-southeast-1.amazonaws.com` | no | browser-reachable **https** base baked into stored URLs |
+| `FREE_EXERCISE_DB_IMAGES_DIR` | `/opt/fitsync/free-exercise-db/exercises` | no | host dir mounted into workout-service (§8.5) |
+
+> Leave all of these unset and the services still boot, but they fall back to the
+> local-dev MinIO defaults (`localhost:9000`) — there is no MinIO in this prod
+> stack, so **every image silently stays broken.** That is the default state.
+
 Optional: `JWT_EXPIRATION` (default `PT2H`), `SPRING_CACHE_TYPE`, `COGNITO_ENABLED`,
 `PROD_IMAGE_TAG` (deploy a specific tag instead of latest commit), `RUN_PROD_SMOKE`.
 
@@ -231,6 +247,95 @@ Optional: `JWT_EXPIRATION` (default `PT2H`), `SPRING_CACHE_TYPE`, `COGNITO_ENABL
 3. Pipeline → `deploy_prod` job → **Run** (manual, asks for confirmation).
    - First run auto-installs Docker + compose + aws-cli on the host, renders `/opt/fitsync/.env` from the variables, pulls from ECR, `compose up --wait`, health-gates the gateway, writes the rollback tag.
 4. Check: `curl http://<EIP>:8088/actuator/health` → `{"status":"UP"}`.
+
+## 8.5 Media / images (S3) — exercise images + avatars
+
+**Why this is separate.** There is **no MinIO in the prod stack** — MinIO is only the
+local-dev S3 emulator in `docker-compose.yml`. In prod the same `media-support` S3
+client (used by both **workout-service** for the exercise catalog and **user-service**
+for avatar upload) must point at a **real S3 bucket**. If you skip this, the services
+boot fine but fall back to `localhost:9000` and every image is broken.
+
+### How images get into S3 (the flow)
+
+```
+free-exercise-db images on EC2 disk          workout-service                S3 bucket               browser
+/opt/fitsync/free-exercise-db/exercises  ──►  catalog auto-import   ──put──► fitsync-media   ──GET──► <img src>
+        (fetch script, one-time)              reads each file,               exercises/<ref>/<n>.jpg  (https,
+                                              uploads bytes, writes          avatars/<userId>/...     public-read)
+                                              PUBLIC_BASE_URL+key to DB
+```
+
+Two independent URLs (don't confuse them): `FITSYNC_MEDIA_ENDPOINT` is where bytes are
+**written**; `FITSYNC_MEDIA_PUBLIC_BASE_URL` is **baked into the DB row** for the browser
+to **read**. The browser fetches objects directly from S3 — the backend never proxies —
+so the bucket must serve those objects over **public-read https**. The import only writes
+a DB image row when it can read the local source file, so the images **must be on the EC2
+host at import time** — pre-seeding the bucket alone is not enough.
+
+### Setup
+
+**a. Bucket (public-read over https):**
+```bash
+aws s3api create-bucket --bucket fitsync-media --region "$AWS_REGION" \
+  --create-bucket-configuration LocationConstraint="$AWS_REGION"
+# allow public GET (objects only), keep writes private
+aws s3api put-public-access-block --bucket fitsync-media \
+  --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=false,RestrictPublicBuckets=false
+cat > media-bucket-policy.json <<JSON
+{ "Version":"2012-10-17","Statement":[{
+  "Sid":"PublicReadObjects","Effect":"Allow","Principal":"*",
+  "Action":"s3:GetObject","Resource":"arn:aws:s3:::fitsync-media/*" }]}
+JSON
+aws s3api put-bucket-policy --bucket fitsync-media --policy file://media-bucket-policy.json
+```
+> Prefer no public bucket? Put CloudFront in front and set `FITSYNC_MEDIA_PUBLIC_BASE_URL`
+> to the distribution domain instead. Public-read https is the minimal working option.
+
+**b. IAM user with write access** (media-support uses static keys, not the instance role):
+```bash
+aws iam create-user --user-name fitsync-media-writer
+cat > media-writer-policy.json <<JSON
+{ "Version":"2012-10-17","Statement":[{
+  "Effect":"Allow","Action":["s3:PutObject","s3:DeleteObject"],
+  "Resource":"arn:aws:s3:::fitsync-media/*" }]}
+JSON
+aws iam put-user-policy --user-name fitsync-media-writer \
+  --policy-name s3-media-write --policy-document file://media-writer-policy.json
+aws iam create-access-key --user-name fitsync-media-writer
+# -> AccessKeyId  -> FITSYNC_MEDIA_ACCESS_KEY,  SecretAccessKey -> FITSYNC_MEDIA_SECRET_KEY
+```
+
+**c. Set the 7 media CI/CD variables** from the table in §7 (mark the secret key Masked).
+
+**d. Put the source images on the EC2 host** (one-time, ~90MB; not committed to the repo):
+```bash
+ssh -i fitsync_ed25519 ec2-user@<EIP>
+sudo dnf install -y git
+sudo mkdir -p /opt/fitsync && sudo chown -R ec2-user:ec2-user /opt/fitsync
+# shallow sparse checkout of just the exercises/ dir from free-exercise-db
+git clone --depth 1 --filter=blob:none --sparse https://github.com/yuhonas/free-exercise-db.git /tmp/fedb
+cd /tmp/fedb && git sparse-checkout set exercises
+mkdir -p /opt/fitsync/free-exercise-db
+cp -r /tmp/fedb/exercises /opt/fitsync/free-exercise-db/exercises
+```
+(Same effect as `scripts/fetch-free-exercise-db-images.sh`, run on the host.)
+
+**e. Deploy / re-import.** Redeploy via the pipeline (§8) so the new media env reaches
+the containers. The catalog auto-import only runs **when the catalog is empty**, so on a
+host that already imported metadata (no images) you must **force a re-import** once — it
+is idempotent and backfills the image rows now that the source dir is populated:
+```bash
+ssh -i fitsync_ed25519 ec2-user@<EIP>
+docker exec fitsync-workout-service \
+  wget -qO- --post-data='' http://localhost:8082/api/v1/internal/workouts/exercises/import-catalog
+```
+Verify one object resolves publicly:
+```bash
+curl -sI https://fitsync-media.s3.ap-southeast-1.amazonaws.com/exercises/Barbell_Bench_Press_-_Medium_Grip/0.jpg | head -1
+# -> HTTP/1.1 200 OK
+```
+Avatars need no seeding — they upload on demand once `user-service` has the media env.
 
 ## 9. TLS / nginx (optional follow-up)
 

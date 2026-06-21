@@ -54,10 +54,14 @@ x-kafka-consumer-env: &kafka-consumer-env
   KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED: ${KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED:-false}
   KAFKA_WORKOUT_DELETED_LISTENER_ENABLED: ${KAFKA_WORKOUT_DELETED_LISTENER_ENABLED:-false}
 
-# Object storage for workout exercise images. Defaults keep credentials non-blank
-# so the eager S3Client bean builds and the service starts even when media is not
-# wired in prod (upload is lazy — only used on exercise-image import). Override
-# FITSYNC_MEDIA_* via the deploy .env to point at a real S3/MinIO bucket.
+# Object storage for media — workout exercise images AND user avatars. Both the
+# workout-service (catalog import) and user-service (avatar upload) write here via
+# the shared media-support S3 client. Defaults keep credentials non-blank so the
+# eager S3Client bean builds and a service starts even when media is unconfigured
+# (uploads are lazy). For a working prod, override FITSYNC_MEDIA_* via the deploy
+# .env to point at a real AWS S3 bucket (see DEPLOY.md §8.5 "Media / images (S3)").
+# Note: localhost:9000 is the LOCAL-DEV MinIO emulator only — there is no MinIO
+# container in this prod stack, so leaving the defaults means images never resolve.
 x-media-env: &media-env
   FITSYNC_MEDIA_ENDPOINT: ${FITSYNC_MEDIA_ENDPOINT:-http://localhost:9000}
   FITSYNC_MEDIA_REGION: ${FITSYNC_MEDIA_REGION:-ap-southeast-1}
@@ -188,7 +192,7 @@ services:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-user-service:${IMAGE_TAG:-latest}
     container_name: fitsync-user-service
     environment:
-      <<: [*app-env, *kafka-consumer-env]
+      <<: [*app-env, *kafka-consumer-env, *media-env]
       DB_USERNAME: user_svc
       DB_PASSWORD: ${USER_DB_PASSWORD}
       SERVER_PORT: 8081
