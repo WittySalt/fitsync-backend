@@ -19,6 +19,7 @@ import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
+import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
@@ -45,6 +46,8 @@ import com.fitsync.workout.dto.WorkoutPlanExerciseSetTargetInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseSetTargetView;
 import com.fitsync.workout.dto.WorkoutPlanExerciseView;
 import com.fitsync.workout.dto.WorkoutPlanView;
+import com.fitsync.workout.dto.WorkoutResumeSetView;
+import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.entity.ExerciseEntity;
 import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
@@ -384,6 +387,13 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public WorkoutSessionResumeView resumeSession(CurrentUserPrincipal currentUser, UUID sessionId) {
+        WorkoutSessionEntity session = findSession(currentUser.userId(), sessionId);
+        return toResumeView(session);
+    }
+
+    @Override
     @Transactional
     public WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId) {
         WorkoutSessionEntity source = findSession(currentUser.userId(), sessionId);
@@ -489,7 +499,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                     exercise.getSets().add(created);
                     return created;
                 });
-        applySetLogRequest(setLog, request, true);
+        applySetLogRequest(setLog, request);
         deriveExerciseMetrics(exercise);
         deriveSessionMetrics(session);
         return toSessionView(workoutSessionRepository.save(session));
@@ -722,7 +732,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setStartedAt(Instant.now());
         for (WorkoutExerciseLogEntity sourceExercise : source.getExercises()) {
             List<WorkoutExerciseSetLogEntity> loggedSets = sourceExercise.getSets().stream()
-                    .filter(WorkoutExerciseSetLogEntity::isLogged)
+                    .filter(this::isDoneSet)
                     .toList();
             if (!loggedSets.isEmpty()) {
                 repeated.getExercises().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets));
@@ -849,7 +859,7 @@ public class WorkoutServiceImpl implements WorkoutService {
 
     private void deriveExerciseMetrics(WorkoutExerciseLogEntity exercise) {
         List<WorkoutExerciseSetLogEntity> loggedSets = exercise.getSets().stream()
-                .filter(WorkoutExerciseSetLogEntity::isLogged)
+                .filter(this::isDoneSet)
                 .toList();
         if (loggedSets.isEmpty()) {
             return;
@@ -966,8 +976,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void applySetLogRequest(WorkoutExerciseSetLogEntity setLog,
-                                    UpsertWorkoutExerciseSetRequest request,
-                                    boolean logged) {
+                                    UpsertWorkoutExerciseSetRequest request) {
         setLog.setReps(request.reps());
         setLog.setWeightKg(request.weightKg());
         setLog.setDurationSeconds(request.durationSeconds());
@@ -975,7 +984,21 @@ public class WorkoutServiceImpl implements WorkoutService {
         setLog.setRestSeconds(request.restSeconds());
         setLog.setPerceivedExertion(request.perceivedExertion());
         setLog.setNotes(request.notes());
-        setLog.setLogged(logged);
+        setLog.setStatus(resolveLiveSetStatus(request.status()));
+    }
+
+    private WorkoutSetStatus resolveLiveSetStatus(WorkoutSetStatus status) {
+        if (status == null) {
+            return WorkoutSetStatus.DONE;
+        }
+        if (status == WorkoutSetStatus.DONE || status == WorkoutSetStatus.SKIPPED) {
+            return status;
+        }
+        throw new IllegalArgumentException("Set status must be DONE or SKIPPED");
+    }
+
+    private boolean isDoneSet(WorkoutExerciseSetLogEntity setLog) {
+        return setLog.getStatus() == WorkoutSetStatus.DONE && setLog.isLogged();
     }
 
     private ExerciseEntity findAccessibleExercise(UUID userId, UUID exerciseId) {
@@ -1185,7 +1208,7 @@ public class WorkoutServiceImpl implements WorkoutService {
 
     private PersonalRecordSnapshot snapshotExercise(WorkoutExerciseLogEntity exercise) {
         List<ExerciseRecordSetRow> rows = exercise.getSets().stream()
-                .filter(WorkoutExerciseSetLogEntity::isLogged)
+                .filter(this::isDoneSet)
                 .map(set -> new ExerciseRecordSetRow(
                         exercise.getSession().getSessionId(),
                         exercise.getExerciseLogId(),
@@ -1352,6 +1375,67 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.getDateTimeUpdated());
     }
 
+    private WorkoutSessionResumeView toResumeView(WorkoutSessionEntity session) {
+        int doneSets = 0;
+        int skippedSets = 0;
+        int pendingSets = 0;
+        WorkoutResumeSetView nextSet = null;
+
+        List<WorkoutExerciseLogEntity> exercises = session.getExercises().stream()
+                .sorted(Comparator.comparing(WorkoutExerciseLogEntity::getSequence))
+                .toList();
+        for (WorkoutExerciseLogEntity exercise : exercises) {
+            List<WorkoutExerciseSetLogEntity> sets = exercise.getSets().stream()
+                    .sorted(Comparator.comparing(WorkoutExerciseSetLogEntity::getSetNumber))
+                    .toList();
+            for (WorkoutExerciseSetLogEntity setLog : sets) {
+                if (setLog.getStatus() == WorkoutSetStatus.DONE) {
+                    doneSets++;
+                } else if (setLog.getStatus() == WorkoutSetStatus.SKIPPED) {
+                    skippedSets++;
+                } else {
+                    pendingSets++;
+                    if (nextSet == null && isResumable(session)) {
+                        nextSet = toResumeSetView(exercise, setLog);
+                    }
+                }
+            }
+        }
+
+        return new WorkoutSessionResumeView(
+                session.getSessionId(),
+                session.getStatus(),
+                doneSets,
+                skippedSets,
+                pendingSets,
+                doneSets + skippedSets + pendingSets,
+                nextSet);
+    }
+
+    private boolean isResumable(WorkoutSessionEntity session) {
+        return session.getStatus() == WorkoutSessionStatus.PLANNED
+                || session.getStatus() == WorkoutSessionStatus.IN_PROGRESS;
+    }
+
+    private WorkoutResumeSetView toResumeSetView(WorkoutExerciseLogEntity exercise,
+                                                 WorkoutExerciseSetLogEntity setLog) {
+        return new WorkoutResumeSetView(
+                exercise.getExerciseLogId(),
+                exercise.getExercise().getExerciseId(),
+                exercise.getExerciseNameSnapshot(),
+                exercise.getSequence(),
+                setLog.getSetLogId(),
+                setLog.getSetNumber(),
+                setLog.getStatus(),
+                setLog.getReps(),
+                setLog.getWeightKg(),
+                setLog.getDurationSeconds(),
+                setLog.getDistanceKm(),
+                setLog.getRestSeconds(),
+                setLog.getPerceivedExertion(),
+                setLog.getNotes());
+    }
+
     private WorkoutSessionView toSessionView(WorkoutSessionEntity entity) {
         List<WorkoutExerciseLogView> exercises = entity.getExercises().stream()
                 .map(exercise -> new WorkoutExerciseLogView(
@@ -1371,6 +1455,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                                 .map(setLog -> new WorkoutExerciseSetLogView(
                                         setLog.getSetLogId(),
                                         setLog.getSetNumber(),
+                                        setLog.getStatus(),
                                         setLog.getReps(),
                                         setLog.getWeightKg(),
                                         setLog.getDurationSeconds(),

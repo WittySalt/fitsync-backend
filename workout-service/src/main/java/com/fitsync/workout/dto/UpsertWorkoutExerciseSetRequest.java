@@ -8,8 +8,11 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import com.fitsync.workout.domain.WorkoutSetStatus;
+
 @Schema(example = """
         {
+          "status": "DONE",
           "reps": 8,
           "weightKg": 55.0,
           "durationSeconds": null,
@@ -20,6 +23,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
         }
         """)
 public record UpsertWorkoutExerciseSetRequest(
+        WorkoutSetStatus status,
         @Min(0) Integer reps,
         @DecimalMin("0.0") BigDecimal weightKg,
         @Min(0) Integer durationSeconds,

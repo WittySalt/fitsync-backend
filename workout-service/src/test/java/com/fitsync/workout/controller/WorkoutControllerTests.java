@@ -14,6 +14,7 @@ import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
+import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
@@ -41,6 +42,8 @@ import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
 import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
+import com.fitsync.workout.dto.WorkoutResumeSetView;
+import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.workout.security.JwtService;
@@ -850,6 +853,7 @@ class WorkoutControllerTests {
         UUID exerciseLogId = UUID.randomUUID();
         CurrentUserPrincipal principal = principal();
         UpsertWorkoutExerciseSetRequest request = new UpsertWorkoutExerciseSetRequest(
+                WorkoutSetStatus.SKIPPED,
                 8,
                 new BigDecimal("55.00"),
                 null,
@@ -873,6 +877,77 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.sessionId").value(sessionId.toString()));
 
         verify(workoutService).upsertSet(eq(principal), eq(sessionId), eq(exerciseLogId), eq(1), any());
+    }
+
+    @Test
+    void shouldResumeSessionForAuthenticatedUser() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID exerciseLogId = UUID.randomUUID();
+        UUID exerciseId = UUID.randomUUID();
+        UUID setLogId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionResumeView response = new WorkoutSessionResumeView(
+                sessionId,
+                WorkoutSessionStatus.IN_PROGRESS,
+                1,
+                1,
+                2,
+                4,
+                new WorkoutResumeSetView(
+                        exerciseLogId,
+                        exerciseId,
+                        "Back Squat",
+                        2,
+                        setLogId,
+                        1,
+                        WorkoutSetStatus.PENDING,
+                        5,
+                        new BigDecimal("100.00"),
+                        null,
+                        null,
+                        180,
+                        null,
+                        null));
+
+        when(workoutService.resumeSession(any(), eq(sessionId))).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/sessions/{sessionId}/resume", sessionId)
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.doneSets").value(1))
+                .andExpect(jsonPath("$.skippedSets").value(1))
+                .andExpect(jsonPath("$.pendingSets").value(2))
+                .andExpect(jsonPath("$.totalSets").value(4))
+                .andExpect(jsonPath("$.nextSet.exerciseLogId").value(exerciseLogId.toString()))
+                .andExpect(jsonPath("$.nextSet.exerciseSequence").value(2))
+                .andExpect(jsonPath("$.nextSet.setNumber").value(1))
+                .andExpect(jsonPath("$.nextSet.status").value("PENDING"));
+
+        verify(workoutService).resumeSession(eq(principal), eq(sessionId));
+    }
+
+    @Test
+    void shouldReturnTerminalResumeWithoutNextSet() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionResumeView response = new WorkoutSessionResumeView(
+                sessionId,
+                WorkoutSessionStatus.COMPLETED,
+                3,
+                1,
+                0,
+                4,
+                null);
+
+        when(workoutService.resumeSession(any(), eq(sessionId))).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/sessions/{sessionId}/resume", sessionId)
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.nextSet").doesNotExist());
     }
 
     @Test
