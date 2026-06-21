@@ -19,4 +19,8 @@ public record GatewayCorsProperties(List<String> allowedOrigins) {
                 ? DEFAULT_ALLOWED_ORIGINS
                 : List.copyOf(allowedOrigins);
     }
+
+    public List<String> allowedOrigins() {
+        return List.copyOf(allowedOrigins);
+    }
 }
