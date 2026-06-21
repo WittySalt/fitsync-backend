@@ -1,5 +1,7 @@
 package com.fitsync.user.service;
 
+import java.util.UUID;
+
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import com.fitsync.user.domain.CalorieTrackingMode;
@@ -51,47 +53,49 @@ public class UserRegistrationProvisioningServiceImpl implements UserRegistration
     public void provisionFromRegistration(FitSyncDomainEvent<UserRegisteredPayload> event) {
         validateEvent(event);
 
-        userProfileRepository.findById(event.userId()).orElseGet(() -> {
+        UUID userId = event.userId();
+
+        if (!userProfileRepository.existsById(userId)) {
             UserProfileEntity entity = new UserProfileEntity();
-            entity.setUserId(event.userId());
+            entity.setUserId(userId);
             entity.setDisplayName(event.payload().displayName());
             entity.setMembershipTier(MembershipTier.MEMBER);
             entity.setMembershipStatus(MembershipStatus.ACTIVE);
             entity.setOnboardingCompleted(false);
-            return userProfileRepository.save(entity);
-        });
+            userProfileRepository.save(entity);
+        }
 
-        userAppPreferencesRepository.findById(event.userId()).orElseGet(() -> {
+        if (!userAppPreferencesRepository.existsById(userId)) {
             UserAppPreferencesEntity entity = new UserAppPreferencesEntity();
-            entity.setUserId(event.userId());
+            entity.setUserId(userId);
             entity.setPreferredUnits(UnitSystem.METRIC);
             entity.setLanguage(LanguagePreference.EN);
             entity.setPrivacyLevel(PrivacyLevel.PRIVATE);
             entity.setDataSharingConsent(false);
-            return userAppPreferencesRepository.save(entity);
-        });
+            userAppPreferencesRepository.save(entity);
+        }
 
-        userTrainingPreferencesRepository.findById(event.userId()).orElseGet(() -> {
+        if (!userTrainingPreferencesRepository.existsById(userId)) {
             UserTrainingPreferencesEntity entity = new UserTrainingPreferencesEntity();
-            entity.setUserId(event.userId());
+            entity.setUserId(userId);
             entity.setFitnessLevel(FitnessLevel.BEGINNER);
             entity.setTrainingLocation(TrainingLocation.MIXED);
             entity.setIntensityPreference(IntensityPreference.MODERATE);
-            return userTrainingPreferencesRepository.save(entity);
-        });
+            userTrainingPreferencesRepository.save(entity);
+        }
 
-        userNutritionPreferencesRepository.findById(event.userId()).orElseGet(() -> {
+        if (!userNutritionPreferencesRepository.existsById(userId)) {
             UserNutritionPreferencesEntity entity = new UserNutritionPreferencesEntity();
-            entity.setUserId(event.userId());
+            entity.setUserId(userId);
             entity.setDietaryPattern(DietaryPreference.NONE);
             entity.setCalorieTrackingMode(CalorieTrackingMode.FLEXIBLE);
             entity.setMacroPreference(MacroPreference.BALANCED);
-            return userNutritionPreferencesRepository.save(entity);
-        });
+            userNutritionPreferencesRepository.save(entity);
+        }
 
-        userNotificationPreferencesRepository.findById(event.userId()).orElseGet(() -> {
+        if (!userNotificationPreferencesRepository.existsById(userId)) {
             UserNotificationPreferencesEntity entity = new UserNotificationPreferencesEntity();
-            entity.setUserId(event.userId());
+            entity.setUserId(userId);
             entity.setPushEnabled(true);
             entity.setEmailEnabled(false);
             entity.setWorkoutReminderEnabled(true);
@@ -101,8 +105,8 @@ public class UserRegistrationProvisioningServiceImpl implements UserRegistration
             entity.setWeeklyProgressReportEnabled(false);
             entity.setWeeklyProgressReportChannel(NotificationChannel.EMAIL);
             entity.setMarketingEmailsEnabled(false);
-            return userNotificationPreferencesRepository.save(entity);
-        });
+            userNotificationPreferencesRepository.save(entity);
+        }
     }
 
     private void validateEvent(FitSyncDomainEvent<UserRegisteredPayload> event) {

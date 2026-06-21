@@ -23,6 +23,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 public class GatewayProxyServiceImpl implements GatewayProxyService {
@@ -82,7 +83,7 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         HttpHeaders headers = copyHeaders(request);
         addGatewayHeaders(headers);
 
-        URI targetUri = URI.create(normalizeBaseUrl(baseUrl) + request.getRequestURI() + queryStringSuffix(request));
+        URI targetUri = buildTargetUri(baseUrl, request);
         RequestEntity<byte[]> requestEntity = new RequestEntity<>(
                 body == null ? new byte[0] : body,
                 headers,
@@ -163,8 +164,33 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         }
     }
 
-    private String queryStringSuffix(HttpServletRequest request) {
-        return StringUtils.hasText(request.getQueryString()) ? "?" + request.getQueryString() : "";
+    private URI buildTargetUri(String baseUrl, HttpServletRequest request) {
+        URI baseUri = URI.create(normalizeBaseUrl(baseUrl));
+        validateBaseUri(baseUri);
+
+        String requestUri = request.getRequestURI();
+        if (!StringUtils.hasText(requestUri) || !requestUri.startsWith("/")) {
+            throw new IllegalArgumentException("Proxy request URI must be an absolute path");
+        }
+
+        return UriComponentsBuilder.fromUri(baseUri)
+                .replacePath(requestUri)
+                .replaceQuery(request.getQueryString())
+                .build(true)
+                .toUri();
+    }
+
+    private void validateBaseUri(URI baseUri) {
+        String scheme = baseUri.getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            throw new IllegalArgumentException("Gateway route base URL must use HTTP or HTTPS");
+        }
+        if (!StringUtils.hasText(baseUri.getHost()) || baseUri.getUserInfo() != null) {
+            throw new IllegalArgumentException("Gateway route base URL must include only a host and optional port");
+        }
+        if (StringUtils.hasText(baseUri.getQuery()) || StringUtils.hasText(baseUri.getFragment())) {
+            throw new IllegalArgumentException("Gateway route base URL must not include query or fragment components");
+        }
     }
 
     private String normalizeBaseUrl(String baseUrl) {

@@ -35,6 +35,12 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Header filtering lower-cases fixed ASCII HTTP header names with Locale.ROOT only -->
+    <Match>
+        <Class name="com.fitsync.gateway.service.GatewayProxyServiceImpl"/>
+        <Bug pattern="IMPROPER_UNICODE"/>
+    </Match>
+
     <!-- REST controllers are intentionally Spring endpoints -->
     <Match>
         <Class name="com.fitsync.gateway.controller.GatewayHealthController"/>
