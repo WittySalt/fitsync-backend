@@ -7,12 +7,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import com.fitsync.web.config.CommonKafkaListenerErrorConfiguration;
 import com.fitsync.web.config.CommonWebErrorConfiguration;
 
 @EnableJpaAuditing
 @EnableScheduling
 @ConfigurationPropertiesScan
-@Import(CommonWebErrorConfiguration.class)
+@Import({CommonWebErrorConfiguration.class, CommonKafkaListenerErrorConfiguration.class})
 @SpringBootApplication
 public class NutritionServiceApplication {
 

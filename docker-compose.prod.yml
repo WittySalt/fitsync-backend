@@ -13,6 +13,7 @@
 
 x-service-defaults: &service-defaults
   restart: unless-stopped
+  mem_limit: ${SPRING_SERVICE_MEM_LIMIT:-768m}
   networks: [fitsync-net]
 
 # Shared env for every JWT + RDS-backed service. Kafka stays disabled in phase 1
@@ -25,7 +26,33 @@ x-app-env: &app-env
   DB_URL: ${DB_URL}
   JWT_SECRET: ${JWT_SECRET}
   JWT_EXPIRATION: ${JWT_EXPIRATION:-PT2H}
+  # Event bus. KAFKA_ENABLED gates all producer/consumer wiring; bootstrap defaults
+  # to the in-stack `kafka` container's INTERNAL listener (override with MSK brokers
+  # in a real prod .env). OUTBOX_RELAY_ENABLED turns on the transactional-outbox
+  # relay so every producer actually drains its outbox table to Kafka.
   KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+  KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
+  OUTBOX_RELAY_ENABLED: ${OUTBOX_RELAY_ENABLED:-false}
+  # Cap each JVM's heap to a fraction of its container mem_limit. Without this, a
+  # containerized JVM defaults MaxRAMPercentage to 25% of HOST RAM (≈2 GB on a
+  # t3.large) — 6 of them + Kafka would blow past 8 GB. ExitOnOutOfMemoryError
+  # fails the container fast (restart) instead of GC-thrashing to a hang.
+  JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
+
+# Consumer-side listener switches (default off — granular rollout). Merged into the
+# consuming services (user/nutrition/analytics). A service ignores the flags for
+# listeners it does not declare, so one shared block is safe.
+x-kafka-consumer-env: &kafka-consumer-env
+  KAFKA_USER_REGISTERED_LISTENER_ENABLED: ${KAFKA_USER_REGISTERED_LISTENER_ENABLED:-false}
+  KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:-false}
+  KAFKA_GOAL_UPDATED_LISTENER_ENABLED: ${KAFKA_GOAL_UPDATED_LISTENER_ENABLED:-false}
+  KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED: ${KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED:-false}
+  KAFKA_MEAL_LOGGED_LISTENER_ENABLED: ${KAFKA_MEAL_LOGGED_LISTENER_ENABLED:-false}
+  KAFKA_MEAL_UPDATED_LISTENER_ENABLED: ${KAFKA_MEAL_UPDATED_LISTENER_ENABLED:-false}
+  KAFKA_MEAL_DELETED_LISTENER_ENABLED: ${KAFKA_MEAL_DELETED_LISTENER_ENABLED:-false}
+  KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED: ${KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED:-false}
+  KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED: ${KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED:-false}
+  KAFKA_WORKOUT_DELETED_LISTENER_ENABLED: ${KAFKA_WORKOUT_DELETED_LISTENER_ENABLED:-false}
 
 # Object storage for workout exercise images. Defaults keep credentials non-blank
 # so the eager S3Client bean builds and the service starts even when media is not
@@ -44,6 +71,7 @@ services:
     image: redis:7-alpine
     container_name: fitsync-redis
     restart: unless-stopped
+    mem_limit: ${REDIS_MEM_LIMIT:-256m}
     command: ["redis-server", "--save", "60", "1"]
     volumes:
       - redis-data:/data
@@ -52,6 +80,43 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    networks: [fitsync-net]
+
+  # Single-node KRaft broker for the event bus. Behind the `events` profile so a
+  # default `up` (events off) does NOT start it; bring it up by naming it explicitly
+  # or with `--profile events`. For a real multi-AZ prod, drop this and point
+  # KAFKA_BOOTSTRAP_SERVERS at MSK instead. Services reach it on INTERNAL kafka:29092;
+  # 9092 is published on loopback only for host-side debugging on the EC2 box.
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: fitsync-kafka
+    profiles: ["events"]
+    restart: unless-stopped
+    mem_limit: ${KAFKA_MEM_LIMIT:-768m}
+    environment:
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xmx512m -Xms512m}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "127.0.0.1:9092:9092"
+    volumes:
+      - kafka-data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     networks: [fitsync-net]
 
   api-gateway:
@@ -72,6 +137,7 @@ services:
       WORKOUT_SERVICE_BASE_URL: http://workout-service:8082
       NUTRITION_SERVICE_BASE_URL: http://nutrition-service:8083
       ANALYTICS_SERVICE_BASE_URL: http://analytics-service:8085
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
     ports:
       - "8088:8088"
     healthcheck:
@@ -122,7 +188,7 @@ services:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-user-service:${IMAGE_TAG:-latest}
     container_name: fitsync-user-service
     environment:
-      <<: *app-env
+      <<: [*app-env, *kafka-consumer-env]
       DB_USERNAME: user_svc
       DB_PASSWORD: ${USER_DB_PASSWORD}
       SERVER_PORT: 8081
@@ -158,7 +224,7 @@ services:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-nutrition-service:${IMAGE_TAG:-latest}
     container_name: fitsync-nutrition-service
     environment:
-      <<: *app-env
+      <<: [*app-env, *kafka-consumer-env]
       DB_USERNAME: nutrition_svc
       DB_PASSWORD: ${NUTRITION_DB_PASSWORD}
       SERVER_PORT: 8083
@@ -174,7 +240,7 @@ services:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-analytics-service:${IMAGE_TAG:-latest}
     container_name: fitsync-analytics-service
     environment:
-      <<: *app-env
+      <<: [*app-env, *kafka-consumer-env]
       DB_USERNAME: analytics_svc
       DB_PASSWORD: ${ANALYTICS_DB_PASSWORD}
       SERVER_PORT: 8085
@@ -197,6 +263,7 @@ services:
     image: nginx:1.27-alpine
     container_name: fitsync-nginx
     restart: unless-stopped
+    mem_limit: ${NGINX_MEM_LIMIT:-128m}
     environment:
       NGINX_SERVER_NAME: ${NGINX_SERVER_NAME:-_}
       NGINX_CERT_NAME: ${NGINX_CERT_NAME}
@@ -222,3 +289,4 @@ networks:
 
 volumes:
   redis-data:
+  kafka-data:
