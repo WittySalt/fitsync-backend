@@ -1,11 +1,12 @@
 package com.fitsync.analytics.messaging;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import org.springframework.stereotype.Service;
 
 @Service
-public class WorkoutLoggedEventConsumerImpl implements WorkoutLoggedEventConsumer {
+public class WorkoutLoggedEventConsumerImpl implements DomainEventConsumer<WorkoutLoggedPayload> {
 
     private final WorkoutProjectionService projectionService;
 

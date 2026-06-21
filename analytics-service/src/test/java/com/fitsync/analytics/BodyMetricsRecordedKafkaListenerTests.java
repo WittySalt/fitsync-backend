@@ -8,8 +8,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fitsync.analytics.messaging.BodyMetricsRecordedEventConsumer;
 import com.fitsync.analytics.messaging.BodyMetricsRecordedKafkaListener;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
@@ -21,7 +21,7 @@ class BodyMetricsRecordedKafkaListenerTests {
 
     @Test
     void consumesBodyMetricsRecordedEventFromKafkaPayload() throws Exception {
-        BodyMetricsRecordedEventConsumer consumer = mock(BodyMetricsRecordedEventConsumer.class);
+        DomainEventConsumer<BodyMetricsRecordedPayload> consumer = mock(DomainEventConsumer.class);
         BodyMetricsRecordedKafkaListener listener = new BodyMetricsRecordedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<BodyMetricsRecordedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
@@ -44,7 +44,7 @@ class BodyMetricsRecordedKafkaListenerTests {
 
     @Test
     void ignoresNonBodyMetricsRecordedEventsOnSharedTopic() throws Exception {
-        BodyMetricsRecordedEventConsumer consumer = mock(BodyMetricsRecordedEventConsumer.class);
+        DomainEventConsumer<BodyMetricsRecordedPayload> consumer = mock(DomainEventConsumer.class);
         BodyMetricsRecordedKafkaListener listener = new BodyMetricsRecordedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<BodyMetricsRecordedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),

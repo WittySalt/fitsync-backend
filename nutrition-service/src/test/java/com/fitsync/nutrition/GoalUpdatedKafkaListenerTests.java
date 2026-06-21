@@ -9,10 +9,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
-import com.fitsync.nutrition.messaging.GoalUpdatedEventConsumer;
 import com.fitsync.nutrition.messaging.GoalUpdatedKafkaListener;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +22,7 @@ class GoalUpdatedKafkaListenerTests {
 
     @Test
     void consumesGoalUpdatedEventFromKafkaPayload() throws Exception {
-        GoalUpdatedEventConsumer consumer = mock(GoalUpdatedEventConsumer.class);
+        DomainEventConsumer<GoalUpdatedPayload> consumer = mock(DomainEventConsumer.class);
         GoalUpdatedKafkaListener listener = new GoalUpdatedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<GoalUpdatedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
@@ -46,7 +46,7 @@ class GoalUpdatedKafkaListenerTests {
 
     @Test
     void ignoresNonGoalUpdatedEventsOnSharedTopic() throws Exception {
-        GoalUpdatedEventConsumer consumer = mock(GoalUpdatedEventConsumer.class);
+        DomainEventConsumer<GoalUpdatedPayload> consumer = mock(DomainEventConsumer.class);
         GoalUpdatedKafkaListener listener = new GoalUpdatedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<GoalUpdatedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),

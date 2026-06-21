@@ -7,12 +7,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fitsync.analytics.messaging.WorkoutDeletedEventConsumer;
 import com.fitsync.analytics.messaging.WorkoutDeletedKafkaListener;
-import com.fitsync.analytics.messaging.WorkoutLoggedEventConsumer;
 import com.fitsync.analytics.messaging.WorkoutLoggedKafkaListener;
-import com.fitsync.analytics.messaging.WorkoutUpdatedEventConsumer;
 import com.fitsync.analytics.messaging.WorkoutUpdatedKafkaListener;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
@@ -26,7 +24,7 @@ class WorkoutKafkaListenerTests {
 
     @Test
     void workoutLoggedListenerConsumesMatchingEventType() throws Exception {
-        WorkoutLoggedEventConsumer consumer = mock(WorkoutLoggedEventConsumer.class);
+        DomainEventConsumer<WorkoutLoggedPayload> consumer = mock(DomainEventConsumer.class);
         WorkoutLoggedKafkaListener listener = new WorkoutLoggedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<WorkoutLoggedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
@@ -46,7 +44,7 @@ class WorkoutKafkaListenerTests {
 
     @Test
     void workoutUpdatedListenerIgnoresOtherEventTypesOnSharedTopic() throws Exception {
-        WorkoutUpdatedEventConsumer consumer = mock(WorkoutUpdatedEventConsumer.class);
+        DomainEventConsumer<WorkoutUpdatedPayload> consumer = mock(DomainEventConsumer.class);
         WorkoutUpdatedKafkaListener listener = new WorkoutUpdatedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<WorkoutUpdatedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
@@ -66,7 +64,7 @@ class WorkoutKafkaListenerTests {
 
     @Test
     void workoutDeletedListenerConsumesMatchingEventType() throws Exception {
-        WorkoutDeletedEventConsumer consumer = mock(WorkoutDeletedEventConsumer.class);
+        DomainEventConsumer<WorkoutDeletedPayload> consumer = mock(DomainEventConsumer.class);
         WorkoutDeletedKafkaListener listener = new WorkoutDeletedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<WorkoutDeletedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),

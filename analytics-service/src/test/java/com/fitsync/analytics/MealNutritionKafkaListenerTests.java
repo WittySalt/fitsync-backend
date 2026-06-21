@@ -8,12 +8,10 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fitsync.analytics.messaging.MealDeletedEventConsumer;
 import com.fitsync.analytics.messaging.MealDeletedKafkaListener;
-import com.fitsync.analytics.messaging.MealLoggedEventConsumer;
 import com.fitsync.analytics.messaging.MealLoggedKafkaListener;
-import com.fitsync.analytics.messaging.MealUpdatedEventConsumer;
 import com.fitsync.analytics.messaging.MealUpdatedKafkaListener;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
@@ -27,7 +25,7 @@ class MealNutritionKafkaListenerTests {
 
     @Test
     void mealLoggedListenerConsumesMatchingEventType() throws Exception {
-        MealLoggedEventConsumer consumer = mock(MealLoggedEventConsumer.class);
+        DomainEventConsumer<MealLoggedPayload> consumer = mock(DomainEventConsumer.class);
         MealLoggedKafkaListener listener = new MealLoggedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<MealLoggedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
@@ -46,7 +44,7 @@ class MealNutritionKafkaListenerTests {
 
     @Test
     void mealUpdatedListenerIgnoresOtherEventTypesOnSharedTopic() throws Exception {
-        MealUpdatedEventConsumer consumer = mock(MealUpdatedEventConsumer.class);
+        DomainEventConsumer<MealUpdatedPayload> consumer = mock(DomainEventConsumer.class);
         MealUpdatedKafkaListener listener = new MealUpdatedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<MealUpdatedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
@@ -65,7 +63,7 @@ class MealNutritionKafkaListenerTests {
 
     @Test
     void mealDeletedListenerConsumesMatchingEventType() throws Exception {
-        MealDeletedEventConsumer consumer = mock(MealDeletedEventConsumer.class);
+        DomainEventConsumer<MealDeletedPayload> consumer = mock(DomainEventConsumer.class);
         MealDeletedKafkaListener listener = new MealDeletedKafkaListener(objectMapper, consumer);
         FitSyncDomainEvent<MealDeletedPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),

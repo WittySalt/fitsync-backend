@@ -7,9 +7,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-import com.fitsync.analytics.messaging.WorkoutDeletedEventConsumer;
-import com.fitsync.analytics.messaging.WorkoutLoggedEventConsumer;
-import com.fitsync.analytics.messaging.WorkoutUpdatedEventConsumer;
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
@@ -28,13 +26,13 @@ import org.springframework.test.context.ActiveProfiles;
 class WorkoutEventConsumerTests {
 
     @Autowired
-    private WorkoutLoggedEventConsumer workoutLoggedEventConsumer;
+    private DomainEventConsumer<WorkoutLoggedPayload> workoutLoggedEventConsumer;
 
     @Autowired
-    private WorkoutUpdatedEventConsumer workoutUpdatedEventConsumer;
+    private DomainEventConsumer<WorkoutUpdatedPayload> workoutUpdatedEventConsumer;
 
     @Autowired
-    private WorkoutDeletedEventConsumer workoutDeletedEventConsumer;
+    private DomainEventConsumer<WorkoutDeletedPayload> workoutDeletedEventConsumer;
 
     @Autowired
     private AnalyticsWorkoutContributionRepository workoutContributionRepository;

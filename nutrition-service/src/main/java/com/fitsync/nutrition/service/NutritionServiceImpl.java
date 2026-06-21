@@ -77,7 +77,7 @@ import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.entity.RecipeIngredientEntity;
 import com.fitsync.nutrition.entity.WaterLogEntity;
 import com.fitsync.nutrition.external.ExternalFoodSource;
-import com.fitsync.nutrition.messaging.DomainEventPublisher;
+import com.fitsync.contracts.events.DomainEventPublisher;
 import com.fitsync.nutrition.repository.CustomFoodRepository;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
 import com.fitsync.nutrition.repository.FoodBrandRepository;

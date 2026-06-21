@@ -1,6 +1,4 @@
-package com.fitsync.analytics.messaging;
-
-import com.fitsync.contracts.events.FitSyncDomainEvent;
+package com.fitsync.contracts.events;
 
 public interface DomainEventPublisher {
 

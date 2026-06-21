@@ -2,6 +2,7 @@ package com.fitsync.nutrition.messaging;
 
 import java.time.Instant;
 
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.nutrition.entity.NutritionTargetEntity;
@@ -10,7 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class GoalUpdatedEventConsumerImpl implements GoalUpdatedEventConsumer {
+public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpdatedPayload> {
 
     private static final String ACTIVE = "ACTIVE";
     private static final String CALORIES = "CALORIES";
