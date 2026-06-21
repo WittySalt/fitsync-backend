@@ -89,11 +89,10 @@ verify_backend:
     - |
       SONAR_ARGS=""
       if [ -n "$SONAR_TOKEN" ]; then
+        # projectKey/organization come from pom.xml; only the token is secret.
         SONAR_ARGS="sonar:sonar \
           -Dsonar.host.url=${SONAR_HOST_URL:-https://sonarcloud.io} \
           -Dsonar.token=$SONAR_TOKEN \
-          -Dsonar.projectKey=$SONAR_PROJECT_KEY \
-          -Dsonar.organization=$SONAR_ORGANIZATION \
           -Dsonar.qualitygate.wait=${SONAR_QUALITYGATE_WAIT:-true}"
       fi
     - mvn $MAVEN_CLI_OPTS verify -Psast -Dspring.profiles.active=test $SONAR_ARGS

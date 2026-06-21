@@ -51,7 +51,10 @@
              project-wide gate is the Sonar Quality Gate (sonar.qualitygate.wait).
              Modules that want a hard local gate (e.g. user-service) override to true. -->
         <jacoco.halt.on.failure>false</jacoco.halt.on.failure>
-        <!-- SonarQube/SonarCloud: passed per-build in CI, sane defaults here. -->
+        <!-- SonarCloud project binding (public, not secrets). Only SONAR_TOKEN is
+             supplied via CI/CD variables. -->
+        <sonar.projectKey>fitsync-backend</sonar.projectKey>
+        <sonar.organization>wang2579706652</sonar.organization>
         <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <sonar.coverage.exclusions>**/dto/**,**/config/**,**/entity/**,**/*Application.java</sonar.coverage.exclusions>
     </properties>
