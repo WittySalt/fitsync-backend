@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 
@@ -297,14 +298,18 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.preferences.training.weeklyWorkoutDays").value(4))
                 .andExpect(jsonPath("$.preferences.nutrition.macroPreference").value("320002"))
                 .andExpect(jsonPath("$.latestBodyMetrics.weightKg").value(72.0))
-                .andExpect(jsonPath("$.activeGoals", hasSize(4)));
+                .andExpect(jsonPath("$.activeGoals", hasSize(6)))
+                .andExpect(jsonPath("$.activeGoals[*].goalType", containsInAnyOrder(
+                        "WEIGHT", "WORKOUT_FREQUENCY", "CALORIES", "PROTEIN", "CARBS", "FAT")));
 
         mockMvc.perform(get("/api/v1/users/me/goals")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + token)
                         .param("status", "ACTIVE"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(4)));
+                .andExpect(jsonPath("$", hasSize(6)))
+                .andExpect(jsonPath("$[*].goalType", containsInAnyOrder(
+                        "WEIGHT", "WORKOUT_FREQUENCY", "CALORIES", "PROTEIN", "CARBS", "FAT")));
     }
 
     @Test
@@ -380,7 +385,7 @@ class UserProfileTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profile.displayName").value("Repeat Updated"))
                 .andExpect(jsonPath("$.latestBodyMetrics.weightKg").value(70.0))
-                .andExpect(jsonPath("$.activeGoals", hasSize(4)));
+                .andExpect(jsonPath("$.activeGoals", hasSize(6)));
 
         mockMvc.perform(get("/api/v1/users/me/body-metrics")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -394,7 +399,7 @@ class UserProfileTests {
                         .header("Authorization", "Bearer " + token)
                         .param("status", "ACTIVE"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(4)));
+                .andExpect(jsonPath("$", hasSize(6)));
     }
 
     @Test
@@ -617,6 +622,46 @@ class UserProfileTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].goalType").value("WEIGHT"))
                 .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+    }
+
+    @Test
+    void canUpsertCarbAndFatGoals() throws Exception {
+        String token = tokenFor("macro-goals@example.com", "Macro Goals");
+
+        mockMvc.perform(put("/api/v1/users/me/goals/CARBS")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "targetValue": 220.0,
+                                  "targetUnit": "g",
+                                  "status": "ACTIVE"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.goalType").value("CARBS"))
+                .andExpect(jsonPath("$.targetUnit").value("g"));
+
+        mockMvc.perform(put("/api/v1/users/me/goals/FAT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "targetValue": 65.0,
+                                  "targetUnit": "g",
+                                  "status": "ACTIVE"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.goalType").value("FAT"))
+                .andExpect(jsonPath("$.targetUnit").value("g"));
+
+        mockMvc.perform(get("/api/v1/users/me/goals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[*].goalType", containsInAnyOrder("CARBS", "FAT")));
     }
 
     @Test
