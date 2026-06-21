@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordSetRow;
@@ -154,6 +155,7 @@ public class WorkoutExerciseLogRepositoryImpl extends AbstractCriteriaRepository
         predicates.add(criteriaBuilder.equal(session.get("userId"), userId));
         predicates.add(criteriaBuilder.equal(exercise.get("exerciseId"), exerciseId));
         predicates.add(criteriaBuilder.equal(session.get("status"), WorkoutSessionStatus.COMPLETED));
+        predicates.add(criteriaBuilder.equal(setLog.get("status"), WorkoutSetStatus.DONE));
         predicates.add(criteriaBuilder.isTrue(setLog.get("logged")));
         if (from != null) {
             predicates.add(criteriaBuilder.greaterThanOrEqualTo(session.get("startedAt"), from));

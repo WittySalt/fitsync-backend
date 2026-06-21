@@ -25,6 +25,7 @@ import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
+import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.workout.service.ExerciseService;
@@ -244,6 +245,13 @@ public class WorkoutController {
     public WorkoutSessionView getSession(Authentication authentication,
                                          @PathVariable UUID sessionId) {
         return workoutService.getSession(currentPrincipal(authentication), sessionId);
+    }
+
+    @Operation(summary = "Get guided workout resume progress and next set")
+    @GetMapping("/sessions/{sessionId}/resume")
+    public WorkoutSessionResumeView resumeSession(Authentication authentication,
+                                                  @PathVariable UUID sessionId) {
+        return workoutService.resumeSession(currentPrincipal(authentication), sessionId);
     }
 
     @Operation(summary = "Repeat a workout session")

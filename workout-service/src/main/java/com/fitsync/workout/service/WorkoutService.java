@@ -18,6 +18,7 @@ import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
+import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.web.response.PageResponse;
@@ -71,6 +72,8 @@ public interface WorkoutService {
     WorkoutSessionView getLatestSession(CurrentUserPrincipal currentUser);
 
     WorkoutSessionView getSession(CurrentUserPrincipal currentUser, UUID sessionId);
+
+    WorkoutSessionResumeView resumeSession(CurrentUserPrincipal currentUser, UUID sessionId);
 
     WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId);
 

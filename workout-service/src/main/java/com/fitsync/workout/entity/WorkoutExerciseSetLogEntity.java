@@ -3,8 +3,11 @@ package com.fitsync.workout.entity;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import com.fitsync.workout.domain.WorkoutSetStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -50,6 +53,10 @@ public class WorkoutExerciseSetLogEntity {
     @Column(name = "logged", nullable = false)
     private boolean logged;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private WorkoutSetStatus status = WorkoutSetStatus.PENDING;
+
     public UUID getSetLogId() { return setLogId; }
     public void setSetLogId(UUID setLogId) { this.setLogId = setLogId; }
     public WorkoutExerciseLogEntity getExerciseLog() { return exerciseLog; }
@@ -71,5 +78,13 @@ public class WorkoutExerciseSetLogEntity {
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
     public boolean isLogged() { return logged; }
-    public void setLogged(boolean logged) { this.logged = logged; }
+    public void setLogged(boolean logged) {
+        this.logged = logged;
+        this.status = logged ? WorkoutSetStatus.DONE : WorkoutSetStatus.PENDING;
+    }
+    public WorkoutSetStatus getStatus() { return status; }
+    public void setStatus(WorkoutSetStatus status) {
+        this.status = status == null ? WorkoutSetStatus.PENDING : status;
+        this.logged = this.status == WorkoutSetStatus.DONE;
+    }
 }

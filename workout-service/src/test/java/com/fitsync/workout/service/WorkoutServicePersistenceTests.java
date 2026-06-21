@@ -15,6 +15,7 @@ import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
+import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
@@ -39,6 +40,7 @@ import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseSetTargetInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
+import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.entity.ExerciseEntity;
 import com.fitsync.workout.messaging.OutboxEventStatus;
@@ -526,7 +528,7 @@ class WorkoutServicePersistenceTests {
                 completed.sessionId(),
                 completedExerciseLogId,
                 1,
-                new UpsertWorkoutExerciseSetRequest(8, new BigDecimal("80.00"), null, null, 120, 7, null)));
+                new UpsertWorkoutExerciseSetRequest(null, 8, new BigDecimal("80.00"), null, null, 120, 7, null)));
         assertThrows(IllegalArgumentException.class, () -> workoutService.appendOrReplaceExercise(currentUser, cancelled.sessionId(), newExercise));
     }
 
@@ -566,7 +568,7 @@ class WorkoutServicePersistenceTests {
                 session.sessionId(),
                 exerciseLogId,
                 2,
-                new UpsertWorkoutExerciseSetRequest(6, new BigDecimal("110.00"), null, null, 150, 9, "Changed"));
+                new UpsertWorkoutExerciseSetRequest(null, 6, new BigDecimal("110.00"), null, null, 150, 9, "Changed"));
 
         assertEquals(2, updated.exercises().get(0).sets().size());
         assertEquals(5, updated.exercises().get(0).sets().get(0).reps());
@@ -623,7 +625,7 @@ class WorkoutServicePersistenceTests {
                 touched.sessionId(),
                 touched.exercises().get(0).exerciseLogId(),
                 1,
-                new UpsertWorkoutExerciseSetRequest(5, new BigDecimal("100.00"), null, null, 180, 8, "Actual set"));
+                new UpsertWorkoutExerciseSetRequest(null, 5, new BigDecimal("100.00"), null, null, 180, 8, "Actual set"));
         WorkoutSessionView completedTouched = workoutService.completeSession(
                 currentUser,
                 afterSet.sessionId(),
@@ -634,6 +636,141 @@ class WorkoutServicePersistenceTests {
         assertEquals(1, completedTouched.exercises().get(0).performedSets());
         assertEquals(5, completedTouched.exercises().get(0).performedReps());
         assertEquals(new BigDecimal("500.00"), completedTouched.exercises().get(0).totalVolumeKg());
+    }
+
+    @Test
+    void shouldResumeNextPendingSetAndExcludeSkippedSetsFromAggregatesAndRecords() {
+        UUID squatId = createExercise("resume-squat", "Resume Squat");
+        UUID rowId = createExercise("resume-row", "Resume Row");
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Resume Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of(
+                        new WorkoutPlanExerciseInput(
+                                squatId,
+                                1,
+                                2,
+                                null,
+                                null,
+                                null,
+                                null,
+                                180,
+                                null,
+                                List.of(
+                                        new WorkoutPlanExerciseSetTargetInput(1, 5, new BigDecimal("100.00"), null, null, 180),
+                                        new WorkoutPlanExerciseSetTargetInput(2, 5, new BigDecimal("999.00"), null, null, 180))),
+                        new WorkoutPlanExerciseInput(
+                                rowId,
+                                2,
+                                1,
+                                null,
+                                null,
+                                null,
+                                null,
+                                120,
+                                null,
+                                List.of(new WorkoutPlanExerciseSetTargetInput(1, 8, new BigDecimal("60.00"), null, null, 120))))));
+
+        WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+        WorkoutSessionResumeView initialResume = workoutService.resumeSession(currentUser, started.sessionId());
+
+        assertEquals(0, initialResume.doneSets());
+        assertEquals(0, initialResume.skippedSets());
+        assertEquals(3, initialResume.pendingSets());
+        assertEquals(3, initialResume.totalSets());
+        assertEquals(started.exercises().get(0).exerciseLogId(), initialResume.nextSet().exerciseLogId());
+        assertEquals(1, initialResume.nextSet().setNumber());
+        assertEquals(WorkoutSetStatus.PENDING, started.exercises().get(0).sets().get(0).status());
+        assertEquals(false, started.exercises().get(0).sets().get(0).logged());
+
+        WorkoutSessionView afterDone = workoutService.upsertSet(
+                currentUser,
+                started.sessionId(),
+                started.exercises().get(0).exerciseLogId(),
+                1,
+                new UpsertWorkoutExerciseSetRequest(null, 5, new BigDecimal("100.00"), null, null, 180, 8, "Actual set"));
+        WorkoutSessionView afterSkipped = workoutService.upsertSet(
+                currentUser,
+                afterDone.sessionId(),
+                afterDone.exercises().get(0).exerciseLogId(),
+                2,
+                new UpsertWorkoutExerciseSetRequest(
+                        WorkoutSetStatus.SKIPPED,
+                        5,
+                        new BigDecimal("999.00"),
+                        null,
+                        null,
+                        180,
+                        null,
+                        "Skipped planned top set"));
+
+        WorkoutSessionResumeView midResume = workoutService.resumeSession(currentUser, afterSkipped.sessionId());
+
+        assertEquals(1, midResume.doneSets());
+        assertEquals(1, midResume.skippedSets());
+        assertEquals(1, midResume.pendingSets());
+        assertEquals(afterSkipped.exercises().get(1).exerciseLogId(), midResume.nextSet().exerciseLogId());
+        assertEquals(1, midResume.nextSet().setNumber());
+        assertEquals(WorkoutSetStatus.DONE, afterSkipped.exercises().get(0).sets().get(0).status());
+        assertEquals(true, afterSkipped.exercises().get(0).sets().get(0).logged());
+        assertEquals(WorkoutSetStatus.SKIPPED, afterSkipped.exercises().get(0).sets().get(1).status());
+        assertEquals(false, afterSkipped.exercises().get(0).sets().get(1).logged());
+
+        WorkoutSessionView completed = workoutService.completeSession(
+                currentUser,
+                afterSkipped.sessionId(),
+                new CompleteWorkoutSessionRequest(afterSkipped.startedAt().plus(Duration.ofMinutes(45))));
+        WorkoutSessionResumeView terminalResume = workoutService.resumeSession(currentUser, completed.sessionId());
+        ExerciseRecordsView records = workoutService.getExerciseRecords(currentUser, squatId);
+
+        assertEquals(WorkoutSessionStatus.COMPLETED, terminalResume.status());
+        assertNull(terminalResume.nextSet());
+        assertEquals(1, completed.exercises().get(0).performedSets());
+        assertEquals(5, completed.exercises().get(0).performedReps());
+        assertEquals(new BigDecimal("500.00"), completed.exercises().get(0).totalVolumeKg());
+        assertEquals(new BigDecimal("100.00"), records.maxWeightKg().value());
+    }
+
+    @Test
+    void shouldRejectPendingStatusOnLiveSetUpsert() {
+        UUID squatId = createExercise("pending-status-squat", "Pending Status Squat");
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Pending Status",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        squatId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of()))));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> workoutService.upsertSet(
+                currentUser,
+                session.sessionId(),
+                session.exercises().get(0).exerciseLogId(),
+                1,
+                new UpsertWorkoutExerciseSetRequest(WorkoutSetStatus.PENDING, null, null, null, null, null, null, null)));
+
+        assertEquals("Set status must be DONE or SKIPPED", exception.getMessage());
     }
 
     @Test
@@ -1017,7 +1154,7 @@ class WorkoutServicePersistenceTests {
                 touched.sessionId(),
                 exerciseLogId,
                 1,
-                new UpsertWorkoutExerciseSetRequest(5, new BigDecimal("120.00"), null, null, 180, 9, null));
+                new UpsertWorkoutExerciseSetRequest(null, 5, new BigDecimal("120.00"), null, null, 180, 9, null));
         outboxEventRepository.deleteAll();
         workoutService.completeSession(
                 currentUser,
@@ -1721,7 +1858,7 @@ class WorkoutServicePersistenceTests {
                 started.sessionId(),
                 started.exercises().get(0).exerciseLogId(),
                 2,
-                new UpsertWorkoutExerciseSetRequest(6, new BigDecimal("120.00"), null, null, 150, 8, "Touched set"));
+                new UpsertWorkoutExerciseSetRequest(null, 6, new BigDecimal("120.00"), null, null, 150, 8, "Touched set"));
         WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
         outboxEventRepository.deleteAll();
 
@@ -1753,7 +1890,7 @@ class WorkoutServicePersistenceTests {
                 repeated.sessionId(),
                 repeated.exercises().get(0).exerciseLogId(),
                 2,
-                new UpsertWorkoutExerciseSetRequest(7, new BigDecimal("122.50"), null, null, 150, 9, "Confirmed"));
+                new UpsertWorkoutExerciseSetRequest(null, 7, new BigDecimal("122.50"), null, null, 150, 9, "Confirmed"));
         assertEquals(true, edited.exercises().get(0).sets().get(0).logged());
     }
 
