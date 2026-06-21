@@ -173,7 +173,6 @@ public class UserServiceImpl implements UserService {
                 displayName,
                 firstName,
                 lastName,
-                null,
                 request.birthDate(),
                 request.gender(),
                 request.heightCm(),
@@ -288,7 +287,6 @@ public class UserServiceImpl implements UserService {
         entity.setDisplayName(request.displayName());
         entity.setFirstName(request.firstName());
         entity.setLastName(request.lastName());
-        entity.setAvatarUrl(request.avatarUrl());
         entity.setBirthDate(request.birthDate());
         entity.setGender(request.gender());
         entity.setHeightCm(request.heightCm());
@@ -299,8 +297,7 @@ public class UserServiceImpl implements UserService {
         entity.setOnboardingCompleted(request.onboardingCompleted());
         UserProfileEntity saved = userProfileRepository.save(entity);
         publishProfileUpdated(principal.userId(), saved, List.of("displayName", "firstName", "lastName",
-                "avatarUrl", "birthDate", "gender", "heightCm", "activityLevel", "timezone", "bio",
-                "onboardingCompleted"));
+                "birthDate", "gender", "heightCm", "activityLevel", "timezone", "bio", "onboardingCompleted"));
         return toProfileView(saved);
     }
 

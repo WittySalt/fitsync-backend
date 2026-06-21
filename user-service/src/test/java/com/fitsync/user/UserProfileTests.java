@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 
 import java.nio.charset.StandardCharsets;
@@ -20,6 +21,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.fitsync.user.entity.UserProfileEntity;
 import com.fitsync.user.messaging.OutboxEventStatus;
 import com.fitsync.user.messaging.repository.OutboxEventRepository;
 import com.fitsync.user.repository.UserProfileRepository;
@@ -254,6 +256,52 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.profile.lastName").value("Lim"))
                 .andExpect(jsonPath("$.profile.locationDisplay").value("Singapore"))
                 .andExpect(jsonPath("$.profile.onboardingCompleted").value(true));
+    }
+
+    @Test
+    void profileUpdateIgnoresClientSuppliedAvatarUrl() throws Exception {
+        UUID userId = UUID.randomUUID();
+        String token = tokenFor(userId, "avatar-url-injection@example.com", "Avatar User");
+
+        mockMvc.perform(put("/api/v1/users/me/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Avatar User",
+                                  "avatarUrl": "http://evil.example/x.png",
+                                  "heightCm": 170.0,
+                                  "onboardingCompleted": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUrl").value(nullValue()));
+
+        String storedAvatarUrl = "https://media.fitsync.test/avatars/" + userId + "/avatar.png";
+        UserProfileEntity profile = userProfileRepository.findById(userId).orElseThrow();
+        profile.setAvatarUrl(storedAvatarUrl);
+        userProfileRepository.save(profile);
+
+        mockMvc.perform(put("/api/v1/users/me/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Avatar User Updated",
+                                  "avatarUrl": "http://evil.example/replaced.png",
+                                  "heightCm": 171.0,
+                                  "onboardingCompleted": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Avatar User Updated"))
+                .andExpect(jsonPath("$.avatarUrl").value(storedAvatarUrl));
+
+        mockMvc.perform(get("/api/v1/users/me/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUrl").value(storedAvatarUrl));
     }
 
     @Test
@@ -820,9 +868,13 @@ class UserProfileTests {
     }
 
     private String tokenFor(String email, String displayName) {
+        return tokenFor(UUID.randomUUID(), email, displayName);
+    }
+
+    private String tokenFor(UUID userId, String email, String displayName) {
         return Jwts.builder()
                 .claims(Map.of(
-                        "userId", UUID.randomUUID().toString(),
+                        "userId", userId.toString(),
                         "displayName", displayName,
                         "role", "USER"))
                 .subject(email)
