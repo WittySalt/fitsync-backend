@@ -143,7 +143,9 @@ class ExternalFoodImportTests {
                         .header("Authorization", "Bearer " + token)
                         .param("q", "not available"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
     }
 
     @Test
@@ -179,13 +181,15 @@ class ExternalFoodImportTests {
                         .header("Authorization", "Bearer " + token)
                         .param("q", "Greek Yogurt"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].foodId").value(localFoodId.toString()))
-                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt Local"))
-                .andExpect(jsonPath("$[1].foodId").doesNotExist())
-                .andExpect(jsonPath("$[1].displayName").value("Greek Yogurt External"))
-                .andExpect(jsonPath("$[1].source").value("IMPORTED"))
-                .andExpect(jsonPath("$[1].primaryBarcode").value(BARCODE));
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.content[0].foodId").value(localFoodId.toString()))
+                .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt Local"))
+                .andExpect(jsonPath("$.content[1].foodId").doesNotExist())
+                .andExpect(jsonPath("$.content[1].displayName").value("Greek Yogurt External"))
+                .andExpect(jsonPath("$.content[1].source").value("IMPORTED"))
+                .andExpect(jsonPath("$.content[1].primaryBarcode").value(BARCODE));
         assertThat(externalFoodSource.searchCount()).isEqualTo(1);
     }
 
@@ -198,7 +202,9 @@ class ExternalFoodImportTests {
                         .header("Authorization", "Bearer " + token)
                         .param("q", "external only"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
         assertThat(externalFoodSource.searchCount()).isEqualTo(1);
     }
 

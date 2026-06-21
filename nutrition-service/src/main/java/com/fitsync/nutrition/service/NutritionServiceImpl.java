@@ -101,6 +101,8 @@ import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -464,7 +466,7 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria) {
+    public Page<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria) {
         LocalDate today = LocalDate.now();
         String normalizedQuery = normalizeQuery(criteria.query());
 
@@ -482,11 +484,13 @@ public class NutritionServiceImpl implements NutritionService {
 
         int size = Math.min(Math.max(criteria.size(), 1), FOOD_SEARCH_MAX_SIZE);
         int page = Math.max(criteria.page(), 0);
-        List<FoodCatalogItemEntity> foods = foodCatalogItemRepository.findAll(
+        PageRequest pageRequest = PageRequest.of(page, size);
+        Page<FoodCatalogItemEntity> foodPage = foodCatalogItemRepository.findAll(
                 FoodCatalogSearchSpecification.accessibleSearch(
                         principal.userId(), normalizedQuery, today, categoryCode, pathPrefix,
                         criteria.brandId(), criteria.verified(), criteria.scope()),
-                PageRequest.of(page, size)).getContent();
+                pageRequest);
+        List<FoodCatalogItemEntity> foods = foodPage.getContent();
 
         Map<UUID, String> brandNames = loadBrandNames(foods.stream()
                 .map(FoodCatalogItemEntity::getBrandId)
@@ -503,11 +507,11 @@ public class NutritionServiceImpl implements NutritionService {
                         primaryBarcodes.get(food.getFoodId())))
                 .toList();
         if (!shouldSearchExternalFoods(criteria, normalizedQuery, page, localResults.size())) {
-            return localResults;
+            return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
         }
         int externalLimit = Math.min(size - localResults.size(), EXTERNAL_SEARCH_FALLBACK_THRESHOLD - localResults.size());
         if (externalLimit <= 0) {
-            return localResults;
+            return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
         }
         List<String> localBarcodes = primaryBarcodes.values().stream()
                 .filter(java.util.Objects::nonNull)
@@ -519,14 +523,14 @@ public class NutritionServiceImpl implements NutritionService {
                     .limit(externalLimit)
                     .toList();
         } catch (RuntimeException ex) {
-            return localResults;
+            return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
         }
         if (externalResults.isEmpty()) {
-            return localResults;
+            return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
         }
         List<FoodSearchResultView> combined = new ArrayList<>(localResults);
         combined.addAll(externalResults);
-        return combined;
+        return new PageImpl<>(combined, pageRequest, foodPage.getTotalElements() + externalResults.size());
     }
 
     private boolean shouldSearchExternalFoods(FoodSearchCriteria criteria,

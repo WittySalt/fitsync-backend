@@ -29,6 +29,7 @@ import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import org.springframework.data.domain.Page;
 
 public interface NutritionService {
 
@@ -62,7 +63,7 @@ public interface NutritionService {
 
     DailyNutritionSummaryView getDailySummary(CurrentUserPrincipal principal, LocalDate date, String timezone);
 
-    List<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria);
+    Page<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria);
 
     List<FoodCategoryView> listCategories(CurrentUserPrincipal principal);
 
