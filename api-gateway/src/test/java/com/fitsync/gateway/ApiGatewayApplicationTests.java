@@ -16,6 +16,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,7 +28,9 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -40,7 +43,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "fitsync.gateway.routes.user-service-base-url=http://user-service:8081",
         "fitsync.gateway.routes.workout-service-base-url=http://workout-service:8082",
         "fitsync.gateway.routes.nutrition-service-base-url=http://nutrition-service:8083",
-        "fitsync.gateway.routes.analytics-service-base-url=http://analytics-service:8085"
+        "fitsync.gateway.routes.analytics-service-base-url=http://analytics-service:8085",
+        "fitsync.gateway.cors.allowed-origins=https://d26vi6hikexzev.cloudfront.net,http://localhost:3000"
 })
 class ApiGatewayApplicationTests {
 
@@ -70,6 +74,31 @@ class ApiGatewayApplicationTests {
                         .content("{}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("ok"));
+    }
+
+    @Test
+    void corsPreflightAllowsConfiguredFrontendOrigin() throws Exception {
+        mockMvc.perform(options("/api/v1/users/me/profile")
+                        .header(HttpHeaders.ORIGIN, "https://d26vi6hikexzev.cloudfront.net")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                        "https://d26vi6hikexzev.cloudfront.net"));
+    }
+
+    @Test
+    void corsPreflightRejectsUnknownOrigin() throws Exception {
+        mockMvc.perform(options("/api/v1/users/me/profile")
+                        .header(HttpHeaders.ORIGIN, "https://evil.example")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void unsupportedTraceMethodIsRejectedBeforeProxying() throws Exception {
+        mockMvc.perform(request(HttpMethod.TRACE, "/api/v1/users/me/profile")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken()))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

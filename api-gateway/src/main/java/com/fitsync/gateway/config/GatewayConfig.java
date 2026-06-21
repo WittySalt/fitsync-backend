@@ -14,18 +14,24 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 public class GatewayConfig {
 
+    private final GatewayCorsProperties corsProperties;
+
+    public GatewayConfig(GatewayCorsProperties corsProperties) {
+        this.corsProperties = corsProperties;
+    }
+
     @Bean
     RestTemplate gatewayRestTemplate(RestTemplateBuilder builder) {
         return builder
-                .setConnectTimeout(Duration.ofSeconds(3))
-                .setReadTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(3))
+                .readTimeout(Duration.ofSeconds(5))
                 .build();
     }
 
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("*"));
+        configuration.setAllowedOrigins(corsProperties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setExposedHeaders(List.of("X-Correlation-Id"));

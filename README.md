@@ -141,6 +141,8 @@ Production points media at a real bucket/CDN via `FITSYNC_MEDIA_*` env and uses 
   - `USER_SERVICE_BASE_URL=http://localhost:8081`
   - `WORKOUT_SERVICE_BASE_URL=http://localhost:8082`
   - `NUTRITION_SERVICE_BASE_URL=http://localhost:8083`
+- `FITSYNC_CORS_ALLOWED_ORIGINS` configures the comma-separated frontend origin allowlist
+  (defaults include local dev origins and the production CloudFront distribution).
 - Only `/api/v1/auth/bootstrap` is permitted unauthenticated (to forward the Cognito token to
   `auth-service`); other protected APIs use the local FitSync JWT returned by bootstrap.
 
