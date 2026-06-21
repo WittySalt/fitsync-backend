@@ -166,6 +166,8 @@ public class UserServiceImpl implements UserService {
                 : request.targetDate();
         int calorieTarget = estimateDailyCalories(request);
         BigDecimal proteinTarget = estimateProteinTarget(request);
+        BigDecimal fatTarget = estimateFatTarget(calorieTarget);
+        BigDecimal carbTarget = estimateCarbTarget(calorieTarget, proteinTarget, fatTarget);
 
         upsertProfile(principal, new UpsertUserProfileRequest(
                 displayName,
@@ -257,6 +259,18 @@ public class UserServiceImpl implements UserService {
                 targetDate,
                 GoalStatus.ACTIVE,
                 "Estimated daily protein target from onboarding"));
+        upsertGoal(principal, GoalType.CARBS, new UpsertUserGoalRequest(
+                carbTarget,
+                "g",
+                targetDate,
+                GoalStatus.ACTIVE,
+                "Estimated daily carbohydrate target from onboarding"));
+        upsertGoal(principal, GoalType.FAT, new UpsertUserGoalRequest(
+                fatTarget,
+                "g",
+                targetDate,
+                GoalStatus.ACTIVE,
+                "Estimated daily fat target from onboarding"));
 
         return getCurrentUser(principal);
     }
@@ -836,6 +850,22 @@ public class UserServiceImpl implements UserService {
                 ? BigDecimal.valueOf(1.8)
                 : BigDecimal.valueOf(1.6);
         return request.currentWeightKg().multiply(multiplier).setScale(0, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal estimateFatTarget(int calorieTarget) {
+        return BigDecimal.valueOf(calorieTarget)
+                .multiply(BigDecimal.valueOf(0.30))
+                .divide(BigDecimal.valueOf(9), 0, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal estimateCarbTarget(int calorieTarget, BigDecimal proteinTarget, BigDecimal fatTarget) {
+        BigDecimal remainingCalories = BigDecimal.valueOf(calorieTarget)
+                .subtract(proteinTarget.multiply(BigDecimal.valueOf(4)))
+                .subtract(fatTarget.multiply(BigDecimal.valueOf(9)));
+        if (remainingCalories.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO;
+        }
+        return remainingCalories.divide(BigDecimal.valueOf(4), 0, RoundingMode.HALF_UP);
     }
 
     private BigDecimal genderAdjustment(com.fitsync.user.domain.Gender gender) {
