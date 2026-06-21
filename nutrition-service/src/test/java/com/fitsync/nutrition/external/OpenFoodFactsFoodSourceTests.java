@@ -2,6 +2,8 @@ package com.fitsync.nutrition.external;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Duration;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.nutrition.config.ExternalFoodProperties;
 import com.fitsync.nutrition.domain.FoodCatalogSource;
@@ -60,5 +62,43 @@ class OpenFoodFactsFoodSourceTests {
     @Test
     void disabledSourceReturnsEmpty() {
         assertThat(source.findByBarcode("737628064502")).isEmpty();
+    }
+
+    @Test
+    void interruptedBarcodeLookupRestoresInterruptStatus() {
+        OpenFoodFactsFoodSource throttledSource = interruptedThrottleSource();
+        throttledSource.findByBarcode("warmup");
+
+        Thread.currentThread().interrupt();
+        try {
+            assertThat(throttledSource.findByBarcode("737628064502")).isEmpty();
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    void interruptedSearchRestoresInterruptStatus() {
+        OpenFoodFactsFoodSource throttledSource = interruptedThrottleSource();
+        throttledSource.search("warmup", 1);
+
+        Thread.currentThread().interrupt();
+        try {
+            assertThat(throttledSource.search("yogurt", 1)).isEmpty();
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    private OpenFoodFactsFoodSource interruptedThrottleSource() {
+        return new OpenFoodFactsFoodSource(new ExternalFoodProperties(
+                true,
+                "http://localhost",
+                "FitSyncTest/1.0",
+                Duration.ofMillis(10),
+                Duration.ofMillis(10),
+                Duration.ofDays(1)));
     }
 }

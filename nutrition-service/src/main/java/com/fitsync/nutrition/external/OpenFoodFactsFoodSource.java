@@ -1,6 +1,7 @@
 package com.fitsync.nutrition.external;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -74,6 +75,10 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
                 return Optional.empty();
             }
             return Optional.of(toFoodDetailView(root.path("product"), barcode));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.warn("OpenFoodFacts barcode lookup failed", ex);
+            return Optional.empty();
         } catch (Exception ex) {
             // Constant message + throwable overload — never interpolate user input (CRLF/log injection).
             log.warn("OpenFoodFacts barcode lookup failed", ex);
@@ -120,6 +125,10 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
                 }
             }
             return new ArrayList<>(resultsByBarcode.values());
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.warn("OpenFoodFacts search failed", ex);
+            return List.of();
         } catch (Exception ex) {
             log.warn("OpenFoodFacts search failed", ex);
             return List.of();
@@ -178,7 +187,7 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
         }
         long waitMillis;
         synchronized (throttleMonitor) {
-            Instant now = Instant.now();
+            Instant now = Instant.now(Clock.systemUTC());
             Instant nextAllowed = lastRequestAt.plus(minInterval);
             if (now.isBefore(nextAllowed)) {
                 waitMillis = Duration.between(now, nextAllowed).toMillis();

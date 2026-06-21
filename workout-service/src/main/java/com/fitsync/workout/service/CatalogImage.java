@@ -30,4 +30,9 @@ public record CatalogImage(byte[] bytes, String contentType) {
     public int hashCode() {
         return 31 * Arrays.hashCode(bytes) + Objects.hashCode(contentType);
     }
+
+    @Override
+    public String toString() {
+        return "CatalogImage[bytes=" + Arrays.toString(bytes) + ", contentType=" + contentType + "]";
+    }
 }

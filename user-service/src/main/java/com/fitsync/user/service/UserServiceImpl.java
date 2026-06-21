@@ -3,8 +3,10 @@ package com.fitsync.user.service;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -162,7 +164,7 @@ public class UserServiceImpl implements UserService {
                 ? "Asia/Singapore"
                 : request.timezone().trim();
         LocalDate targetDate = request.targetDate() == null
-                ? LocalDate.now().plusMonths(3)
+                ? LocalDate.now(ZoneId.systemDefault()).plusMonths(3)
                 : request.targetDate();
         int calorieTarget = estimateDailyCalories(request);
         BigDecimal proteinTarget = estimateProteinTarget(request);
@@ -230,7 +232,7 @@ public class UserServiceImpl implements UserService {
                 null,
                 null,
                 null,
-                Instant.now(),
+                Instant.now(Clock.systemUTC()),
                 com.fitsync.user.domain.MetricSource.MANUAL,
                 ONBOARDING_BASELINE_NOTE));
 
@@ -378,7 +380,7 @@ public class UserServiceImpl implements UserService {
                 userNotificationPreferencesRepository.save(notifications);
         domainEventPublisher.publish(
                 "user-events", "UserPreferences", principal.userId().toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "UserPreferencesUpdated", 1, Instant.now(), SOURCE, principal.userId(),
+                UUID.randomUUID(), "UserPreferencesUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
                 new UserPreferencesUpdatedPayload(
                         savedApp.getPreferredUnits().getCode(),
                         savedTraining.getWeeklyWorkoutDays(),
@@ -518,7 +520,7 @@ public class UserServiceImpl implements UserService {
         UserGoalEntity saved = userGoalRepository.save(entity);
         domainEventPublisher.publish(
                 "progress-events", "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "GoalUpdated", 1, Instant.now(), SOURCE, principal.userId(),
+                UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
                 new GoalUpdatedPayload(
                         saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
                         saved.getTargetUnit(), saved.getTargetDate(), saved.getStatus().name())));
@@ -539,7 +541,7 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public AccountDataExportRequestView requestAccountDataExport(CurrentUserPrincipal principal) {
-        Instant now = Instant.now();
+        Instant now = Instant.now(Clock.systemUTC());
         AccountDataExportRequestEntity entity = new AccountDataExportRequestEntity();
         entity.setUserId(principal.userId());
         entity.setStatus(AccountDataExportStatus.READY);
@@ -698,7 +700,7 @@ public class UserServiceImpl implements UserService {
     private void publishProfileUpdated(UUID userId, UserProfileEntity saved, List<String> changedFields) {
         domainEventPublisher.publish(
                 "user-events", "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "UserProfileUpdated", 1, Instant.now(), SOURCE, userId,
+                UUID.randomUUID(), "UserProfileUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, userId,
                 new UserProfileUpdatedPayload(
                         saved.getDisplayName(),
                         saved.getHeightCm(),
@@ -724,7 +726,7 @@ public class UserServiceImpl implements UserService {
     private void publishBodyMetricsRecorded(UUID userId, BodyMetricEntryEntity saved) {
         domainEventPublisher.publish(
                 "progress-events", "BodyMetricEntry", saved.getMetricId().toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "BodyMetricsRecorded", 1, Instant.now(), SOURCE, userId,
+                UUID.randomUUID(), "BodyMetricsRecorded", 1, Instant.now(Clock.systemUTC()), SOURCE, userId,
                 new BodyMetricsRecordedPayload(
                         saved.getMetricId(),
                         saved.getWeightKg(),
@@ -827,7 +829,7 @@ public class UserServiceImpl implements UserService {
     private int estimateDailyCalories(CompleteOnboardingRequest request) {
         int age = request.birthDate() == null
                 ? 30
-                : Math.max(16, LocalDate.now().getYear() - request.birthDate().getYear());
+                : Math.max(16, LocalDate.now(ZoneId.systemDefault()).getYear() - request.birthDate().getYear());
         BigDecimal bmr = BigDecimal.valueOf(10).multiply(request.currentWeightKg())
                 .add(BigDecimal.valueOf(6.25).multiply(request.heightCm()))
                 .subtract(BigDecimal.valueOf(5L * age))

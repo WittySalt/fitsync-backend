@@ -96,8 +96,9 @@ class WorkoutRelayKafkaIT {
     private ConsumerRecord<String, String> eventuallyConsume(KafkaConsumer<String, String> consumer) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
         while (System.nanoTime() < deadline) {
-            for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(500))) {
-                return record;
+            var records = consumer.poll(Duration.ofMillis(500));
+            if (!records.isEmpty()) {
+                return records.iterator().next();
             }
             Thread.sleep(250);
         }
