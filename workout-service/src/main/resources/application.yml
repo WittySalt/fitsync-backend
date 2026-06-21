@@ -70,6 +70,8 @@ fitsync:
       auto-import: ${WORKOUT_CATALOG_AUTO_IMPORT:true}
       free-exercise-db:
         image-source-directory: ${FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY:}
+        download-when-missing: ${FREE_EXERCISE_DB_DOWNLOAD_WHEN_MISSING:true}
+        image-base-url: ${FREE_EXERCISE_DB_IMAGE_BASE_URL:https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/}
     exercise-history:
       max-range-days: ${WORKOUT_EXERCISE_HISTORY_MAX_RANGE_DAYS:370}
   kafka:
