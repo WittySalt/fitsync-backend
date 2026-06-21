@@ -1,6 +1,7 @@
 package com.fitsync.gateway.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -75,5 +76,76 @@ class GatewayProxyServiceImplTests {
         assertThat(response.getHeaders()).doesNotContainKey(HttpHeaders.CONTENT_LENGTH);
         assertThat(response.getBody()).isEqualTo("{\"error\":\"Unauthorized\"}".getBytes(StandardCharsets.UTF_8));
         server.verify();
+    }
+
+    @Test
+    void rejectsBlankRequestUri() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/me");
+        request.setRequestURI("");
+
+        assertThatThrownBy(() -> service.forwardToAuthService(request, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("absolute path");
+    }
+
+    @Test
+    void rejectsRelativeRequestUri() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/me");
+        request.setRequestURI("api/v1/auth/me");
+
+        assertThatThrownBy(() -> service.forwardToAuthService(request, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("absolute path");
+    }
+
+    @Test
+    void rejectsBaseUrlWithNonHttpScheme() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("ftp://auth-service:8080");
+
+        assertThatThrownBy(() -> service.forwardToAuthService(
+                new MockHttpServletRequest("GET", "/api/v1/auth/me"), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("HTTP or HTTPS");
+    }
+
+    @Test
+    void rejectsBaseUrlWithUserInfo() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://user:secret@auth-service:8080");
+
+        assertThatThrownBy(() -> service.forwardToAuthService(
+                new MockHttpServletRequest("GET", "/api/v1/auth/me"), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("host and optional port");
+    }
+
+    @Test
+    void rejectsBaseUrlWithQueryComponent() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080?debug=true");
+
+        assertThatThrownBy(() -> service.forwardToAuthService(
+                new MockHttpServletRequest("GET", "/api/v1/auth/me"), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("query or fragment");
+    }
+
+    @Test
+    void rejectsBaseUrlWithFragmentComponent() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080#section");
+
+        assertThatThrownBy(() -> service.forwardToAuthService(
+                new MockHttpServletRequest("GET", "/api/v1/auth/me"), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("query or fragment");
+    }
+
+    private static GatewayProxyService newServiceWithAuthBaseUrl(String authServiceBaseUrl) {
+        return new GatewayProxyServiceImpl(new RestTemplate(), new GatewayRoutesProperties(
+                authServiceBaseUrl,
+                "http://user-service:8081",
+                "http://workout-service:8082",
+                "http://nutrition-service:8083",
+                "http://analytics-service:8085"));
     }
 }

@@ -19,6 +19,31 @@ class CatalogImageTests {
     }
 
     @Test
+    void equalsReturnsTrueForSameReference() {
+        CatalogImage image = new CatalogImage("image".getBytes(StandardCharsets.UTF_8), "image/jpeg");
+        Object sameReference = image;
+
+        assertThat(image.equals(sameReference)).isTrue();
+    }
+
+    @Test
+    void notEqualToNullOrUnrelatedType() {
+        CatalogImage image = new CatalogImage("image".getBytes(StandardCharsets.UTF_8), "image/jpeg");
+        Object unrelated = "image";
+
+        assertThat(image.equals(null)).isFalse();
+        assertThat(image.equals(unrelated)).isFalse();
+    }
+
+    @Test
+    void notEqualWhenBytesOrContentTypeDiffer() {
+        CatalogImage base = new CatalogImage("image".getBytes(StandardCharsets.UTF_8), "image/jpeg");
+
+        assertThat(base.equals(new CatalogImage("other".getBytes(StandardCharsets.UTF_8), "image/jpeg"))).isFalse();
+        assertThat(base.equals(new CatalogImage("image".getBytes(StandardCharsets.UTF_8), "image/png"))).isFalse();
+    }
+
+    @Test
     void bytesAreDefensivelyCopied() {
         byte[] bytes = "image".getBytes(StandardCharsets.UTF_8);
         CatalogImage image = new CatalogImage(bytes, "image/jpeg");
