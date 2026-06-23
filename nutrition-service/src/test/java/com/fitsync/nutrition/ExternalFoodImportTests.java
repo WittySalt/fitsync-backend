@@ -169,6 +169,7 @@ class ExternalFoodImportTests {
                         "Greek Yogurt External",
                         "FAGE",
                         "DAIRY",
+                        null,
                         FoodCatalogScope.GLOBAL,
                         FoodCatalogSource.IMPORTED,
                         false,
