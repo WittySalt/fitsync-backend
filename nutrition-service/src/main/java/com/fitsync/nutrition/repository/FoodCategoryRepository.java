@@ -11,5 +11,7 @@ public interface FoodCategoryRepository extends JpaRepository<FoodCategoryEntity
 
     List<FoodCategoryEntity> findByActiveTrueOrderBySortOrderAscDisplayNameAsc();
 
+    List<FoodCategoryEntity> findByCodeInAndActiveTrue(List<String> codes);
+
     Optional<FoodCategoryEntity> findByCategoryIdAndActiveTrue(UUID categoryId);
 }

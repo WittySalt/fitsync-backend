@@ -211,6 +211,7 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
                 detail.displayName(),
                 detail.brandName(),
                 detail.categoryCode(),
+                null,
                 detail.scope(),
                 detail.source(),
                 detail.verified(),

@@ -1,5 +1,6 @@
 package com.fitsync.nutrition.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -11,6 +12,12 @@ import org.springframework.data.repository.query.Param;
 
 public interface MealItemRepository extends JpaRepository<MealItemEntity, UUID> {
 
+    interface RecentLoggedFoodRow {
+        MealItemEntity getItem();
+
+        Instant getConsumedAt();
+    }
+
     List<MealItemEntity> findByMealIdOrderByDateTimeCreatedAsc(UUID mealId);
 
     void deleteByMealId(UUID mealId);
@@ -20,11 +27,11 @@ public interface MealItemRepository extends JpaRepository<MealItemEntity, UUID> 
      * for deriving recent / frequent foods. Bounded by the supplied {@link Pageable}.
      */
     @Query("""
-            select i
+            select i as item, m.consumedAt as consumedAt
             from MealItemEntity i, MealLogEntity m
             where i.mealId = m.mealId
               and m.userId = :userId
             order by m.consumedAt desc, i.dateTimeCreated desc
             """)
-    List<MealItemEntity> findRecentItemsByUserId(@Param("userId") UUID userId, Pageable pageable);
+    List<RecentLoggedFoodRow> findRecentItemsByUserId(@Param("userId") UUID userId, Pageable pageable);
 }

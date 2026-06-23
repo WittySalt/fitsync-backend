@@ -10,6 +10,7 @@ public record FoodSearchResultView(
         String displayName,
         String brandName,
         String categoryCode,
+        String categoryName,
         FoodCatalogScope scope,
         FoodCatalogSource source,
         boolean verified,

@@ -704,6 +704,7 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.totalPages").value(1))
                 .andExpect(jsonPath("$.content[0].foodId").value(foodId.toString()))
                 .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.content[0].categoryName").value("Dairy Products"))
                 .andExpect(jsonPath("$.content[0].basisLabel").value("170 g"))
                 .andExpect(jsonPath("$.content[0].primaryBarcode").value("8880001112223"));
 
@@ -763,7 +764,8 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.totalPages").value(1))
-                .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"));
+                .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.content[0].categoryName").value("Dairy Products"));
 
         // Unrelated group → no results.
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
@@ -783,7 +785,8 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.totalPages").value(1))
-                .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"));
+                .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.content[0].categoryName").value("Dairy Products"));
 
         // Unknown category id → 404.
         mockMvc.perform(get("/api/v1/nutrition/foods/search")
@@ -1060,7 +1063,8 @@ class NutritionApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].foodId").value(foodId.toString()))
-                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"));
+                .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$[0].categoryName").value("Dairy Products"));
 
         mockMvc.perform(delete("/api/v1/nutrition/foods/{foodId}/favorite", foodId)
                         .header("Authorization", "Bearer " + token))
@@ -1150,9 +1154,11 @@ class NutritionApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].foodName").value("Coffee"))
+                .andExpect(jsonPath("$[0].lastLoggedAt").value("2026-06-11T11:00:00Z"))
                 .andExpect(jsonPath("$[1].foodName").value("Banana"))
                 .andExpect(jsonPath("$[1].quantity").value(3.0))
-                .andExpect(jsonPath("$[1].timesLogged").value(3));
+                .andExpect(jsonPath("$[1].timesLogged").value(3))
+                .andExpect(jsonPath("$[1].lastLoggedAt").value("2026-06-11T10:00:00Z"));
 
         // Frequent is count-ordered, so the thrice-logged Banana comes first.
         mockMvc.perform(get("/api/v1/nutrition/foods/frequent")
@@ -1161,6 +1167,7 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].foodName").value("Banana"))
                 .andExpect(jsonPath("$[0].timesLogged").value(3))
+                .andExpect(jsonPath("$[0].lastLoggedAt").value("2026-06-11T10:00:00Z"))
                 .andExpect(jsonPath("$[1].foodName").value("Coffee"));
     }
 

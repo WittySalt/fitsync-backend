@@ -1,6 +1,7 @@
 package com.fitsync.nutrition.dto;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -29,5 +30,6 @@ public record LoggedFoodView(
         BigDecimal fiberGrams,
         BigDecimal sugarGrams,
         BigDecimal sodiumMg,
-        long timesLogged) {
+        long timesLogged,
+        Instant lastLoggedAt) {
 }
