@@ -13,6 +13,7 @@ import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.web.response.PageResponse;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface ExerciseService {
 
@@ -23,6 +24,10 @@ public interface ExerciseService {
     ExerciseMetadataView getExerciseMetadata();
 
     ExerciseView updateCustomExercise(CurrentUserPrincipal currentUser, UUID exerciseId, UpdateExerciseRequest request);
+
+    ExerciseView uploadExerciseVideo(CurrentUserPrincipal currentUser, UUID exerciseId, MultipartFile file);
+
+    ExerciseView uploadExerciseImage(CurrentUserPrincipal currentUser, UUID exerciseId, MultipartFile file);
 
     void archiveCustomExercise(CurrentUserPrincipal currentUser, UUID exerciseId);
 
