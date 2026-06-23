@@ -16,7 +16,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
           "exerciseType": "STRENGTH",
           "primaryMuscleGroup": "LEGS",
           "equipment": "BARBELL",
-          "difficulty": "INTERMEDIATE"
+          "difficulty": "INTERMEDIATE",
+          "videoUrl": "https://media.example.com/exercises/trap-bar-deadlift.mp4"
         }
         """)
 public record UpdateExerciseRequest(
@@ -25,5 +26,15 @@ public record UpdateExerciseRequest(
         @NotNull ExerciseType exerciseType,
         @NotNull MuscleGroup primaryMuscleGroup,
         @NotNull ExerciseEquipment equipment,
-        @NotNull WorkoutDifficulty difficulty) {
+        @NotNull WorkoutDifficulty difficulty,
+        @Size(max = 500) String videoUrl) {
+
+    public UpdateExerciseRequest(String name,
+                                 String description,
+                                 ExerciseType exerciseType,
+                                 MuscleGroup primaryMuscleGroup,
+                                 ExerciseEquipment equipment,
+                                 WorkoutDifficulty difficulty) {
+        this(name, description, exerciseType, primaryMuscleGroup, equipment, difficulty, null);
+    }
 }

@@ -37,6 +37,7 @@ import jakarta.validation.constraints.Min;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -47,8 +48,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @Validated
@@ -128,6 +131,22 @@ public class WorkoutController {
                                        @PathVariable UUID exerciseId,
                                        @Valid @RequestBody UpdateExerciseRequest request) {
         return exerciseService.updateCustomExercise(currentPrincipal(authentication), exerciseId, request);
+    }
+
+    @Operation(summary = "Upload a video for a custom exercise")
+    @PostMapping(value = "/exercises/{exerciseId}/video", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ExerciseView uploadExerciseVideo(Authentication authentication,
+                                            @PathVariable UUID exerciseId,
+                                            @RequestPart("file") MultipartFile file) {
+        return exerciseService.uploadExerciseVideo(currentPrincipal(authentication), exerciseId, file);
+    }
+
+    @Operation(summary = "Upload an image for a custom exercise")
+    @PostMapping(value = "/exercises/{exerciseId}/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ExerciseView uploadExerciseImage(Authentication authentication,
+                                            @PathVariable UUID exerciseId,
+                                            @RequestPart("file") MultipartFile file) {
+        return exerciseService.uploadExerciseImage(currentPrincipal(authentication), exerciseId, file);
     }
 
     @Operation(summary = "Archive a custom exercise")

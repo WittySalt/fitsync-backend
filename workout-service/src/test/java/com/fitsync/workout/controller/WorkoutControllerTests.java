@@ -23,6 +23,7 @@ import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseCatalogImportResponse;
 import com.fitsync.workout.dto.ExerciseCatalogUnmappedTermView;
+import com.fitsync.workout.dto.ExerciseImageView;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseMetadataView;
@@ -60,6 +61,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -72,6 +74,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -597,6 +600,95 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.name").value("Trap Bar Deadlift Updated"));
 
         verify(exerciseService).updateCustomExercise(eq(principal), eq(exerciseId), any());
+    }
+
+    @Test
+    void shouldUploadExerciseVideoForAuthenticatedOwner() throws Exception {
+        UUID exerciseId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "demo.mp4",
+                "video/mp4",
+                "video-content".getBytes());
+        ExerciseView response = new ExerciseView(
+                exerciseId,
+                principal.userId(),
+                "trap-bar-deadlift",
+                "Trap Bar Deadlift",
+                "Lower body hinge",
+                ExerciseType.STRENGTH,
+                MuscleGroup.LEGS,
+                ExerciseEquipment.BARBELL,
+                WorkoutDifficulty.INTERMEDIATE,
+                ExerciseStatus.ACTIVE,
+                true,
+                Instant.parse("2026-06-11T12:00:00Z"),
+                Instant.parse("2026-06-11T12:05:00Z"),
+                "https://media.test/exercises/" + exerciseId + "/videos/demo.mp4",
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                List.of());
+
+        when(exerciseService.uploadExerciseVideo(any(), eq(exerciseId), any())).thenReturn(response);
+
+        mockMvc.perform(multipart("/api/v1/workouts/exercises/{exerciseId}/video", exerciseId)
+                        .file(file)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exerciseId").value(exerciseId.toString()))
+                .andExpect(jsonPath("$.videoUrl").value(response.videoUrl()));
+
+        verify(exerciseService).uploadExerciseVideo(eq(principal), eq(exerciseId), any());
+    }
+
+    @Test
+    void shouldUploadExerciseImageForAuthenticatedOwner() throws Exception {
+        UUID exerciseId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "demo.webp",
+                MediaType.valueOf("image/webp").toString(),
+                "image-content".getBytes());
+        ExerciseView response = new ExerciseView(
+                exerciseId,
+                principal.userId(),
+                "trap-bar-deadlift",
+                "Trap Bar Deadlift",
+                "Lower body hinge",
+                ExerciseType.STRENGTH,
+                MuscleGroup.LEGS,
+                ExerciseEquipment.BARBELL,
+                WorkoutDifficulty.INTERMEDIATE,
+                ExerciseStatus.ACTIVE,
+                true,
+                Instant.parse("2026-06-11T12:00:00Z"),
+                Instant.parse("2026-06-11T12:05:00Z"),
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(new ExerciseImageView(0, "https://media.test/exercises/" + exerciseId + "/images/demo.webp")),
+                List.of());
+
+        when(exerciseService.uploadExerciseImage(any(), eq(exerciseId), any())).thenReturn(response);
+
+        mockMvc.perform(multipart("/api/v1/workouts/exercises/{exerciseId}/image", exerciseId)
+                        .file(file)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exerciseId").value(exerciseId.toString()))
+                .andExpect(jsonPath("$.images[0].position").value(0))
+                .andExpect(jsonPath("$.images[0].url").value(response.images().get(0).url()));
+
+        verify(exerciseService).uploadExerciseImage(eq(principal), eq(exerciseId), any());
     }
 
     @Test

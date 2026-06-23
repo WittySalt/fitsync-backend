@@ -1,5 +1,6 @@
 package com.fitsync.workout.service;
 
+import java.io.InputStream;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.List;
@@ -60,6 +61,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
@@ -73,6 +76,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -128,6 +132,11 @@ class WorkoutServicePersistenceTests {
             "bob@example.com",
             "Bob",
             "USER");
+    private final CurrentUserPrincipal adminUser = new CurrentUserPrincipal(
+            UUID.fromString("33333333-3333-3333-3333-333333333333"),
+            "admin@example.com",
+            "Admin",
+            "ADMIN");
 
     @BeforeEach
     void clearOutbox() {
@@ -610,11 +619,13 @@ class WorkoutServicePersistenceTests {
                                 new WorkoutPlanExerciseSetTargetInput(1, 5, new BigDecimal("100.00"), null, null, 180),
                                 new WorkoutPlanExerciseSetTargetInput(2, 5, new BigDecimal("105.00"), null, null, 180))))));
 
+        Instant untouchedStartedAt = Instant.parse("2026-06-11T10:00:00Z");
         WorkoutSessionView untouched = workoutService.startPlan(currentUser, plan.planId());
+        moveSessionStartedAt(untouched.sessionId(), untouchedStartedAt);
         WorkoutSessionView completedUntouched = workoutService.completeSession(
                 currentUser,
                 untouched.sessionId(),
-                new CompleteWorkoutSessionRequest(untouched.startedAt().plus(Duration.ofMinutes(45))));
+                new CompleteWorkoutSessionRequest(untouchedStartedAt.plus(Duration.ofMinutes(45))));
 
         assertEquals(WorkoutSessionStatus.COMPLETED, completedUntouched.status());
         assertEquals(2, completedUntouched.exercises().get(0).sets().size());
@@ -623,7 +634,9 @@ class WorkoutServicePersistenceTests {
         assertNull(completedUntouched.exercises().get(0).performedReps());
         assertNull(completedUntouched.exercises().get(0).totalVolumeKg());
 
+        Instant touchedStartedAt = Instant.parse("2026-06-11T11:00:00Z");
         WorkoutSessionView touched = workoutService.startPlan(currentUser, plan.planId());
+        moveSessionStartedAt(touched.sessionId(), touchedStartedAt);
         WorkoutSessionView afterSet = workoutService.upsertSet(
                 currentUser,
                 touched.sessionId(),
@@ -633,7 +646,7 @@ class WorkoutServicePersistenceTests {
         WorkoutSessionView completedTouched = workoutService.completeSession(
                 currentUser,
                 afterSet.sessionId(),
-                new CompleteWorkoutSessionRequest(afterSet.startedAt().plus(Duration.ofMinutes(45))));
+                new CompleteWorkoutSessionRequest(touchedStartedAt.plus(Duration.ofMinutes(45))));
 
         assertEquals(true, completedTouched.exercises().get(0).sets().get(0).logged());
         assertEquals(false, completedTouched.exercises().get(0).sets().get(1).logged());
@@ -1228,6 +1241,137 @@ class WorkoutServicePersistenceTests {
                 null,
                 0,
                 10).totalElements());
+    }
+
+    @Test
+    void shouldPersistExerciseVideoUrlOnCreateAndUpdate() {
+        ExerciseView created = exerciseService.createCustomExercise(currentUser, new CreateExerciseRequest(
+                "video-url-lift",
+                "Video URL Lift",
+                "Custom exercise",
+                ExerciseType.STRENGTH,
+                MuscleGroup.BACK,
+                ExerciseEquipment.BARBELL,
+                WorkoutDifficulty.BEGINNER,
+                " https://media.test/exercises/video-url-lift/original.mp4 "));
+
+        ExerciseView updated = exerciseService.updateCustomExercise(currentUser, created.exerciseId(), new UpdateExerciseRequest(
+                "Video URL Lift Updated",
+                "Updated exercise",
+                ExerciseType.STRENGTH,
+                MuscleGroup.BACK,
+                ExerciseEquipment.BARBELL,
+                WorkoutDifficulty.INTERMEDIATE,
+                "https://media.test/exercises/video-url-lift/updated.webm"));
+        ExerciseView fetched = exerciseService.getExercise(currentUser, created.exerciseId());
+
+        assertEquals("https://media.test/exercises/video-url-lift/original.mp4", created.videoUrl());
+        assertEquals("https://media.test/exercises/video-url-lift/updated.webm", updated.videoUrl());
+        assertEquals("https://media.test/exercises/video-url-lift/updated.webm", fetched.videoUrl());
+    }
+
+    @Test
+    void shouldUploadExerciseVideoForOwnerAndPersistUrl() {
+        ExerciseView created = createCustomExercise(currentUser, "video-upload-lift", "Video Upload Lift");
+        byte[] content = "video-content".getBytes();
+        MockMultipartFile file = new MockMultipartFile("file", "demo.mp4", "video/mp4", content);
+        String uploadedUrl = "https://media.test/exercises/" + created.exerciseId() + "/videos/demo.mp4";
+        when(mediaStorageService.put(
+                startsWith("exercises/" + created.exerciseId() + "/videos/"),
+                any(InputStream.class),
+                eq((long) content.length),
+                eq("video/mp4")))
+                .thenReturn(uploadedUrl);
+
+        ExerciseView updated = exerciseService.uploadExerciseVideo(currentUser, created.exerciseId(), file);
+
+        assertEquals(uploadedUrl, updated.videoUrl());
+        assertEquals(uploadedUrl, exerciseRepository.findById(created.exerciseId()).orElseThrow().getVideoUrl());
+        verify(mediaStorageService).put(
+                startsWith("exercises/" + created.exerciseId() + "/videos/"),
+                any(InputStream.class),
+                eq((long) content.length),
+                eq("video/mp4"));
+    }
+
+    @Test
+    void shouldUploadExerciseImageForOwnerAndPersistImageEntity() {
+        ExerciseView created = createCustomExercise(currentUser, "image-upload-lift", "Image Upload Lift");
+        byte[] content = "image-content".getBytes();
+        MockMultipartFile file = new MockMultipartFile("file", "demo.webp", "image/webp", content);
+        String uploadedUrl = "https://media.test/exercises/" + created.exerciseId() + "/images/demo.webp";
+        when(mediaStorageService.put(
+                startsWith("exercises/" + created.exerciseId() + "/images/"),
+                any(InputStream.class),
+                eq((long) content.length),
+                eq("image/webp")))
+                .thenReturn(uploadedUrl);
+
+        ExerciseView updated = exerciseService.uploadExerciseImage(currentUser, created.exerciseId(), file);
+
+        assertEquals(1, updated.images().size());
+        assertEquals(0, updated.images().get(0).position());
+        assertEquals(uploadedUrl, updated.images().get(0).url());
+        ExerciseView fetched = exerciseService.getExercise(currentUser, created.exerciseId());
+        assertEquals(uploadedUrl, fetched.images().get(0).url());
+        verify(mediaStorageService).put(
+                startsWith("exercises/" + created.exerciseId() + "/images/"),
+                any(InputStream.class),
+                eq((long) content.length),
+                eq("image/webp"));
+    }
+
+    @Test
+    void shouldAllowAdminToUploadMediaForCustomExerciseOwnedByAnotherUser() {
+        ExerciseView created = createCustomExercise(currentUser, "admin-media-lift", "Admin Media Lift");
+        byte[] content = "admin-video".getBytes();
+        MockMultipartFile file = new MockMultipartFile("file", "admin.webm", "video/webm", content);
+        String uploadedUrl = "https://media.test/exercises/" + created.exerciseId() + "/videos/admin.webm";
+        when(mediaStorageService.put(
+                startsWith("exercises/" + created.exerciseId() + "/videos/"),
+                any(InputStream.class),
+                eq((long) content.length),
+                eq("video/webm")))
+                .thenReturn(uploadedUrl);
+
+        ExerciseView updated = exerciseService.uploadExerciseVideo(adminUser, created.exerciseId(), file);
+
+        assertEquals(uploadedUrl, updated.videoUrl());
+    }
+
+    @Test
+    void shouldRejectMediaUploadForNonOwnerAndCatalogExercise() {
+        ExerciseView ownedExercise = createCustomExercise(currentUser, "media-owner-only", "Media Owner Only");
+        UUID globalExerciseId = createExercise("catalog-media", "Catalog Media");
+        MockMultipartFile video = new MockMultipartFile("file", "demo.mp4", "video/mp4", "video".getBytes());
+        MockMultipartFile image = new MockMultipartFile(
+                "file",
+                "demo.png",
+                MediaType.IMAGE_PNG_VALUE,
+                "image".getBytes());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> exerciseService.uploadExerciseVideo(otherUser, ownedExercise.exerciseId(), video));
+        assertThrows(ResourceNotFoundException.class,
+                () -> exerciseService.uploadExerciseImage(otherUser, ownedExercise.exerciseId(), image));
+        assertThrows(ForbiddenException.class,
+                () -> exerciseService.uploadExerciseVideo(currentUser, globalExerciseId, video));
+        assertThrows(ForbiddenException.class,
+                () -> exerciseService.uploadExerciseImage(adminUser, globalExerciseId, image));
+        verifyNoInteractions(mediaStorageService);
+    }
+
+    @Test
+    void shouldRejectUnsupportedExerciseMediaTypes() {
+        ExerciseView created = createCustomExercise(currentUser, "invalid-media-lift", "Invalid Media Lift");
+        MockMultipartFile video = new MockMultipartFile("file", "demo.mov", "video/quicktime", "video".getBytes());
+        MockMultipartFile image = new MockMultipartFile("file", "demo.gif", MediaType.IMAGE_GIF_VALUE, "image".getBytes());
+
+        assertThrows(com.fitsync.web.error.BadRequestException.class,
+                () -> exerciseService.uploadExerciseVideo(currentUser, created.exerciseId(), video));
+        assertThrows(com.fitsync.web.error.BadRequestException.class,
+                () -> exerciseService.uploadExerciseImage(currentUser, created.exerciseId(), image));
+        verifyNoInteractions(mediaStorageService);
     }
 
     @Test
@@ -1857,14 +2001,19 @@ class WorkoutServicePersistenceTests {
                         List.of(
                                 new WorkoutPlanExerciseSetTargetInput(1, 5, new BigDecimal("100.00"), null, null, 180),
                                 new WorkoutPlanExerciseSetTargetInput(2, 5, new BigDecimal("105.00"), null, null, 180))))));
+        Instant startedAt = Instant.parse("2026-06-11T10:00:00Z");
         WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+        moveSessionStartedAt(started.sessionId(), startedAt);
         workoutService.upsertSet(
                 currentUser,
                 started.sessionId(),
                 started.exercises().get(0).exerciseLogId(),
                 2,
                 new UpsertWorkoutExerciseSetRequest(null, 6, new BigDecimal("120.00"), null, null, 150, 8, "Touched set"));
-        WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
+        WorkoutSessionView completed = workoutService.completeSession(
+                currentUser,
+                started.sessionId(),
+                new CompleteWorkoutSessionRequest(startedAt.plus(Duration.ofMinutes(45))));
         outboxEventRepository.deleteAll();
 
         WorkoutSessionView repeated = workoutService.repeatSession(currentUser, completed.sessionId());
@@ -2178,6 +2327,12 @@ class WorkoutServicePersistenceTests {
         entity.setStatus(ExerciseStatus.ACTIVE);
         entity.setCustom(false);
         return exerciseRepository.save(entity).getExerciseId();
+    }
+
+    private void moveSessionStartedAt(UUID sessionId, Instant startedAt) {
+        var entity = workoutSessionRepository.findById(sessionId).orElseThrow();
+        entity.setStartedAt(startedAt);
+        workoutSessionRepository.save(entity);
     }
 
     private ExerciseView createCustomExercise(CurrentUserPrincipal user, String code, String name) {
