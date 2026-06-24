@@ -1676,6 +1676,28 @@ class WorkoutServicePersistenceTests {
                 null,
                 0,
                 20));
+        PageResponse<WorkoutSessionView> longSessions = assertDoesNotThrow(() -> workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                null,
+                null,
+                40,
+                null,
+                null,
+                0,
+                20));
+        PageResponse<WorkoutSessionView> shortSessions = assertDoesNotThrow(() -> workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                null,
+                null,
+                null,
+                25,
+                null,
+                0,
+                20));
 
         assertEquals(3, allSessions.totalElements());
         assertEquals(3, allSessions.content().size());
@@ -1683,6 +1705,26 @@ class WorkoutServicePersistenceTests {
                 allSessions.content().stream().map(WorkoutSessionView::name).toList());
         assertEquals(1, cardioSessions.totalElements());
         assertEquals(List.of("Lunch Cardio"), cardioSessions.content().stream().map(WorkoutSessionView::name).toList());
+        assertEquals(1, longSessions.totalElements());
+        assertEquals(List.of("Morning Strength"), longSessions.content().stream().map(WorkoutSessionView::name).toList());
+        assertEquals(2, shortSessions.totalElements());
+        assertEquals(List.of("Evening Mobility", "Lunch Cardio"),
+                shortSessions.content().stream().map(WorkoutSessionView::name).toList());
+    }
+
+    @Test
+    void shouldRejectInvalidSessionDurationFilterRange() {
+        assertThrows(IllegalArgumentException.class, () -> workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                null,
+                null,
+                45,
+                30,
+                null,
+                0,
+                20));
     }
 
     @Test
