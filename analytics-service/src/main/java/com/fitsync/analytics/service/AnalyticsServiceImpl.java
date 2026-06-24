@@ -605,8 +605,13 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return new AnalyticsDashboardResponse.GoalProgressSummary(
                 entity.getGoalId(),
                 entity.getGoalType(),
+                toDouble(entity.getTargetValue()),
+                entity.getTargetUnit(),
+                entity.getTargetDate(),
+                toDouble(entity.getCurrentValue()),
                 toDouble(entity.getProgressRatio()),
-                entity.isOnTrack());
+                entity.isOnTrack(),
+                entity.getLastEvaluatedAt());
     }
 
     private Double average(List<BigDecimal> values) {

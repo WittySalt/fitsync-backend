@@ -1,6 +1,7 @@
 package com.fitsync.analytics.dto;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,7 +46,12 @@ public record AnalyticsDashboardResponse(
     public record GoalProgressSummary(
             UUID goalId,
             String goalType,
+            Double targetValue,
+            String targetUnit,
+            LocalDate targetDate,
+            Double currentValue,
             Double progressRatio,
-            boolean onTrack) {
+            boolean onTrack,
+            Instant lastEvaluatedAt) {
     }
 }
