@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.WorkoutSessionStatus;
+import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -29,12 +30,25 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
                                      Instant from,
                                      Instant to,
                                      WorkoutSessionStatus status,
+                                     WorkoutType workoutType,
+                                     Integer minDurationMinutes,
+                                     Integer maxDurationMinutes,
                                      UUID planId,
                                      Pageable pageable) {
         CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
         CriteriaQuery<UUID> queryDefinition = criteriaBuilder.createQuery(UUID.class);
         Root<WorkoutSessionEntity> session = queryDefinition.from(WorkoutSessionEntity.class);
-        List<Predicate> predicates = predicates(criteriaBuilder, session, userId, from, to, status, planId);
+        List<Predicate> predicates = predicates(
+                criteriaBuilder,
+                session,
+                userId,
+                from,
+                to,
+                status,
+                workoutType,
+                minDurationMinutes,
+                maxDurationMinutes,
+                planId);
 
         queryDefinition.select(session.get("sessionId"))
                 .where(predicates.toArray(Predicate[]::new));
@@ -46,7 +60,17 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
         CriteriaQuery<Long> countDefinition = criteriaBuilder.createQuery(Long.class);
         Root<WorkoutSessionEntity> countRoot = countDefinition.from(WorkoutSessionEntity.class);
         countDefinition.select(criteriaBuilder.count(countRoot))
-                .where(predicates(criteriaBuilder, countRoot, userId, from, to, status, planId)
+                .where(predicates(
+                        criteriaBuilder,
+                        countRoot,
+                        userId,
+                        from,
+                        to,
+                        status,
+                        workoutType,
+                        minDurationMinutes,
+                        maxDurationMinutes,
+                        planId)
                         .toArray(Predicate[]::new));
 
         long total = entityManager.createQuery(countDefinition).getSingleResult();
@@ -59,6 +83,9 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
                                        Instant from,
                                        Instant to,
                                        WorkoutSessionStatus status,
+                                       WorkoutType workoutType,
+                                       Integer minDurationMinutes,
+                                       Integer maxDurationMinutes,
                                        UUID planId) {
         List<Predicate> predicates = new ArrayList<>();
         predicates.add(criteriaBuilder.equal(session.get("userId"), userId));
@@ -70,6 +97,15 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
         }
         if (status != null) {
             predicates.add(criteriaBuilder.equal(session.get("status"), status));
+        }
+        if (workoutType != null) {
+            predicates.add(criteriaBuilder.equal(session.get("workoutType"), workoutType));
+        }
+        if (minDurationMinutes != null) {
+            predicates.add(criteriaBuilder.greaterThanOrEqualTo(session.get("durationMinutes"), minDurationMinutes));
+        }
+        if (maxDurationMinutes != null) {
+            predicates.add(criteriaBuilder.lessThanOrEqualTo(session.get("durationMinutes"), maxDurationMinutes));
         }
         if (planId != null) {
             predicates.add(criteriaBuilder.equal(session.get("planId"), planId));

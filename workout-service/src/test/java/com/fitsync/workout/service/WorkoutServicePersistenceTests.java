@@ -1601,12 +1601,130 @@ class WorkoutServicePersistenceTests {
                 Instant.parse("2026-06-11T23:59:59Z"),
                 WorkoutSessionStatus.COMPLETED,
                 null,
+                null,
+                null,
+                null,
                 0,
                 1);
 
         assertEquals(2, page.totalElements());
         assertEquals(1, page.content().size());
         assertEquals("Evening Run", page.content().get(0).name());
+    }
+
+    @Test
+    void shouldListSessionsWhenNullableFiltersAreAbsentOrPartiallyPresent() {
+        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Morning Strength",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-10T06:00:00Z"),
+                Instant.parse("2026-06-10T06:45:00Z"),
+                45,
+                320,
+                7,
+                null,
+                List.of()));
+        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Lunch Cardio",
+                WorkoutType.CARDIO,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T12:00:00Z"),
+                Instant.parse("2026-06-11T12:25:00Z"),
+                25,
+                220,
+                6,
+                null,
+                List.of()));
+        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Evening Mobility",
+                WorkoutType.MOBILITY,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-12T19:00:00Z"),
+                null,
+                20,
+                null,
+                null,
+                null,
+                List.of()));
+
+        PageResponse<WorkoutSessionView> allSessions = assertDoesNotThrow(() -> workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                20));
+        PageResponse<WorkoutSessionView> cardioSessions = assertDoesNotThrow(() -> workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                null,
+                WorkoutType.CARDIO,
+                null,
+                null,
+                null,
+                0,
+                20));
+        PageResponse<WorkoutSessionView> longSessions = assertDoesNotThrow(() -> workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                null,
+                null,
+                40,
+                null,
+                null,
+                0,
+                20));
+        PageResponse<WorkoutSessionView> shortSessions = assertDoesNotThrow(() -> workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                null,
+                null,
+                null,
+                25,
+                null,
+                0,
+                20));
+
+        assertEquals(3, allSessions.totalElements());
+        assertEquals(3, allSessions.content().size());
+        assertEquals(List.of("Evening Mobility", "Lunch Cardio", "Morning Strength"),
+                allSessions.content().stream().map(WorkoutSessionView::name).toList());
+        assertEquals(1, cardioSessions.totalElements());
+        assertEquals(List.of("Lunch Cardio"), cardioSessions.content().stream().map(WorkoutSessionView::name).toList());
+        assertEquals(1, longSessions.totalElements());
+        assertEquals(List.of("Morning Strength"), longSessions.content().stream().map(WorkoutSessionView::name).toList());
+        assertEquals(2, shortSessions.totalElements());
+        assertEquals(List.of("Evening Mobility", "Lunch Cardio"),
+                shortSessions.content().stream().map(WorkoutSessionView::name).toList());
+    }
+
+    @Test
+    void shouldRejectInvalidSessionDurationFilterRange() {
+        assertThrows(IllegalArgumentException.class, () -> workoutService.listSessions(
+                currentUser,
+                null,
+                null,
+                null,
+                null,
+                45,
+                30,
+                null,
+                0,
+                20));
     }
 
     @Test
@@ -1635,6 +1753,9 @@ class WorkoutServicePersistenceTests {
                 null,
                 null,
                 WorkoutSessionStatus.COMPLETED,
+                null,
+                null,
+                null,
                 null,
                 0,
                 6);

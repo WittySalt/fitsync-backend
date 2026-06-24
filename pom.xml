@@ -53,7 +53,8 @@
         <jacoco.halt.on.failure>false</jacoco.halt.on.failure>
         <!-- SonarQube/SonarCloud: passed per-build in CI, sane defaults here. -->
         <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
-        <sonar.coverage.exclusions>**/dto/**,**/config/**,**/entity/**,**/*Application.java</sonar.coverage.exclusions>
+        <sonar.coverage.exclusions>**/dto/**,**/config/**,**/entity/**,**/*Application.java,**/*Tests.java,**/*IT.java</sonar.coverage.exclusions>
+        <sonar.cpd.exclusions>**/*Tests.java,**/*IT.java</sonar.cpd.exclusions>
     </properties>
 
     <build>

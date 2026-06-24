@@ -19,10 +19,13 @@ AWS_REGION="${AWS_REGION:?AWS_REGION required}"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/fitsync}"
 ROLLBACK_FILE="$DEPLOY_DIR/.previous_prod_tag"
 
-# The 6 runnable images (nginx is handled separately once TLS certs exist).
-SERVICES="redis api-gateway auth-service user-service workout-service nutrition-service analytics-service"
+# The runnable images (nginx is handled separately once TLS certs exist). `kafka`
+# is in the `events` compose profile (enabled below) and backs the cross-service
+# event projections (e.g. goal targets → nutrition daily budget).
+SERVICES="redis kafka api-gateway auth-service user-service workout-service nutrition-service analytics-service"
 
-compose() { sudo docker compose -f docker-compose.prod.yml "$@"; }
+# --profile events so the in-stack kafka broker (profiled) is eligible to start.
+compose() { sudo docker compose -f docker-compose.prod.yml --profile events "$@"; }
 
 # ── one-time bootstrap (Amazon Linux 2023) ───────────────────────────────────
 if ! command -v docker >/dev/null 2>&1; then

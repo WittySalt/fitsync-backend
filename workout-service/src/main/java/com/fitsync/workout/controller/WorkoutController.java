@@ -9,6 +9,7 @@ import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
+import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
@@ -242,10 +243,23 @@ public class WorkoutController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @RequestParam(required = false) WorkoutSessionStatus status,
+            @RequestParam(required = false) WorkoutType workoutType,
+            @RequestParam(required = false) @Min(0) Integer minDurationMinutes,
+            @RequestParam(required = false) @Min(0) Integer maxDurationMinutes,
             @RequestParam(required = false) UUID planId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return workoutService.listSessions(currentPrincipal(authentication), from, to, status, planId, page, size);
+        return workoutService.listSessions(
+                currentPrincipal(authentication),
+                from,
+                to,
+                status,
+                workoutType,
+                minDurationMinutes,
+                maxDurationMinutes,
+                planId,
+                page,
+                size);
     }
 
     @GetMapping("/sessions/latest")
