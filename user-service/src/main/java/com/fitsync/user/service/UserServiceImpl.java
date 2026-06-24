@@ -540,6 +540,26 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    public void deleteGoal(CurrentUserPrincipal principal, GoalType goalType) {
+        UserGoalEntity entity = userGoalRepository.findByUserIdAndGoalType(principal.userId(), goalType)
+                .orElseThrow(() -> new ResourceNotFoundException("Goal not found"));
+        if (entity.getStatus() == GoalStatus.ARCHIVED) {
+            return;
+        }
+        // Soft delete: keep the row so the (user_id, goal_type) slot is reused on re-create,
+        // but drop it from the ACTIVE list and tell downstream read models to remove it.
+        entity.setStatus(GoalStatus.ARCHIVED);
+        UserGoalEntity saved = userGoalRepository.save(entity);
+        domainEventPublisher.publish(
+                "progress-events", "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
+                new GoalUpdatedPayload(
+                        saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
+                        saved.getTargetUnit(), saved.getTargetDate(), saved.getStatus().name())));
+    }
+
+    @Override
+    @Transactional
     public AccountDataExportRequestView requestAccountDataExport(CurrentUserPrincipal principal) {
         Instant now = Instant.now(Clock.systemUTC());
         AccountDataExportRequestEntity entity = new AccountDataExportRequestEntity();

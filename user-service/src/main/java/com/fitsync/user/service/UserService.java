@@ -61,6 +61,8 @@ public interface UserService {
 
     List<UserGoalView> listGoals(CurrentUserPrincipal principal, GoalStatus status);
 
+    void deleteGoal(CurrentUserPrincipal principal, GoalType goalType);
+
     AccountDataExportRequestView requestAccountDataExport(CurrentUserPrincipal principal);
 
     AccountDataExportRequestView getLatestAccountDataExport(CurrentUserPrincipal principal);

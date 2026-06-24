@@ -751,6 +751,52 @@ class UserProfileTests {
     }
 
     @Test
+    void canSoftDeleteGoal() throws Exception {
+        String token = tokenFor("delete-goal@example.com", "Delete Goal");
+
+        mockMvc.perform(put("/api/v1/users/me/goals/WEIGHT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "targetValue": 68.0,
+                                  "targetUnit": "kg",
+                                  "status": "ACTIVE"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/users/me/goals/WEIGHT")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        // Soft-deleted: no longer in the ACTIVE list...
+        mockMvc.perform(get("/api/v1/users/me/goals")
+                        .header("Authorization", "Bearer " + token)
+                        .param("status", "ACTIVE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(0)));
+
+        // ...but the row is kept as ARCHIVED so the slot can be reused on re-create.
+        mockMvc.perform(get("/api/v1/users/me/goals")
+                        .header("Authorization", "Bearer " + token)
+                        .param("status", "ARCHIVED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].goalType").value("WEIGHT"))
+                .andExpect(jsonPath("$[0].status").value("ARCHIVED"));
+    }
+
+    @Test
+    void deletingMissingGoalReturnsNotFound() throws Exception {
+        String token = tokenFor("delete-missing-goal@example.com", "Delete Missing");
+
+        mockMvc.perform(delete("/api/v1/users/me/goals/WEIGHT")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void canRequestAndDownloadAccountDataExport() throws Exception {
         String token = tokenFor("export@example.com", "Export User");
 
