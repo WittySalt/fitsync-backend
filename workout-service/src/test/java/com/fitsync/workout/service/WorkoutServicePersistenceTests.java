@@ -67,6 +67,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -918,46 +919,7 @@ class WorkoutServicePersistenceTests {
 
     @Test
     void shouldReturnExerciseHistoryForOwnerOnlyNewestFirstAndRejectOversizedRange() {
-        UUID benchId = createExercise("history-bench", "History Bench");
-        workoutService.createSession(currentUser, completedStrengthSession(
-                "Older Bench",
-                Instant.parse("2026-06-10T10:00:00Z"),
-                benchId,
-                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 180, 8, null))));
-        workoutService.createSession(currentUser, completedStrengthSession(
-                "Newer Bench",
-                Instant.parse("2026-06-12T10:00:00Z"),
-                benchId,
-                List.of(new WorkoutExerciseSetLogInput(1, 3, new BigDecimal("120.00"), null, null, 180, 9, null))));
-        workoutService.createSession(otherUser, completedStrengthSession(
-                "Other User Bench",
-                Instant.parse("2026-06-13T10:00:00Z"),
-                benchId,
-                List.of(new WorkoutExerciseSetLogInput(1, 1, new BigDecimal("200.00"), null, null, 180, 10, null))));
-        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
-                null,
-                "Unfinished Bench",
-                WorkoutType.STRENGTH,
-                WorkoutSessionStatus.IN_PROGRESS,
-                WorkoutSource.MANUAL,
-                Instant.parse("2026-06-14T10:00:00Z"),
-                null,
-                null,
-                null,
-                null,
-                null,
-                List.of(new WorkoutExerciseLogInput(
-                        benchId,
-                        1,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        List.of(new WorkoutExerciseSetLogInput(1, 1, new BigDecimal("300.00"), null, null, 180, 10, null))))));
+        UUID benchId = createHistoryBenchFixture();
 
         PageResponse<ExerciseHistoryEntryView> history = workoutService.getExerciseHistory(
                 currentUser,
@@ -978,6 +940,35 @@ class WorkoutServicePersistenceTests {
                 Instant.parse("2026-06-01T00:00:00Z"),
                 0,
                 10));
+    }
+
+    @Test
+    void shouldReturnFullExerciseHistoryWhenDateRangeIsOmitted() {
+        UUID benchId = createHistoryBenchFixture();
+
+        PageResponse<ExerciseHistoryEntryView> boundedHistory = workoutService.getExerciseHistory(
+                currentUser,
+                benchId,
+                Instant.parse("2026-06-01T00:00:00Z"),
+                Instant.parse("2026-06-30T00:00:00Z"),
+                0,
+                20);
+        PageResponse<ExerciseHistoryEntryView> history = assertDoesNotThrow(() -> workoutService.getExerciseHistory(
+                currentUser,
+                benchId,
+                null,
+                null,
+                0,
+                20));
+
+        assertEquals(2, history.totalElements());
+        assertEquals(2, history.content().size());
+        assertTrue(history.totalElements() >= boundedHistory.totalElements());
+        assertTrue(history.content().size() >= boundedHistory.content().size());
+        assertEquals("Newer Bench", history.content().get(0).sessionName());
+        assertEquals(new BigDecimal("120.00"), history.content().get(0).weightKg());
+        assertEquals("Older Bench", history.content().get(1).sessionName());
+        assertEquals(new BigDecimal("100.00"), history.content().get(1).weightKg());
     }
 
     @Test
@@ -2344,6 +2335,50 @@ class WorkoutServicePersistenceTests {
                 MuscleGroup.BACK,
                 ExerciseEquipment.BARBELL,
                 WorkoutDifficulty.BEGINNER));
+    }
+
+    private UUID createHistoryBenchFixture() {
+        UUID benchId = createExercise("history-bench", "History Bench");
+        workoutService.createSession(currentUser, completedStrengthSession(
+                "Older Bench",
+                Instant.parse("2026-06-10T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("100.00"), null, null, 180, 8, null))));
+        workoutService.createSession(currentUser, completedStrengthSession(
+                "Newer Bench",
+                Instant.parse("2026-06-12T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 3, new BigDecimal("120.00"), null, null, 180, 9, null))));
+        workoutService.createSession(otherUser, completedStrengthSession(
+                "Other User Bench",
+                Instant.parse("2026-06-13T10:00:00Z"),
+                benchId,
+                List.of(new WorkoutExerciseSetLogInput(1, 1, new BigDecimal("200.00"), null, null, 180, 10, null))));
+        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Unfinished Bench",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-14T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(
+                        benchId,
+                        1,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkoutExerciseSetLogInput(1, 1, new BigDecimal("300.00"), null, null, 180, 10, null))))));
+        return benchId;
     }
 
     private UpdateExerciseRequest updateExercise(String name) {
