@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
+import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
@@ -65,6 +66,9 @@ public interface WorkoutService {
                                                   Instant from,
                                                   Instant to,
                                                   WorkoutSessionStatus status,
+                                                  WorkoutType workoutType,
+                                                  Integer minDurationMinutes,
+                                                  Integer maxDurationMinutes,
                                                   UUID planId,
                                                   int page,
                                                   int size);

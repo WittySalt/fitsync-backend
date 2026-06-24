@@ -22,6 +22,7 @@ import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
+import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
@@ -331,10 +332,14 @@ public class WorkoutServiceImpl implements WorkoutService {
                                                          Instant from,
                                                          Instant to,
                                                          WorkoutSessionStatus status,
+                                                         WorkoutType workoutType,
+                                                         Integer minDurationMinutes,
+                                                         Integer maxDurationMinutes,
                                                          UUID planId,
                                                          int page,
                                                          int size) {
-        validateTimeRange(from, to);
+        validateSessionFilterRange(from, to);
+        validateDurationRange(minDurationMinutes, maxDurationMinutes);
         UUID userId = currentUser.userId();
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt"));
         Page<UUID> sessionIds = workoutSessionRepository.findHistoryIds(
@@ -342,6 +347,9 @@ public class WorkoutServiceImpl implements WorkoutService {
                         from,
                         to,
                         status,
+                        workoutType,
+                        minDurationMinutes,
+                        maxDurationMinutes,
                         planId,
                         pageable);
         if (sessionIds.isEmpty()) {
@@ -359,6 +367,18 @@ public class WorkoutServiceImpl implements WorkoutService {
                 .map(this::toSessionView)
                 .toList();
         return toPageResponse(new PageImpl<>(views, pageable, sessionIds.getTotalElements()));
+    }
+
+    private void validateDurationRange(Integer minDurationMinutes, Integer maxDurationMinutes) {
+        if (minDurationMinutes != null && maxDurationMinutes != null && minDurationMinutes > maxDurationMinutes) {
+            throw new IllegalArgumentException("minDurationMinutes must not be greater than maxDurationMinutes");
+        }
+    }
+
+    private void validateSessionFilterRange(Instant from, Instant to) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new IllegalArgumentException("to must not be before from");
+        }
     }
 
     private <T> PageResponse<T> toPageResponse(Page<T> page) {

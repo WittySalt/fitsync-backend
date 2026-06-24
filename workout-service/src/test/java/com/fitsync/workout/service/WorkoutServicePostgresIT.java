@@ -107,6 +107,9 @@ class WorkoutServicePostgresIT {
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
                 0,
                 20);
         PageResponse<WorkoutSessionView> filteredSessions = workoutService.listSessions(
@@ -114,6 +117,9 @@ class WorkoutServicePostgresIT {
                 Instant.parse("2026-06-10T00:00:00Z"),
                 Instant.parse("2026-06-11T00:00:00Z"),
                 WorkoutSessionStatus.COMPLETED,
+                null,
+                null,
+                null,
                 ACTIVE_PLAN_ID,
                 0,
                 20);
