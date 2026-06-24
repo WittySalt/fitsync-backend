@@ -64,7 +64,9 @@ class AnalyticsControllerTests {
                 new AnalyticsDashboardResponse.BodySummary(78.4, 19.8, 24.7, -1.6),
                 new AnalyticsDashboardResponse.WorkoutSummary(1, 4, 205, 3),
                 new AnalyticsDashboardResponse.NutritionSummary(1860, 2100, 132.5, 150.0),
-                List.of(new AnalyticsDashboardResponse.GoalProgressSummary(goalId, "WEIGHT", 0.42, true)));
+                List.of(new AnalyticsDashboardResponse.GoalProgressSummary(
+                        goalId, "WEIGHT", 75.0, "kg", LocalDate.parse("2026-08-01"), 77.0, 0.42, true,
+                        Instant.parse("2026-06-14T07:00:00Z"))));
 
         when(analyticsService.getDashboard(any())).thenReturn(response);
 

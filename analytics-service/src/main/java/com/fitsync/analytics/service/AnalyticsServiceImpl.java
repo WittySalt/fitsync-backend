@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.UUID;
 
 import com.fitsync.analytics.config.AnalyticsProperties;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
@@ -78,7 +79,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     public AnalyticsDashboardResponse getDashboard(CurrentUserPrincipal principal) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
                 .orElse(null);
-        List<AnalyticsDashboardResponse.GoalProgressSummary> goals = loadGoalSummaries(principal.userId(), null);
+        List<AnalyticsDashboardResponse.GoalProgressSummary> goals =
+                loadGoalSummaries(principal.userId(), GoalExpiryPolicy.ACTIVE_STATUS);
 
         if (snapshot == null) {
             return emptyDashboard(goals);
@@ -300,17 +302,31 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         .toList());
     }
 
-    private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(java.util.UUID userId, String status) {
+    private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(UUID userId, String status) {
         String normalizedStatus = normalizeStatus(status);
-        return goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)
-                .stream()
-                .filter(entity -> normalizedStatus.isBlank()
-                        || normalizedStatus.equals(normalizeStatus(entity.getGoalStatus())))
+        Map<String, AnalyticsUserGoalProgressEntity> latestByGoalType = new HashMap<>();
+        goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, normalizedStatus)
+                .forEach(entity -> latestByGoalType.merge(
+                        entity.getGoalType(),
+                        entity,
+                        (current, candidate) -> shouldReplaceGoalSummary(current, candidate) ? candidate : current));
+
+        return latestByGoalType.values().stream()
                 .sorted(Comparator.comparing(AnalyticsUserGoalProgressEntity::getTargetDate,
                                 Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(AnalyticsUserGoalProgressEntity::getGoalId))
                 .map(this::toGoalProgressSummary)
                 .toList();
+    }
+
+    private boolean shouldReplaceGoalSummary(AnalyticsUserGoalProgressEntity current,
+                                             AnalyticsUserGoalProgressEntity candidate) {
+        int evaluatedComparison = Comparator.nullsFirst(Instant::compareTo)
+                .compare(candidate.getLastEvaluatedAt(), current.getLastEvaluatedAt());
+        if (evaluatedComparison != 0) {
+            return evaluatedComparison > 0;
+        }
+        return Comparator.nullsFirst(UUID::compareTo).compare(candidate.getGoalId(), current.getGoalId()) > 0;
     }
 
     private WorkoutSummaryAggregation aggregateWorkoutSummary(java.util.UUID userId, LocalDate from, LocalDate to) {
@@ -583,8 +599,13 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return new AnalyticsDashboardResponse.GoalProgressSummary(
                 entity.getGoalId(),
                 entity.getGoalType(),
+                toDouble(entity.getTargetValue()),
+                entity.getTargetUnit(),
+                entity.getTargetDate(),
+                toDouble(entity.getCurrentValue()),
                 toDouble(entity.getProgressRatio()),
-                entity.isOnTrack());
+                entity.isOnTrack(),
+                entity.getLastEvaluatedAt());
     }
 
     private Double average(List<BigDecimal> values) {
