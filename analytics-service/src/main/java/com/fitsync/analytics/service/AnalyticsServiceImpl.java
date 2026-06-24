@@ -304,14 +304,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(UUID userId, String status) {
         String normalizedStatus = normalizeStatus(status);
-        List<AnalyticsUserGoalProgressEntity> rows = normalizedStatus.isBlank()
-                ? goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)
-                : goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, normalizedStatus);
-
         Map<String, AnalyticsUserGoalProgressEntity> latestByGoalType = new HashMap<>();
-        rows.stream()
-                .filter(entity -> normalizedStatus.isBlank()
-                        || normalizedStatus.equals(normalizeStatus(entity.getGoalStatus())))
+        goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, normalizedStatus)
                 .forEach(entity -> latestByGoalType.merge(
                         entity.getGoalType(),
                         entity,
