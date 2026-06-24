@@ -376,7 +376,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void validateSessionFilterRange(Instant from, Instant to) {
-        if (from != null && to != null && from.isAfter(to)) {
+        if (isAfterWhenBothPresent(from, to)) {
             throw new IllegalArgumentException("to must not be before from");
         }
     }
@@ -1136,13 +1136,13 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void validateTimeRange(Instant from, Instant to) {
-        if (from != null && to != null && from.isAfter(to)) {
+        if (isAfterWhenBothPresent(from, to)) {
             throw new IllegalArgumentException("completedAt must not be before startedAt");
         }
     }
 
     private void validateHistoryRange(Instant from, Instant to) {
-        if (from != null && to != null && from.isAfter(to)) {
+        if (isAfterWhenBothPresent(from, to)) {
             throw new IllegalArgumentException("to must not be before from");
         }
         if (from != null
@@ -1151,6 +1151,10 @@ public class WorkoutServiceImpl implements WorkoutService {
             throw new IllegalArgumentException("Exercise history range must not exceed "
                     + exerciseHistoryMaxRangeDays + " days");
         }
+    }
+
+    private boolean isAfterWhenBothPresent(Instant from, Instant to) {
+        return from != null && to != null && from.isAfter(to);
     }
 
     private ExerciseRecordsView toExerciseRecordsView(ExerciseEntity exercise, PersonalRecordSnapshot snapshot) {
