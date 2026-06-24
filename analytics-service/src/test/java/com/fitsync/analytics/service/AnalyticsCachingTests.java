@@ -69,7 +69,8 @@ class AnalyticsCachingTests {
         snapshot.setGeneratedAt(Instant.parse("2026-06-14T08:00:00Z"));
 
         when(dashboardSnapshotRepository.findById(userId)).thenReturn(Optional.of(snapshot));
-        when(goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of());
+        when(goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
+                .thenReturn(List.of());
 
         var first = analyticsService.getDashboard(principal);
         var second = analyticsService.getDashboard(principal);
@@ -77,13 +78,15 @@ class AnalyticsCachingTests {
         assertThat(first.timezone()).isEqualTo("Asia/Singapore");
         assertThat(second.body().latestWeightKg()).isEqualTo(78.4);
         verify(dashboardSnapshotRepository, times(1)).findById(userId);
-        verify(goalProgressRepository, times(1)).findByUserIdOrderByTargetDateAscGoalIdAsc(userId);
+        verify(goalProgressRepository, times(1))
+                .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE");
 
         cacheInvalidationService.evictAllForUser(userId);
         analyticsService.getDashboard(principal);
 
         verify(dashboardSnapshotRepository, times(2)).findById(userId);
-        verify(goalProgressRepository, times(2)).findByUserIdOrderByTargetDateAscGoalIdAsc(userId);
+        verify(goalProgressRepository, times(2))
+                .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE");
     }
 
     @Test

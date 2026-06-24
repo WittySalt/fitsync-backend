@@ -58,7 +58,8 @@ class AnalyticsServiceImplTests {
         AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
         UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         when(dashboardRepository.findById(userId)).thenReturn(Optional.empty());
-        when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of());
+        when(goalRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
+                .thenReturn(List.of());
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
                 dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
@@ -114,7 +115,8 @@ class AnalyticsServiceImplTests {
         goal.setLastEvaluatedAt(Instant.parse("2026-06-14T07:00:00Z"));
 
         when(dashboardRepository.findById(userId)).thenReturn(Optional.of(snapshot));
-        when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId)).thenReturn(List.of(goal));
+        when(goalRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
+                .thenReturn(List.of(goal));
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
                 dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
@@ -136,6 +138,63 @@ class AnalyticsServiceImplTests {
                         AnalyticsDashboardResponse.GoalProgressSummary::progressRatio,
                         AnalyticsDashboardResponse.GoalProgressSummary::onTrack)
                 .containsExactly(goalId, "WEIGHT", 0.42, true);
+    }
+
+    @Test
+    void shouldKeepLatestEvaluatedActiveGoalPerTypeInDashboard() {
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC);
+        AnalyticsUserDashboardSnapshotRepository dashboardRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
+        AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID olderGoalId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID newerGoalId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+
+        AnalyticsUserDashboardSnapshotEntity snapshot = new AnalyticsUserDashboardSnapshotEntity();
+        snapshot.setUserId(userId);
+        snapshot.setGeneratedAt(Instant.parse("2026-06-14T08:00:00Z"));
+
+        AnalyticsUserGoalProgressEntity olderGoal = new AnalyticsUserGoalProgressEntity();
+        olderGoal.setGoalId(olderGoalId);
+        olderGoal.setUserId(userId);
+        olderGoal.setGoalType("WEIGHT");
+        olderGoal.setGoalStatus("ACTIVE");
+        olderGoal.setTargetDate(LocalDate.parse("2026-08-01"));
+        olderGoal.setProgressRatio(new BigDecimal("0.2500"));
+        olderGoal.setOnTrack(false);
+        olderGoal.setLastEvaluatedAt(Instant.parse("2026-06-14T07:00:00Z"));
+
+        AnalyticsUserGoalProgressEntity newerGoal = new AnalyticsUserGoalProgressEntity();
+        newerGoal.setGoalId(newerGoalId);
+        newerGoal.setUserId(userId);
+        newerGoal.setGoalType("WEIGHT");
+        newerGoal.setGoalStatus("ACTIVE");
+        newerGoal.setTargetDate(LocalDate.parse("2026-08-15"));
+        newerGoal.setProgressRatio(new BigDecimal("0.7500"));
+        newerGoal.setOnTrack(true);
+        newerGoal.setLastEvaluatedAt(Instant.parse("2026-06-14T08:00:00Z"));
+
+        when(dashboardRepository.findById(userId)).thenReturn(Optional.of(snapshot));
+        when(goalRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
+                .thenReturn(List.of(olderGoal, newerGoal));
+
+        AnalyticsServiceImpl service = new AnalyticsServiceImpl(
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
+
+        AnalyticsDashboardResponse response = service.getDashboard(new CurrentUserPrincipal(
+                userId,
+                "alice@example.com",
+                "Alice",
+                "USER"));
+
+        assertThat(response.goals()).singleElement()
+                .extracting(AnalyticsDashboardResponse.GoalProgressSummary::goalId,
+                        AnalyticsDashboardResponse.GoalProgressSummary::goalType,
+                        AnalyticsDashboardResponse.GoalProgressSummary::progressRatio,
+                        AnalyticsDashboardResponse.GoalProgressSummary::onTrack)
+                .containsExactly(newerGoalId, "WEIGHT", 0.75, true);
     }
 
     @Test
