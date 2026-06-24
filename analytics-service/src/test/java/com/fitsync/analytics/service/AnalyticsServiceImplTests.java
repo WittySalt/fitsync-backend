@@ -307,6 +307,44 @@ class AnalyticsServiceImplTests {
                 .isEqualTo(higherGoalId);
     }
 
+    @Test
+    void getGoalProgressCollapsesToLatestEvaluatedActiveGoalPerType() {
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC);
+        AnalyticsUserDashboardSnapshotRepository dashboardRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
+        AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
+        AnalyticsUserDailyBodyRepository bodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID olderGoalId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID newerGoalId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        UUID proteinGoalId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+        AnalyticsUserGoalProgressEntity olderWeight = activeGoal(userId, olderGoalId, "WEIGHT",
+                Instant.parse("2026-06-14T06:00:00Z"));
+        AnalyticsUserGoalProgressEntity newerWeight = activeGoal(userId, newerGoalId, "WEIGHT",
+                Instant.parse("2026-06-14T07:30:00Z"));
+        AnalyticsUserGoalProgressEntity protein = activeGoal(userId, proteinGoalId, "PROTEIN",
+                Instant.parse("2026-06-14T07:00:00Z"));
+
+        when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(userId))
+                .thenReturn(List.of(olderWeight, newerWeight, protein));
+
+        AnalyticsServiceImpl service = new AnalyticsServiceImpl(
+                dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository, fixedClock, analyticsProperties());
+
+        com.fitsync.analytics.dto.AnalyticsGoalProgressResponse response = service.getGoalProgress(
+                new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER"), "ACTIVE");
+
+        // Duplicate WEIGHT rows collapse to the latest evaluated; PROTEIN stays.
+        assertThat(response.goals())
+                .extracting(com.fitsync.analytics.dto.AnalyticsGoalProgressResponse.GoalProgressView::goalId,
+                        com.fitsync.analytics.dto.AnalyticsGoalProgressResponse.GoalProgressView::goalType)
+                .containsExactlyInAnyOrder(
+                        tuple(newerGoalId, "WEIGHT"),
+                        tuple(proteinGoalId, "PROTEIN"));
+    }
+
     private AnalyticsUserGoalProgressEntity activeGoal(UUID userId, UUID goalId, String goalType, Instant evaluatedAt) {
         AnalyticsUserGoalProgressEntity goal = new AnalyticsUserGoalProgressEntity();
         goal.setGoalId(goalId);

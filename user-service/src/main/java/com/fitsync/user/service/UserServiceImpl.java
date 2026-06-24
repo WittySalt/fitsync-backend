@@ -90,6 +90,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class UserServiceImpl implements UserService {
 
     private static final String SOURCE = "user-service";
+    private static final String PROGRESS_EVENTS_TOPIC = "progress-events";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
     private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
     private static final Map<String, String> AVATAR_EXTENSIONS = Map.of(
@@ -519,7 +520,7 @@ public class UserServiceImpl implements UserService {
         entity.setNotes(request.notes());
         UserGoalEntity saved = userGoalRepository.save(entity);
         domainEventPublisher.publish(
-                "progress-events", "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
+                PROGRESS_EVENTS_TOPIC, "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
                 new GoalUpdatedPayload(
                         saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
@@ -551,7 +552,7 @@ public class UserServiceImpl implements UserService {
         entity.setStatus(GoalStatus.ARCHIVED);
         UserGoalEntity saved = userGoalRepository.save(entity);
         domainEventPublisher.publish(
-                "progress-events", "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
+                PROGRESS_EVENTS_TOPIC, "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
                 new GoalUpdatedPayload(
                         saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
@@ -745,7 +746,7 @@ public class UserServiceImpl implements UserService {
 
     private void publishBodyMetricsRecorded(UUID userId, BodyMetricEntryEntity saved) {
         domainEventPublisher.publish(
-                "progress-events", "BodyMetricEntry", saved.getMetricId().toString(), new FitSyncDomainEvent<>(
+                PROGRESS_EVENTS_TOPIC, "BodyMetricEntry", saved.getMetricId().toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "BodyMetricsRecorded", 1, Instant.now(Clock.systemUTC()), SOURCE, userId,
                 new BodyMetricsRecordedPayload(
                         saved.getMetricId(),

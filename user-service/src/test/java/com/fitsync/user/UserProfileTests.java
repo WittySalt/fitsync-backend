@@ -788,6 +788,38 @@ class UserProfileTests {
     }
 
     @Test
+    void deletingGoalIsIdempotent() throws Exception {
+        String token = tokenFor("delete-goal-twice@example.com", "Delete Twice");
+
+        mockMvc.perform(put("/api/v1/users/me/goals/WEIGHT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "targetValue": 68.0,
+                                  "targetUnit": "kg",
+                                  "status": "ACTIVE"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/users/me/goals/WEIGHT")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        // Second delete on an already-ARCHIVED goal is a no-op, still 204.
+        mockMvc.perform(delete("/api/v1/users/me/goals/WEIGHT")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/users/me/goals")
+                        .header("Authorization", "Bearer " + token)
+                        .param("status", "ARCHIVED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)));
+    }
+
+    @Test
     void deletingMissingGoalReturnsNotFound() throws Exception {
         String token = tokenFor("delete-missing-goal@example.com", "Delete Missing");
 
