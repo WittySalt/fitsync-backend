@@ -1122,13 +1122,12 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void validateHistoryRange(Instant from, Instant to) {
-        if (from == null || to == null) {
-            throw new IllegalArgumentException("from and to are required");
-        }
-        if (from.isAfter(to)) {
+        if (from != null && to != null && from.isAfter(to)) {
             throw new IllegalArgumentException("to must not be before from");
         }
-        if (Duration.between(from, to).compareTo(Duration.ofDays(exerciseHistoryMaxRangeDays)) > 0) {
+        if (from != null
+                && to != null
+                && Duration.between(from, to).compareTo(Duration.ofDays(exerciseHistoryMaxRangeDays)) > 0) {
             throw new IllegalArgumentException("Exercise history range must not exceed "
                     + exerciseHistoryMaxRangeDays + " days");
         }
