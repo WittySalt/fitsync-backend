@@ -37,6 +37,9 @@ public class AnalyticsUserGoalProgressEntity extends BaseAuditableEntity {
     @Column(name = "target_date")
     private LocalDate targetDate;
 
+    @Column(name = "baseline_value", precision = 10, scale = 2)
+    private BigDecimal baselineValue;
+
     @Column(name = "current_value", precision = 10, scale = 2)
     private BigDecimal currentValue;
 
@@ -106,6 +109,14 @@ public class AnalyticsUserGoalProgressEntity extends BaseAuditableEntity {
 
     public void setTargetDate(LocalDate targetDate) {
         this.targetDate = targetDate;
+    }
+
+    public BigDecimal getBaselineValue() {
+        return baselineValue;
+    }
+
+    public void setBaselineValue(BigDecimal baselineValue) {
+        this.baselineValue = baselineValue;
     }
 
     public BigDecimal getCurrentValue() {

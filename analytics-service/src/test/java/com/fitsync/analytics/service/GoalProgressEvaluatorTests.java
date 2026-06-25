@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
@@ -176,6 +177,66 @@ class GoalProgressEvaluatorTests {
                 });
     }
 
+    @Test
+    void weightLossGoalUsesBaselineProgressAndPace() {
+        AnalyticsUserGoalProgressEntity goal = weightGoal("80.00", "70.00", "2026-06-01");
+        whenActiveGoals(Set.of(GoalProgressEvaluator.WEIGHT), goal);
+        when(dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(USER_ID))
+                .thenReturn(Optional.of(body("74.00")));
+
+        evaluator.recompute(USER_ID, Set.of(GoalProgressEvaluator.WEIGHT), TODAY);
+
+        AnalyticsUserGoalProgressEntity saved = savedGoal();
+        assertThat(saved.getCurrentValue()).isEqualByComparingTo("74.00");
+        assertThat(saved.getProgressRatio()).isEqualByComparingTo("0.6000");
+        assertThat(saved.isOnTrack()).isTrue();
+    }
+
+    @Test
+    void weightGainGoalUsesBaselineProgressAndPace() {
+        AnalyticsUserGoalProgressEntity goal = weightGoal("70.00", "80.00", "2026-06-01");
+        whenActiveGoals(Set.of(GoalProgressEvaluator.WEIGHT), goal);
+        when(dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(USER_ID))
+                .thenReturn(Optional.of(body("76.00")));
+
+        evaluator.recompute(USER_ID, Set.of(GoalProgressEvaluator.WEIGHT), TODAY);
+
+        AnalyticsUserGoalProgressEntity saved = savedGoal();
+        assertThat(saved.getCurrentValue()).isEqualByComparingTo("76.00");
+        assertThat(saved.getProgressRatio()).isEqualByComparingTo("0.6000");
+        assertThat(saved.isOnTrack()).isTrue();
+    }
+
+    @Test
+    void weightMaintenanceGoalIsOnTrackWithinBand() {
+        AnalyticsUserGoalProgressEntity goal = weightGoal("75.00", "75.00", "2026-06-01");
+        whenActiveGoals(Set.of(GoalProgressEvaluator.WEIGHT), goal);
+        when(dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(USER_ID))
+                .thenReturn(Optional.of(body("75.40")));
+
+        evaluator.recompute(USER_ID, Set.of(GoalProgressEvaluator.WEIGHT), TODAY);
+
+        AnalyticsUserGoalProgressEntity saved = savedGoal();
+        assertThat(saved.getCurrentValue()).isEqualByComparingTo("75.40");
+        assertThat(saved.getProgressRatio()).isEqualByComparingTo("1.0000");
+        assertThat(saved.isOnTrack()).isTrue();
+    }
+
+    @Test
+    void weightGoalWithoutBaselineKeepsProgressUnknownAndOffTrack() {
+        AnalyticsUserGoalProgressEntity goal = goal(GoalProgressEvaluator.WEIGHT, "75.00");
+        whenActiveGoals(Set.of(GoalProgressEvaluator.WEIGHT), goal);
+        when(dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(USER_ID))
+                .thenReturn(Optional.of(body("78.00")));
+
+        evaluator.recompute(USER_ID, Set.of(GoalProgressEvaluator.WEIGHT), TODAY);
+
+        AnalyticsUserGoalProgressEntity saved = savedGoal();
+        assertThat(saved.getCurrentValue()).isEqualByComparingTo("78.00");
+        assertThat(saved.getProgressRatio()).isNull();
+        assertThat(saved.isOnTrack()).isFalse();
+    }
+
     private void whenActiveGoals(Set<String> goalTypes, AnalyticsUserGoalProgressEntity... goals) {
         when(goalProgressRepository.findByUserIdAndGoalStatusAndGoalTypeInOrderByTargetDateAscGoalIdAsc(
                 USER_ID, GoalExpiryPolicy.ACTIVE_STATUS, goalTypes))
@@ -205,6 +266,14 @@ class GoalProgressEvaluatorTests {
         return goal;
     }
 
+    private AnalyticsUserGoalProgressEntity weightGoal(String baselineValue, String targetValue, String startDate) {
+        AnalyticsUserGoalProgressEntity goal = goal(GoalProgressEvaluator.WEIGHT, targetValue);
+        goal.setBaselineValue(new BigDecimal(baselineValue));
+        goal.setLastEvaluatedAt(LocalDate.parse(startDate).atStartOfDay().toInstant(ZoneOffset.UTC));
+        goal.setTargetDate(LocalDate.parse("2026-07-01"));
+        return goal;
+    }
+
     private AnalyticsUserDailyNutritionEntity nutrition(int calories, String protein, String carbs, String fat) {
         AnalyticsUserDailyNutritionEntity nutrition = new AnalyticsUserDailyNutritionEntity();
         nutrition.setUserId(USER_ID);
@@ -222,5 +291,13 @@ class GoalProgressEvaluatorTests {
         workout.setActivityDate(activityDate);
         workout.setCompletedWorkoutCount(completedCount);
         return workout;
+    }
+
+    private AnalyticsUserDailyBodyEntity body(String weightKg) {
+        AnalyticsUserDailyBodyEntity body = new AnalyticsUserDailyBodyEntity();
+        body.setUserId(USER_ID);
+        body.setMetricDate(TODAY);
+        body.setWeightKg(new BigDecimal(weightKg));
+        return body;
     }
 }

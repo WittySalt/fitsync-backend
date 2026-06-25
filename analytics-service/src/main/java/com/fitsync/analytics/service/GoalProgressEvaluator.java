@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
@@ -40,6 +41,7 @@ public class GoalProgressEvaluator {
 
     private static final ZoneId DEFAULT_ZONE = ZoneOffset.UTC;
     private static final BigDecimal SEVEN_DAYS = BigDecimal.valueOf(7);
+    private static final BigDecimal MAINTAIN_WEIGHT_BAND_KG = new BigDecimal("0.50");
 
     private final AnalyticsUserGoalProgressRepository goalProgressRepository;
     private final AnalyticsUserDailyNutritionRepository dailyNutritionRepository;
@@ -108,7 +110,7 @@ public class GoalProgressEvaluator {
             case CARBS -> evaluateDailyCeiling(goal, dailyCarbs(goal.getUserId(), today));
             case FAT -> evaluateDailyCeiling(goal, dailyFat(goal.getUserId(), today));
             case WORKOUT_FREQUENCY -> evaluateWorkoutFrequency(goal, today);
-            case WEIGHT -> evaluateWeightPlaceholder(goal);
+            case WEIGHT -> evaluateWeight(goal, today);
             default -> clearInactiveProgress(goal);
         }
         goal.setDaysRemaining(GoalExpiryPolicy.daysRemaining(goal.getTargetDate(), today));
@@ -145,13 +147,31 @@ public class GoalProgressEvaluator {
         goal.setOnTrack(ratio != null && current.compareTo(requiredWorkoutPace(goal.getTargetValue(), today)) >= 0);
     }
 
-    private void evaluateWeightPlaceholder(AnalyticsUserGoalProgressEntity goal) {
+    private void evaluateWeight(AnalyticsUserGoalProgressEntity goal, LocalDate today) {
         BigDecimal current = dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(goal.getUserId())
                 .map(AnalyticsUserDailyBodyEntity::getWeightKg)
                 .orElse(null);
         goal.setCurrentValue(current);
-        goal.setProgressRatio(null);
-        goal.setOnTrack(false);
+        BigDecimal start = goal.getBaselineValue();
+        BigDecimal target = goal.getTargetValue();
+        if (start == null || current == null || target == null) {
+            goal.setProgressRatio(null);
+            goal.setOnTrack(false);
+            return;
+        }
+
+        int direction = target.compareTo(start);
+        if (direction < 0) {
+            goal.setProgressRatio(clampedRatio(start.subtract(current), start.subtract(target)));
+            goal.setOnTrack(isWeightOnPace(goal, start, current, target, today));
+        } else if (direction > 0) {
+            goal.setProgressRatio(clampedRatio(current.subtract(start), target.subtract(start)));
+            goal.setOnTrack(isWeightOnPace(goal, start, current, target, today));
+        } else {
+            BigDecimal deviation = current.subtract(start).abs();
+            goal.setProgressRatio(maintainWeightRatio(deviation));
+            goal.setOnTrack(deviation.compareTo(MAINTAIN_WEIGHT_BAND_KG) <= 0);
+        }
     }
 
     private BigDecimal dailyCalories(UUID userId, LocalDate today) {
@@ -184,6 +204,56 @@ public class GoalProgressEvaluator {
             return null;
         }
         return currentValue.divide(targetValue, 4, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal clampedRatio(BigDecimal numerator, BigDecimal denominator) {
+        if (denominator == null || denominator.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        BigDecimal ratio = numerator.divide(denominator, 4, RoundingMode.HALF_UP);
+        if (ratio.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP);
+        }
+        if (ratio.compareTo(BigDecimal.ONE) > 0) {
+            return BigDecimal.ONE.setScale(4, RoundingMode.HALF_UP);
+        }
+        return ratio;
+    }
+
+    private BigDecimal maintainWeightRatio(BigDecimal deviation) {
+        if (deviation.compareTo(MAINTAIN_WEIGHT_BAND_KG) <= 0) {
+            return BigDecimal.ONE.setScale(4, RoundingMode.HALF_UP);
+        }
+        BigDecimal excess = deviation.subtract(MAINTAIN_WEIGHT_BAND_KG);
+        return clampedRatio(MAINTAIN_WEIGHT_BAND_KG.subtract(excess), MAINTAIN_WEIGHT_BAND_KG);
+    }
+
+    private boolean isWeightOnPace(AnalyticsUserGoalProgressEntity goal,
+                                   BigDecimal start,
+                                   BigDecimal current,
+                                   BigDecimal target,
+                                   LocalDate today) {
+        if (goal.getTargetDate() == null) {
+            return target.compareTo(start) < 0 ? current.compareTo(start) <= 0 : current.compareTo(start) >= 0;
+        }
+        LocalDate startDate = weightGoalStartDate(goal);
+        long totalDays = ChronoUnit.DAYS.between(startDate, goal.getTargetDate());
+        if (totalDays <= 0) {
+            return target.compareTo(start) < 0 ? current.compareTo(target) <= 0 : current.compareTo(target) >= 0;
+        }
+        long elapsedDays = Math.max(0, Math.min(ChronoUnit.DAYS.between(startDate, today), totalDays));
+        BigDecimal elapsedFraction = BigDecimal.valueOf(elapsedDays)
+                .divide(BigDecimal.valueOf(totalDays), 8, RoundingMode.HALF_UP);
+        BigDecimal expected = start.add(target.subtract(start).multiply(elapsedFraction));
+        return target.compareTo(start) < 0 ? current.compareTo(expected) <= 0 : current.compareTo(expected) >= 0;
+    }
+
+    private LocalDate weightGoalStartDate(AnalyticsUserGoalProgressEntity goal) {
+        Instant start = goal.getDateTimeCreated() == null ? goal.getLastEvaluatedAt() : goal.getDateTimeCreated();
+        if (start == null) {
+            return todayForUser(goal.getUserId());
+        }
+        return start.atZone(resolveZone(goal.getUserId())).toLocalDate();
     }
 
     private BigDecimal requiredWorkoutPace(BigDecimal targetValue, LocalDate today) {

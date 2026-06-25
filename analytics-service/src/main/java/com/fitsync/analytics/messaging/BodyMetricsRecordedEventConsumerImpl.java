@@ -12,8 +12,10 @@ import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
+import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
 import com.fitsync.analytics.service.GoalProgressEvaluator;
+import com.fitsync.analytics.service.GoalExpiryPolicy;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
 
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsUserDailyBodyRepository dailyBodyRepository;
+    private final AnalyticsUserGoalProgressRepository goalProgressRepository;
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final DashboardSnapshotInitializer dashboardSnapshotInitializer;
@@ -31,12 +34,14 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
 
     public BodyMetricsRecordedEventConsumerImpl(AnalyticsProcessedEventRepository processedEventRepository,
                                                 AnalyticsUserDailyBodyRepository dailyBodyRepository,
+                                                AnalyticsUserGoalProgressRepository goalProgressRepository,
                                                 AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                                 AnalyticsCacheInvalidationService cacheInvalidationService,
                                                 DashboardSnapshotInitializer dashboardSnapshotInitializer,
                                                 GoalProgressEvaluator goalProgressEvaluator) {
         this.processedEventRepository = processedEventRepository;
         this.dailyBodyRepository = dailyBodyRepository;
+        this.goalProgressRepository = goalProgressRepository;
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.cacheInvalidationService = cacheInvalidationService;
         this.dashboardSnapshotInitializer = dashboardSnapshotInitializer;
@@ -79,6 +84,7 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
         snapshot.setGeneratedAt(generatedAt);
         dashboardSnapshotRepository.save(snapshot);
 
+        captureMissingWeightBaselines(event.userId(), payload.weightKg());
         goalProgressEvaluator.recompute(
                 event.userId(),
                 Set.of(GoalProgressEvaluator.WEIGHT),
@@ -124,6 +130,20 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
 
     private Instant resolveOccurredAt(Instant occurredAt, Instant measuredAt) {
         return occurredAt != null ? occurredAt : measuredAt;
+    }
+
+    private void captureMissingWeightBaselines(java.util.UUID userId, BigDecimal baselineValue) {
+        if (baselineValue == null) {
+            return;
+        }
+        goalProgressRepository.findByUserIdAndGoalStatusAndGoalTypeInOrderByTargetDateAscGoalIdAsc(
+                        userId, GoalExpiryPolicy.ACTIVE_STATUS, Set.of(GoalProgressEvaluator.WEIGHT))
+                .stream()
+                .filter(goal -> goal.getBaselineValue() == null)
+                .forEach(goal -> {
+                    goal.setBaselineValue(baselineValue);
+                    goalProgressRepository.save(goal);
+                });
     }
 
     private void recordProcessedEvent(FitSyncDomainEvent<?> event) {

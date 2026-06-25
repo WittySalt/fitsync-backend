@@ -145,6 +145,10 @@ class BodyMetricsRecordedEventConsumerTests {
         assertThat(goalProgressRepository.findById(goalId))
                 .isPresent()
                 .get()
-                .satisfies(goal -> assertThat(goal.getCurrentValue()).isEqualByComparingTo("78.40"));
+                .satisfies(goal -> {
+                    assertThat(goal.getBaselineValue()).isEqualByComparingTo("78.40");
+                    assertThat(goal.getCurrentValue()).isEqualByComparingTo("78.40");
+                    assertThat(goal.getProgressRatio()).isEqualByComparingTo("0.0000");
+                });
     }
 }
