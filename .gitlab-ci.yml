@@ -277,8 +277,14 @@ stress_test:
       - stress/k6/summary.json
       - stress/k6/summary.txt
   rules:
-    # Manual: it hits a live deployed environment, so it is opt-in from the
-    # pipeline UI ("Run pipeline") rather than firing on every MR.
+    # Visible-but-manual: shows as a clickable ▶️ button on every main-branch
+    # pipeline (and web "Run pipeline"), so it can be triggered straight from the
+    # pipeline graph without opening "Run pipeline" first. allow_failure keeps it
+    # optional — the pipeline still goes green without it. Kept manual (not auto)
+    # because it loads a live deployed environment.
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
       allow_failure: true
@@ -326,8 +332,12 @@ dast_zap:
     paths:
       - dast/
   rules:
-    # Manual: it hits a live deployed environment, so it is opt-in from the
-    # pipeline UI ("Run pipeline") rather than firing on every MR — same as stress.
+    # Visible-but-manual on main pipelines (and web), same as stress_test — a
+    # clickable ▶️ button right in the pipeline graph, optional (allow_failure),
+    # kept manual because it hits a live deployed environment.
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
       allow_failure: true
@@ -346,6 +356,12 @@ dependency_audit:
     paths:
       - target/dependency-check-report.*
   rules:
+    # Visible-but-manual on main pipelines (and web): a clickable ▶️ button in the
+    # pipeline graph. Kept manual rather than automatic because the NVD database
+    # download + aggregate scan adds several minutes to a run.
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
       allow_failure: true
