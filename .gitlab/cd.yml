@@ -140,6 +140,110 @@ deploy_staging:
       allow_failure: false
     - when: never
 
+# ── Deploy the app onto the STAGING host (after Terraform provisions it) ──────
+# Mirrors deploy_prod but for staging: the EC2 host and RDS endpoint are read from
+# the Terraform outputs that deploy_staging just applied, so nothing is hard-coded.
+# Prereqs (see infra/terraform/RUNBOOK.md "Staging bring-up"):
+#   - staging.tfvars: enable_ec2=true, enable_rds=true, ec2_key_name=<existing key pair>
+#   - CI vars: STAGING_EC2_SSH_KEY (private half of that key pair),
+#              STAGING_DB_PASSWORD, STAGING_JWT_SECRET
+#   - the per-service *_svc DB roles exist in the staging RDS
+# The staging gateway is PUBLIC on :8088 (app SG allows 0.0.0.0/0), so stress/DAST
+# target it directly — no CloudFront needed for staging.
+deploy_staging_app:
+  stage: deploy-staging
+  image: alpine:3.20
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  resource_group: staging
+  environment:
+    name: staging
+  needs:
+    - job: deploy_staging
+  variables:
+    TF_VERSION: "1.15.7"
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_ACCOUNT_ID AWS_REGION STAGING_DB_PASSWORD STAGING_JWT_SECRET STAGING_EC2_SSH_KEY"
+  before_script:
+    - !reference [.assume_aws_role, before_script]
+    - !reference [.tf_setup, script]
+  script:
+    - !reference [.require_vars, script]
+    # Discover host + DB endpoint from the state deploy_staging just applied.
+    - cd infra/terraform
+    - terraform init
+    - terraform workspace select staging
+    - STAGING_HOST="$(terraform output -raw ec2_public_ip)"
+    - RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
+    - cd "$CI_PROJECT_DIR"
+    - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    - export IMAGE_TAG="${STAGING_IMAGE_TAG:-latest}"
+    - mkdir -p ~/.ssh
+    - printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
+    # Render the staging runtime .env. One RDS; the per-service users share
+    # STAGING_DB_PASSWORD (the *_svc roles must already exist — see RUNBOOK).
+    - |
+      cat > .env.deploy <<EOF
+      ECR_REGISTRY=$ECR_REGISTRY
+      IMAGE_TAG=$IMAGE_TAG
+      DB_URL=jdbc:postgresql://${RDS_ENDPOINT}/fitsync
+      AUTH_DB_PASSWORD=$STAGING_DB_PASSWORD
+      USER_DB_PASSWORD=$STAGING_DB_PASSWORD
+      WORKOUT_DB_PASSWORD=$STAGING_DB_PASSWORD
+      NUTRITION_DB_PASSWORD=$STAGING_DB_PASSWORD
+      ANALYTICS_DB_PASSWORD=$STAGING_DB_PASSWORD
+      JWT_SECRET=$STAGING_JWT_SECRET
+      JWT_EXPIRATION=${JWT_EXPIRATION:-PT2H}
+      REDIS_HOST=redis
+      REDIS_PORT=6379
+      SPRING_CACHE_TYPE=${SPRING_CACHE_TYPE:-simple}
+      SPRING_DATA_REDIS_HOST=redis
+      SPRING_DATA_REDIS_PORT=6379
+      KAFKA_ENABLED=true
+      OUTBOX_RELAY_ENABLED=true
+      KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      KAFKA_USER_REGISTERED_LISTENER_ENABLED=true
+      KAFKA_GOAL_UPDATED_LISTENER_ENABLED=true
+      KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED=true
+      KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED=true
+      KAFKA_MEAL_LOGGED_LISTENER_ENABLED=true
+      KAFKA_MEAL_UPDATED_LISTENER_ENABLED=true
+      KAFKA_MEAL_DELETED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_DELETED_LISTENER_ENABLED=true
+      COGNITO_ENABLED=false
+      NGINX_SERVER_NAME=_
+      NGINX_CERT_NAME=localhost
+      FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
+      FITSYNC_MEDIA_REGION=${FITSYNC_MEDIA_REGION:-ap-southeast-1}
+      FITSYNC_MEDIA_ACCESS_KEY=${FITSYNC_MEDIA_ACCESS_KEY}
+      FITSYNC_MEDIA_SECRET_KEY=${FITSYNC_MEDIA_SECRET_KEY}
+      FITSYNC_MEDIA_BUCKET=${FITSYNC_MEDIA_BUCKET:-fitsync-media}
+      FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+      FREE_EXERCISE_DB_IMAGES_DIR=${FREE_EXERCISE_DB_IMAGES_DIR:-/opt/fitsync/free-exercise-db/exercises}
+      EOF
+    - ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
+    - scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$STAGING_HOST:/opt/fitsync/docker-compose.prod.yml"
+    - scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$STAGING_HOST:/opt/fitsync/nginx/nginx.conf.template"
+    - scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$STAGING_HOST:/opt/fitsync/ec2-deploy.sh"
+    - scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$STAGING_HOST:/opt/fitsync/.env"
+    - >
+      ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST"
+      "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION'
+      bash /opt/fitsync/ec2-deploy.sh"
+    # Smoke: the staging gateway is public on :8088 (SG allows 0.0.0.0/0).
+    - sleep 30
+    - test "$(curl -s -o /dev/null -w '%{http_code}' "http://$STAGING_HOST:8088/actuator/health")" = "200"
+    - 'echo "Staging gateway up: http://$STAGING_HOST:8088 — set STRESS_TARGET_URL / DAST_TARGET_URL to this."'
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+      when: manual
+      allow_failure: false
+    - when: never
+
 # ── Stress + DAST against STAGING (never production) ──────────────────────────
 # Both hit the running STAGING environment via a URL variable and produce report
 # artifacts. Visible-but-manual on main pipelines (and web): a clickable ▶️ button
