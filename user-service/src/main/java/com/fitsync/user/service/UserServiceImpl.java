@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.function.Function;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
@@ -90,6 +91,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class UserServiceImpl implements UserService {
 
     private static final String SOURCE = "user-service";
+    private static final String ACCOUNT_DELETION_REASON_USER_REQUESTED = "USER_REQUESTED";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
     private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
     private static final Map<String, String> AVATAR_EXTENSIONS = Map.of(
@@ -598,6 +600,28 @@ public class UserServiceImpl implements UserService {
         List<UserGoalEntity> activeGoals = userGoalRepository.findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus.ACTIVE);
         activeGoals.forEach(this::publishGoalUpdated);
         return activeGoals.size();
+    }
+
+    @Override
+    @Transactional
+    public void deleteCurrentUser(CurrentUserPrincipal principal) {
+        UUID userId = principal.userId();
+        Instant deletedAt = Instant.now(Clock.systemUTC());
+
+        accountDataExportRequestRepository.deleteByUserId(userId);
+        bodyMetricEntryRepository.deleteByUserId(userId);
+        userGoalRepository.deleteByUserId(userId);
+        userHealthReadinessRepository.deleteById(userId);
+        userNotificationPreferencesRepository.deleteById(userId);
+        userNutritionPreferencesRepository.deleteById(userId);
+        userTrainingPreferencesRepository.deleteById(userId);
+        userAppPreferencesRepository.deleteById(userId);
+        userProfileRepository.deleteById(userId);
+
+        domainEventPublisher.publish(
+                "user-events", "UserAccount", userId.toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "AccountDeleted", 1, deletedAt, SOURCE, userId,
+                new AccountDeletedPayload(deletedAt, ACCOUNT_DELETION_REASON_USER_REQUESTED)));
     }
 
     private UserProfileEntity getOrCreateProfileEntity(CurrentUserPrincipal principal) {

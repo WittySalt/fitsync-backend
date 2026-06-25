@@ -105,6 +105,8 @@ fitsync:
         enabled: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
       user-profile-updated:
         enabled: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:false}
+      account-deleted:
+        enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}
   outbox:
     relay:
       enabled: ${OUTBOX_RELAY_ENABLED:false}

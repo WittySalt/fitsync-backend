@@ -1,6 +1,7 @@
 package com.fitsync.contracts.events.user;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -45,5 +46,15 @@ class UserEventContractsTests {
         assertEquals(true, payload.onboardingCompleted());
         assertEquals(List.of("timezone"), payload.updatedFields());
         assertEquals("Asia/Singapore", payload.timezone());
+    }
+
+    @Test
+    void shouldExposeAccountDeletedPayloadFields() {
+        AccountDeletedPayload payload = new AccountDeletedPayload(
+                Instant.parse("2026-06-25T04:00:00Z"),
+                "USER_REQUESTED");
+
+        assertEquals(Instant.parse("2026-06-25T04:00:00Z"), payload.deletedAt());
+        assertEquals("USER_REQUESTED", payload.reason());
     }
 }

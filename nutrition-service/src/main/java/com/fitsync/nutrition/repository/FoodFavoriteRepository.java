@@ -1,6 +1,7 @@
 package com.fitsync.nutrition.repository;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.UUID;
 
 import com.fitsync.nutrition.entity.FoodFavoriteEntity;
@@ -15,4 +16,8 @@ public interface FoodFavoriteRepository extends JpaRepository<FoodFavoriteEntity
 
     @Transactional
     void deleteByUserIdAndFoodId(UUID userId, UUID foodId);
+
+    void deleteByUserId(UUID userId);
+
+    void deleteByFoodIdIn(Collection<UUID> foodIds);
 }

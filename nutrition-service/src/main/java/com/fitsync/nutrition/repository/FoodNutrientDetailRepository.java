@@ -1,6 +1,7 @@
 package com.fitsync.nutrition.repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,4 +22,6 @@ public interface FoodNutrientDetailRepository extends JpaRepository<FoodNutrient
             order by d.sortOrder asc
             """)
     List<FoodNutrientDetailEntity> findActiveByFoodId(@Param("foodId") UUID foodId, @Param("onDate") LocalDate onDate);
+
+    void deleteByFoodIdIn(Collection<UUID> foodIds);
 }

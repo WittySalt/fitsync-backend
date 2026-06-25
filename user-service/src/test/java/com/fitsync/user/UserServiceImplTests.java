@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.media.MediaStorageService;
 import com.fitsync.user.domain.CalorieTrackingMode;
@@ -193,6 +194,38 @@ class UserServiceImplTests {
         GoalUpdatedPayload payload = (GoalUpdatedPayload) eventCaptor.getValue().payload();
         assertEquals("PROTEIN", payload.goalType());
         assertEquals("CANCELLED", payload.status());
+    }
+
+    @Test
+    void deleteCurrentUserClearsLocalAccountDataAndPublishesDeletionEvent() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "delete@test.dev", "Delete Me", "USER");
+
+        fixtures.service.deleteCurrentUser(principal);
+
+        verify(fixtures.accountDataExportRequestRepository).deleteByUserId(userId);
+        verify(fixtures.bodyMetricEntryRepository).deleteByUserId(userId);
+        verify(fixtures.userGoalRepository).deleteByUserId(userId);
+        verify(fixtures.userHealthReadinessRepository).deleteById(userId);
+        verify(fixtures.userNotificationPreferencesRepository).deleteById(userId);
+        verify(fixtures.userNutritionPreferencesRepository).deleteById(userId);
+        verify(fixtures.userTrainingPreferencesRepository).deleteById(userId);
+        verify(fixtures.userAppPreferencesRepository).deleteById(userId);
+        verify(fixtures.userProfileRepository).deleteById(userId);
+
+        ArgumentCaptor<FitSyncDomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(FitSyncDomainEvent.class);
+        verify(fixtures.domainEventPublisher)
+                .publish(org.mockito.ArgumentMatchers.eq("user-events"),
+                        org.mockito.ArgumentMatchers.eq("UserAccount"),
+                        org.mockito.ArgumentMatchers.eq(userId.toString()),
+                        eventCaptor.capture());
+        FitSyncDomainEvent<?> event = eventCaptor.getValue();
+        assertEquals("AccountDeleted", event.eventType());
+        assertEquals(userId, event.userId());
+        AccountDeletedPayload payload = (AccountDeletedPayload) event.payload();
+        assertEquals("USER_REQUESTED", payload.reason());
+        assertEquals(event.occurredAt(), payload.deletedAt());
     }
 
     private static UserGoalEntity goal(UUID userId,

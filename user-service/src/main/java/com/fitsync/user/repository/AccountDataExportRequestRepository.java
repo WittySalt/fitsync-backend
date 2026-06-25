@@ -11,4 +11,6 @@ public interface AccountDataExportRequestRepository extends JpaRepository<Accoun
     Optional<AccountDataExportRequestEntity> findTopByUserIdOrderByRequestedAtDesc(UUID userId);
 
     Optional<AccountDataExportRequestEntity> findByExportRequestIdAndUserId(UUID exportRequestId, UUID userId);
+
+    void deleteByUserId(UUID userId);
 }

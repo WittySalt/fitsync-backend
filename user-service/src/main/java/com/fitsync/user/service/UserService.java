@@ -68,4 +68,6 @@ public interface UserService {
     AccountDataExportPayload downloadAccountDataExport(CurrentUserPrincipal principal, UUID exportRequestId);
 
     int republishActiveGoals();
+
+    void deleteCurrentUser(CurrentUserPrincipal principal);
 }

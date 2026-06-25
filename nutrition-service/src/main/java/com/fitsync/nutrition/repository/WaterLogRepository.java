@@ -14,4 +14,6 @@ public interface WaterLogRepository extends JpaRepository<WaterLogEntity, UUID> 
             UUID userId, Instant from, Instant to);
 
     Optional<WaterLogEntity> findByWaterIdAndUserId(UUID waterId, UUID userId);
+
+    void deleteByUserId(UUID userId);
 }

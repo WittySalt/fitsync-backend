@@ -10,4 +10,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AnalyticsMealContributionRepository extends JpaRepository<AnalyticsMealContributionEntity, UUID> {
 
     List<AnalyticsMealContributionEntity> findByUserIdAndActivityDate(UUID userId, LocalDate activityDate);
+
+    void deleteByUserId(UUID userId);
 }
