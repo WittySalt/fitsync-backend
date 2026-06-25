@@ -13,11 +13,11 @@
 region = "ap-southeast-1"
 env    = "staging"
 
-# Full staging environment (EC2 app host + RDS). CloudFront stays OFF — the app
-# SG exposes the gateway on :8088 to 0.0.0.0/0, so stress/DAST hit it directly.
-enable_rds        = true
-enable_ec2        = true
-enable_cloudfront = false
+# Full staging environment (EC2 app host + RDS). The app SG exposes the gateway
+# on :8088 to 0.0.0.0/0, so stress/DAST hit it directly (frontend CloudFront, if
+# any, is now owned by frontend/infra/terraform/).
+enable_rds = true
+enable_ec2 = true
 
 # Existing EC2 key pair name (create once: `aws ec2 create-key-pair --key-name
 # fitsync-staging ...`). Empty = no SSH key on the instance (deploy_staging_app

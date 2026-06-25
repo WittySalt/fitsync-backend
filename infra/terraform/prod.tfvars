@@ -15,9 +15,8 @@ region = "ap-southeast-1"
 env    = "prod"
 
 # Reserved: keep paid/compute resources OFF until the deliberate cut-over.
-enable_rds        = false
-enable_ec2        = false
-enable_cloudfront = false
+enable_rds = false
+enable_ec2 = false
 
 # Point these at the real production frontend origin during cut-over.
 cognito_callback_urls = ["http://localhost:3000/auth/callback"]

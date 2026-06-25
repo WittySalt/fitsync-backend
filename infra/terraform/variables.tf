@@ -51,12 +51,6 @@ variable "enable_ec2" {
   default     = false
 }
 
-variable "enable_cloudfront" {
-  description = "Create the CloudFront distribution for the frontend (slow, ~15-20 min)"
-  type        = bool
-  default     = false
-}
-
 # ── App config ───────────────────────────────────────────────────────────────
 variable "db_instance_class" {
   description = "RDS instance class"
