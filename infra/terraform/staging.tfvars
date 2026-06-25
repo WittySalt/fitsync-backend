@@ -24,5 +24,9 @@ enable_ec2 = true
 # would not be able to connect).
 ec2_key_name = "fitsync-staging"
 
+# The full 6-service stack + kafka + redis needs ~5-6 GB; the t3.small default
+# (2 GB) cannot run it. Match prod's t3.large.
+ec2_instance_type = "t3.large"
+
 cognito_callback_urls = ["http://localhost:3000/auth/callback"]
 cognito_logout_urls   = ["http://localhost:3000/logout/callback"]

@@ -64,14 +64,18 @@ echo "==> pulling images (tag: $IMAGE_TAG)"
 compose pull $SERVICES
 
 echo "==> starting stack"
-if compose up -d --wait --wait-timeout 180 $SERVICES; then
+if compose up -d --wait --wait-timeout 300 $SERVICES; then
   echo "$IMAGE_TAG" > "$ROLLBACK_FILE"
   echo "==> deploy OK ($IMAGE_TAG)"
 else
-  echo "!! stack did not become healthy"
+  echo "!! stack did not become healthy — dumping container state + recent logs:"
+  # Without this, the CI trace only shows compose orchestration, never WHY a
+  # container is unhealthy. Surface ps + each service's last log lines.
+  compose ps || true
+  compose logs --no-color --tail 120 || true
   if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
     echo "==> rolling back to $PREV_TAG"
-    IMAGE_TAG="$PREV_TAG" compose up -d --wait --wait-timeout 180 $SERVICES
+    IMAGE_TAG="$PREV_TAG" compose up -d --wait --wait-timeout 300 $SERVICES
   fi
   exit 1
 fi

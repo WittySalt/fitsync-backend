@@ -249,6 +249,9 @@ services:
     <<: *service-defaults
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-analytics-service:${IMAGE_TAG:-latest}
     container_name: fitsync-analytics-service
+    # analytics is the heaviest service (CQRS read-model + Kafka projection); give it
+    # more heap headroom than the shared 768m default so it doesn't OOM on startup.
+    mem_limit: 1536m
     environment:
       <<: [*app-env, *kafka-consumer-env]
       DB_USERNAME: analytics_svc
@@ -265,7 +268,9 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 40s
+      # analytics replays/projects on startup; give it longer before being marked
+      # unhealthy (other services use 40s). Pairs with the deploy --wait-timeout.
+      start_period: 120s
     depends_on:
       redis: {condition: service_healthy}
 
