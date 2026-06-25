@@ -70,7 +70,7 @@ class CommonKafkaListenerErrorConfigurationTests {
 
         ProducerRecord<Object, Object> deadLetterRecord = captureDeadLetterRecord(kafkaOperations);
         assertThat(deadLetterRecord.topic()).isEqualTo("fitness.events.DLT");
-        assertThat(deadLetterRecord.partition()).isEqualTo(2);
+        assertThat(deadLetterRecord.partition()).isNull();
         assertThat(deadLetterRecord.key()).isEqualTo("user-1");
         assertThat(deadLetterRecord.value()).isEqualTo("{\"eventType\":\"GoalUpdated\"}");
     }
@@ -92,7 +92,7 @@ class CommonKafkaListenerErrorConfigurationTests {
 
         ProducerRecord<Object, Object> deadLetterRecord = captureDeadLetterRecord(kafkaOperations);
         assertThat(deadLetterRecord.topic()).isEqualTo("fitness.events.DLT");
-        assertThat(deadLetterRecord.partition()).isZero();
+        assertThat(deadLetterRecord.partition()).isNull();
     }
 
     @Test

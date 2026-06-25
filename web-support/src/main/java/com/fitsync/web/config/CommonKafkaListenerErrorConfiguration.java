@@ -61,8 +61,7 @@ public class CommonKafkaListenerErrorConfiguration {
         }
         DeadLetterPublishingRecoverer deadLetterRecoverer = new DeadLetterPublishingRecoverer(
                 kafkaOperations,
-                (record, exception) -> new TopicPartition(record.topic() + ".DLT", record.partition()));
-        deadLetterRecoverer.setVerifyPartition(false);
+                (record, exception) -> new TopicPartition(record.topic() + ".DLT", -1));
         return (record, exception) -> {
             logFailedRecord(record, exception, objectMapper);
             deadLetterRecoverer.accept(record, exception);
