@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -204,6 +205,19 @@ class ApiGatewayApplicationTests {
                 .andExpect(jsonPath("$.status").value("analytics-proxied"));
 
         verify(gatewayProxyService).forwardToAnalyticsService(any(), argThat(emptyBody()));
+    }
+
+    @Test
+    void unknownAuthenticatedApiRouteReturnsNotFoundWithoutProxying() throws Exception {
+        mockMvc.perform(get("/api/v1/unknown/dashboard")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken())
+                        .header("X-Correlation-Id", "corr-missing-route"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value("/api/v1/unknown/dashboard"))
+                .andExpect(jsonPath("$.correlationId").value("corr-missing-route"));
+
+        verifyNoInteractions(gatewayProxyService);
     }
 
     private String validToken() {
