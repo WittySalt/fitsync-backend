@@ -175,10 +175,15 @@ services:
       # CI-built jar and the profile would be a no-op (every bootstrap returns 401).
       # Pool id + app client id are public (the SPA app client has no secret). The
       # gateway must NOT enable Cognito — it crashes when Cognito is on there.
+      #
+      # Issuer/audience are parameterised so each environment points at its own
+      # Cognito user pool (prod = myVyuOmPD; staging = its own pool, injected by
+      # the staging deploy job). Defaults preserve prod behaviour when unset, so
+      # the prod .env (which does NOT set AUTH_COGNITO_*) is unchanged.
       COGNITO_ENABLED: "true"
-      COGNITO_ISSUER_URI: https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_myVyuOmPD
-      COGNITO_AUDIENCE: 4mvse0cgmkplgocfg827uolvad
-      COGNITO_PRINCIPAL_CLAIM: username
+      COGNITO_ISSUER_URI: ${AUTH_COGNITO_ISSUER_URI:-https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_myVyuOmPD}
+      COGNITO_AUDIENCE: ${AUTH_COGNITO_AUDIENCE:-4mvse0cgmkplgocfg827uolvad}
+      COGNITO_PRINCIPAL_CLAIM: ${COGNITO_PRINCIPAL_CLAIM:-username}
       DB_USERNAME: auth_svc
       DB_PASSWORD: ${AUTH_DB_PASSWORD}
       SERVER_PORT: 8080
