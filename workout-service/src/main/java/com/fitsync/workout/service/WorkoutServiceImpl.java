@@ -395,9 +395,10 @@ public class WorkoutServiceImpl implements WorkoutService {
     @Override
     @Transactional(readOnly = true)
     public WorkoutSessionView getLatestSession(CurrentUserPrincipal currentUser) {
-        return workoutSessionRepository.findTopByUserIdOrderByStartedAtDesc(currentUser.userId())
+        return workoutSessionRepository
+                .findTopByUserIdAndStatusOrderByCompletedAtDesc(currentUser.userId(), WorkoutSessionStatus.COMPLETED)
                 .map(this::toSessionView)
-                .orElseThrow(() -> new ResourceNotFoundException("Workout session not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Completed workout session not found"));
     }
 
     @Override
@@ -425,7 +426,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     @Transactional
     public WorkoutSessionView repeatLatestSession(CurrentUserPrincipal currentUser) {
         WorkoutSessionEntity latest = workoutSessionRepository
-                .findTopByUserIdAndStatusOrderByStartedAtDesc(currentUser.userId(), WorkoutSessionStatus.COMPLETED)
+                .findTopByUserIdAndStatusOrderByCompletedAtDesc(currentUser.userId(), WorkoutSessionStatus.COMPLETED)
                 .orElseThrow(() -> new ResourceNotFoundException("Completed workout session not found"));
         WorkoutSessionEntity source = findSession(currentUser.userId(), latest.getSessionId());
         WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source);

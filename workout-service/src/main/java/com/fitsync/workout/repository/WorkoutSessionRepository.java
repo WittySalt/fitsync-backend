@@ -19,12 +19,10 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
 
     Optional<WorkoutSessionEntity> findByUserIdAndSourceAndExternalId(UUID userId, WorkoutSource source, String externalId);
 
-    Optional<WorkoutSessionEntity> findTopByUserIdOrderByStartedAtDesc(UUID userId);
-
     // No @EntityGraph here: findTop applies maxResults=1, and combining LIMIT with a collection
     // fetch triggers Hibernate in-memory pagination (HHH90003004). Callers re-fetch the full
     // graph by id via findBySessionIdAndUserId.
-    Optional<WorkoutSessionEntity> findTopByUserIdAndStatusOrderByStartedAtDesc(UUID userId, WorkoutSessionStatus status);
+    Optional<WorkoutSessionEntity> findTopByUserIdAndStatusOrderByCompletedAtDesc(UUID userId, WorkoutSessionStatus status);
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     List<WorkoutSessionEntity> findByUserIdOrderByStartedAtDesc(UUID userId);
