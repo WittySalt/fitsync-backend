@@ -1,0 +1,54 @@
+# ── EC2 application host (flagged: costs money) ──────────────────────────────
+data "aws_ami" "al2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+}
+
+resource "aws_instance" "app" {
+  count = var.enable_ec2 ? 1 : 0
+
+  ami                    = data.aws_ami.al2023.id
+  instance_type          = var.ec2_instance_type
+  subnet_id              = aws_subnet.public[0].id
+  vpc_security_group_ids = [aws_security_group.app.id]
+  iam_instance_profile   = aws_iam_instance_profile.ec2_app.name
+  key_name               = var.ec2_key_name != "" ? var.ec2_key_name : null
+
+  # Mirrors the bootstrap in backend/scripts/ec2-deploy.sh: install docker +
+  # compose plugin so the GitLab deploy job can render docker-compose.prod.yml.
+  user_data = <<-EOF
+    #!/bin/bash
+    set -euo pipefail
+    dnf install -y docker
+    systemctl enable --now docker
+    mkdir -p /usr/libexec/docker/cli-plugins
+    curl -fsSL \
+      "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-$(uname -m)" \
+      -o /usr/libexec/docker/cli-plugins/docker-compose
+    chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+    mkdir -p /opt/fitsync
+  EOF
+
+  root_block_device {
+    volume_size = 30
+    volume_type = "gp3"
+  }
+
+  tags = { Name = "${local.name}-app" }
+}
+
+resource "aws_eip" "app" {
+  count    = var.enable_ec2 ? 1 : 0
+  instance = aws_instance.app[0].id
+  domain   = "vpc"
+  tags     = { Name = "${local.name}-app-eip" }
+}

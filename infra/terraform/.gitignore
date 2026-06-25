@@ -1,0 +1,15 @@
+# Terraform state & local-only files — never commit
+.terraform/
+
+# Non-code artifacts (screenshots, logs, evidence) — keep on disk, never track
+evidence/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars.local
+*.auto.tfvars
+override.tf
+override.tf.json
+.terraformrc
+terraform.rc
