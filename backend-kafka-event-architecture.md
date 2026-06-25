@@ -442,17 +442,20 @@ Do not retry forever on deterministic payload or validation errors.
 
 ### 13.3 Dead-Letter Handling
 
-Need a dead-letter path for messages that repeatedly fail.
+Kafka listeners use the shared `web-support` error handler for retry and dead-letter behavior.
 
-Recommended approach:
+Current policy:
 
-- dead-letter topic per main topic or per consumer domain
+- transient listener failures use `FixedBackOff(2000ms, 3)` before recovery
+- deterministic payload and conversion failures are classified as not retryable
+- recovered records are published to `<source-topic>.DLT` on the same partition
+- the existing structured failure log is emitted before dead-letter publication
+- when no `KafkaOperations` bean exists, the shared handler falls back to log-only recovery
 
-Examples:
-
-- `workout-events-dlq`
-- `nutrition-events-dlq`
-- `progress-events-dlq`
+The DLT record keeps Spring Kafka's default dead-letter headers, including source topic,
+partition, offset, consumer group, and exception details. Local development relies on broker
+topic auto-creation for `.DLT` topics; deployment-specific topic provisioning can be added
+separately when broker policy requires explicit topics.
 
 ### 13.4 Observability
 
@@ -526,7 +529,7 @@ Kafka-related testing should include:
 - producer integration tests
 - consumer integration tests
 - idempotency tests
-- dead-letter behavior tests
+- dead-letter behavior tests, including `<topic>.DLT` publication and log-only fallback
 - replay handling tests
 
 Preferred approach:
