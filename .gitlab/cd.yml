@@ -1,0 +1,487 @@
+# ── CD: provision, deploy, verify, promote ───────────────────────────────────
+# Runs on main (and web "Run pipeline"), gated on AWS_ROLE_ARN so the pipeline
+# stays green before AWS is wired. Flow:
+#   iac            tf_plan        — terraform plan for staging
+#   docker         docker_image   — build, Trivy-scan and push the 6 service images
+#   deploy-staging deploy_staging — terraform apply (provision/update staging)
+#   verify-staging stress_test    — k6 load test against STAGING
+#                  owasp_zap      — OWASP ZAP DAST against STAGING
+#   deploy-prod    deploy_prod    — promote the built images to production
+# Shared templates (.assume_aws_role / .tf_setup / .require_vars) live in the root
+# .gitlab-ci.yml. `terraform plan` validates internally, so there is no separate
+# validate job; provisioning (terraform apply) is the deploy_staging job.
+
+tf_plan:
+  stage: iac
+  image: alpine:3.20
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  needs: []
+  variables:
+    TF_VERSION: "1.15.7"
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_REGION"
+  before_script:
+    - !reference [.assume_aws_role, before_script]
+    - !reference [.tf_setup, script]
+  script:
+    - !reference [.require_vars, script]
+    - cd infra/terraform
+    - terraform init
+    - terraform workspace select staging || terraform workspace new staging
+    - terraform plan -var-file=staging.tfvars -out=tfplan
+  artifacts:
+    paths:
+      - infra/terraform/tfplan
+    expire_in: 7 days
+  rules:
+    # Requires the S3 remote-state backend to be bootstrapped (see RUNBOOK).
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+    - when: never
+
+docker_image:
+  stage: docker
+  image: docker:27.1.1-cli
+  services:
+    - name: docker:27.1.1-dind
+  extends: .assume_aws_role
+  needs:
+    - job: verify_backend
+      artifacts: true
+  # Persist Trivy's vuln + Java DB (~1GB) across runs so the 6-image loop and
+  # subsequent pipelines reuse it instead of re-downloading from ghcr.io.
+  cache:
+    key: trivy-db
+    paths:
+      - .trivycache/
+  variables:
+    # AWS_ROLE_ARN is guaranteed by this job's rules; the account/region are not.
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_ACCOUNT_ID AWS_REGION"
+  script:
+    - !reference [.require_vars, script]
+    - export SHORT_SHA="${CI_COMMIT_SHA:0:8}"
+    - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+    # Build + tag all 6 services as $ECR_REGISTRY/fitsync-<svc>:$SHORT_SHA (no push yet).
+    - ECR_REGISTRY="$ECR_REGISTRY" IMAGE_TAG="$SHORT_SHA" PUSH=0 bash scripts/build-images.sh
+    - |
+      for svc in $RUNNABLE_SERVICES; do
+        repo="fitsync-$svc"
+        img="$ECR_REGISTRY/$repo"
+        echo "==> $repo: ensure ECR repo, scan, push"
+        aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1 \
+          || aws ecr create-repository --repository-name "$repo" \
+               --image-scanning-configuration scanOnPush=true >/dev/null
+        # Visible triage report of all fixable HIGH+CRITICAL findings (non-blocking).
+        # The cached Trivy DB is mounted so it is not re-downloaded for every image.
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
+          -v "$PWD/.trivycache:/root/.cache/trivy" \
+          aquasec/trivy:0.56.2 image --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed \
+          --format table "$img:$SHORT_SHA"
+        # Gate: block the push only on fixable CRITICAL CVEs. HIGH is reported above
+        # but not gated (a lot of HIGH come from the base image and can't be fixed here).
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
+          -v "$PWD/.trivycache:/root/.cache/trivy" \
+          aquasec/trivy:0.56.2 image --scanners vuln --severity CRITICAL --ignore-unfixed \
+          --exit-code 1 --format sarif --output "/work/trivy-$svc.sarif" "$img:$SHORT_SHA"
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
+          -v "$PWD/.trivycache:/root/.cache/trivy" \
+          aquasec/trivy:0.56.2 image --format cyclonedx --output "/work/sbom-$svc.json" "$img:$SHORT_SHA"
+        docker tag "$img:$SHORT_SHA" "$img:latest"
+        docker push "$img:$SHORT_SHA"
+        docker push "$img:latest"
+      done
+  artifacts:
+    when: always
+    expire_in: 5 days
+    paths:
+      - "trivy-*.sarif"
+      - "sbom-*.json"
+  rules:
+    # Only build/push the image once AWS is wired up. AWS_ROLE_ARN is supplied as a
+    # CI/CD variable; while it is unset (no ECR/EC2 provisioned yet) this job is
+    # skipped so the main pipeline stays green. Set the variable to auto-enable it.
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+    - when: never
+
+# ── Provision/update STAGING via Terraform ───────────────────────────────────
+# The staging environment is delivered by Terraform. Separate lane from
+# deploy_prod, separate environment, separate AWS resources (fitsync-staging-*).
+deploy_staging:
+  stage: deploy-staging
+  image: alpine:3.20
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  resource_group: staging
+  environment:
+    name: staging
+  needs:
+    - job: tf_plan
+      artifacts: true
+  variables:
+    TF_VERSION: "1.15.7"
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_REGION"
+  before_script:
+    - !reference [.assume_aws_role, before_script]
+    - !reference [.tf_setup, script]
+  script:
+    - !reference [.require_vars, script]
+    - cd infra/terraform
+    - terraform init
+    - terraform workspace select staging
+    # Apply the exact plan produced by tf_plan in this pipeline.
+    - terraform apply -auto-approve tfplan
+  rules:
+    # Manual gate, only after tf_plan; requires the S3 remote-state backend
+    # (see RUNBOOK "Remote state bootstrap"). Hidden until AWS_ROLE_ARN is set.
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+      when: manual
+      allow_failure: false
+    - when: never
+
+# ── Bootstrap the staging RDS: per-service roles + schemas ────────────────────
+# The RDS is private (publicly_accessible=false; db SG allows the app SG only), so
+# this runs FROM the staging EC2 (inside the VPC) over SSH, using a throwaway
+# postgres container to psql the RDS as master. Idempotent. Passwords come from
+# masked CI vars (TF_VAR_db_password = master, STAGING_DB_PASSWORD = the *_svc
+# roles) so they are masked in the job log.
+bootstrap_staging_db:
+  stage: deploy-staging
+  image: alpine:3.20
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  resource_group: staging
+  needs:
+    - job: deploy_staging
+  variables:
+    TF_VERSION: "1.15.7"
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_REGION TF_VAR_db_password STAGING_DB_PASSWORD STAGING_EC2_SSH_KEY"
+  before_script:
+    - !reference [.assume_aws_role, before_script]
+    - !reference [.tf_setup, script]
+  script:
+    - !reference [.require_vars, script]
+    - cd infra/terraform
+    - terraform init
+    - terraform workspace select staging
+    - STAGING_HOST="$(terraform output -raw ec2_public_ip)"
+    - RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
+    - cd "$CI_PROJECT_DIR"
+    - DB_HOST="${RDS_ENDPOINT%:*}"
+    - DB_PORT="${RDS_ENDPOINT##*:}"
+    - mkdir -p ~/.ssh
+    - printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
+    # Ship the SQL to the EC2 and run it against the (private) RDS from there, via a
+    # one-off postgres image. PGPASSWORD = master; -v svc_pw = the *_svc password.
+    - scp -i ~/.ssh/id_ed25519 scripts/bootstrap-staging-db.sql "ec2-user@$STAGING_HOST:/tmp/bootstrap-staging-db.sql"
+    - >
+      ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST"
+      "sudo docker run --rm
+      -e PGPASSWORD='$TF_VAR_db_password'
+      -v /tmp/bootstrap-staging-db.sql:/b.sql:ro
+      postgres:16
+      psql -h '$DB_HOST' -p '$DB_PORT' -U fitsync_master -d fitsync
+      -v ON_ERROR_STOP=1 -v svc_pw='$STAGING_DB_PASSWORD' -f /b.sql"
+    - ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "rm -f /tmp/bootstrap-staging-db.sql"
+    - 'echo "Staging DB roles + schemas bootstrapped."'
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+      when: manual
+      allow_failure: false
+    - when: never
+
+# ── Deploy the app onto the STAGING host (after Terraform provisions it) ──────
+# Mirrors deploy_prod but for staging: the EC2 host and RDS endpoint are read from
+# the Terraform outputs that deploy_staging just applied, so nothing is hard-coded.
+# Prereqs (see infra/terraform/RUNBOOK.md "Staging bring-up"):
+#   - staging.tfvars: enable_ec2=true, enable_rds=true, ec2_key_name=<existing key pair>
+#   - CI vars: STAGING_EC2_SSH_KEY (private half of that key pair),
+#              STAGING_DB_PASSWORD, STAGING_JWT_SECRET
+#   - the per-service *_svc DB roles + schemas — created by bootstrap_staging_db
+# The staging gateway is PUBLIC on :8088 (app SG allows 0.0.0.0/0), so stress/DAST
+# target it directly — no CloudFront needed for staging.
+deploy_staging_app:
+  stage: deploy-staging
+  image: alpine:3.20
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  resource_group: staging
+  environment:
+    name: staging
+  needs:
+    - job: bootstrap_staging_db
+  variables:
+    TF_VERSION: "1.15.7"
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_ACCOUNT_ID AWS_REGION STAGING_DB_PASSWORD STAGING_JWT_SECRET STAGING_EC2_SSH_KEY"
+  before_script:
+    - !reference [.assume_aws_role, before_script]
+    - !reference [.tf_setup, script]
+  script:
+    - !reference [.require_vars, script]
+    # Discover host + DB endpoint from the state deploy_staging just applied.
+    - cd infra/terraform
+    - terraform init
+    - terraform workspace select staging
+    - STAGING_HOST="$(terraform output -raw ec2_public_ip)"
+    - RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
+    - cd "$CI_PROJECT_DIR"
+    - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    - export IMAGE_TAG="${STAGING_IMAGE_TAG:-latest}"
+    - mkdir -p ~/.ssh
+    - printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
+    # Render the staging runtime .env. One RDS; the per-service users share
+    # STAGING_DB_PASSWORD (the *_svc roles must already exist — see RUNBOOK).
+    - |
+      cat > .env.deploy <<EOF
+      ECR_REGISTRY=$ECR_REGISTRY
+      IMAGE_TAG=$IMAGE_TAG
+      DB_URL=jdbc:postgresql://${RDS_ENDPOINT}/fitsync
+      AUTH_DB_PASSWORD=$STAGING_DB_PASSWORD
+      USER_DB_PASSWORD=$STAGING_DB_PASSWORD
+      WORKOUT_DB_PASSWORD=$STAGING_DB_PASSWORD
+      NUTRITION_DB_PASSWORD=$STAGING_DB_PASSWORD
+      ANALYTICS_DB_PASSWORD=$STAGING_DB_PASSWORD
+      JWT_SECRET=$STAGING_JWT_SECRET
+      JWT_EXPIRATION=${JWT_EXPIRATION:-PT2H}
+      REDIS_HOST=redis
+      REDIS_PORT=6379
+      SPRING_CACHE_TYPE=${SPRING_CACHE_TYPE:-simple}
+      SPRING_DATA_REDIS_HOST=redis
+      SPRING_DATA_REDIS_PORT=6379
+      KAFKA_ENABLED=true
+      OUTBOX_RELAY_ENABLED=true
+      KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      KAFKA_USER_REGISTERED_LISTENER_ENABLED=true
+      KAFKA_GOAL_UPDATED_LISTENER_ENABLED=true
+      KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED=true
+      KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED=true
+      KAFKA_MEAL_LOGGED_LISTENER_ENABLED=true
+      KAFKA_MEAL_UPDATED_LISTENER_ENABLED=true
+      KAFKA_MEAL_DELETED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_DELETED_LISTENER_ENABLED=true
+      COGNITO_ENABLED=false
+      NGINX_SERVER_NAME=_
+      NGINX_CERT_NAME=localhost
+      FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
+      FITSYNC_MEDIA_REGION=${FITSYNC_MEDIA_REGION:-ap-southeast-1}
+      FITSYNC_MEDIA_ACCESS_KEY=${FITSYNC_MEDIA_ACCESS_KEY}
+      FITSYNC_MEDIA_SECRET_KEY=${FITSYNC_MEDIA_SECRET_KEY}
+      FITSYNC_MEDIA_BUCKET=${FITSYNC_MEDIA_BUCKET:-fitsync-media}
+      FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+      FREE_EXERCISE_DB_IMAGES_DIR=${FREE_EXERCISE_DB_IMAGES_DIR:-/opt/fitsync/free-exercise-db/exercises}
+      EOF
+    - ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
+    - scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$STAGING_HOST:/opt/fitsync/docker-compose.prod.yml"
+    - scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$STAGING_HOST:/opt/fitsync/nginx/nginx.conf.template"
+    - scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$STAGING_HOST:/opt/fitsync/ec2-deploy.sh"
+    - scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$STAGING_HOST:/opt/fitsync/.env"
+    - >
+      ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST"
+      "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION'
+      bash /opt/fitsync/ec2-deploy.sh"
+    # Smoke: the staging gateway is public on :8088 (SG allows 0.0.0.0/0).
+    - sleep 30
+    - test "$(curl -s -o /dev/null -w '%{http_code}' "http://$STAGING_HOST:8088/actuator/health")" = "200"
+    - 'echo "Staging gateway up: http://$STAGING_HOST:8088 — set STRESS_TARGET_URL / DAST_TARGET_URL to this."'
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+      when: manual
+      allow_failure: false
+    - when: never
+
+# ── Stress + DAST against STAGING (never production) ──────────────────────────
+# Both hit the running STAGING environment via a URL variable and produce report
+# artifacts. Visible-but-manual on main pipelines (and web): a clickable ▶️ button
+# in the pipeline graph, optional (allow_failure) so the pipeline stays green, and
+# manual because they load a live environment. `needs: []` keeps them runnable
+# against an already-up staging without forcing a fresh deploy in this pipeline.
+stress_test:
+  stage: verify-staging
+  image:
+    name: grafana/k6:0.49.0
+    entrypoint: [""]
+  needs: []
+  script:
+    - |
+      if [ -z "$STRESS_TARGET_URL" ]; then
+        echo "STRESS_TARGET_URL is not set — point it at the STAGING gateway and set STRESS_USER_EMAIL/PASSWORD."
+        exit 1
+      fi
+    - >
+      k6 run
+      -e BASE_URL="$STRESS_TARGET_URL"
+      -e USER_EMAIL="$STRESS_USER_EMAIL"
+      -e USER_PASSWORD="$STRESS_USER_PASSWORD"
+      -e PROFILE="${STRESS_PROFILE:-load}"
+      stress/k6/load-test.js
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - stress/k6/summary.json
+      - stress/k6/summary.txt
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
+    - when: never
+
+# OWASP ZAP DAST. NOTE: stage is "verify-staging" and the job is "owasp_zap", NOT
+# "dast"/"dast_zap" — GitLab reserves the `dast` stage/job for its Ultimate-tier
+# built-in DAST scanner and rejects the whole pipeline config.
+#   DAST_TARGET_URL  (required) STAGING gateway base URL, e.g. http://<staging-eip>:8088
+#
+# ZAP's packaged scan scripts only write file reports when /zap/wrk is a REAL mount.
+# Running the image as a bare GitLab job leaves /zap/wrk unmounted, so ZAP refuses
+# and just prints usage (= empty artifact). Run ZAP via docker (dind) with a named
+# volume at /zap/wrk, then `docker cp` the reports out into the artifact dir.
+owasp_zap:
+  stage: verify-staging
+  image: docker:27.1.1-cli
+  services:
+    - name: docker:27.1.1-dind
+  needs: []
+  script:
+    - |
+      if [ -z "$DAST_TARGET_URL" ]; then
+        echo "DAST_TARGET_URL is not set — point it at the STAGING gateway base URL (e.g. http://<staging-eip>:8088)."
+        exit 1
+      fi
+    - mkdir -p dast
+    - docker volume create zapwrk >/dev/null
+    # Passive baseline scan; -I = report-only. Reports are written into the named volume.
+    - docker run --rm -v zapwrk:/zap/wrk ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$DAST_TARGET_URL" -r zap-baseline.html -w zap-baseline.md -J zap-baseline.json -I || true
+    # Lift the reports out of the volume into the artifact dir (docker cp works across dind).
+    - docker create --name zapout -v zapwrk:/zap/wrk alpine:3.20 /bin/true >/dev/null
+    - for f in zap-baseline.html zap-baseline.md zap-baseline.json; do docker cp "zapout:/zap/wrk/$f" "dast/$f" 2>/dev/null || true; done
+    - docker rm -f zapout >/dev/null || true
+    - ls -la dast/
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - dast/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
+    - when: never
+
+# ── Promote to PRODUCTION ────────────────────────────────────────────────────
+# Independent of the staging gate (needs only the built images), so an operational
+# prod deploy is never blocked on a staging run. The deploy-prod stage sitting last
+# expresses the intended promote-after-staging order in the pipeline graph.
+deploy_prod:
+  stage: deploy-prod
+  image: alpine:3.20
+  extends: .assume_aws_role
+  resource_group: production
+  environment:
+    name: production
+  needs:
+    - job: docker_image
+  when: manual
+  manual_confirmation: "Deploy the selected image to production?"
+  variables:
+    # Validate every secret the deploy consumes BEFORE it ssh's in and rewrites
+    # the prod .env. Vars with shell defaults (JWT_EXPIRATION, COGNITO_ENABLED,
+    # PROD_DOMAIN, FITSYNC_MEDIA_*) are intentionally omitted.
+    REQUIRED_VARS: >-
+      AWS_ROLE_ARN AWS_ACCOUNT_ID AWS_REGION
+      DB_URL AUTH_DB_PASSWORD USER_DB_PASSWORD WORKOUT_DB_PASSWORD
+      NUTRITION_DB_PASSWORD ANALYTICS_DB_PASSWORD JWT_SECRET
+      PROD_EC2_SSH_KEY PROD_EC2_HOST
+  script:
+    - !reference [.require_vars, script]
+    - export IMAGE_TAG="${PROD_IMAGE_TAG:-${CI_COMMIT_SHA:0:8}}"
+    - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+    # Refuse to touch prod unless all 6 images exist for this tag.
+    - |
+      for svc in $RUNNABLE_SERVICES; do
+        docker manifest inspect "$ECR_REGISTRY/fitsync-$svc:$IMAGE_TAG" > /dev/null
+      done
+    - mkdir -p ~/.ssh
+    - printf "%s" "$PROD_EC2_SSH_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$PROD_EC2_HOST" >> ~/.ssh/known_hosts
+    # Render the runtime .env from CI/CD variables (secrets never live in the repo).
+    - |
+      cat > .env.deploy <<EOF
+      ECR_REGISTRY=$ECR_REGISTRY
+      IMAGE_TAG=$IMAGE_TAG
+      DB_URL=$DB_URL
+      AUTH_DB_PASSWORD=$AUTH_DB_PASSWORD
+      USER_DB_PASSWORD=$USER_DB_PASSWORD
+      WORKOUT_DB_PASSWORD=$WORKOUT_DB_PASSWORD
+      NUTRITION_DB_PASSWORD=$NUTRITION_DB_PASSWORD
+      ANALYTICS_DB_PASSWORD=$ANALYTICS_DB_PASSWORD
+      JWT_SECRET=$JWT_SECRET
+      JWT_EXPIRATION=${JWT_EXPIRATION:-PT2H}
+      REDIS_HOST=redis
+      REDIS_PORT=6379
+      SPRING_CACHE_TYPE=${SPRING_CACHE_TYPE:-simple}
+      SPRING_DATA_REDIS_HOST=redis
+      SPRING_DATA_REDIS_PORT=6379
+      KAFKA_ENABLED=true
+      OUTBOX_RELAY_ENABLED=true
+      KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      KAFKA_USER_REGISTERED_LISTENER_ENABLED=true
+      KAFKA_GOAL_UPDATED_LISTENER_ENABLED=true
+      KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED=true
+      KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED=true
+      KAFKA_MEAL_LOGGED_LISTENER_ENABLED=true
+      KAFKA_MEAL_UPDATED_LISTENER_ENABLED=true
+      KAFKA_MEAL_DELETED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED=true
+      KAFKA_WORKOUT_DELETED_LISTENER_ENABLED=true
+      COGNITO_ENABLED=${COGNITO_ENABLED:-false}
+      NGINX_SERVER_NAME=${PROD_DOMAIN:-_}
+      NGINX_CERT_NAME=${PROD_DOMAIN:-localhost}
+      FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
+      FITSYNC_MEDIA_REGION=${FITSYNC_MEDIA_REGION:-ap-southeast-1}
+      FITSYNC_MEDIA_ACCESS_KEY=${FITSYNC_MEDIA_ACCESS_KEY}
+      FITSYNC_MEDIA_SECRET_KEY=${FITSYNC_MEDIA_SECRET_KEY}
+      FITSYNC_MEDIA_BUCKET=${FITSYNC_MEDIA_BUCKET:-fitsync-media}
+      FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+      FREE_EXERCISE_DB_IMAGES_DIR=${FREE_EXERCISE_DB_IMAGES_DIR:-/opt/fitsync/free-exercise-db/exercises}
+      EOF
+    # Stage deploy assets on the host, then bootstrap + deploy via the host script.
+    - ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
+    - scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$PROD_EC2_HOST:/opt/fitsync/docker-compose.prod.yml"
+    - scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$PROD_EC2_HOST:/opt/fitsync/nginx/nginx.conf.template"
+    - scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$PROD_EC2_HOST:/opt/fitsync/ec2-deploy.sh"
+    - scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$PROD_EC2_HOST:/opt/fitsync/.env"
+    - >
+      ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST"
+      "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION'
+      bash /opt/fitsync/ec2-deploy.sh"
+    # Optional external smoke test — needs nginx + TLS, so opt-in once configured.
+    - |
+      if [ "${RUN_PROD_SMOKE:-false}" = "true" ]; then
+        BASE="https://$PROD_DOMAIN"
+        test "$(curl -sk -o /dev/null -w '%{http_code}' "$BASE/actuator/health")" = "200"
+      fi
+  rules:
+    # Manual production deploy, only offered once AWS/EC2 is configured (AWS_ROLE_ARN
+    # plus the PROD_EC2_* / PROD_DOMAIN variables). Hidden until then.
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+      when: manual
+      allow_failure: false
+    - when: never
