@@ -119,6 +119,12 @@ deploy_staging:
   needs:
     - job: tf_plan
       artifacts: true
+    # Gate the whole staging cascade on a green build+image — like deploy_prod,
+    # never provision/deploy for a commit whose image build/tests failed.
+    # docker_image needs verify_backend, so this also enforces build+test+scan.
+    # optional: web pipelines exclude docker_image (push-only) → no config error.
+    - job: docker_image
+      optional: true
   variables:
     TF_VERSION: "1.15.7"
     REQUIRED_VARS: "AWS_ROLE_ARN AWS_REGION"
@@ -405,7 +411,10 @@ deploy_prod:
   environment:
     name: production
   needs:
+    # optional: web pipelines exclude docker_image (push-only), so a web-triggered
+    # prod deploy doesn't config-error on a missing need.
     - job: docker_image
+      optional: true
   when: manual
   manual_confirmation: "Deploy the selected image to production?"
   variables:
