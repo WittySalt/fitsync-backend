@@ -518,12 +518,7 @@ public class UserServiceImpl implements UserService {
         entity.setStatus(request.status());
         entity.setNotes(request.notes());
         UserGoalEntity saved = userGoalRepository.save(entity);
-        domainEventPublisher.publish(
-                "progress-events", "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
-                new GoalUpdatedPayload(
-                        saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
-                        saved.getTargetUnit(), saved.getTargetDate(), saved.getStatus().name())));
+        publishGoalUpdated(saved);
         return toGoalView(saved);
     }
 
@@ -594,6 +589,14 @@ public class UserServiceImpl implements UserService {
                 account,
                 listGoals(principal, null),
                 bodyMetrics);
+    }
+
+    @Override
+    @Transactional
+    public int republishActiveGoals() {
+        List<UserGoalEntity> activeGoals = userGoalRepository.findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus.ACTIVE);
+        activeGoals.forEach(this::publishGoalUpdated);
+        return activeGoals.size();
     }
 
     private UserProfileEntity getOrCreateProfileEntity(CurrentUserPrincipal principal) {
@@ -707,6 +710,15 @@ public class UserServiceImpl implements UserService {
                         saved.getActivityLevel() == null ? null : saved.getActivityLevel().name(),
                         saved.isOnboardingCompleted(),
                         changedFields)));
+    }
+
+    private void publishGoalUpdated(UserGoalEntity saved) {
+        domainEventPublisher.publish(
+                "progress-events", "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, saved.getUserId(),
+                new GoalUpdatedPayload(
+                        saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
+                        saved.getTargetUnit(), saved.getTargetDate(), saved.getStatus().name())));
     }
 
     private void applyBodyMetricRequest(BodyMetricEntryEntity entity, CreateBodyMetricRequest request) {

@@ -16,4 +16,6 @@ public interface UserGoalRepository extends JpaRepository<UserGoalEntity, UUID> 
     List<UserGoalEntity> findByUserIdOrderByGoalTypeAsc(UUID userId);
 
     List<UserGoalEntity> findByUserIdAndStatusOrderByGoalTypeAsc(UUID userId, GoalStatus status);
+
+    List<UserGoalEntity> findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus status);
 }
