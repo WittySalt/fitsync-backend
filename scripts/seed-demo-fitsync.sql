@@ -711,40 +711,103 @@ from b;
 -- 6f. goal progress (one row per active goal)
 insert into analytics.analytics_user_goal_progress
     (goal_id, user_id, goal_type, goal_status, target_value, target_unit, target_date,
-     current_value, progress_ratio, days_remaining, on_track, last_evaluated_at,
+     baseline_value, current_value, progress_ratio, days_remaining, on_track, last_evaluated_at,
      date_time_created, date_time_updated, created_by, updated_by, version)
 select
     g.goal_id, g.user_id, g.goal_type, g.status, g.target_value, g.target_unit, g.target_date,
-    cv.current_value, cv.progress_ratio,
+    cv.baseline_value, cv.current_value, cv.progress_ratio,
     (g.target_date - c.d_today)::int,
-    true,
+    cv.on_track,
     now(), now(), now(), 'demo-seed', 'demo-seed', 0
 from demo_config c
 join user_domain.user_goals g on g.user_id = c.user_id and g.created_by = 'demo-seed'
 join lateral (
     select
+        (select bd.weight_kg from analytics.analytics_user_daily_body bd
+         where bd.user_id = g.user_id order by bd.metric_date asc limit 1) as baseline_weight,
+        (select bd.metric_date from analytics.analytics_user_daily_body bd
+         where bd.user_id = g.user_id order by bd.metric_date asc limit 1) as baseline_date,
+        (select bd.weight_kg from analytics.analytics_user_daily_body bd
+         where bd.user_id = g.user_id order by bd.metric_date desc limit 1) as latest_weight,
+        coalesce((select n.total_calories_consumed from analytics.analytics_user_daily_nutrition n
+                  where n.user_id = g.user_id and n.activity_date = c.d_today), 0)::numeric as calories_today,
+        coalesce((select n.total_protein_grams from analytics.analytics_user_daily_nutrition n
+                  where n.user_id = g.user_id and n.activity_date = c.d_today), 0)::numeric as protein_today,
+        coalesce((select n.total_carbs_grams from analytics.analytics_user_daily_nutrition n
+                  where n.user_id = g.user_id and n.activity_date = c.d_today), 0)::numeric as carbs_today,
+        coalesce((select n.total_fat_grams from analytics.analytics_user_daily_nutrition n
+                  where n.user_id = g.user_id and n.activity_date = c.d_today), 0)::numeric as fat_today,
+        coalesce((select sum(w.completed_workout_count) from analytics.analytics_user_daily_workout w
+                  where w.user_id = g.user_id and w.activity_date between c.d_today - 6 and c.d_today), 0)::numeric
+            as workouts_7d
+) inputs on true
+join lateral (
+    select
         case g.goal_type
-            when 'WEIGHT'   then (select weight_kg from analytics.analytics_user_daily_body bd
-                                  where bd.user_id = g.user_id order by bd.metric_date desc limit 1)
-            when 'CALORIES' then (select total_calories_consumed from analytics.analytics_user_daily_nutrition n
-                                  where n.user_id = g.user_id and n.activity_date = c.d_today)
-            when 'PROTEIN'  then (select total_protein_grams from analytics.analytics_user_daily_nutrition n
-                                  where n.user_id = g.user_id and n.activity_date = c.d_today)
-            when 'WORKOUT_FREQUENCY' then (select count(*) from analytics.analytics_user_daily_workout w
-                                  where w.user_id = g.user_id and w.activity_date between c.d_today - 6 and c.d_today)
+            when 'WEIGHT' then inputs.baseline_weight
+        end as baseline_value,
+        case g.goal_type
+            when 'WEIGHT' then inputs.latest_weight
+            when 'CALORIES' then inputs.calories_today
+            when 'PROTEIN' then inputs.protein_today
+            when 'CARBS' then inputs.carbs_today
+            when 'FAT' then inputs.fat_today
+            when 'WORKOUT_FREQUENCY' then inputs.workouts_7d
         end as current_value,
         case g.goal_type
-            when 'WEIGHT'   then round(
-                                   (72.50 - (select weight_kg from analytics.analytics_user_daily_body bd
-                                             where bd.user_id = g.user_id order by bd.metric_date desc limit 1))
-                                   / nullif(72.50 - g.target_value, 0), 4)
-            when 'CALORIES' then round((select total_calories_consumed from analytics.analytics_user_daily_nutrition n
-                                        where n.user_id = g.user_id and n.activity_date = c.d_today) / g.target_value, 4)
-            when 'PROTEIN'  then round((select total_protein_grams from analytics.analytics_user_daily_nutrition n
-                                        where n.user_id = g.user_id and n.activity_date = c.d_today) / g.target_value, 4)
-            when 'WORKOUT_FREQUENCY' then round((select count(*) from analytics.analytics_user_daily_workout w
-                                        where w.user_id = g.user_id and w.activity_date between c.d_today - 6 and c.d_today) / g.target_value, 4)
-        end as progress_ratio
+            when 'WEIGHT' then
+                case
+                    when inputs.baseline_weight is null or inputs.latest_weight is null or g.target_value is null then null
+                    when g.target_value < inputs.baseline_weight then round(least(greatest(
+                        (inputs.baseline_weight - inputs.latest_weight)
+                        / nullif(inputs.baseline_weight - g.target_value, 0), 0), 1), 4)
+                    when g.target_value > inputs.baseline_weight then round(least(greatest(
+                        (inputs.latest_weight - inputs.baseline_weight)
+                        / nullif(g.target_value - inputs.baseline_weight, 0), 0), 1), 4)
+                    when abs(inputs.latest_weight - inputs.baseline_weight) <= 0.50 then 1.0000
+                    else round(greatest(
+                        1 - ((abs(inputs.latest_weight - inputs.baseline_weight) - 0.50) / 0.50), 0), 4)
+                end
+            when 'CALORIES' then round(inputs.calories_today / nullif(g.target_value, 0), 4)
+            when 'PROTEIN' then round(inputs.protein_today / nullif(g.target_value, 0), 4)
+            when 'CARBS' then round(inputs.carbs_today / nullif(g.target_value, 0), 4)
+            when 'FAT' then round(inputs.fat_today / nullif(g.target_value, 0), 4)
+            when 'WORKOUT_FREQUENCY' then round(inputs.workouts_7d / nullif(g.target_value, 0), 4)
+        end as progress_ratio,
+        case g.goal_type
+            when 'WEIGHT' then
+                case
+                    when inputs.baseline_weight is null or inputs.latest_weight is null or g.target_value is null then false
+                    when g.target_value = inputs.baseline_weight then
+                        abs(inputs.latest_weight - inputs.baseline_weight) <= 0.50
+                    when g.target_date is not null
+                            and inputs.baseline_date is not null
+                            and g.target_date > inputs.baseline_date
+                            and g.target_value < inputs.baseline_weight then
+                        inputs.latest_weight <= inputs.baseline_weight
+                            + (g.target_value - inputs.baseline_weight)
+                            * (least(greatest((c.d_today - inputs.baseline_date)::numeric, 0),
+                                      (g.target_date - inputs.baseline_date)::numeric)
+                               / nullif((g.target_date - inputs.baseline_date)::numeric, 0))
+                    when g.target_date is not null
+                            and inputs.baseline_date is not null
+                            and g.target_date > inputs.baseline_date then
+                        inputs.latest_weight >= inputs.baseline_weight
+                            + (g.target_value - inputs.baseline_weight)
+                            * (least(greatest((c.d_today - inputs.baseline_date)::numeric, 0),
+                                      (g.target_date - inputs.baseline_date)::numeric)
+                               / nullif((g.target_date - inputs.baseline_date)::numeric, 0))
+                    when g.target_value < inputs.baseline_weight then inputs.latest_weight <= inputs.baseline_weight
+                    else inputs.latest_weight >= inputs.baseline_weight
+                end
+            when 'CALORIES' then g.target_value is not null and g.target_value > 0 and inputs.calories_today <= g.target_value
+            when 'PROTEIN' then g.target_value is not null and g.target_value > 0 and inputs.protein_today >= g.target_value
+            when 'CARBS' then g.target_value is not null and g.target_value > 0 and inputs.carbs_today <= g.target_value
+            when 'FAT' then g.target_value is not null and g.target_value > 0 and inputs.fat_today <= g.target_value
+            when 'WORKOUT_FREQUENCY' then g.target_value is not null and g.target_value > 0
+                and inputs.workouts_7d >= floor(g.target_value * extract(isodow from c.d_today) / 7)
+            else false
+        end as on_track
 ) cv on true;
 
 -- 6g. dashboard snapshot (single row the home screen reads)
