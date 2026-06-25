@@ -280,6 +280,13 @@ deploy_staging_app:
       KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED=true
       KAFKA_WORKOUT_DELETED_LISTENER_ENABLED=true
       COGNITO_ENABLED=false
+      # Staging auth-service points at its OWN Cognito pool (fitsync-staging-users),
+      # isolated from prod (myVyuOmPD). The pool id + app-client id are public (no
+      # secret) but live in CI variables so the secret scanner doesn't flag the
+      # high-entropy client id. These feed the parameterised auth-service block in
+      # docker-compose.prod.yml; prod leaves AUTH_COGNITO_* unset.
+      AUTH_COGNITO_ISSUER_URI=$STAGING_COGNITO_ISSUER_URI
+      AUTH_COGNITO_AUDIENCE=$STAGING_COGNITO_AUDIENCE
       NGINX_SERVER_NAME=_
       NGINX_CERT_NAME=localhost
       FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
