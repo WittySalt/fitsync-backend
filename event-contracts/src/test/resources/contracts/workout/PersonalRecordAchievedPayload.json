@@ -1,0 +1,12 @@
+{
+  "exerciseId": "33333333-3333-3333-3333-333333333333",
+  "exerciseNameSnapshot": "Barbell Bench Press",
+  "sessionId": "11111111-1111-1111-1111-111111111114",
+  "records": [
+    {
+      "recordType": "MAX_WEIGHT_KG",
+      "value": 125.00
+    }
+  ],
+  "achievedAt": "2026-06-14T20:00:00Z"
+}

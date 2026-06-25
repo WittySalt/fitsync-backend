@@ -1,0 +1,15 @@
+{
+  "preferredUnits": "100001",
+  "workoutDaysPerWeek": 4,
+  "dietaryPreference": "300001",
+  "notificationsEnabled": true,
+  "equipmentInventory": [
+    "230002",
+    "230004"
+  ],
+  "focusAreas": [
+    "240001",
+    "240005"
+  ],
+  "timezone": "Asia/Singapore"
+}

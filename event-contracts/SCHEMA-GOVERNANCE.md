@@ -1,0 +1,77 @@
+# Event Schema Governance
+
+## Status
+
+Accepted for the current JSON event-contracts model.
+
+## Scope
+
+This document governs the Java record payloads in `event-contracts` and the JSON messages
+published through FitSync Kafka topics. It intentionally does not introduce Avro, a schema
+registry, or any new infrastructure.
+
+## Compatibility Rules
+
+Event schemas must evolve additively.
+
+Allowed changes:
+
+- add optional payload fields that consumers can ignore
+- add new event types with a new `eventType`
+- add new enum-like string values only when existing consumers treat unknown values safely
+- add producer-only metadata outside the payload when consumers do not depend on it
+
+Breaking changes:
+
+- removing a field from an existing payload
+- renaming a field
+- changing a field type or meaning
+- changing required envelope fields in `FitSyncDomainEvent`
+- reusing an existing `eventType` for incompatible semantics
+
+When a breaking change is required, publish a new event type and increment the envelope
+`version`. Keep the old event type available until all consumers have migrated.
+
+## Tolerant Reader Requirement
+
+Consumers must ignore unknown JSON fields on both the event envelope and payload. This keeps
+older services compatible when producers add optional fields.
+
+The shared Kafka listener reader is configured with:
+
+- `FAIL_ON_UNKNOWN_PROPERTIES=false`
+- Java record payload binding through `FitSyncDomainEvent<T>`
+
+Consumers that do not use the shared listener base must still use the same tolerant-reader
+configuration.
+
+## Golden Samples
+
+Each payload type has a canonical JSON sample under:
+
+`event-contracts/src/test/resources/contracts/`
+
+Compatibility tests enforce:
+
+- backward compatibility: every golden sample must still deserialize into the current record,
+  and all golden fields must survive a record round trip
+- forward compatibility: a sample with an added unknown field must still deserialize
+
+If a payload field is deleted, renamed, or no longer represented by the Java record, the
+golden sample round-trip test fails.
+
+## Versioning
+
+Use the `version` field on `FitSyncDomainEvent` for event-type-level compatibility milestones.
+For additive payload fields, keep the same event type and version unless a consumer needs a
+new interpretation contract.
+
+## Review Checklist
+
+Before changing an event payload:
+
+- confirm the change is additive or create a new event type
+- update or add the golden sample JSON
+- run `mvn -pl event-contracts test`
+- confirm Kafka consumer tests still accept unknown fields
+- document any intentional version bump in the producer and consumer change notes

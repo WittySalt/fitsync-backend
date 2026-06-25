@@ -1,0 +1,11 @@
+{
+  "mealId": "44444444-4444-4444-4444-444444444444",
+  "mealType": "DINNER",
+  "consumedAt": "2026-06-11T12:45:00Z",
+  "totalCalories": 620,
+  "totalProteinGrams": 42.0,
+  "totalCarbsGrams": 55.0,
+  "totalFatGrams": 21.0,
+  "itemCount": 3,
+  "source": "MANUAL"
+}

@@ -1,0 +1,11 @@
+{
+  "mealId": "44444444-4444-4444-4444-444444444445",
+  "mealType": "SNACK",
+  "consumedAt": "2026-06-11T18:10:00Z",
+  "totalCalories": 280,
+  "totalProteinGrams": 18.5,
+  "totalCarbsGrams": 24.0,
+  "totalFatGrams": 9.0,
+  "itemCount": 2,
+  "source": "CUSTOM_FOOD"
+}
