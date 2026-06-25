@@ -171,3 +171,21 @@ Add `lifecycle { prevent_destroy = true }` to imported RDS/EC2 before applying.
    brought under management via `import` with `prevent_destroy` guards.
 4. **Roadmap / concern**: migrate state to an S3 + DynamoDB remote backend; split
    public/private subnets + NAT; move secrets to SSM Parameter Store / Secrets Manager.
+
+## Staging bring-up (deploy→test→promote target)
+
+Stand up the full staging app+DB so `stress_test` / `owasp_zap` can run against it,
+then tear it down to stop the bill.
+
+**Prerequisites**
+1. EC2 key pair: `aws ec2 create-key-pair --key-name fitsync-staging --query KeyMaterial --output text > fitsync-staging.pem` (private key → CI var `STAGING_EC2_SSH_KEY`). `ec2_key_name` in `staging.tfvars` already references it.
+2. CI/CD variables: `STAGING_EC2_SSH_KEY`, `STAGING_DB_PASSWORD`, `STAGING_JWT_SECRET` (plus the existing `AWS_ROLE_ARN` / `AWS_ACCOUNT_ID` / `AWS_REGION`).
+3. RDS master password at apply time: `export TF_VAR_db_password=...`.
+
+**Order (all manual jobs on a `main` pipeline, or local terraform):**
+1. `tf_plan` → **`deploy_staging`** (terraform apply: VPC/EC2/RDS/ECR/Cognito).
+2. Create the per-service DB roles in the new staging RDS (the app connects as `*_svc` users). Connect as master and create `auth_svc` / `user_svc` / `workout_svc` / `nutrition_svc` / `analytics_svc` with `STAGING_DB_PASSWORD`, plus their databases — Flyway then runs on first boot.
+3. **`deploy_staging_app`** (SSH-deploys the app; prints `http://<staging-eip>:8088`).
+4. Set `STRESS_TARGET_URL` / `DAST_TARGET_URL` = `http://<staging-eip>:8088` (+ `STRESS_USER_EMAIL/PASSWORD` of a seeded staging user), then run **`stress_test`** / **`owasp_zap`** (verify-staging stage).
+5. Frontend (optional for API stress/DAST): FE MR adds `frontend_infra_staging` + `deploy_staging` (s3 sync). Only needed to exercise the SPA.
+6. **`terraform destroy -var-file=staging.tfvars`** when done.
