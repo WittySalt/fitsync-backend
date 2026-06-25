@@ -215,6 +215,12 @@ deploy_staging_app:
     name: staging
   needs:
     - job: bootstrap_staging_db
+    # Precondition: deploy the images THIS pipeline built + tested. docker_image
+    # needs verify_backend, so requiring it guarantees build+test+scan ran first.
+    # optional: web-triggered pipelines exclude docker_image (it is push-only), so
+    # this avoids a "needs job not in pipeline" config error there.
+    - job: docker_image
+      optional: true
   variables:
     TF_VERSION: "1.15.7"
     REQUIRED_VARS: "AWS_ROLE_ARN AWS_ACCOUNT_ID AWS_REGION STAGING_DB_PASSWORD STAGING_JWT_SECRET STAGING_EC2_SSH_KEY"
@@ -231,7 +237,7 @@ deploy_staging_app:
     - RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
     - cd "$CI_PROJECT_DIR"
     - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    - export IMAGE_TAG="${STAGING_IMAGE_TAG:-latest}"
+    - export IMAGE_TAG="${STAGING_IMAGE_TAG:-${CI_COMMIT_SHA:0:8}}"
     - mkdir -p ~/.ssh
     - printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
