@@ -1,7 +1,6 @@
 package com.fitsync.web.messaging;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fitsync.contracts.events.DomainEventConsumer;
@@ -32,9 +31,7 @@ public abstract class AbstractDomainEventKafkaListener<T> {
                                                DomainEventConsumer<T> consumer) {
         this.consumer = consumer;
         this.expectedEventType = expectedEventType;
-        JavaType eventType = objectMapper.getTypeFactory()
-                .constructParametricType(FitSyncDomainEvent.class, payloadType);
-        this.eventReader = objectMapper.readerFor(eventType);
+        this.eventReader = DomainEventObjectReaders.readerFor(objectMapper, payloadType);
     }
 
     /**

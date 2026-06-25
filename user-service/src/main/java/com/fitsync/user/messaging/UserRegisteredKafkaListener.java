@@ -1,10 +1,10 @@
 package com.fitsync.user.messaging;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.web.messaging.DomainEventObjectReaders;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,9 +26,7 @@ public class UserRegisteredKafkaListener {
     public UserRegisteredKafkaListener(ObjectMapper objectMapper,
                                        UserRegisteredEventConsumer userRegisteredEventConsumer) {
         this.userRegisteredEventConsumer = userRegisteredEventConsumer;
-        JavaType eventType = objectMapper.getTypeFactory()
-                .constructParametricType(FitSyncDomainEvent.class, UserRegisteredPayload.class);
-        this.eventReader = objectMapper.readerFor(eventType);
+        this.eventReader = DomainEventObjectReaders.readerFor(objectMapper, UserRegisteredPayload.class);
     }
 
     @KafkaListener(

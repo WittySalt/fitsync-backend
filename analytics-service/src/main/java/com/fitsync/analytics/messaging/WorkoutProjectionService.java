@@ -95,7 +95,7 @@ public class WorkoutProjectionService {
         applyContributionDelta(event.userId(), activityDate, null, newContribution, event.occurredAt());
         recomputeWorkoutGoals(event.userId());
         recordProcessedEvent(event);
-        cacheInvalidationService.evictAllForUser(event.userId());
+        cacheInvalidationService.evictForUser(event.userId());
     }
 
     @Transactional
@@ -115,7 +115,7 @@ public class WorkoutProjectionService {
             recomputeWorkoutGoals(event.userId());
         }
         recordProcessedEvent(event);
-        cacheInvalidationService.evictAllForUser(event.userId());
+        cacheInvalidationService.evictForUser(event.userId());
     }
 
     private void applyContributionDelta(UUID userId,

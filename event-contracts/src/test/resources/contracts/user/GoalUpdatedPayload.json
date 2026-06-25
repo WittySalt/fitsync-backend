@@ -1,0 +1,8 @@
+{
+  "goalId": "55555555-5555-5555-5555-555555555555",
+  "goalType": "WEIGHT",
+  "targetValue": 68.50,
+  "targetUnit": "KG",
+  "targetDate": "2026-12-31",
+  "status": "ACTIVE"
+}

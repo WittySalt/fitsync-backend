@@ -28,7 +28,8 @@ via Kafka domain events. Most domain services are fully implemented with JPA + F
 - `recommendation-service`, `notification-service` — scaffolds.
 
 **Shared modules**
-- `event-contracts` — shared Kafka event payload contracts (`com.fitsync.contracts.events.*`).
+- `event-contracts` — shared Kafka event payload contracts (`com.fitsync.contracts.events.*`);
+  see [`event-contracts/SCHEMA-GOVERNANCE.md`](event-contracts/SCHEMA-GOVERNANCE.md) for compatibility rules.
 - `persistence-support` — `BaseAuditableEntity` and JPA/auditing support.
 - `web-support` — shared web layer (error handling, `PageResponse`, security helpers).
 - `media-support` — `MediaStorageService` (AWS SDK v2 S3 client) for object-storage media; backs

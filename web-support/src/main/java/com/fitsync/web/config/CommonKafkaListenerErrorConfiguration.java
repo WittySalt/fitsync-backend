@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.SerializationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,7 +13,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.listener.CommonErrorHandler;
+import org.springframework.kafka.listener.ConsumerRecordRecoverer;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.converter.ConversionException;
 import org.springframework.kafka.support.serializer.DeserializationException;
@@ -30,16 +34,38 @@ public class CommonKafkaListenerErrorConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(CommonErrorHandler.class)
-    DefaultErrorHandler kafkaListenerErrorHandler(ObjectProvider<ObjectMapper> objectMapperProvider) {
-        return buildKafkaListenerErrorHandler(objectMapperProvider.getIfAvailable());
+    DefaultErrorHandler kafkaListenerErrorHandler(ObjectProvider<ObjectMapper> objectMapperProvider,
+                                                  ObjectProvider<KafkaOperations<?, ?>> kafkaOperationsProvider) {
+        return buildKafkaListenerErrorHandler(
+                objectMapperProvider.getIfAvailable(),
+                kafkaOperationsProvider.getIfAvailable());
     }
 
     static DefaultErrorHandler buildKafkaListenerErrorHandler(ObjectMapper objectMapper) {
+        return buildKafkaListenerErrorHandler(objectMapper, null);
+    }
+
+    static DefaultErrorHandler buildKafkaListenerErrorHandler(ObjectMapper objectMapper,
+                                                              KafkaOperations<?, ?> kafkaOperations) {
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(
-                (record, exception) -> logFailedRecord(record, exception, objectMapper),
+                buildRecordRecoverer(objectMapper, kafkaOperations),
                 new FixedBackOff(KAFKA_LISTENER_RETRY_INTERVAL_MS, KAFKA_LISTENER_MAX_RETRY_ATTEMPTS));
         configureNotRetryableExceptions(errorHandler);
         return errorHandler;
+    }
+
+    static ConsumerRecordRecoverer buildRecordRecoverer(ObjectMapper objectMapper,
+                                                        KafkaOperations<?, ?> kafkaOperations) {
+        if (kafkaOperations == null) {
+            return (record, exception) -> logFailedRecord(record, exception, objectMapper);
+        }
+        DeadLetterPublishingRecoverer deadLetterRecoverer = new DeadLetterPublishingRecoverer(
+                kafkaOperations,
+                (record, exception) -> new TopicPartition(record.topic() + ".DLT", -1));
+        return (record, exception) -> {
+            logFailedRecord(record, exception, objectMapper);
+            deadLetterRecoverer.accept(record, exception);
+        };
     }
 
     static void configureNotRetryableExceptions(DefaultErrorHandler errorHandler) {

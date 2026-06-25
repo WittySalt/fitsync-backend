@@ -90,7 +90,7 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
                 Set.of(GoalProgressEvaluator.WEIGHT),
                 goalProgressEvaluator.todayForUser(event.userId()));
         recordProcessedEvent(event);
-        cacheInvalidationService.evictAllForUser(event.userId());
+        cacheInvalidationService.evictForUser(event.userId());
     }
 
     private BigDecimal resolveWeightDeltaFromPrevious(java.util.UUID userId, LocalDate metricDate, BigDecimal weightKg) {

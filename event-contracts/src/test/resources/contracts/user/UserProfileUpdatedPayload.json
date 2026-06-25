@@ -1,0 +1,11 @@
+{
+  "displayName": "Alice",
+  "heightCm": 170.50,
+  "activityLevel": "MODERATELY_ACTIVE",
+  "onboardingCompleted": true,
+  "updatedFields": [
+    "displayName",
+    "timezone"
+  ],
+  "timezone": "Asia/Singapore"
+}

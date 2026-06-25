@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,6 +58,9 @@ class AnalyticsCachingTests {
     @MockBean
     private Clock clock;
 
+    @MockBean
+    private StringRedisTemplate redisTemplate;
+
     @Test
     void shouldCacheDashboardAndEvictAfterInvalidation() {
         UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -81,12 +85,43 @@ class AnalyticsCachingTests {
         verify(goalProgressRepository, times(1))
                 .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE");
 
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
         analyticsService.getDashboard(principal);
 
         verify(dashboardSnapshotRepository, times(2)).findById(userId);
         verify(goalProgressRepository, times(2))
                 .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE");
+    }
+
+    @Test
+    void shouldEvictOnlyTargetUserDashboardCache() {
+        UUID targetUserId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+        UUID otherUserId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        CurrentUserPrincipal targetPrincipal =
+                new CurrentUserPrincipal(targetUserId, "alice@example.com", "Alice", "USER");
+        CurrentUserPrincipal otherPrincipal =
+                new CurrentUserPrincipal(otherUserId, "bob@example.com", "Bob", "USER");
+
+        AnalyticsUserDashboardSnapshotEntity targetSnapshot = dashboardSnapshot(targetUserId, "Asia/Singapore");
+        AnalyticsUserDashboardSnapshotEntity otherSnapshot = dashboardSnapshot(otherUserId, "UTC");
+        when(dashboardSnapshotRepository.findById(targetUserId)).thenReturn(Optional.of(targetSnapshot));
+        when(dashboardSnapshotRepository.findById(otherUserId)).thenReturn(Optional.of(otherSnapshot));
+        when(goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(targetUserId, "ACTIVE"))
+                .thenReturn(List.of());
+        when(goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(otherUserId, "ACTIVE"))
+                .thenReturn(List.of());
+
+        analyticsService.getDashboard(targetPrincipal);
+        analyticsService.getDashboard(otherPrincipal);
+        analyticsService.getDashboard(targetPrincipal);
+        analyticsService.getDashboard(otherPrincipal);
+
+        cacheInvalidationService.evictForUser(targetUserId);
+        analyticsService.getDashboard(targetPrincipal);
+        analyticsService.getDashboard(otherPrincipal);
+
+        verify(dashboardSnapshotRepository, times(2)).findById(targetUserId);
+        verify(dashboardSnapshotRepository, times(1)).findById(otherUserId);
     }
 
     @Test
@@ -130,7 +165,7 @@ class AnalyticsCachingTests {
         verify(dailyWorkoutRepository, times(1))
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
 
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
         analyticsService.getWorkoutSeries(principal, from, to, BodyTrendBucket.WEEK);
 
         verify(dailyWorkoutRepository, times(2))
@@ -153,7 +188,7 @@ class AnalyticsCachingTests {
         verify(dailyWorkoutRepository, times(1))
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
 
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
         analyticsService.getActivityCalendar(principal, from, to);
 
         verify(dailyWorkoutRepository, times(2))
@@ -176,7 +211,7 @@ class AnalyticsCachingTests {
         verify(dailyNutritionRepository, times(1))
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
 
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
         analyticsService.getNutritionSeries(principal, from, to, BodyTrendBucket.MONTH);
 
         verify(dailyNutritionRepository, times(2))
@@ -209,7 +244,7 @@ class AnalyticsCachingTests {
         verify(dailyNutritionRepository, times(1))
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, previousFrom, previousTo);
 
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
         analyticsService.getSummaryCompare(principal, ComparePeriod.WEEK);
 
         verify(dailyWorkoutRepository, times(2))
@@ -236,5 +271,14 @@ class AnalyticsCachingTests {
     private void setClockDate(String date) {
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         when(clock.instant()).thenReturn(LocalDate.parse(date).atStartOfDay().toInstant(ZoneOffset.UTC));
+    }
+
+    private AnalyticsUserDashboardSnapshotEntity dashboardSnapshot(UUID userId, String timezone) {
+        AnalyticsUserDashboardSnapshotEntity snapshot = new AnalyticsUserDashboardSnapshotEntity();
+        snapshot.setUserId(userId);
+        snapshot.setTimezone(timezone);
+        snapshot.setLatestWeightKg(new BigDecimal("78.40"));
+        snapshot.setGeneratedAt(Instant.parse("2026-06-14T08:00:00Z"));
+        return snapshot;
     }
 }

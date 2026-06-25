@@ -136,6 +136,6 @@ mvn -pl analytics-service spring-boot:run
 
 ## Residual Risks
 
-- cache invalidation is intentionally broad in phase 1 and may clear more entries than necessary
+- cache invalidation is user-targeted for current analytics caches; any future cross-user cache must define its own invalidation rule
 - body metrics still do not have a `BodyMetricDeleted` contract, so historical chart correction remains partial
 - reads remain eventually consistent with upstream systems by design

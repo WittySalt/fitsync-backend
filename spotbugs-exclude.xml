@@ -240,6 +240,15 @@
         <Bug pattern="CRLF_INJECTION_LOGS"/>
     </Match>
 
+    <!-- AnalyticsCacheInvalidationService logs cache-eviction diagnostics: cacheName is a fixed
+         constant, userId is a UUID, and the exception message is run through sanitizeForLog (strips
+         CR/LF, CWE-117 mitigated). findsecbugs does not recognize the inline sanitizer and reports a
+         false positive (same as CommonKafkaListenerErrorConfiguration above). -->
+    <Match>
+        <Class name="com.fitsync.analytics.service.AnalyticsCacheInvalidationService"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
+
     <!-- Account-deletion cascade consumers/projection services: Spring DI on singleton
          components triggers EI_EXPOSE_REP2 noise (same as the messaging consumers above). -->
     <Match>

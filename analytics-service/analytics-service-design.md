@@ -598,13 +598,17 @@ Recommended first cached endpoints:
 
 Recommended invalidation rule in phase 1:
 
-- clear analytics caches after any successful projection mutation or targeted rebuild
+- after any successful projection mutation or targeted rebuild, evict only cache entries for the affected `userId`
+- Redis-backed deployments must scan each user-scoped analytics cache with
+  `SCAN "<cacheName>::<userId>*"` and remove matches with `UNLINK`
+- do not use Redis `KEYS` for invalidation, because it blocks the keyspace and can amplify write-triggered load spikes
 
 Reason:
 
 - these endpoints are deterministic derived reads
 - projections already absorb eventual-consistent writes
-- broad invalidation is safer than partial stale data while dependency tracking is still simple
+- all current analytics caches are user-scoped; targeting the event `userId` prevents unrelated users from cold-cache reloads
+- `SCAN` plus `UNLINK` keeps invalidation incremental and non-blocking while still clearing every cached variant for the changed user
 
 Do not use Redis as:
 
