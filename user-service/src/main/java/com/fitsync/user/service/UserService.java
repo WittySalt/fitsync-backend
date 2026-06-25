@@ -66,4 +66,8 @@ public interface UserService {
     AccountDataExportRequestView getLatestAccountDataExport(CurrentUserPrincipal principal);
 
     AccountDataExportPayload downloadAccountDataExport(CurrentUserPrincipal principal, UUID exportRequestId);
+
+    int republishActiveGoals();
+
+    void deleteCurrentUser(CurrentUserPrincipal principal);
 }

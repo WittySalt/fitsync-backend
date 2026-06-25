@@ -12,4 +12,6 @@ public interface AnalyticsUserGoalProgressRepository extends JpaRepository<Analy
 
     List<AnalyticsUserGoalProgressEntity> findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(
             UUID userId, String goalStatus);
+
+    void deleteByUserId(UUID userId);
 }

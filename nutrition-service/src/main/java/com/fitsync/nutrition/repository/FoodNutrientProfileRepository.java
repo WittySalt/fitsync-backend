@@ -1,6 +1,7 @@
 package com.fitsync.nutrition.repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.UUID;
 
 import com.fitsync.nutrition.entity.FoodNutrientProfileEntity;
@@ -21,4 +22,6 @@ public interface FoodNutrientProfileRepository extends JpaRepository<FoodNutrien
             """)
     java.util.List<FoodNutrientProfileEntity> findActiveProfilesByFoodId(@Param("foodId") UUID foodId,
                                                                          @Param("onDate") LocalDate onDate);
+
+    void deleteByFoodIdIn(Collection<UUID> foodIds);
 }

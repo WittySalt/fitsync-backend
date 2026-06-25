@@ -26,6 +26,7 @@ import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
 import com.fitsync.nutrition.entity.FoodNutrientDetailEntity;
 import com.fitsync.nutrition.entity.FoodNutrientProfileEntity;
 import com.fitsync.nutrition.entity.FoodServingEntity;
+import com.fitsync.nutrition.entity.NutritionTargetEntity;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
 import com.fitsync.nutrition.repository.FoodBrandRepository;
 import com.fitsync.nutrition.repository.FoodCatalogItemRepository;
@@ -118,6 +119,57 @@ class NutritionApiTests {
         mockMvc.perform(get("/api/v1/nutrition/meals"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value("Authentication is required to access this resource"));
+    }
+
+    @Test
+    void dailySummaryUsesUserGoalEventsAsNutritionTargetSourceOfTruth() throws Exception {
+        String token = tokenFor("target-sync@example.com", "Target Sync");
+        UUID userId = UUID.fromString(userIdFromToken(token));
+
+        NutritionTargetEntity staleTarget = new NutritionTargetEntity();
+        staleTarget.setUserId(userId);
+        staleTarget.setCalorieTarget(2500);
+        staleTarget.setProteinTarget(new BigDecimal("155.0"));
+        staleTarget.setProjectionUpdatedAt(Instant.parse("2026-06-11T09:00:00Z"));
+        nutritionTargetRepository.save(staleTarget);
+
+        goalUpdatedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        UUID.randomUUID(),
+                        "CALORIES",
+                        new BigDecimal("1800"),
+                        "kcal",
+                        LocalDate.parse("2026-09-01"),
+                        "ACTIVE")));
+        goalUpdatedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-11T10:05:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        UUID.randomUUID(),
+                        "PROTEIN",
+                        new BigDecimal("140.0"),
+                        "g",
+                        LocalDate.parse("2026-09-01"),
+                        "ACTIVE")));
+
+        mockMvc.perform(get("/api/v1/nutrition/summary/daily")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-11")
+                        .param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targetCalories").value(1800))
+                .andExpect(jsonPath("$.targetProteinGrams").value(140.0));
     }
 
     @Test

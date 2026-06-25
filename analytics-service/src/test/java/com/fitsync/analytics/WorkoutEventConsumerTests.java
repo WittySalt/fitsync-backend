@@ -8,6 +8,7 @@ import java.time.ZoneOffset;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
+import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
@@ -98,6 +99,48 @@ class WorkoutEventConsumerTests {
                     assertThat(snapshot.getWeekWorkoutMinutes()).isEqualTo(45);
                     assertThat(snapshot.getActiveStreakDays()).isEqualTo(1);
                 });
+    }
+
+    @Test
+    void workoutLoggedEventUsesUserTimezoneForActivityDate() {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Instant startedAt = Instant.parse("2026-06-17T16:30:00Z");
+
+        AnalyticsUserDashboardSnapshotEntity snapshot = new AnalyticsUserDashboardSnapshotEntity();
+        snapshot.setUserId(userId);
+        snapshot.setTimezone("Asia/Singapore");
+        snapshot.setTodayWorkoutCount(0);
+        snapshot.setWeekWorkoutCount(0);
+        snapshot.setWeekWorkoutMinutes(0);
+        snapshot.setActiveStreakDays(0);
+        snapshot.setGeneratedAt(Instant.parse("2026-06-17T16:00:00Z"));
+        dashboardSnapshotRepository.save(snapshot);
+
+        workoutLoggedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "WorkoutLogged",
+                1,
+                startedAt.plusSeconds(60),
+                "workout-service",
+                userId,
+                new WorkoutLoggedPayload(
+                        sessionId,
+                        null,
+                        "STRENGTH",
+                        "COMPLETED",
+                        startedAt,
+                        startedAt.plusSeconds(2700),
+                        45,
+                        350,
+                        6,
+                        "MANUAL")));
+
+        assertThat(workoutContributionRepository.findById(sessionId))
+                .isPresent()
+                .get()
+                .extracting(contribution -> contribution.getActivityDate())
+                .isEqualTo(LocalDate.parse("2026-06-18"));
     }
 
     @Test

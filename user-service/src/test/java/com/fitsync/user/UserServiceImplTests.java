@@ -4,12 +4,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.AccountDeletedPayload;
+import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.media.MediaStorageService;
 import com.fitsync.user.domain.CalorieTrackingMode;
 import com.fitsync.user.domain.DietaryPreference;
@@ -23,14 +28,18 @@ import com.fitsync.user.domain.TrainingEquipment;
 import com.fitsync.user.domain.TrainingFocusArea;
 import com.fitsync.user.domain.TrainingLocation;
 import com.fitsync.user.domain.UnitSystem;
+import com.fitsync.user.domain.GoalStatus;
+import com.fitsync.user.domain.GoalType;
 import com.fitsync.user.dto.HealthReadinessView;
 import com.fitsync.user.dto.UpsertAppPreferencesRequest;
 import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertNotificationPreferencesRequest;
 import com.fitsync.user.dto.UpsertNutritionPreferencesRequest;
 import com.fitsync.user.dto.UpsertTrainingPreferencesRequest;
+import com.fitsync.user.dto.UpsertUserGoalRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
 import com.fitsync.user.entity.UserAppPreferencesEntity;
+import com.fitsync.user.entity.UserGoalEntity;
 import com.fitsync.user.entity.UserHealthReadinessEntity;
 import com.fitsync.user.entity.UserNotificationPreferencesEntity;
 import com.fitsync.user.entity.UserNutritionPreferencesEntity;
@@ -48,7 +57,9 @@ import com.fitsync.user.repository.UserTrainingPreferencesRepository;
 import com.fitsync.user.security.CurrentUserPrincipal;
 import com.fitsync.user.service.UserServiceImpl;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class UserServiceImplTests {
 
@@ -126,6 +137,111 @@ class UserServiceImplTests {
 
         assertEquals(java.util.List.of("LEFT_KNEE", "LOWER_BACK"), view.injuryAreas());
         assertEquals(Instant.parse("2026-06-20T09:15:00Z"), view.acknowledgedDisclaimerAt());
+    }
+
+    @Test
+    void republishActiveGoalsPublishesGoalUpdatedForEachActiveGoal() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        UserGoalEntity calories = goal(userId, GoalType.CALORIES, GoalStatus.ACTIVE, "2100.00", "kcal");
+        UserGoalEntity protein = goal(userId, GoalType.PROTEIN, GoalStatus.ACTIVE, "140.00", "g");
+        when(fixtures.userGoalRepository.findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus.ACTIVE))
+                .thenReturn(java.util.List.of(calories, protein));
+
+        int publishedCount = fixtures.service.republishActiveGoals();
+
+        assertEquals(2, publishedCount);
+        ArgumentCaptor<FitSyncDomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(FitSyncDomainEvent.class);
+        verify(fixtures.domainEventPublisher, times(2))
+                .publish(org.mockito.ArgumentMatchers.eq("progress-events"),
+                        org.mockito.ArgumentMatchers.eq("UserGoal"),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        eventCaptor.capture());
+        java.util.List<String> goalTypes = eventCaptor.getAllValues().stream()
+                .map(event -> ((GoalUpdatedPayload) event.payload()).goalType())
+                .toList();
+        assertEquals(java.util.List.of("CALORIES", "PROTEIN"), goalTypes);
+        eventCaptor.getAllValues().forEach(event ->
+                assertEquals("ACTIVE", ((GoalUpdatedPayload) event.payload()).status()));
+    }
+
+    @Test
+    void upsertGoalPublishesNonActiveGoalUpdatedEvent() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "goals@test.dev", "Goal User", "USER");
+        UserGoalEntity existing = goal(userId, GoalType.PROTEIN, GoalStatus.ACTIVE, "155.00", "g");
+        when(fixtures.userGoalRepository.findByUserIdAndGoalType(userId, GoalType.PROTEIN))
+                .thenReturn(Optional.of(existing));
+        when(fixtures.userGoalRepository.save(any(UserGoalEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        fixtures.service.upsertGoal(
+                principal,
+                GoalType.PROTEIN,
+                new UpsertUserGoalRequest(
+                        new java.math.BigDecimal("155.00"),
+                        "g",
+                        java.time.LocalDate.parse("2026-08-31"),
+                        GoalStatus.CANCELLED,
+                        "Archive protein target"));
+
+        ArgumentCaptor<FitSyncDomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(FitSyncDomainEvent.class);
+        verify(fixtures.domainEventPublisher)
+                .publish(org.mockito.ArgumentMatchers.eq("progress-events"),
+                        org.mockito.ArgumentMatchers.eq("UserGoal"),
+                        org.mockito.ArgumentMatchers.eq(existing.getGoalId().toString()),
+                        eventCaptor.capture());
+        GoalUpdatedPayload payload = (GoalUpdatedPayload) eventCaptor.getValue().payload();
+        assertEquals("PROTEIN", payload.goalType());
+        assertEquals("CANCELLED", payload.status());
+    }
+
+    @Test
+    void deleteCurrentUserClearsLocalAccountDataAndPublishesDeletionEvent() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "delete@test.dev", "Delete Me", "USER");
+
+        fixtures.service.deleteCurrentUser(principal);
+
+        verify(fixtures.accountDataExportRequestRepository).deleteByUserId(userId);
+        verify(fixtures.bodyMetricEntryRepository).deleteByUserId(userId);
+        verify(fixtures.userGoalRepository).deleteByUserId(userId);
+        verify(fixtures.userHealthReadinessRepository).deleteById(userId);
+        verify(fixtures.userNotificationPreferencesRepository).deleteById(userId);
+        verify(fixtures.userNutritionPreferencesRepository).deleteById(userId);
+        verify(fixtures.userTrainingPreferencesRepository).deleteById(userId);
+        verify(fixtures.userAppPreferencesRepository).deleteById(userId);
+        verify(fixtures.userProfileRepository).deleteById(userId);
+
+        ArgumentCaptor<FitSyncDomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(FitSyncDomainEvent.class);
+        verify(fixtures.domainEventPublisher)
+                .publish(org.mockito.ArgumentMatchers.eq("user-events"),
+                        org.mockito.ArgumentMatchers.eq("UserAccount"),
+                        org.mockito.ArgumentMatchers.eq(userId.toString()),
+                        eventCaptor.capture());
+        FitSyncDomainEvent<?> event = eventCaptor.getValue();
+        assertEquals("AccountDeleted", event.eventType());
+        assertEquals(userId, event.userId());
+        AccountDeletedPayload payload = (AccountDeletedPayload) event.payload();
+        assertEquals("USER_REQUESTED", payload.reason());
+        assertEquals(event.occurredAt(), payload.deletedAt());
+    }
+
+    private static UserGoalEntity goal(UUID userId,
+                                       GoalType goalType,
+                                       GoalStatus status,
+                                       String targetValue,
+                                       String targetUnit) {
+        UserGoalEntity entity = new UserGoalEntity();
+        ReflectionTestUtils.setField(entity, "goalId", UUID.randomUUID());
+        entity.setUserId(userId);
+        entity.setGoalType(goalType);
+        entity.setTargetValue(new java.math.BigDecimal(targetValue));
+        entity.setTargetUnit(targetUnit);
+        entity.setTargetDate(java.time.LocalDate.parse("2026-08-31"));
+        entity.setStatus(status);
+        return entity;
     }
 
     private static final class Fixtures {

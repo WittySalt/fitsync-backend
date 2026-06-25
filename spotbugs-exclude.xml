@@ -239,4 +239,77 @@
         <Class name="com.fitsync.web.config.CommonKafkaListenerErrorConfiguration"/>
         <Bug pattern="CRLF_INJECTION_LOGS"/>
     </Match>
+
+    <!-- Account-deletion cascade consumers/projection services: Spring DI on singleton
+         components triggers EI_EXPOSE_REP2 noise (same as the messaging consumers above). -->
+    <Match>
+        <Class name="com.fitsync.nutrition.messaging.AccountDeletedEventConsumerImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.nutrition.messaging.AccountDeletionProjectionService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.messaging.AccountDeletedEventConsumerImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.messaging.AccountDeletionProjectionService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Timezone projection added for timezone-aware analytics streaks (BE-AC-3). -->
+    <Match>
+        <Class name="com.fitsync.analytics.messaging.UserTimezoneProjectionService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Pre-existing analytics services storing injected repos/clock; same Spring-DI noise,
+         previously missing from this filter (latent gap closed here). -->
+    <Match>
+        <Class name="com.fitsync.analytics.service.AnalyticsServiceImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.service.AnalyticsRebuildServiceImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.service.AnalyticsWeeklyRecapService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.service.AnalyticsDailyRollupUserProcessor"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- user-service: reconcile wiring added a UserService dependency to the internal
+         controller; UserServiceImpl stores injected repos (pre-existing Spring-DI noise). -->
+    <Match>
+        <Class name="com.fitsync.user.controller.InternalMessagingController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.user.service.UserServiceImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- workout-service account-deletion cascade consumer/projection (Spring-DI noise). -->
+    <Match>
+        <Class name="com.fitsync.workout.messaging.AccountDeletedEventConsumerImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.workout.messaging.AccountDeletionProjectionService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>

@@ -27,4 +27,6 @@ public interface AnalyticsUserDailyBodyRepository
 
     Optional<AnalyticsUserDailyBodyEntity> findTopByUserIdAndMetricDateLessThanEqualOrderByMetricDateDesc(UUID userId,
                                                                                                            LocalDate metricDate);
+
+    void deleteByUserId(UUID userId);
 }

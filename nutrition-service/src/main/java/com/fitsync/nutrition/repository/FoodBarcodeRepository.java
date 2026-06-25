@@ -35,4 +35,6 @@ public interface FoodBarcodeRepository extends JpaRepository<FoodBarcodeEntity, 
             """)
     List<FoodBarcodeEntity> findActiveByFoodIds(@Param("foodIds") Collection<UUID> foodIds,
                                                 @Param("onDate") LocalDate onDate);
+
+    void deleteByFoodIdIn(Collection<UUID> foodIds);
 }

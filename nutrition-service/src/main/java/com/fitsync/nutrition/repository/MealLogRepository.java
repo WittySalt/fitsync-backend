@@ -24,4 +24,6 @@ public interface MealLogRepository extends JpaRepository<MealLogEntity, UUID> {
 
     List<MealLogEntity> findByUserIdAndMealTypeAndConsumedAtGreaterThanEqualAndConsumedAtLessThanEqualOrderByConsumedAtDesc(
             UUID userId, MealType mealType, Instant from, Instant to);
+
+    void deleteByUserId(UUID userId);
 }

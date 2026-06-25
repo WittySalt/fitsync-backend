@@ -10,11 +10,15 @@ import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
+import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
+import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.dto.ExerciseView;
+import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -29,6 +33,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
@@ -147,5 +152,58 @@ class WorkoutServicePostgresIT {
         assertEquals(new BigDecimal("12.00"), records.maxWeightKg().value());
         assertEquals(3, history.content().size());
         assertTrue(history.content().stream().allMatch(entry -> GOBLET_SQUAT_ID.equals(entry.exerciseId())));
+    }
+
+    @Test
+    void shouldReturnLatestCompletedSessionOnlyOnPostgres() {
+        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
+        CurrentUserPrincipal user = new CurrentUserPrincipal(
+                UUID.randomUUID(),
+                "latest-completed@example.com",
+                "Latest Completed",
+                "USER");
+
+        workoutService.createSession(user, sessionRequest(
+                "Cancelled Later",
+                WorkoutSessionStatus.CANCELLED,
+                Instant.parse("2026-06-12T10:00:00Z"),
+                null));
+        workoutService.createSession(user, sessionRequest(
+                "In Progress Later",
+                WorkoutSessionStatus.IN_PROGRESS,
+                Instant.parse("2026-06-13T10:00:00Z"),
+                null));
+
+        assertThrows(ResourceNotFoundException.class, () -> workoutService.getLatestSession(user));
+
+        WorkoutSessionView completed = workoutService.createSession(user, sessionRequest(
+                "Completed Earlier",
+                WorkoutSessionStatus.COMPLETED,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                Instant.parse("2026-06-11T10:45:00Z")));
+
+        WorkoutSessionView latest = workoutService.getLatestSession(user);
+
+        assertEquals(completed.sessionId(), latest.sessionId());
+        assertEquals(WorkoutSessionStatus.COMPLETED, latest.status());
+    }
+
+    private UpsertWorkoutSessionRequest sessionRequest(String name,
+                                                       WorkoutSessionStatus status,
+                                                       Instant startedAt,
+                                                       Instant completedAt) {
+        return new UpsertWorkoutSessionRequest(
+                null,
+                name,
+                WorkoutType.STRENGTH,
+                status,
+                WorkoutSource.MANUAL,
+                startedAt,
+                completedAt,
+                completedAt == null ? null : 45,
+                null,
+                null,
+                null,
+                List.of());
     }
 }
