@@ -24,6 +24,7 @@ class AnalyticsDailyRollupUserProcessorTests {
     void expiresPastActiveGoalBeforeRebuildingDashboard() {
         AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
         AnalyticsRebuildService rebuildService = mock(AnalyticsRebuildService.class);
+        GoalProgressEvaluator goalProgressEvaluator = mock(GoalProgressEvaluator.class);
         UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         Instant evaluatedAt = Instant.parse("2026-06-18T00:05:00Z");
 
@@ -35,9 +36,10 @@ class AnalyticsDailyRollupUserProcessorTests {
 
         when(goalRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
                 .thenReturn(List.of(goal));
+        when(goalProgressEvaluator.todayForUser(userId)).thenReturn(LocalDate.parse("2026-06-18"));
 
         AnalyticsDailyRollupUserProcessor processor =
-                new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService);
+                new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService, goalProgressEvaluator);
 
         processor.rollupUser(userId, LocalDate.parse("2026-06-18"), evaluatedAt);
 
@@ -51,6 +53,7 @@ class AnalyticsDailyRollupUserProcessorTests {
         assertThat(captor.getValue().getProgressRatio()).isNull();
         assertThat(captor.getValue().getCurrentValue()).isNull();
         assertThat(captor.getValue().getLastEvaluatedAt()).isEqualTo(evaluatedAt);
+        verify(goalProgressEvaluator).recompute(userId, GoalProgressEvaluator.ALL_GOAL_TYPES, LocalDate.parse("2026-06-18"));
         verify(rebuildService).rebuildDashboard(userId);
     }
 
@@ -58,15 +61,17 @@ class AnalyticsDailyRollupUserProcessorTests {
     void recomputesFutureActiveGoalDaysRemaining() {
         AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
         AnalyticsRebuildService rebuildService = mock(AnalyticsRebuildService.class);
+        GoalProgressEvaluator goalProgressEvaluator = mock(GoalProgressEvaluator.class);
         UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         Instant evaluatedAt = Instant.parse("2026-06-18T00:05:00Z");
 
         AnalyticsUserGoalProgressEntity goal = activeGoal(userId, LocalDate.parse("2026-06-28"));
         when(goalRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
                 .thenReturn(List.of(goal));
+        when(goalProgressEvaluator.todayForUser(userId)).thenReturn(LocalDate.parse("2026-06-18"));
 
         AnalyticsDailyRollupUserProcessor processor =
-                new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService);
+                new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService, goalProgressEvaluator);
 
         processor.rollupUser(userId, LocalDate.parse("2026-06-18"), evaluatedAt);
 
@@ -76,6 +81,7 @@ class AnalyticsDailyRollupUserProcessorTests {
         assertThat(captor.getValue().getGoalStatus()).isEqualTo("ACTIVE");
         assertThat(captor.getValue().getDaysRemaining()).isEqualTo(10);
         assertThat(captor.getValue().getLastEvaluatedAt()).isEqualTo(evaluatedAt);
+        verify(goalProgressEvaluator).recompute(userId, GoalProgressEvaluator.ALL_GOAL_TYPES, LocalDate.parse("2026-06-18"));
         verify(rebuildService).rebuildDashboard(userId);
     }
 
@@ -83,19 +89,22 @@ class AnalyticsDailyRollupUserProcessorTests {
     void leavesAlreadyCurrentFutureGoalUnchangedButStillRebuildsDashboard() {
         AnalyticsUserGoalProgressRepository goalRepository = mock(AnalyticsUserGoalProgressRepository.class);
         AnalyticsRebuildService rebuildService = mock(AnalyticsRebuildService.class);
+        GoalProgressEvaluator goalProgressEvaluator = mock(GoalProgressEvaluator.class);
         UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
         AnalyticsUserGoalProgressEntity goal = activeGoal(userId, LocalDate.parse("2026-06-28"));
         goal.setDaysRemaining(10);
         when(goalRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
                 .thenReturn(List.of(goal));
+        when(goalProgressEvaluator.todayForUser(userId)).thenReturn(LocalDate.parse("2026-06-18"));
 
         AnalyticsDailyRollupUserProcessor processor =
-                new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService);
+                new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService, goalProgressEvaluator);
 
         processor.rollupUser(userId, LocalDate.parse("2026-06-18"), Instant.parse("2026-06-18T00:05:00Z"));
 
         verify(goalRepository, never()).save(any());
+        verify(goalProgressEvaluator).recompute(userId, GoalProgressEvaluator.ALL_GOAL_TYPES, LocalDate.parse("2026-06-18"));
         verify(rebuildService).rebuildDashboard(userId);
     }
 

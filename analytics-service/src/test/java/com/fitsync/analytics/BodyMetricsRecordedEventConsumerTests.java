@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
@@ -11,8 +12,10 @@ import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
+import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
+import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,6 +29,9 @@ class BodyMetricsRecordedEventConsumerTests {
     private DomainEventConsumer<BodyMetricsRecordedPayload> consumer;
 
     @Autowired
+    private DomainEventConsumer<GoalUpdatedPayload> goalUpdatedEventConsumer;
+
+    @Autowired
     private AnalyticsUserDailyBodyRepository dailyBodyRepository;
 
     @Autowired
@@ -33,6 +39,9 @@ class BodyMetricsRecordedEventConsumerTests {
 
     @Autowired
     private AnalyticsProcessedEventRepository processedEventRepository;
+
+    @Autowired
+    private AnalyticsUserGoalProgressRepository goalProgressRepository;
 
     @Test
     void bodyMetricsEventUpdatesDailyProjectionAndDashboardSnapshot() {
@@ -97,5 +106,49 @@ class BodyMetricsRecordedEventConsumerTests {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId).orElseThrow();
         assertThat(snapshot.getLatestWeightKg()).isEqualByComparingTo("79.00");
         assertThat(processedEventRepository.count()).isGreaterThanOrEqualTo(1L);
+    }
+
+    @Test
+    void bodyMetricsEventRecomputesWeightGoalCurrentValue() {
+        UUID userId = UUID.randomUUID();
+        UUID goalId = UUID.randomUUID();
+
+        goalUpdatedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-14T03:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "WEIGHT",
+                        new BigDecimal("75.00"),
+                        "kg",
+                        LocalDate.parse("2026-08-01"),
+                        "ACTIVE")));
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "BodyMetricsRecorded",
+                1,
+                Instant.parse("2026-06-14T04:00:00Z"),
+                "user-service",
+                userId,
+                new BodyMetricsRecordedPayload(
+                        UUID.randomUUID(),
+                        new BigDecimal("78.40"),
+                        null,
+                        null,
+                        Instant.parse("2026-06-14T03:50:00Z"))));
+
+        assertThat(goalProgressRepository.findById(goalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getBaselineValue()).isEqualByComparingTo("78.40");
+                    assertThat(goal.getCurrentValue()).isEqualByComparingTo("78.40");
+                    assertThat(goal.getProgressRatio()).isEqualByComparingTo("0.0000");
+                });
     }
 }
