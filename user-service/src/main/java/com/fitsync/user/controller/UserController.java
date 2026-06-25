@@ -172,6 +172,13 @@ public class UserController {
         return userService.upsertGoal(currentPrincipal(authentication), goalType, request);
     }
 
+    @DeleteMapping("/me/goals/{goalType}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteGoal(Authentication authentication,
+                           @PathVariable GoalType goalType) {
+        userService.deleteGoal(currentPrincipal(authentication), goalType);
+    }
+
     @PostMapping("/me/data-export/requests")
     @ResponseStatus(HttpStatus.CREATED)
     public AccountDataExportRequestView requestDataExport(Authentication authentication) {

@@ -91,6 +91,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class UserServiceImpl implements UserService {
 
     private static final String SOURCE = "user-service";
+    private static final String PROGRESS_EVENTS_TOPIC = "progress-events";
     private static final String ACCOUNT_DELETION_REASON_USER_REQUESTED = "USER_REQUESTED";
     private static final String NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE = "NOT_YET_ACTIVE";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
@@ -539,6 +540,21 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    public void deleteGoal(CurrentUserPrincipal principal, GoalType goalType) {
+        UserGoalEntity entity = userGoalRepository.findByUserIdAndGoalType(principal.userId(), goalType)
+                .orElseThrow(() -> new ResourceNotFoundException("Goal not found"));
+        if (entity.getStatus() == GoalStatus.ARCHIVED) {
+            return;
+        }
+        // Soft delete: keep the row so the (user_id, goal_type) slot is reused on re-create,
+        // but drop it from the ACTIVE list and tell downstream read models to remove it.
+        entity.setStatus(GoalStatus.ARCHIVED);
+        UserGoalEntity saved = userGoalRepository.save(entity);
+        publishGoalUpdated(saved);
+    }
+
+    @Override
+    @Transactional
     public AccountDataExportRequestView requestAccountDataExport(CurrentUserPrincipal principal) {
         Instant now = Instant.now(Clock.systemUTC());
         AccountDataExportRequestEntity entity = new AccountDataExportRequestEntity();
@@ -741,7 +757,7 @@ public class UserServiceImpl implements UserService {
 
     private void publishGoalUpdated(UserGoalEntity saved) {
         domainEventPublisher.publish(
-                "progress-events", "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
+                PROGRESS_EVENTS_TOPIC, "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, saved.getUserId(),
                 new GoalUpdatedPayload(
                         saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
@@ -764,7 +780,7 @@ public class UserServiceImpl implements UserService {
 
     private void publishBodyMetricsRecorded(UUID userId, BodyMetricEntryEntity saved) {
         domainEventPublisher.publish(
-                "progress-events", "BodyMetricEntry", saved.getMetricId().toString(), new FitSyncDomainEvent<>(
+                PROGRESS_EVENTS_TOPIC, "BodyMetricEntry", saved.getMetricId().toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "BodyMetricsRecorded", 1, Instant.now(Clock.systemUTC()), SOURCE, userId,
                 new BodyMetricsRecordedPayload(
                         saved.getMetricId(),

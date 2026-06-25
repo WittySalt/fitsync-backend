@@ -280,10 +280,20 @@ public class AnalyticsServiceImpl implements AnalyticsService {
             key = "#principal.userId() + ':' + (#status == null ? '' : #status.toUpperCase(T(java.util.Locale).ROOT))")
     public AnalyticsGoalProgressResponse getGoalProgress(CurrentUserPrincipal principal, String status) {
         String normalizedStatus = normalizeStatus(status);
+        // Collapse to one row per goal type, keeping the most recently evaluated entry.
+        // The read model is keyed by goalId and can hold stale rows from superseded goals
+        // (e.g. re-seeded ids), so without this guard the same type renders multiple times.
+        Map<String, AnalyticsUserGoalProgressEntity> latestByGoalType = new HashMap<>();
+        goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(principal.userId()).stream()
+                .filter(goal -> normalizedStatus.isBlank()
+                        || normalizedStatus.equals(normalizeStatus(goal.getGoalStatus())))
+                .forEach(goal -> latestByGoalType.merge(
+                        goal.getGoalType(),
+                        goal,
+                        (current, candidate) -> shouldReplaceGoalSummary(current, candidate) ? candidate : current));
+
         return new AnalyticsGoalProgressResponse(
-                goalProgressRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(principal.userId()).stream()
-                        .filter(goal -> normalizedStatus.isBlank()
-                                || normalizedStatus.equals(normalizeStatus(goal.getGoalStatus())))
+                latestByGoalType.values().stream()
                         .sorted(Comparator.comparing(AnalyticsUserGoalProgressEntity::getTargetDate,
                                         Comparator.nullsLast(Comparator.naturalOrder()))
                                 .thenComparing(AnalyticsUserGoalProgressEntity::getGoalId))

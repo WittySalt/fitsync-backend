@@ -72,6 +72,17 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         Instant evaluatedAt = event.occurredAt() != null ? event.occurredAt() : Instant.now(clock);
         String goalStatus = resolveGoalStatus(payload, evaluatedAt);
 
+        if (isRemoved(payload.status())) {
+            // Soft-deleted upstream: drop the row from the read model so it disappears
+            // from goal-progress and stops counting toward dashboard targets. Guard the
+            // delete so a removal event for a never-projected goal is a no-op.
+            goalProgressRepository.findById(payload.goalId()).ifPresent(goalProgressRepository::delete);
+            updateDashboardTargets(event, payload);
+            recordProcessedEvent(event);
+            cacheInvalidationService.evictAllForUser(event.userId());
+            return;
+        }
+
         AnalyticsUserGoalProgressEntity entity = goalProgressRepository.findById(payload.goalId())
                 .orElseGet(AnalyticsUserGoalProgressEntity::new);
         entity.setGoalId(payload.goalId());
@@ -144,6 +155,11 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         processedEvent.setUserId(event.userId());
         processedEvent.setProcessedAt(event.occurredAt() != null ? event.occurredAt() : Instant.now(clock));
         processedEventRepository.save(processedEvent);
+    }
+
+    private boolean isRemoved(String status) {
+        String normalized = GoalExpiryPolicy.normalizeStatus(status);
+        return "ARCHIVED".equals(normalized) || "CANCELLED".equals(normalized);
     }
 
     private String resolveGoalStatus(GoalUpdatedPayload payload, Instant evaluatedAt) {

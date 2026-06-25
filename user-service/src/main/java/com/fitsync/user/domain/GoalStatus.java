@@ -4,5 +4,6 @@ public enum GoalStatus {
     ACTIVE,
     PAUSED,
     COMPLETED,
-    CANCELLED
+    CANCELLED,
+    ARCHIVED
 }

@@ -120,6 +120,46 @@ class GoalUpdatedEventConsumerTests {
     }
 
     @Test
+    void archivedGoalRemovesGoalProgressRow() {
+        UUID userId = UUID.randomUUID();
+        UUID goalId = UUID.randomUUID();
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-14T04:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "WEIGHT",
+                        new BigDecimal("68.0"),
+                        "kg",
+                        LocalDate.parse("2026-08-01"),
+                        "ACTIVE")));
+
+        assertThat(goalProgressRepository.findById(goalId)).isPresent();
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-14T06:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "WEIGHT",
+                        new BigDecimal("68.0"),
+                        "kg",
+                        LocalDate.parse("2026-08-01"),
+                        "ARCHIVED")));
+
+        assertThat(goalProgressRepository.findById(goalId)).isEmpty();
+    }
+
+    @Test
     void activeProteinGoalWithoutProteinIsNotOnTrack() {
         UUID userId = UUID.randomUUID();
         UUID goalId = UUID.randomUUID();
