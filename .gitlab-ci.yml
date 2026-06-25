@@ -9,6 +9,7 @@ stages:
   - precheck
   - verify
   - security
+  - iac
   - stress
   - docker
   - deploy
@@ -82,6 +83,50 @@ default:
     - export $(printf "AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s AWS_SESSION_TOKEN=%s" $aws_sts_output)
     - export AWS_DEFAULT_REGION="$AWS_REGION"
     - aws sts get-caller-identity
+
+# Download a pinned Terraform onto an Alpine image. Pinned to the version used
+# locally so CI never reads state written by a newer binary.
+.tf_setup:
+  variables:
+    TF_VERSION: "1.15.7"
+    TF_DIR: infra/terraform
+  script:
+    - apk add --no-cache curl unzip
+    - curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
+    - unzip -o /tmp/tf.zip -d /usr/local/bin
+    - terraform version
+
+# ── CD only: Terraform runs on main, never on MRs (same rule as container build).
+# `terraform plan` validates internally, so there is no separate validate job.
+# Provisioning (terraform apply) is the deploy_staging job in the `deploy` stage.
+
+tf_plan:
+  stage: iac
+  image: alpine:3.20
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  needs: []
+  variables:
+    TF_VERSION: "1.15.7"
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_REGION"
+  before_script:
+    - !reference [.assume_aws_role, before_script]
+    - !reference [.tf_setup, script]
+  script:
+    - !reference [.require_vars, script]
+    - cd infra/terraform
+    - terraform init
+    - terraform workspace select staging || terraform workspace new staging
+    - terraform plan -var-file=staging.tfvars -out=tfplan
+  artifacts:
+    paths:
+      - infra/terraform/tfplan
+    expire_in: 7 days
+  rules:
+    # Requires the S3 remote-state backend to be bootstrapped (see RUNBOOK).
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+    - when: never
 
 secret_scan:
   stage: precheck
@@ -254,6 +299,42 @@ dependency_audit:
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
       allow_failure: true
+    - when: never
+
+# ── CD: provision/update STAGING via Terraform ───────────────────────────────
+# The staging environment is delivered entirely by Terraform. Separate lane from
+# deploy_prod, separate environment, separate AWS resources (fitsync-staging-*).
+deploy_staging:
+  stage: deploy
+  image: alpine:3.20
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  resource_group: staging
+  environment:
+    name: staging
+  needs:
+    - job: tf_plan
+      artifacts: true
+  variables:
+    TF_VERSION: "1.15.7"
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_REGION"
+  before_script:
+    - !reference [.assume_aws_role, before_script]
+    - !reference [.tf_setup, script]
+  script:
+    - !reference [.require_vars, script]
+    - cd infra/terraform
+    - terraform init
+    - terraform workspace select staging
+    # Apply the exact plan produced by tf_plan in this pipeline.
+    - terraform apply -auto-approve tfplan
+  rules:
+    # Manual gate, only after tf_plan; requires the S3 remote-state backend
+    # (see RUNBOOK "Remote state bootstrap"). Hidden until AWS_ROLE_ARN is set.
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+      when: manual
+      allow_failure: false
     - when: never
 
 deploy_prod:

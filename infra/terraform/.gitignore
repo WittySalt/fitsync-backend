@@ -1,0 +1,12 @@
+# Terraform state & local-only files — never commit
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars.local
+*.auto.tfvars
+override.tf
+override.tf.json
+.terraformrc
+terraform.rc
