@@ -42,7 +42,7 @@
         <spotbugs.version>4.8.6.4</spotbugs.version>
         <findsecbugs.version>1.13.0</findsecbugs.version>
         <checkstyle.version>3.4.0</checkstyle.version>
-        <owasp.dependency-check.version>10.0.4</owasp.dependency-check.version>
+        <owasp.dependency-check.version>12.1.3</owasp.dependency-check.version>
         <sonar.maven.plugin.version>4.0.0.4121</sonar.maven.plugin.version>
         <!-- Coverage gate: fail build if line coverage drops below this -->
         <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>
@@ -192,6 +192,10 @@
                         <failBuildOnCVSS>7</failBuildOnCVSS>
                         <suppressionFile>${project.basedir}/../dependency-check-suppress.xml</suppressionFile>
                         <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                        <!-- Space out NVD API requests to avoid the rate-limited
+                             empty-page responses that triggered the "bytes is null"
+                             NPE on the first full pull (NvdCveClient._next). -->
+                        <nvdApiDelay>4000</nvdApiDelay>
                     </configuration>
                     <executions>
                         <execution>

@@ -19,10 +19,6 @@ output "media_bucket" {
   value = aws_s3_bucket.media.bucket
 }
 
-output "frontend_bucket" {
-  value = aws_s3_bucket.frontend.bucket
-}
-
 output "cognito_user_pool_id" {
   value = aws_cognito_user_pool.main.id
 }
@@ -47,9 +43,4 @@ output "rds_endpoint" {
 output "ec2_public_ip" {
   description = "App host EIP (null unless enable_ec2=true)"
   value       = var.enable_ec2 ? aws_eip.app[0].public_ip : null
-}
-
-output "cloudfront_domain" {
-  description = "CloudFront domain (null unless enable_cloudfront=true)"
-  value       = var.enable_cloudfront ? aws_cloudfront_distribution.frontend[0].domain_name : null
 }

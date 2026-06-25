@@ -189,9 +189,9 @@ bootstrap_staging_db:
     - ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "rm -f /tmp/bootstrap-staging-db.sql"
     - 'echo "Staging DB roles + schemas bootstrapped."'
   rules:
+    # Auto-cascades after deploy_staging succeeds — one manual trigger
+    # (deploy_staging) brings up infra → DB roles → app.
     - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
-      when: manual
-      allow_failure: false
     - when: never
 
 # ── Deploy the app onto the STAGING host (after Terraform provisions it) ──────
@@ -215,6 +215,11 @@ deploy_staging_app:
     name: staging
   needs:
     - job: bootstrap_staging_db
+    # Precondition: deploy the images THIS pipeline built + tested. docker_image
+    # needs verify_backend, so requiring it guarantees build+test+scan ran first.
+    # optional: web pipelines exclude docker_image (push-only) → avoid config error.
+    - job: docker_image
+      optional: true
   variables:
     TF_VERSION: "1.15.7"
     REQUIRED_VARS: "AWS_ROLE_ARN AWS_ACCOUNT_ID AWS_REGION STAGING_DB_PASSWORD STAGING_JWT_SECRET STAGING_EC2_SSH_KEY"
@@ -231,7 +236,7 @@ deploy_staging_app:
     - RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
     - cd "$CI_PROJECT_DIR"
     - export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    - export IMAGE_TAG="${STAGING_IMAGE_TAG:-latest}"
+    - export IMAGE_TAG="${STAGING_IMAGE_TAG:-${CI_COMMIT_SHA:0:8}}"
     - mkdir -p ~/.ssh
     - printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
@@ -293,23 +298,24 @@ deploy_staging_app:
     - test "$(curl -s -o /dev/null -w '%{http_code}' "http://$STAGING_HOST:8088/actuator/health")" = "200"
     - 'echo "Staging gateway up: http://$STAGING_HOST:8088 — set STRESS_TARGET_URL / DAST_TARGET_URL to this."'
   rules:
+    # Auto-cascades after bootstrap_staging_db — completes the one-trigger bring-up.
     - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
-      when: manual
-      allow_failure: false
     - when: never
 
 # ── Stress + DAST against STAGING (never production) ──────────────────────────
 # Both hit the running STAGING environment via a URL variable and produce report
 # artifacts. Visible-but-manual on main pipelines (and web): a clickable ▶️ button
 # in the pipeline graph, optional (allow_failure) so the pipeline stays green, and
-# manual because they load a live environment. `needs: []` keeps them runnable
-# against an already-up staging without forcing a fresh deploy in this pipeline.
+# manual because they load a live environment. They `needs: deploy_staging_app`
+# so they follow the staging app deploy, but stay manual so you choose when to run
+# the heavy stress/scan and against which target URL.
 stress_test:
   stage: verify-staging
   image:
     name: grafana/k6:0.49.0
     entrypoint: [""]
-  needs: []
+  needs:
+    - job: deploy_staging_app
   script:
     - |
       if [ -z "$STRESS_TARGET_URL" ]; then
@@ -352,7 +358,8 @@ owasp_zap:
   image: docker:27.1.1-cli
   services:
     - name: docker:27.1.1-dind
-  needs: []
+  needs:
+    - job: deploy_staging_app
   script:
     - |
       if [ -z "$DAST_TARGET_URL" ]; then
@@ -361,6 +368,10 @@ owasp_zap:
       fi
     - mkdir -p dast
     - docker volume create zapwrk >/dev/null
+    # The named volume mounts root-owned, but ZAP runs as uid 1000 and can't write
+    # its report there ("AccessDeniedException /zap/wrk/zap-baseline.html"). Make the
+    # mount world-writable first so the report files actually get generated.
+    - docker run --rm -v zapwrk:/zap/wrk alpine:3.20 chmod 0777 /zap/wrk
     # Passive baseline scan; -I = report-only. Reports are written into the named volume.
     - docker run --rm -v zapwrk:/zap/wrk ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$DAST_TARGET_URL" -r zap-baseline.html -w zap-baseline.md -J zap-baseline.json -I || true
     # Lift the reports out of the volume into the artifact dir (docker cp works across dind).
