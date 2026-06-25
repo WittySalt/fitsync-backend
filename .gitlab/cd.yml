@@ -140,6 +140,60 @@ deploy_staging:
       allow_failure: false
     - when: never
 
+# ── Bootstrap the staging RDS: per-service roles + schemas ────────────────────
+# The RDS is private (publicly_accessible=false; db SG allows the app SG only), so
+# this runs FROM the staging EC2 (inside the VPC) over SSH, using a throwaway
+# postgres container to psql the RDS as master. Idempotent. Passwords come from
+# masked CI vars (TF_VAR_db_password = master, STAGING_DB_PASSWORD = the *_svc
+# roles) so they are masked in the job log.
+bootstrap_staging_db:
+  stage: deploy-staging
+  image: alpine:3.20
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  resource_group: staging
+  needs:
+    - job: deploy_staging
+  variables:
+    TF_VERSION: "1.15.7"
+    REQUIRED_VARS: "AWS_ROLE_ARN AWS_REGION TF_VAR_db_password STAGING_DB_PASSWORD STAGING_EC2_SSH_KEY"
+  before_script:
+    - !reference [.assume_aws_role, before_script]
+    - !reference [.tf_setup, script]
+  script:
+    - !reference [.require_vars, script]
+    - cd infra/terraform
+    - terraform init
+    - terraform workspace select staging
+    - STAGING_HOST="$(terraform output -raw ec2_public_ip)"
+    - RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
+    - cd "$CI_PROJECT_DIR"
+    - DB_HOST="${RDS_ENDPOINT%:*}"
+    - DB_PORT="${RDS_ENDPOINT##*:}"
+    - mkdir -p ~/.ssh
+    - printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
+    # Ship the SQL to the EC2 and run it against the (private) RDS from there, via a
+    # one-off postgres image. PGPASSWORD = master; -v svc_pw = the *_svc password.
+    - scp -i ~/.ssh/id_ed25519 scripts/bootstrap-staging-db.sql "ec2-user@$STAGING_HOST:/tmp/bootstrap-staging-db.sql"
+    - >
+      ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST"
+      "sudo docker run --rm
+      -e PGPASSWORD='$TF_VAR_db_password'
+      -v /tmp/bootstrap-staging-db.sql:/b.sql:ro
+      postgres:16
+      psql -h '$DB_HOST' -p '$DB_PORT' -U fitsync_master -d fitsync
+      -v ON_ERROR_STOP=1 -v svc_pw='$STAGING_DB_PASSWORD' -f /b.sql"
+    - ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "rm -f /tmp/bootstrap-staging-db.sql"
+    - 'echo "Staging DB roles + schemas bootstrapped."'
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $AWS_ROLE_ARN'
+      when: manual
+      allow_failure: false
+    - when: never
+
 # ── Deploy the app onto the STAGING host (after Terraform provisions it) ──────
 # Mirrors deploy_prod but for staging: the EC2 host and RDS endpoint are read from
 # the Terraform outputs that deploy_staging just applied, so nothing is hard-coded.
@@ -147,7 +201,7 @@ deploy_staging:
 #   - staging.tfvars: enable_ec2=true, enable_rds=true, ec2_key_name=<existing key pair>
 #   - CI vars: STAGING_EC2_SSH_KEY (private half of that key pair),
 #              STAGING_DB_PASSWORD, STAGING_JWT_SECRET
-#   - the per-service *_svc DB roles exist in the staging RDS
+#   - the per-service *_svc DB roles + schemas — created by bootstrap_staging_db
 # The staging gateway is PUBLIC on :8088 (app SG allows 0.0.0.0/0), so stress/DAST
 # target it directly — no CloudFront needed for staging.
 deploy_staging_app:
@@ -160,7 +214,7 @@ deploy_staging_app:
   environment:
     name: staging
   needs:
-    - job: deploy_staging
+    - job: bootstrap_staging_db
   variables:
     TF_VERSION: "1.15.7"
     REQUIRED_VARS: "AWS_ROLE_ARN AWS_ACCOUNT_ID AWS_REGION STAGING_DB_PASSWORD STAGING_JWT_SECRET STAGING_EC2_SSH_KEY"
