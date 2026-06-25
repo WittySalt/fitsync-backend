@@ -47,7 +47,7 @@ class AccountDeletionProjectionServiceTests {
         verify(fixtures.goalProgressRepository).deleteByUserId(userId);
         verify(fixtures.dashboardSnapshotRepository).deleteById(userId);
         verify(fixtures.processedEventRepository).deleteByUserId(userId);
-        verify(fixtures.cacheInvalidationService).evictAllForUser(userId);
+        verify(fixtures.cacheInvalidationService).evictForUser(userId);
 
         ArgumentCaptor<AnalyticsProcessedEventEntity> processedCaptor =
                 ArgumentCaptor.forClass(AnalyticsProcessedEventEntity.class);

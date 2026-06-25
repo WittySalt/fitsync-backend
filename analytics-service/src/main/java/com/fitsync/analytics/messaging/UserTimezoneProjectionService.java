@@ -50,7 +50,7 @@ public class UserTimezoneProjectionService {
             snapshot.setTimezone(normalizedTimezone);
             snapshot.setGeneratedAt(generatedAt);
             dashboardSnapshotRepository.save(snapshot);
-            cacheInvalidationService.evictAllForUser(event.userId());
+            cacheInvalidationService.evictForUser(event.userId());
         }
         recordProcessedEvent(event);
     }

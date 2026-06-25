@@ -92,7 +92,7 @@ public class MealNutritionProjectionService {
         applyContributionDelta(event.userId(), newDate, null, newContribution, event.occurredAt());
         recomputeNutritionGoalsForToday(event.userId(), existingDate, newDate);
         recordProcessedEvent(event);
-        cacheInvalidationService.evictAllForUser(event.userId());
+        cacheInvalidationService.evictForUser(event.userId());
     }
 
     @Transactional
@@ -112,7 +112,7 @@ public class MealNutritionProjectionService {
             recomputeNutritionGoalsForToday(event.userId(), existingContribution.getActivityDate(), null);
         }
         recordProcessedEvent(event);
-        cacheInvalidationService.evictAllForUser(event.userId());
+        cacheInvalidationService.evictForUser(event.userId());
     }
 
     private void applyContributionDelta(UUID userId,

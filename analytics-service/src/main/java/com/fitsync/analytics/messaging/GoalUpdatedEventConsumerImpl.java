@@ -79,7 +79,7 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
             goalProgressRepository.findById(payload.goalId()).ifPresent(goalProgressRepository::delete);
             updateDashboardTargets(event, payload);
             recordProcessedEvent(event);
-            cacheInvalidationService.evictAllForUser(event.userId());
+            cacheInvalidationService.evictForUser(event.userId());
             return;
         }
 
@@ -113,7 +113,7 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
                     goalProgressEvaluator.todayForUser(event.userId()));
         }
         recordProcessedEvent(event);
-        cacheInvalidationService.evictAllForUser(event.userId());
+        cacheInvalidationService.evictForUser(event.userId());
     }
 
     private void captureWeightBaselineIfAvailable(FitSyncDomainEvent<GoalUpdatedPayload> event,

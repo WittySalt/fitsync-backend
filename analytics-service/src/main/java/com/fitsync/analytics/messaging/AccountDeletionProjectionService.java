@@ -70,7 +70,7 @@ public class AccountDeletionProjectionService {
         dashboardSnapshotRepository.deleteById(userId);
         processedEventRepository.deleteByUserId(userId);
         recordProcessedEvent(event);
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
     }
 
     private void recordProcessedEvent(FitSyncDomainEvent<?> event) {

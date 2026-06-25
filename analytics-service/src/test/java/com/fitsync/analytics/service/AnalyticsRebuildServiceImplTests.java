@@ -83,7 +83,7 @@ class AnalyticsRebuildServiceImplTests {
         assertThat(saved.getWeekWorkoutMinutes()).isEqualTo(315);
         assertThat(saved.getActiveStreakDays()).isEqualTo(7);
         verify(fixture.analyticsEventPublisher()).publishStreakMilestone(USER_ID, 7, 7, TODAY);
-        verify(fixture.cacheInvalidationService()).evictAllForUser(USER_ID);
+        verify(fixture.cacheInvalidationService()).evictForUser(USER_ID);
     }
 
     @Test
@@ -166,7 +166,7 @@ class AnalyticsRebuildServiceImplTests {
         assertThat(saved.getProteinTargetGrams()).isEqualByComparingTo("100.00");
         assertThat(saved.getCalorieAdherenceRatio()).isEqualByComparingTo("0.3000");
         assertThat(saved.getMacroAdherenceScore()).isEqualByComparingTo("0.5000");
-        verify(fixture.cacheInvalidationService(), times(2)).evictAllForUser(USER_ID);
+        verify(fixture.cacheInvalidationService(), times(2)).evictForUser(USER_ID);
     }
 
     @Test
@@ -194,7 +194,7 @@ class AnalyticsRebuildServiceImplTests {
         assertThat(saved.getTotalExerciseCount()).isEqualTo(6);
         assertThat(saved.getRolling7DayWorkoutCount()).isZero();
         assertThat(saved.getRolling28DayWorkoutCount()).isZero();
-        verify(fixture.cacheInvalidationService(), times(2)).evictAllForUser(USER_ID);
+        verify(fixture.cacheInvalidationService(), times(2)).evictForUser(USER_ID);
     }
 
     private Fixture newFixture() {

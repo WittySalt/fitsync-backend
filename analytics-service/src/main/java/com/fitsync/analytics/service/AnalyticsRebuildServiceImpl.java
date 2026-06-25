@@ -114,7 +114,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         snapshot.setGeneratedAt(Instant.now(clock));
         dashboardSnapshotRepository.save(snapshot);
         emitStreakMilestones(userId, previousStreak, newStreak, today);
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
         return new AnalyticsRebuildResponse(userId, "dashboard", null, snapshot.getGeneratedAt());
     }
 
@@ -164,7 +164,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         recalculateNutritionScores(daily);
         dailyNutritionRepository.save(daily);
         rebuildDashboard(userId);
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
         return new AnalyticsRebuildResponse(userId, "nutrition", date, Instant.now(clock));
     }
 
@@ -193,7 +193,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         daily.setProjectionUpdatedAt(Instant.now(clock));
         dailyWorkoutRepository.save(daily);
         rebuildDashboard(userId);
-        cacheInvalidationService.evictAllForUser(userId);
+        cacheInvalidationService.evictForUser(userId);
         return new AnalyticsRebuildResponse(userId, "workouts", date, Instant.now(clock));
     }
 
