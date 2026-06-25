@@ -2,8 +2,10 @@ package com.fitsync.analytics.service;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
@@ -32,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
 
+    private static final ZoneId DEFAULT_ZONE = ZoneOffset.UTC;
     private static final String ACTIVE_STATUS = "ACTIVE";
     private static final String CALORIES_GOAL_TYPE = "CALORIES";
     private static final String PROTEIN_GOAL_TYPE = "PROTEIN";
@@ -75,7 +78,8 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
     public AnalyticsRebuildResponse rebuildDashboard(UUID userId) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId)
                 .orElseGet(() -> createDashboardSnapshot(userId));
-        LocalDate today = LocalDate.now(clock.withZone(ZoneOffset.UTC));
+        ZoneId userZone = resolveZone(snapshot.getTimezone());
+        LocalDate today = LocalDate.now(clock.withZone(userZone));
 
         dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(userId)
                 .ifPresent(body -> {
@@ -312,5 +316,16 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
 
     private String normalize(String value) {
         return value == null ? "" : value.toUpperCase(Locale.ROOT);
+    }
+
+    private ZoneId resolveZone(String timezone) {
+        if (timezone == null || timezone.isBlank()) {
+            return DEFAULT_ZONE;
+        }
+        try {
+            return ZoneId.of(timezone.trim());
+        } catch (DateTimeException ex) {
+            return DEFAULT_ZONE;
+        }
     }
 }

@@ -13,10 +13,12 @@ import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
+import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
+import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +38,9 @@ class MealNutritionEventConsumerTests {
     private DomainEventConsumer<MealDeletedPayload> mealDeletedEventConsumer;
 
     @Autowired
+    private DomainEventConsumer<GoalUpdatedPayload> goalUpdatedEventConsumer;
+
+    @Autowired
     private AnalyticsMealContributionRepository mealContributionRepository;
 
     @Autowired
@@ -46,6 +51,9 @@ class MealNutritionEventConsumerTests {
 
     @Autowired
     private AnalyticsProcessedEventRepository processedEventRepository;
+
+    @Autowired
+    private AnalyticsUserGoalProgressRepository goalProgressRepository;
 
     @Test
     void mealLoggedEventBuildsContributionDailyAggregateAndDashboardTodayNutrition() {
@@ -201,5 +209,95 @@ class MealNutritionEventConsumerTests {
                     assertThat(daily.getTotalProteinGrams()).isEqualByComparingTo("0");
                 });
         assertThat(processedEventRepository.count()).isGreaterThanOrEqualTo(2L);
+    }
+
+    @Test
+    void mealLoggedEventRecomputesTodayNutritionGoalProgressButPastMealDoesNot() {
+        UUID userId = UUID.randomUUID();
+        UUID calorieGoalId = UUID.randomUUID();
+        UUID proteinGoalId = UUID.randomUUID();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant consumedAt = today.atStartOfDay().plusHours(8).toInstant(ZoneOffset.UTC);
+
+        projectGoal(userId, calorieGoalId, "CALORIES", new BigDecimal("2000"), "kcal");
+        projectGoal(userId, proteinGoalId, "PROTEIN", new BigDecimal("120.00"), "g");
+
+        mealLoggedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "MealLogged",
+                1,
+                consumedAt.plusSeconds(60),
+                "nutrition-service",
+                userId,
+                new MealLoggedPayload(
+                        UUID.randomUUID(),
+                        "BREAKFAST",
+                        consumedAt,
+                        600,
+                        new BigDecimal("30.00"),
+                        new BigDecimal("52.00"),
+                        new BigDecimal("14.00"),
+                        2,
+                        "MANUAL")));
+
+        assertThat(goalProgressRepository.findById(calorieGoalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getCurrentValue()).isEqualByComparingTo("600");
+                    assertThat(goal.getProgressRatio()).isEqualByComparingTo("0.3000");
+                    assertThat(goal.isOnTrack()).isTrue();
+                });
+        assertThat(goalProgressRepository.findById(proteinGoalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getCurrentValue()).isEqualByComparingTo("30.00");
+                    assertThat(goal.getProgressRatio()).isEqualByComparingTo("0.2500");
+                    assertThat(goal.isOnTrack()).isFalse();
+                });
+
+        mealLoggedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "MealLogged",
+                1,
+                consumedAt.plusSeconds(120),
+                "nutrition-service",
+                userId,
+                new MealLoggedPayload(
+                        UUID.randomUUID(),
+                        "LUNCH",
+                        consumedAt.minusSeconds(86_400),
+                        1000,
+                        new BigDecimal("80.00"),
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        1,
+                        "MANUAL")));
+
+        assertThat(goalProgressRepository.findById(calorieGoalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getCurrentValue()).isEqualByComparingTo("600");
+                    assertThat(goal.getProgressRatio()).isEqualByComparingTo("0.3000");
+                });
+    }
+
+    private void projectGoal(UUID userId, UUID goalId, String goalType, BigDecimal targetValue, String targetUnit) {
+        goalUpdatedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.now().minusSeconds(60),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        goalType,
+                        targetValue,
+                        targetUnit,
+                        LocalDate.now(ZoneOffset.UTC).plusDays(30),
+                        "ACTIVE")));
     }
 }

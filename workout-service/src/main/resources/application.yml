@@ -78,6 +78,12 @@ fitsync:
     enabled: ${KAFKA_ENABLED:false}
     topics:
       workout-events: ${KAFKA_WORKOUT_EVENTS_TOPIC:workout-events}
+      user-events: ${KAFKA_USER_EVENTS_TOPIC:user-events}
+    consumer-groups:
+      workout-service: ${KAFKA_WORKOUT_SERVICE_GROUP:workout-service-consumer-group}
+    listeners:
+      account-deleted:
+        enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}
   outbox:
     relay:
       enabled: ${OUTBOX_RELAY_ENABLED:false}

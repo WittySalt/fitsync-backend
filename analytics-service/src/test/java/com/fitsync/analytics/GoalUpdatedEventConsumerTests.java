@@ -12,6 +12,7 @@ import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,9 @@ class GoalUpdatedEventConsumerTests {
 
     @Autowired
     private DomainEventConsumer<GoalUpdatedPayload> consumer;
+
+    @Autowired
+    private DomainEventConsumer<BodyMetricsRecordedPayload> bodyMetricsConsumer;
 
     @Autowired
     private AnalyticsUserGoalProgressRepository goalProgressRepository;
@@ -156,6 +160,36 @@ class GoalUpdatedEventConsumerTests {
     }
 
     @Test
+    void activeProteinGoalWithoutProteinIsNotOnTrack() {
+        UUID userId = UUID.randomUUID();
+        UUID goalId = UUID.randomUUID();
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-14T04:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "PROTEIN",
+                        new BigDecimal("150.0"),
+                        "g",
+                        LocalDate.parse("2026-08-01"),
+                        "ACTIVE")));
+
+        assertThat(goalProgressRepository.findById(goalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getCurrentValue()).isEqualByComparingTo("0");
+                    assertThat(goal.getProgressRatio()).isEqualByComparingTo("0.0000");
+                    assertThat(goal.isOnTrack()).isFalse();
+                });
+    }
+
+    @Test
     void pastActiveGoalIsStoredAsExpired() {
         UUID userId = UUID.randomUUID();
         UUID goalId = UUID.randomUUID();
@@ -182,6 +216,49 @@ class GoalUpdatedEventConsumerTests {
                     assertThat(goal.getGoalStatus()).isEqualTo("EXPIRED");
                     assertThat(goal.getDaysRemaining()).isNull();
                     assertThat(goal.isOnTrack()).isFalse();
+                });
+    }
+
+    @Test
+    void weightGoalCapturesLatestKnownWeightAsBaselineWhenProjected() {
+        UUID userId = UUID.randomUUID();
+        UUID goalId = UUID.randomUUID();
+
+        bodyMetricsConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "BodyMetricsRecorded",
+                1,
+                Instant.parse("2026-06-14T04:00:00Z"),
+                "user-service",
+                userId,
+                new BodyMetricsRecordedPayload(
+                        UUID.randomUUID(),
+                        new BigDecimal("78.40"),
+                        null,
+                        null,
+                        Instant.parse("2026-06-14T03:50:00Z"))));
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-15T04:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "WEIGHT",
+                        new BigDecimal("75.00"),
+                        "kg",
+                        LocalDate.parse("2026-08-01"),
+                        "ACTIVE")));
+
+        assertThat(goalProgressRepository.findById(goalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getBaselineValue()).isEqualByComparingTo("78.40");
+                    assertThat(goal.getCurrentValue()).isEqualByComparingTo("78.40");
                 });
     }
 }

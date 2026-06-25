@@ -12,4 +12,6 @@ public interface CustomFoodRepository extends JpaRepository<CustomFoodEntity, UU
     List<CustomFoodEntity> findByUserIdOrderByNameAsc(UUID userId);
 
     Optional<CustomFoodEntity> findByCustomFoodIdAndUserId(UUID customFoodId, UUID userId);
+
+    void deleteByUserId(UUID userId);
 }

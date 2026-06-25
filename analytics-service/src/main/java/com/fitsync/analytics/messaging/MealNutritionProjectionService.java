@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.UUID;
 
 import com.fitsync.analytics.entity.AnalyticsMealContributionEntity;
@@ -16,6 +15,7 @@ import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
+import com.fitsync.analytics.service.GoalProgressEvaluator;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +29,7 @@ public class MealNutritionProjectionService {
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final DashboardSnapshotInitializer dashboardSnapshotInitializer;
+    private final GoalProgressEvaluator goalProgressEvaluator;
     private final Clock clock;
 
     public MealNutritionProjectionService(AnalyticsProcessedEventRepository processedEventRepository,
@@ -37,6 +38,7 @@ public class MealNutritionProjectionService {
                                           AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                           AnalyticsCacheInvalidationService cacheInvalidationService,
                                           DashboardSnapshotInitializer dashboardSnapshotInitializer,
+                                          GoalProgressEvaluator goalProgressEvaluator,
                                           Clock clock) {
         this.processedEventRepository = processedEventRepository;
         this.mealContributionRepository = mealContributionRepository;
@@ -44,6 +46,7 @@ public class MealNutritionProjectionService {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.cacheInvalidationService = cacheInvalidationService;
         this.dashboardSnapshotInitializer = dashboardSnapshotInitializer;
+        this.goalProgressEvaluator = goalProgressEvaluator;
         this.clock = clock;
     }
 
@@ -64,8 +67,9 @@ public class MealNutritionProjectionService {
             return;
         }
 
-        LocalDate newDate = consumedAt.atZone(ZoneOffset.UTC).toLocalDate();
+        LocalDate newDate = goalProgressEvaluator.activityDateForUser(event.userId(), consumedAt);
         AnalyticsMealContributionEntity existingContribution = mealContributionRepository.findById(mealId).orElse(null);
+        LocalDate existingDate = existingContribution == null ? null : existingContribution.getActivityDate();
 
         if (existingContribution != null) {
             applyContributionDelta(event.userId(), existingContribution.getActivityDate(), existingContribution, null, event.occurredAt());
@@ -86,6 +90,7 @@ public class MealNutritionProjectionService {
         mealContributionRepository.save(newContribution);
 
         applyContributionDelta(event.userId(), newDate, null, newContribution, event.occurredAt());
+        recomputeNutritionGoalsForToday(event.userId(), existingDate, newDate);
         recordProcessedEvent(event);
         cacheInvalidationService.evictAllForUser(event.userId());
     }
@@ -104,6 +109,7 @@ public class MealNutritionProjectionService {
         if (existingContribution != null) {
             applyContributionDelta(event.userId(), existingContribution.getActivityDate(), existingContribution, null, event.occurredAt());
             mealContributionRepository.delete(existingContribution);
+            recomputeNutritionGoalsForToday(event.userId(), existingContribution.getActivityDate(), null);
         }
         recordProcessedEvent(event);
         cacheInvalidationService.evictAllForUser(event.userId());
@@ -169,8 +175,8 @@ public class MealNutritionProjectionService {
                                        LocalDate activityDate,
                                        AnalyticsUserDailyNutritionEntity daily,
                                        Instant occurredAt) {
-        LocalDate todayUtc = LocalDate.now(clock.withZone(ZoneOffset.UTC));
-        if (!todayUtc.equals(activityDate)) {
+        LocalDate today = goalProgressEvaluator.todayForUser(userId);
+        if (!today.equals(activityDate)) {
             return;
         }
         AnalyticsUserDashboardSnapshotEntity snapshot = findOrCreateDashboardSnapshot(userId, occurredAt);
@@ -178,6 +184,13 @@ public class MealNutritionProjectionService {
         snapshot.setTodayProteinGrams(daily.getTotalProteinGrams());
         snapshot.setGeneratedAt(resolveOccurredAt(occurredAt, null));
         dashboardSnapshotRepository.save(snapshot);
+    }
+
+    private void recomputeNutritionGoalsForToday(UUID userId, LocalDate oldDate, LocalDate newDate) {
+        LocalDate today = goalProgressEvaluator.todayForUser(userId);
+        if (today.equals(oldDate) || today.equals(newDate)) {
+            goalProgressEvaluator.recompute(userId, GoalProgressEvaluator.NUTRITION_GOAL_TYPES, today);
+        }
     }
 
     private AnalyticsUserDashboardSnapshotEntity findOrCreateDashboardSnapshot(UUID userId, Instant occurredAt) {

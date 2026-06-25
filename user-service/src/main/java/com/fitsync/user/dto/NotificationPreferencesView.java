@@ -15,5 +15,7 @@ public record NotificationPreferencesView(
         NotificationChannel weeklyProgressReportChannel,
         boolean marketingEmailsEnabled,
         LocalTime quietHoursStart,
-        LocalTime quietHoursEnd) {
+        LocalTime quietHoursEnd,
+        boolean deliveryActive,
+        String deliveryStatus) {
 }

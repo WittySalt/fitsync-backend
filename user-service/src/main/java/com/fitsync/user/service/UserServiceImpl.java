@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.function.Function;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
@@ -91,6 +92,8 @@ public class UserServiceImpl implements UserService {
 
     private static final String SOURCE = "user-service";
     private static final String PROGRESS_EVENTS_TOPIC = "progress-events";
+    private static final String ACCOUNT_DELETION_REASON_USER_REQUESTED = "USER_REQUESTED";
+    private static final String NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE = "NOT_YET_ACTIVE";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
     private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
     private static final Map<String, String> AVATAR_EXTENSIONS = Map.of(
@@ -390,7 +393,8 @@ public class UserServiceImpl implements UserService {
                                 : savedNutrition.getDietaryPattern().getCode(),
                         savedNotifications.isPushEnabled() || savedNotifications.isEmailEnabled(),
                         savedTraining.getEquipmentInventory().stream().map(TrainingEquipment::getCode).toList(),
-                        savedTraining.getFocusAreas().stream().map(TrainingFocusArea::getCode).toList())));
+                        savedTraining.getFocusAreas().stream().map(TrainingFocusArea::getCode).toList(),
+                        savedApp.getTimezone())));
         return toPreferencesView(savedApp, savedTraining, savedNutrition, savedNotifications);
     }
 
@@ -519,12 +523,7 @@ public class UserServiceImpl implements UserService {
         entity.setStatus(request.status());
         entity.setNotes(request.notes());
         UserGoalEntity saved = userGoalRepository.save(entity);
-        domainEventPublisher.publish(
-                PROGRESS_EVENTS_TOPIC, "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
-                new GoalUpdatedPayload(
-                        saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
-                        saved.getTargetUnit(), saved.getTargetDate(), saved.getStatus().name())));
+        publishGoalUpdated(saved);
         return toGoalView(saved);
     }
 
@@ -551,12 +550,7 @@ public class UserServiceImpl implements UserService {
         // but drop it from the ACTIVE list and tell downstream read models to remove it.
         entity.setStatus(GoalStatus.ARCHIVED);
         UserGoalEntity saved = userGoalRepository.save(entity);
-        domainEventPublisher.publish(
-                PROGRESS_EVENTS_TOPIC, "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
-                new GoalUpdatedPayload(
-                        saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
-                        saved.getTargetUnit(), saved.getTargetDate(), saved.getStatus().name())));
+        publishGoalUpdated(saved);
     }
 
     @Override
@@ -615,6 +609,36 @@ public class UserServiceImpl implements UserService {
                 account,
                 listGoals(principal, null),
                 bodyMetrics);
+    }
+
+    @Override
+    @Transactional
+    public int republishActiveGoals() {
+        List<UserGoalEntity> activeGoals = userGoalRepository.findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus.ACTIVE);
+        activeGoals.forEach(this::publishGoalUpdated);
+        return activeGoals.size();
+    }
+
+    @Override
+    @Transactional
+    public void deleteCurrentUser(CurrentUserPrincipal principal) {
+        UUID userId = principal.userId();
+        Instant deletedAt = Instant.now(Clock.systemUTC());
+
+        accountDataExportRequestRepository.deleteByUserId(userId);
+        bodyMetricEntryRepository.deleteByUserId(userId);
+        userGoalRepository.deleteByUserId(userId);
+        userHealthReadinessRepository.deleteById(userId);
+        userNotificationPreferencesRepository.deleteById(userId);
+        userNutritionPreferencesRepository.deleteById(userId);
+        userTrainingPreferencesRepository.deleteById(userId);
+        userAppPreferencesRepository.deleteById(userId);
+        userProfileRepository.deleteById(userId);
+
+        domainEventPublisher.publish(
+                "user-events", "UserAccount", userId.toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "AccountDeleted", 1, deletedAt, SOURCE, userId,
+                new AccountDeletedPayload(deletedAt, ACCOUNT_DELETION_REASON_USER_REQUESTED)));
     }
 
     private UserProfileEntity getOrCreateProfileEntity(CurrentUserPrincipal principal) {
@@ -727,7 +751,17 @@ public class UserServiceImpl implements UserService {
                         saved.getHeightCm(),
                         saved.getActivityLevel() == null ? null : saved.getActivityLevel().name(),
                         saved.isOnboardingCompleted(),
-                        changedFields)));
+                        changedFields,
+                        saved.getTimezone())));
+    }
+
+    private void publishGoalUpdated(UserGoalEntity saved) {
+        domainEventPublisher.publish(
+                PROGRESS_EVENTS_TOPIC, "UserGoal", saved.getGoalId().toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "GoalUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, saved.getUserId(),
+                new GoalUpdatedPayload(
+                        saved.getGoalId(), saved.getGoalType().name(), saved.getTargetValue(),
+                        saved.getTargetUnit(), saved.getTargetDate(), saved.getStatus().name())));
     }
 
     private void applyBodyMetricRequest(BodyMetricEntryEntity entity, CreateBodyMetricRequest request) {
@@ -801,7 +835,9 @@ public class UserServiceImpl implements UserService {
                         notifications.getWeeklyProgressReportChannel(),
                         notifications.isMarketingEmailsEnabled(),
                         notifications.getQuietHoursStart(),
-                        notifications.getQuietHoursEnd()));
+                        notifications.getQuietHoursEnd(),
+                        false,
+                        NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE));
     }
 
     private HealthReadinessView toHealthReadinessView(UserHealthReadinessEntity entity) {

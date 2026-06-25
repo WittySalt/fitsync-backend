@@ -1,6 +1,7 @@
 package com.fitsync.nutrition.repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,4 +32,6 @@ public interface FoodServingRepository extends JpaRepository<FoodServingEntity, 
               and (s.dateEffectiveTo is null or s.dateEffectiveTo >= :onDate)
             """)
     java.util.Optional<FoodServingEntity> findActiveByServingId(@Param("servingId") UUID servingId, @Param("onDate") LocalDate onDate);
+
+    void deleteByFoodIdIn(Collection<UUID> foodIds);
 }

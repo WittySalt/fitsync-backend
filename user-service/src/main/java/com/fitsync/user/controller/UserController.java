@@ -61,6 +61,12 @@ public class UserController {
         return userService.getCurrentUser(currentPrincipal(authentication));
     }
 
+    @DeleteMapping("/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteCurrentUser(Authentication authentication) {
+        userService.deleteCurrentUser(currentPrincipal(authentication));
+    }
+
     @PostMapping("/me/onboarding")
     public CurrentUserResponse completeOnboarding(Authentication authentication,
                                                   @Valid @RequestBody CompleteOnboardingRequest request) {

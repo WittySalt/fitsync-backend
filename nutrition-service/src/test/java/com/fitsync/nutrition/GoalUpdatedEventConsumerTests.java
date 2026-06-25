@@ -110,4 +110,46 @@ class GoalUpdatedEventConsumerTests {
                 .extracting(target -> target.getCalorieTarget())
                 .isNull();
     }
+
+    @Test
+    void nonActiveProteinGoalClearsProteinTarget() {
+        UUID userId = UUID.randomUUID();
+        UUID goalId = UUID.randomUUID();
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-11T14:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "PROTEIN",
+                        new BigDecimal("155.0"),
+                        "g",
+                        LocalDate.parse("2026-09-01"),
+                        "ACTIVE")));
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-11T14:10:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "PROTEIN",
+                        new BigDecimal("155.0"),
+                        "g",
+                        LocalDate.parse("2026-09-01"),
+                        "CANCELLED")));
+
+        assertThat(nutritionTargetRepository.findById(userId))
+                .isPresent()
+                .get()
+                .extracting(target -> target.getProteinTarget())
+                .isNull();
+    }
 }

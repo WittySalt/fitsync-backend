@@ -18,4 +18,6 @@ public interface BodyMetricEntryRepository extends JpaRepository<BodyMetricEntry
     Optional<BodyMetricEntryEntity> findByMetricIdAndUserId(UUID metricId, UUID userId);
 
     List<BodyMetricEntryEntity> findByUserIdOrderByMeasuredAtDesc(UUID userId);
+
+    void deleteByUserId(UUID userId);
 }

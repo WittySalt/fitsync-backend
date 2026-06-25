@@ -21,4 +21,6 @@ public interface AnalyticsUserDailyWorkoutRepository
     List<AnalyticsUserDailyWorkoutEntity> findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(UUID userId,
                                                                                                      LocalDate from,
                                                                                                      LocalDate to);
+
+    void deleteByUserId(UUID userId);
 }

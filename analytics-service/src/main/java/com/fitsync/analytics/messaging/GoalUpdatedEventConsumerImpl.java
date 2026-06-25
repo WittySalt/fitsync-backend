@@ -3,15 +3,19 @@ package com.fitsync.analytics.messaging;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Set;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
+import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
 import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
+import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
+import com.fitsync.analytics.service.GoalProgressEvaluator;
 import com.fitsync.analytics.service.GoalExpiryPolicy;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
@@ -23,25 +27,32 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
 
     private static final String CALORIES = "CALORIES";
     private static final String PROTEIN = "PROTEIN";
+    private static final String WEIGHT = "WEIGHT";
 
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsUserGoalProgressRepository goalProgressRepository;
+    private final AnalyticsUserDailyBodyRepository dailyBodyRepository;
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final DashboardSnapshotInitializer dashboardSnapshotInitializer;
+    private final GoalProgressEvaluator goalProgressEvaluator;
     private final Clock clock;
 
     public GoalUpdatedEventConsumerImpl(AnalyticsProcessedEventRepository processedEventRepository,
                                         AnalyticsUserGoalProgressRepository goalProgressRepository,
+                                        AnalyticsUserDailyBodyRepository dailyBodyRepository,
                                         AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                         AnalyticsCacheInvalidationService cacheInvalidationService,
                                         DashboardSnapshotInitializer dashboardSnapshotInitializer,
+                                        GoalProgressEvaluator goalProgressEvaluator,
                                         Clock clock) {
         this.processedEventRepository = processedEventRepository;
         this.goalProgressRepository = goalProgressRepository;
+        this.dailyBodyRepository = dailyBodyRepository;
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.cacheInvalidationService = cacheInvalidationService;
         this.dashboardSnapshotInitializer = dashboardSnapshotInitializer;
+        this.goalProgressEvaluator = goalProgressEvaluator;
         this.clock = clock;
     }
 
@@ -81,12 +92,13 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         entity.setTargetValue(payload.targetValue());
         entity.setTargetUnit(payload.targetUnit());
         entity.setTargetDate(payload.targetDate());
+        captureWeightBaselineIfAvailable(event, payload, entity);
         entity.setLastEvaluatedAt(evaluatedAt);
-        entity.setOnTrack(GoalExpiryPolicy.isActive(goalStatus));
         if (GoalExpiryPolicy.isActive(goalStatus)) {
             entity.setDaysRemaining(GoalExpiryPolicy.daysRemaining(
                     payload.targetDate(), evaluatedAt.atZone(ZoneOffset.UTC).toLocalDate()));
         } else {
+            entity.setOnTrack(false);
             entity.setProgressRatio(null);
             entity.setCurrentValue(null);
             entity.setDaysRemaining(null);
@@ -94,8 +106,25 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         goalProgressRepository.save(entity);
 
         updateDashboardTargets(event, payload);
+        if (GoalExpiryPolicy.isActive(goalStatus) && payload.goalType() != null) {
+            goalProgressEvaluator.recompute(
+                    event.userId(),
+                    Set.of(payload.goalType()),
+                    goalProgressEvaluator.todayForUser(event.userId()));
+        }
         recordProcessedEvent(event);
         cacheInvalidationService.evictAllForUser(event.userId());
+    }
+
+    private void captureWeightBaselineIfAvailable(FitSyncDomainEvent<GoalUpdatedPayload> event,
+                                                  GoalUpdatedPayload payload,
+                                                  AnalyticsUserGoalProgressEntity entity) {
+        if (!WEIGHT.equals(payload.goalType()) || entity.getBaselineValue() != null) {
+            return;
+        }
+        dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(event.userId())
+                .map(AnalyticsUserDailyBodyEntity::getWeightKg)
+                .ifPresent(entity::setBaselineValue);
     }
 
     private void updateDashboardTargets(FitSyncDomainEvent<GoalUpdatedPayload> event, GoalUpdatedPayload payload) {

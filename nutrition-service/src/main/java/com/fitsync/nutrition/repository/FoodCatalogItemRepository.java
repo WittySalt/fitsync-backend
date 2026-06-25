@@ -1,6 +1,7 @@
 package com.fitsync.nutrition.repository;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
@@ -29,4 +30,6 @@ public interface FoodCatalogItemRepository extends JpaRepository<FoodCatalogItem
     java.util.Optional<FoodCatalogItemEntity> findAccessibleFoodById(@Param("foodId") UUID foodId,
                                                                      @Param("userId") UUID userId,
                                                                      @Param("onDate") LocalDate onDate);
+
+    List<FoodCatalogItemEntity> findByOwnerUserId(UUID ownerUserId);
 }
