@@ -1,8 +1,10 @@
 package com.fitsync.analytics.messaging;
 
 import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -22,6 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class WorkoutProjectionService {
+
+    private static final ZoneId DEFAULT_ZONE = ZoneOffset.UTC;
 
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsWorkoutContributionRepository workoutContributionRepository;
@@ -62,7 +66,9 @@ public class WorkoutProjectionService {
             return;
         }
 
-        LocalDate activityDate = startedAt.atZone(ZoneOffset.UTC).toLocalDate();
+        AnalyticsUserDashboardSnapshotEntity snapshot = findOrCreateDashboardSnapshot(event.userId(), event.occurredAt());
+        ZoneId userZone = resolveZone(snapshot.getTimezone());
+        LocalDate activityDate = startedAt.atZone(userZone).toLocalDate();
         AnalyticsWorkoutContributionEntity existingContribution = workoutContributionRepository.findById(sessionId).orElse(null);
 
         if (existingContribution != null) {
@@ -124,7 +130,7 @@ public class WorkoutProjectionService {
         daily.setProjectionUpdatedAt(resolveOccurredAt(occurredAt, null));
         dailyWorkoutRepository.save(daily);
 
-        syncDashboardSnapshot(userId, activityDate, occurredAt);
+        syncDashboardSnapshot(userId, occurredAt);
     }
 
     private AnalyticsUserDailyWorkoutEntity createDailyWorkoutRow(UUID userId, LocalDate activityDate) {
@@ -141,12 +147,14 @@ public class WorkoutProjectionService {
         return entity;
     }
 
-    private void syncDashboardSnapshot(UUID userId, LocalDate activityDate, Instant occurredAt) {
-        LocalDate todayUtc = LocalDate.now(clock.withZone(ZoneOffset.UTC));
-        LocalDate weekStart = todayUtc.minusDays(6);
+    private void syncDashboardSnapshot(UUID userId, Instant occurredAt) {
+        AnalyticsUserDashboardSnapshotEntity snapshot = findOrCreateDashboardSnapshot(userId, occurredAt);
+        ZoneId userZone = resolveZone(snapshot.getTimezone());
+        LocalDate today = LocalDate.now(clock.withZone(userZone));
+        LocalDate weekStart = today.minusDays(6);
 
         List<AnalyticsUserDailyWorkoutEntity> lastSevenDays = dailyWorkoutRepository
-                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, weekStart, todayUtc);
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, weekStart, today);
 
         int weekWorkoutCount = lastSevenDays.stream()
                 .mapToInt(row -> defaultInt(row.getCompletedWorkoutCount()))
@@ -154,14 +162,13 @@ public class WorkoutProjectionService {
         int weekWorkoutMinutes = lastSevenDays.stream()
                 .mapToInt(row -> defaultInt(row.getTotalWorkoutMinutes()))
                 .sum();
-        int activeStreakDays = calculateActiveStreak(lastSevenDays, todayUtc);
+        int activeStreakDays = calculateActiveStreak(lastSevenDays, today);
         int todayWorkoutCount = lastSevenDays.stream()
-                .filter(row -> todayUtc.equals(row.getActivityDate()))
+                .filter(row -> today.equals(row.getActivityDate()))
                 .mapToInt(row -> defaultInt(row.getCompletedWorkoutCount()))
                 .findFirst()
                 .orElse(0);
 
-        AnalyticsUserDashboardSnapshotEntity snapshot = findOrCreateDashboardSnapshot(userId, occurredAt);
         snapshot.setTodayWorkoutCount(todayWorkoutCount);
         snapshot.setWeekWorkoutCount(weekWorkoutCount);
         snapshot.setWeekWorkoutMinutes(weekWorkoutMinutes);
@@ -170,12 +177,12 @@ public class WorkoutProjectionService {
         dashboardSnapshotRepository.save(snapshot);
     }
 
-    private int calculateActiveStreak(List<AnalyticsUserDailyWorkoutEntity> rows, LocalDate todayUtc) {
+    private int calculateActiveStreak(List<AnalyticsUserDailyWorkoutEntity> rows, LocalDate today) {
         int streak = 0;
-        LocalDate expectedDate = todayUtc;
+        LocalDate expectedDate = today;
         for (AnalyticsUserDailyWorkoutEntity row : rows) {
             if (!expectedDate.equals(row.getActivityDate())) {
-                if (streak == 0 && row.getActivityDate().equals(todayUtc.minusDays(1))
+                if (streak == 0 && row.getActivityDate().equals(today.minusDays(1))
                         && defaultInt(row.getCompletedWorkoutCount()) > 0) {
                 } else {
                     break;
@@ -194,6 +201,17 @@ public class WorkoutProjectionService {
         dashboardSnapshotInitializer.insertIfMissing(userId, resolveOccurredAt(occurredAt, null));
         return dashboardSnapshotRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException("Dashboard snapshot was not created"));
+    }
+
+    private ZoneId resolveZone(String timezone) {
+        if (timezone == null || timezone.isBlank()) {
+            return DEFAULT_ZONE;
+        }
+        try {
+            return ZoneId.of(timezone.trim());
+        } catch (DateTimeException ex) {
+            return DEFAULT_ZONE;
+        }
     }
 
     private int contributionCount(AnalyticsWorkoutContributionEntity contribution) {

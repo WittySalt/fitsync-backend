@@ -106,6 +106,34 @@ class AnalyticsRebuildServiceImplTests {
     }
 
     @Test
+    void rebuildDashboardUsesSnapshotTimezoneForTodayAndStreakWindow() {
+        Clock singaporeBoundaryClock = Clock.fixed(Instant.parse("2026-06-17T16:30:00Z"), ZoneOffset.UTC);
+        Fixture fixture = newFixture(singaporeBoundaryClock);
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshot(0);
+        snapshot.setTimezone("Asia/Singapore");
+        LocalDate singaporeToday = LocalDate.parse("2026-06-18");
+        when(fixture.dashboardSnapshotRepository().findById(USER_ID)).thenReturn(Optional.of(snapshot));
+        when(fixture.dailyBodyRepository().findTopByUserIdOrderByMetricDateDesc(USER_ID)).thenReturn(Optional.empty());
+        when(fixture.dailyNutritionRepository().findByUserIdAndActivityDate(USER_ID, singaporeToday))
+                .thenReturn(Optional.empty());
+        when(fixture.dailyWorkoutRepository().findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                USER_ID, singaporeToday.minusDays(6), singaporeToday))
+                .thenReturn(List.of(
+                        workoutRow(singaporeToday, 1, 45),
+                        workoutRow(singaporeToday.minusDays(1), 1, 30)));
+        when(fixture.goalProgressRepository().findByUserIdOrderByTargetDateAscGoalIdAsc(USER_ID)).thenReturn(List.of());
+
+        fixture.service().rebuildDashboard(USER_ID);
+
+        ArgumentCaptor<AnalyticsUserDashboardSnapshotEntity> captor =
+                ArgumentCaptor.forClass(AnalyticsUserDashboardSnapshotEntity.class);
+        verify(fixture.dashboardSnapshotRepository()).save(captor.capture());
+        assertThat(captor.getValue().getTodayWorkoutCount()).isEqualTo(1);
+        assertThat(captor.getValue().getWeekWorkoutCount()).isEqualTo(2);
+        assertThat(captor.getValue().getActiveStreakDays()).isEqualTo(2);
+    }
+
+    @Test
     void rebuildNutritionCreatesProjectionFromMealContributionsAndActiveTargets() {
         Fixture fixture = newFixture();
         when(fixture.dailyNutritionRepository().findByUserIdAndActivityDate(USER_ID, TODAY))
@@ -170,6 +198,10 @@ class AnalyticsRebuildServiceImplTests {
     }
 
     private Fixture newFixture() {
+        return newFixture(clock);
+    }
+
+    private Fixture newFixture(Clock fixtureClock) {
         AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository =
                 mock(AnalyticsUserDashboardSnapshotRepository.class);
         AnalyticsUserDailyBodyRepository dailyBodyRepository = mock(AnalyticsUserDailyBodyRepository.class);
@@ -192,7 +224,7 @@ class AnalyticsRebuildServiceImplTests {
                 workoutContributionRepository,
                 cacheInvalidationService,
                 analyticsEventPublisher,
-                clock);
+                fixtureClock);
         return new Fixture(
                 service,
                 dashboardSnapshotRepository,

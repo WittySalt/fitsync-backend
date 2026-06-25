@@ -389,7 +389,8 @@ public class UserServiceImpl implements UserService {
                                 : savedNutrition.getDietaryPattern().getCode(),
                         savedNotifications.isPushEnabled() || savedNotifications.isEmailEnabled(),
                         savedTraining.getEquipmentInventory().stream().map(TrainingEquipment::getCode).toList(),
-                        savedTraining.getFocusAreas().stream().map(TrainingFocusArea::getCode).toList())));
+                        savedTraining.getFocusAreas().stream().map(TrainingFocusArea::getCode).toList(),
+                        savedApp.getTimezone())));
         return toPreferencesView(savedApp, savedTraining, savedNutrition, savedNotifications);
     }
 
@@ -709,7 +710,8 @@ public class UserServiceImpl implements UserService {
                         saved.getHeightCm(),
                         saved.getActivityLevel() == null ? null : saved.getActivityLevel().name(),
                         saved.isOnboardingCompleted(),
-                        changedFields)));
+                        changedFields,
+                        saved.getTimezone())));
     }
 
     private void publishGoalUpdated(UserGoalEntity saved) {
