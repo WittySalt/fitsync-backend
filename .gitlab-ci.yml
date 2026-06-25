@@ -11,7 +11,7 @@ stages:
   - security
   - iac
   - stress
-  - dast
+  - dynamic-security
   - docker
   - deploy
 
@@ -296,13 +296,18 @@ stress_test:
 # Complements the static security stages (gitleaks secret-scan, SpotBugs SAST in
 # verify, OWASP dependency-check, Trivy image scan) with runtime testing.
 #
+# NOTE: the stage is "dynamic-security", NOT "dast", and the job is "owasp_zap",
+# NOT "dast_zap" — GitLab reserves the `dast` stage/job for its Ultimate-tier
+# built-in DAST scanner and rejects the whole pipeline config with "Insufficient
+# permissions for dast_configuration keyword" on tiers without that license.
+#
 # Set as CI/CD variables before running:
 #   DAST_TARGET_URL   (required) base URL of the live gateway, e.g. https://<host>
 #   DAST_OPENAPI_URL  (optional) OpenAPI/Swagger JSON URL for the richer API scan,
 #                     e.g. https://<host>/v3/api-docs — enables endpoint-by-endpoint
 #                     coverage instead of just the passively-spidered surface.
-dast_zap:
-  stage: dast
+owasp_zap:
+  stage: dynamic-security
   image:
     name: ghcr.io/zaproxy/zaproxy:stable
     entrypoint: [""]
