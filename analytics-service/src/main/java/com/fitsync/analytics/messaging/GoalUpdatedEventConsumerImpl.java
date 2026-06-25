@@ -83,11 +83,11 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         entity.setTargetDate(payload.targetDate());
         captureWeightBaselineIfAvailable(event, payload, entity);
         entity.setLastEvaluatedAt(evaluatedAt);
-        entity.setOnTrack(GoalExpiryPolicy.isActive(goalStatus));
         if (GoalExpiryPolicy.isActive(goalStatus)) {
             entity.setDaysRemaining(GoalExpiryPolicy.daysRemaining(
                     payload.targetDate(), evaluatedAt.atZone(ZoneOffset.UTC).toLocalDate()));
         } else {
+            entity.setOnTrack(false);
             entity.setProgressRatio(null);
             entity.setCurrentValue(null);
             entity.setDaysRemaining(null);
