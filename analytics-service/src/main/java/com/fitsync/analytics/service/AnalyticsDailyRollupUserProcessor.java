@@ -16,16 +16,21 @@ public class AnalyticsDailyRollupUserProcessor {
 
     private final AnalyticsUserGoalProgressRepository goalProgressRepository;
     private final AnalyticsRebuildService rebuildService;
+    private final GoalProgressEvaluator goalProgressEvaluator;
 
     public AnalyticsDailyRollupUserProcessor(AnalyticsUserGoalProgressRepository goalProgressRepository,
-                                             AnalyticsRebuildService rebuildService) {
+                                             AnalyticsRebuildService rebuildService,
+                                             GoalProgressEvaluator goalProgressEvaluator) {
         this.goalProgressRepository = goalProgressRepository;
         this.rebuildService = rebuildService;
+        this.goalProgressEvaluator = goalProgressEvaluator;
     }
 
     @Transactional
     public void rollupUser(UUID userId, LocalDate todayUtc, Instant evaluatedAt) {
-        updateActiveGoalCountdowns(userId, todayUtc, evaluatedAt);
+        LocalDate today = goalProgressEvaluator.todayForUser(userId);
+        updateActiveGoalCountdowns(userId, today, evaluatedAt);
+        goalProgressEvaluator.recompute(userId, GoalProgressEvaluator.ALL_GOAL_TYPES, today);
         rebuildService.rebuildDashboard(userId);
     }
 

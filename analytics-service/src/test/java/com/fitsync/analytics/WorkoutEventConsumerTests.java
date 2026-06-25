@@ -2,18 +2,21 @@ package com.fitsync.analytics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
+import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
+import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
@@ -36,6 +39,9 @@ class WorkoutEventConsumerTests {
     private DomainEventConsumer<WorkoutDeletedPayload> workoutDeletedEventConsumer;
 
     @Autowired
+    private DomainEventConsumer<GoalUpdatedPayload> goalUpdatedEventConsumer;
+
+    @Autowired
     private AnalyticsWorkoutContributionRepository workoutContributionRepository;
 
     @Autowired
@@ -46,6 +52,9 @@ class WorkoutEventConsumerTests {
 
     @Autowired
     private AnalyticsProcessedEventRepository processedEventRepository;
+
+    @Autowired
+    private AnalyticsUserGoalProgressRepository goalProgressRepository;
 
     @Test
     void workoutLoggedEventBuildsContributionDailyAggregateAndDashboardWorkoutSummary() {
@@ -233,5 +242,56 @@ class WorkoutEventConsumerTests {
                     assertThat(snapshot.getWeekWorkoutMinutes()).isZero();
                 });
         assertThat(processedEventRepository.count()).isGreaterThanOrEqualTo(2L);
+    }
+
+    @Test
+    void workoutLoggedEventRecomputesWorkoutFrequencyGoalProgress() {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID goalId = UUID.randomUUID();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant startedAt = today.atStartOfDay().plusHours(7).toInstant(ZoneOffset.UTC);
+
+        goalUpdatedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                startedAt.minusSeconds(60),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "WORKOUT_FREQUENCY",
+                        new BigDecimal("3.00"),
+                        "sessions/week",
+                        today.plusDays(30),
+                        "ACTIVE")));
+
+        workoutLoggedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "WorkoutLogged",
+                1,
+                startedAt.plusSeconds(60),
+                "workout-service",
+                userId,
+                new WorkoutLoggedPayload(
+                        sessionId,
+                        null,
+                        "STRENGTH",
+                        "COMPLETED",
+                        startedAt,
+                        startedAt.plusSeconds(2700),
+                        45,
+                        350,
+                        6,
+                        "MANUAL")));
+
+        assertThat(goalProgressRepository.findById(goalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getCurrentValue()).isEqualByComparingTo("1");
+                    assertThat(goal.getProgressRatio()).isEqualByComparingTo("0.3333");
+                });
     }
 }

@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
@@ -18,6 +19,7 @@ import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
+import com.fitsync.analytics.service.GoalProgressEvaluator;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +35,7 @@ public class WorkoutProjectionService {
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final DashboardSnapshotInitializer dashboardSnapshotInitializer;
+    private final GoalProgressEvaluator goalProgressEvaluator;
     private final Clock clock;
 
     public WorkoutProjectionService(AnalyticsProcessedEventRepository processedEventRepository,
@@ -41,6 +44,7 @@ public class WorkoutProjectionService {
                                     AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                     AnalyticsCacheInvalidationService cacheInvalidationService,
                                     DashboardSnapshotInitializer dashboardSnapshotInitializer,
+                                    GoalProgressEvaluator goalProgressEvaluator,
                                     Clock clock) {
         this.processedEventRepository = processedEventRepository;
         this.workoutContributionRepository = workoutContributionRepository;
@@ -48,6 +52,7 @@ public class WorkoutProjectionService {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.cacheInvalidationService = cacheInvalidationService;
         this.dashboardSnapshotInitializer = dashboardSnapshotInitializer;
+        this.goalProgressEvaluator = goalProgressEvaluator;
         this.clock = clock;
     }
 
@@ -88,6 +93,7 @@ public class WorkoutProjectionService {
         workoutContributionRepository.save(newContribution);
 
         applyContributionDelta(event.userId(), activityDate, null, newContribution, event.occurredAt());
+        recomputeWorkoutGoals(event.userId());
         recordProcessedEvent(event);
         cacheInvalidationService.evictAllForUser(event.userId());
     }
@@ -106,6 +112,7 @@ public class WorkoutProjectionService {
         if (existingContribution != null) {
             applyContributionDelta(event.userId(), existingContribution.getActivityDate(), existingContribution, null, event.occurredAt());
             workoutContributionRepository.delete(existingContribution);
+            recomputeWorkoutGoals(event.userId());
         }
         recordProcessedEvent(event);
         cacheInvalidationService.evictAllForUser(event.userId());
@@ -175,6 +182,13 @@ public class WorkoutProjectionService {
         snapshot.setActiveStreakDays(activeStreakDays);
         snapshot.setGeneratedAt(resolveOccurredAt(occurredAt, null));
         dashboardSnapshotRepository.save(snapshot);
+    }
+
+    private void recomputeWorkoutGoals(UUID userId) {
+        goalProgressEvaluator.recompute(
+                userId,
+                Set.of(GoalProgressEvaluator.WORKOUT_FREQUENCY),
+                goalProgressEvaluator.todayForUser(userId));
     }
 
     private int calculateActiveStreak(List<AnalyticsUserDailyWorkoutEntity> rows, LocalDate today) {
