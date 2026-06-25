@@ -92,6 +92,7 @@ public class UserServiceImpl implements UserService {
 
     private static final String SOURCE = "user-service";
     private static final String ACCOUNT_DELETION_REASON_USER_REQUESTED = "USER_REQUESTED";
+    private static final String NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE = "NOT_YET_ACTIVE";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
     private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
     private static final Map<String, String> AVATAR_EXTENSIONS = Map.of(
@@ -818,7 +819,9 @@ public class UserServiceImpl implements UserService {
                         notifications.getWeeklyProgressReportChannel(),
                         notifications.isMarketingEmailsEnabled(),
                         notifications.getQuietHoursStart(),
-                        notifications.getQuietHoursEnd()));
+                        notifications.getQuietHoursEnd(),
+                        false,
+                        NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE));
     }
 
     private HealthReadinessView toHealthReadinessView(UserHealthReadinessEntity entity) {

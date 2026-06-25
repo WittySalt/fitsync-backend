@@ -90,7 +90,9 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.preferences.nutrition.dietaryPattern").value("300001"))
                 .andExpect(jsonPath("$.preferences.notifications.pushEnabled").value(true))
                 .andExpect(jsonPath("$.preferences.notifications.weeklyProgressReportEnabled").value(false))
-                .andExpect(jsonPath("$.preferences.notifications.weeklyProgressReportChannel").value("EMAIL"));
+                .andExpect(jsonPath("$.preferences.notifications.weeklyProgressReportChannel").value("EMAIL"))
+                .andExpect(jsonPath("$.preferences.notifications.deliveryActive").value(false))
+                .andExpect(jsonPath("$.preferences.notifications.deliveryStatus").value("NOT_YET_ACTIVE"));
     }
 
     @Test
@@ -159,7 +161,9 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.nutrition.dietaryPattern").value("300002"))
                 .andExpect(jsonPath("$.notifications.emailEnabled").value(true))
                 .andExpect(jsonPath("$.notifications.weeklyProgressReportEnabled").value(true))
-                .andExpect(jsonPath("$.notifications.weeklyProgressReportChannel").value("EMAIL"));
+                .andExpect(jsonPath("$.notifications.weeklyProgressReportChannel").value("EMAIL"))
+                .andExpect(jsonPath("$.notifications.deliveryActive").value(false))
+                .andExpect(jsonPath("$.notifications.deliveryStatus").value("NOT_YET_ACTIVE"));
 
         mockMvc.perform(get("/api/v1/users/me/preferences")
                         .contentType(MediaType.APPLICATION_JSON)
