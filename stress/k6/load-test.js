@@ -83,9 +83,9 @@ export function setup() {
 }
 
 export default function (data) {
-  const authHeaders = {
-    headers: { Authorization: `Bearer ${data.token}` },
-  };
+  // k6's JS compiler rejects object spread ({ ...authHeaders }), so keep this as a
+  // plain headers object and pass it explicitly as `headers:` below.
+  const authHeaders = { Authorization: `Bearer ${data.token}` };
 
   // Gateway liveness — cheap, unauthenticated.
   const health = http.get(`${BASE_URL}/actuator/health`, { tags: { name: 'health' } });
@@ -93,13 +93,13 @@ export default function (data) {
 
   // Hot authenticated reads.
   const dashboard = http.get(`${BASE_URL}/api/v1/analytics/dashboard`, {
-    ...authHeaders,
+    headers: authHeaders,
     tags: { name: 'dashboard' },
   });
   dashboardTrend.add(dashboard.timings.duration);
   check(dashboard, { 'dashboard 200': (r) => r.status === 200 });
 
-  const me = http.get(`${BASE_URL}/api/v1/auth/me`, { ...authHeaders, tags: { name: 'me' } });
+  const me = http.get(`${BASE_URL}/api/v1/auth/me`, { headers: authHeaders, tags: { name: 'me' } });
   check(me, { 'me 200': (r) => r.status === 200 });
 
   sleep(1); // model user think-time
