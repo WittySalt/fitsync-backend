@@ -287,6 +287,9 @@ deploy_staging_app:
       # docker-compose.prod.yml; prod leaves AUTH_COGNITO_* unset.
       AUTH_COGNITO_ISSUER_URI=$STAGING_COGNITO_ISSUER_URI
       AUTH_COGNITO_AUDIENCE=$STAGING_COGNITO_AUDIENCE
+      # The gateway CORS allowlist must include the staging SPA origin, else the
+      # browser's same-origin POST is rejected 403 -> served as index.html.
+      FITSYNC_CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:4200,https://d1z92tpb353lfi.cloudfront.net
       NGINX_SERVER_NAME=_
       NGINX_CERT_NAME=localhost
       FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}

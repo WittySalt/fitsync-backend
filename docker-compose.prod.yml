@@ -142,6 +142,11 @@ services:
       COGNITO_AUDIENCE: ${COGNITO_AUDIENCE:-}
       COGNITO_JWK_SET_URI: ${COGNITO_JWK_SET_URI:-}
       COGNITO_PRINCIPAL_CLAIM: ${COGNITO_PRINCIPAL_CLAIM:-username}
+      # CORS allowlist. Pass-through so each environment can add its own SPA
+      # origin (the browser sends Origin on POST even same-origin; an un-listed
+      # origin is rejected 403, which the SPA CloudFront then serves as the
+      # index.html error page). Default keeps prod behaviour unchanged.
+      FITSYNC_CORS_ALLOWED_ORIGINS: ${FITSYNC_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:4200,https://d26vi6hikexzev.cloudfront.net}
       AUTH_SERVICE_BASE_URL: http://auth-service:8080
       USER_SERVICE_BASE_URL: http://user-service:8081
       WORKOUT_SERVICE_BASE_URL: http://workout-service:8082
