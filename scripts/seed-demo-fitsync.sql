@@ -41,7 +41,9 @@
 -- To target a different account, change the single email literal in the
 -- `demo_config` CTE below.
 --
--- Demo window: 2026-06-08 .. 2026-06-21 (14 days, ending "today" = 2026-06-21).
+-- Demo window: a ROLLING 14-day window that always ends on "today" (the current
+--              date in Asia/Singapore) so the Dashboard "Today"/streak panels are
+--              never stale. d_start = today - 13, d_today = today. Re-run any time.
 -- Timezone:    Asia/Singapore (all wall-clock times below are local to it).
 -- ============================================================================
 
@@ -54,9 +56,9 @@ begin;
 create temporary table demo_config on commit drop as
 select
     u.id                       as user_id,
-    'Asia/Singapore'::text     as tz,
-    date '2026-06-08'          as d_start,
-    date '2026-06-21'          as d_today
+    'Asia/Singapore'::text                                        as tz,
+    ((now() at time zone 'Asia/Singapore')::date - 13)            as d_start,
+    (now() at time zone 'Asia/Singapore')::date                   as d_today
 from auth.app_users u
 where u.email = '2579706652@qq.com';
 
