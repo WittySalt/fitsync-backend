@@ -814,7 +814,15 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void replacePlanExercises(UUID userId, WorkoutPlanEntity plan, List<WorkoutPlanExerciseInput> inputs) {
+        boolean hadExisting = !plan.getExercises().isEmpty();
         plan.getExercises().clear();
+        if (hadExisting) {
+            // Force the orphan-removal DELETEs to run BEFORE the replacement rows are
+            // inserted. Without this flush, Hibernate orders the INSERTs before the
+            // DELETEs within a single flush, so the new (plan_id, sequence) rows collide
+            // with the not-yet-deleted old ones on uk_workout_plan_exercises_plan_sequence.
+            workoutPlanRepository.flush();
+        }
         if (inputs == null) {
             return;
         }
