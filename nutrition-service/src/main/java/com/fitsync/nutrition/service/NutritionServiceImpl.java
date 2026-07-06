@@ -364,6 +364,11 @@ public class NutritionServiceImpl implements NutritionService {
         copy.setFiberGrams(src.getFiberGrams());
         copy.setSugarGrams(src.getSugarGrams());
         copy.setSodiumMg(src.getSodiumMg());
+        copy.setCategoryCode(src.getCategoryCode());
+        copy.setNovaGroup(src.getNovaGroup());
+        copy.setNutriScore(src.getNutriScore());
+        copy.setGramsConsumed(src.getGramsConsumed());
+        copy.setSourceDataset(src.getSourceDataset());
         return copy;
     }
 
@@ -1309,11 +1314,34 @@ public class NutritionServiceImpl implements NutritionService {
             entity.setFiberGrams(draft.fiberGrams());
             entity.setSugarGrams(draft.sugarGrams());
             entity.setSodiumMg(draft.sodiumMg());
+            applyClassificationSnapshot(entity, draft);
             MealItemEntity savedItem = mealItemRepository.save(entity);
             replaceMealItemNutrientDetails(savedItem.getMealItemId(), draft.nutrientDetails());
             entities.add(savedItem);
         }
         return entities;
+    }
+
+    /**
+     * Snapshots the food's classification (food-group category, NOVA, Nutri-Score, source) onto the meal
+     * item at log time (SNAP-3), so downstream food-group / diet-quality analysis is immune to later
+     * catalog recategorization and works for custom/external foods. Resolved from the referenced catalog
+     * item or custom food; left null when neither is present (e.g. free-text/barcode-only entries).
+     */
+    private void applyClassificationSnapshot(MealItemEntity entity, MealItemDraft draft) {
+        // grams_consumed (portion normalization to grams) is intentionally left for FD-6 — a unit-aware
+        // conversion — rather than guessed here.
+        if (draft.foodCatalogItemId() != null) {
+            foodCatalogItemRepository.findById(draft.foodCatalogItemId()).ifPresent(food -> {
+                entity.setCategoryCode(food.getCategoryCode());
+                entity.setNovaGroup(food.getNovaGroup());
+                entity.setNutriScore(food.getNutriScore());
+                entity.setSourceDataset(food.getSourceDataset());
+            });
+        } else if (draft.customFoodId() != null) {
+            customFoodRepository.findById(draft.customFoodId())
+                    .ifPresent(custom -> entity.setCategoryCode(custom.getCategoryCode()));
+        }
     }
 
     private List<MealLogEntity> findMeals(UUID userId, Instant from, Instant to, MealType mealType) {
