@@ -2018,7 +2018,26 @@ public class NutritionServiceImpl implements NutritionService {
                         totals.totalCarbsGrams(),
                         totals.totalFatGrams(),
                         items.size(),
-                        meal.getSource().name())));
+                        meal.getSource().name(),
+                        foodGroupCalories(items))));
+    }
+
+    /**
+     * Per-food-group energy for the meal (internal category code → summed kcal), over items that carry a
+     * category snapshot (SNAP-3). Projected onto the MealLogged event so analytics gets food-group balance
+     * without reading nutrition internals (EV-1). Unclassified items are omitted; null calories count as 0.
+     */
+    private static Map<String, Integer> foodGroupCalories(List<MealItemEntity> items) {
+        Map<String, Integer> byGroup = new HashMap<>();
+        for (MealItemEntity item : items) {
+            String code = item.getCategoryCode();
+            if (code == null) {
+                continue;
+            }
+            Integer kcal = item.getCalories() == null ? Integer.valueOf(0) : item.getCalories();
+            byGroup.merge(code, kcal, Integer::sum);
+        }
+        return byGroup;
     }
 
     private void publishMealUpdated(MealLogEntity meal, List<MealItemEntity> items) {

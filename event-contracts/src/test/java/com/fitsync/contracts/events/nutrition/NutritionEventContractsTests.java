@@ -35,6 +35,25 @@ class NutritionEventContractsTests {
         assertEquals(new BigDecimal("21.0"), payload.totalFatGrams());
         assertEquals(3, payload.itemCount());
         assertEquals("MANUAL", payload.source());
+        assertEquals(java.util.Map.of(), payload.foodGroupCalories());
+    }
+
+    @Test
+    void shouldExposeMealLoggedFoodGroupBreakdown() {
+        MealLoggedPayload payload = new MealLoggedPayload(
+                UUID.randomUUID(),
+                "LUNCH",
+                Instant.parse("2026-06-11T05:00:00Z"),
+                640,
+                new BigDecimal("40.0"),
+                new BigDecimal("60.0"),
+                new BigDecimal("20.0"),
+                2,
+                "MANUAL",
+                java.util.Map.of("MEAT_POULTRY", 400, "VEGETABLES", 60));
+
+        assertEquals(400, payload.foodGroupCalories().get("MEAT_POULTRY"));
+        assertEquals(60, payload.foodGroupCalories().get("VEGETABLES"));
     }
 
     @Test
