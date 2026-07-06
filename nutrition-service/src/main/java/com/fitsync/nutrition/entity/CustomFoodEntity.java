@@ -33,6 +33,11 @@ public class CustomFoodEntity extends BaseAuditableEntity implements NutritionFa
     @Column(name = "serving_unit", nullable = false, length = 30)
     private String servingUnit;
 
+    // Internal food_categories code for this custom food (nullable). Lets the line-item snapshot
+    // classify custom foods, which otherwise have no category. See nutrition-data-plan.md §4.1.
+    @Column(name = "category_code", length = 40)
+    private String categoryCode;
+
     @Embedded
     private NutritionFacts nutritionFacts = new NutritionFacts();
 
@@ -85,6 +90,14 @@ public class CustomFoodEntity extends BaseAuditableEntity implements NutritionFa
 
     public void setServingUnit(String servingUnit) {
         this.servingUnit = servingUnit;
+    }
+
+    public String getCategoryCode() {
+        return categoryCode;
+    }
+
+    public void setCategoryCode(String categoryCode) {
+        this.categoryCode = categoryCode;
     }
 
     @Override

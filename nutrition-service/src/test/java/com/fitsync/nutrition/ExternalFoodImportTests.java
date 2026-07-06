@@ -24,6 +24,7 @@ import com.fitsync.nutrition.entity.FoodBrandEntity;
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
 import com.fitsync.nutrition.entity.FoodNutrientProfileEntity;
 import com.fitsync.nutrition.entity.FoodServingEntity;
+import com.fitsync.nutrition.entity.MealItemEntity;
 import com.fitsync.nutrition.external.ExternalFoodSource;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
 import com.fitsync.nutrition.repository.FoodBrandRepository;
@@ -31,6 +32,7 @@ import com.fitsync.nutrition.repository.FoodCatalogItemRepository;
 import com.fitsync.nutrition.repository.FoodNutrientDetailRepository;
 import com.fitsync.nutrition.repository.FoodNutrientProfileRepository;
 import com.fitsync.nutrition.repository.FoodServingRepository;
+import com.fitsync.nutrition.repository.MealItemRepository;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +43,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -74,6 +77,9 @@ class ExternalFoodImportTests {
 
     @Autowired
     private FoodNutrientDetailRepository foodNutrientDetailRepository;
+
+    @Autowired
+    private MealItemRepository mealItemRepository;
 
     @BeforeEach
     void clearData() {
@@ -262,6 +268,46 @@ class ExternalFoodImportTests {
         barcodeEntity.setActive(true);
         foodBarcodeRepository.save(barcodeEntity);
         return foodId;
+    }
+
+    @Test
+    void loggingCatalogFoodSnapshotsClassificationOntoMealItem() throws Exception {
+        externalFoodSource.addBarcodeResult(BARCODE,
+                externalFood(BARCODE, "Greek Yogurt", "FAGE", "DAIRY", 59));
+        String token = tokenFor("snapshot@example.com", "Snapshot User");
+
+        String importResponse = mockMvc.perform(post("/api/v1/nutrition/foods/import/barcode/{barcode}", BARCODE)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String foodId = com.jayway.jsonpath.JsonPath.read(importResponse, "$.foodId");
+
+        String mealResponse = mockMvc.perform(post("/api/v1/nutrition/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "mealType": "BREAKFAST",
+                                  "name": "Yogurt",
+                                  "source": "MANUAL",
+                                  "consumedAt": "2026-06-11T02:00:00Z",
+                                  "timezone": "UTC",
+                                  "items": [ { "foodCatalogItemId": "%s", "quantity": 1.0, "unit": "serving" } ]
+                                }
+                                """.formatted(foodId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String mealId = com.jayway.jsonpath.JsonPath.read(mealResponse, "$.mealId");
+
+        List<MealItemEntity> items =
+                mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(java.util.UUID.fromString(mealId));
+        assertThat(items).hasSize(1);
+        MealItemEntity item = items.get(0);
+        // SNAP-3: classification snapshot copied from the referenced catalog food at log time.
+        assertThat(item.getCategoryCode()).isEqualTo("DAIRY");
+        assertThat(item.getNovaGroup()).isEqualTo(1);
+        assertThat(item.getNutriScore()).isEqualTo("A");
+        assertThat(item.getSourceDataset()).isEqualTo("OFF");
     }
 
     private FoodDetailView externalFood(String barcode,
