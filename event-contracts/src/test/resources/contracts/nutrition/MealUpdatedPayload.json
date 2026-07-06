@@ -7,5 +7,9 @@
   "totalCarbsGrams": 24.0,
   "totalFatGrams": 9.0,
   "itemCount": 2,
-  "source": "CUSTOM_FOOD"
+  "source": "CUSTOM_FOOD",
+  "foodGroupCalories": {
+    "DAIRY": 180,
+    "FRUITS": 100
+  }
 }

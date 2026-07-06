@@ -43,6 +43,11 @@ public class AnalyticsMealContributionEntity extends BaseAuditableEntity {
     @Column(name = "last_applied_at", nullable = false)
     private Instant lastAppliedAt;
 
+    // Per-meal food-group energy snapshot, encoded as "CODE=kcal;CODE=kcal" (nullable). Kept per meal so
+    // the daily food-group aggregate can be delta-adjusted on meal update/delete. See AN-1.
+    @Column(name = "food_group_calories", length = 400)
+    private String foodGroupCalories;
+
     public UUID getMealId() {
         return mealId;
     }
@@ -113,5 +118,13 @@ public class AnalyticsMealContributionEntity extends BaseAuditableEntity {
 
     public void setLastAppliedAt(Instant lastAppliedAt) {
         this.lastAppliedAt = lastAppliedAt;
+    }
+
+    public String getFoodGroupCalories() {
+        return foodGroupCalories;
+    }
+
+    public void setFoodGroupCalories(String foodGroupCalories) {
+        this.foodGroupCalories = foodGroupCalories;
     }
 }

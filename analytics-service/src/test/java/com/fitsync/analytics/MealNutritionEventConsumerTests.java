@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.Map;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
@@ -104,6 +105,47 @@ class MealNutritionEventConsumerTests {
                     assertThat(snapshot.getTodayCaloriesConsumed()).isEqualTo(600);
                     assertThat(snapshot.getTodayProteinGrams()).isEqualByComparingTo("40.00");
                 });
+    }
+
+    @Test
+    void mealFoodGroupBreakdownAggregatesAndDeltaAdjustsOnUpdateAndDelete() {
+        UUID userId = UUID.randomUUID();
+        UUID mealId = UUID.randomUUID();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant consumedAt = today.atStartOfDay().plusHours(8).toInstant(ZoneOffset.UTC);
+
+        // Log a meal carrying a food-group breakdown.
+        mealLoggedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "MealLogged", 1, consumedAt.plusSeconds(60), "nutrition-service", userId,
+                new MealLoggedPayload(mealId, "LUNCH", consumedAt, 600, new BigDecimal("40.00"),
+                        new BigDecimal("50.00"), new BigDecimal("15.00"), 2, "MANUAL",
+                        Map.of("MEAT_POULTRY", 400, "GRAINS", 200))));
+
+        assertThat(dailyNutritionRepository.findByUserIdAndActivityDate(userId, today))
+                .get()
+                .satisfies(daily -> assertThat(daily.getFoodGroupCalories())
+                        .isEqualTo("GRAINS=200;MEAT_POULTRY=400"));
+
+        // Update the same meal: GRAINS drops out, VEGETABLES appears, MEAT_POULTRY changes.
+        mealUpdatedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "MealUpdated", 1, consumedAt.plusSeconds(120), "nutrition-service", userId,
+                new MealUpdatedPayload(mealId, "LUNCH", consumedAt, 350, new BigDecimal("30.00"),
+                        new BigDecimal("10.00"), new BigDecimal("12.00"), 2, "MANUAL",
+                        Map.of("MEAT_POULTRY", 300, "VEGETABLES", 50))));
+
+        assertThat(dailyNutritionRepository.findByUserIdAndActivityDate(userId, today))
+                .get()
+                .satisfies(daily -> assertThat(daily.getFoodGroupCalories())
+                        .isEqualTo("MEAT_POULTRY=300;VEGETABLES=50"));
+
+        // Delete the meal: the day's food-group aggregate is fully cleared.
+        mealDeletedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "MealDeleted", 1, consumedAt.plusSeconds(180), "nutrition-service", userId,
+                new MealDeletedPayload(mealId, consumedAt.plusSeconds(180))));
+
+        assertThat(dailyNutritionRepository.findByUserIdAndActivityDate(userId, today))
+                .get()
+                .satisfies(daily -> assertThat(daily.getFoodGroupCalories()).isNull());
     }
 
     @Test

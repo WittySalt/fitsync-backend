@@ -2058,7 +2058,8 @@ public class NutritionServiceImpl implements NutritionService {
                         totals.totalCarbsGrams(),
                         totals.totalFatGrams(),
                         items.size(),
-                        meal.getSource().name())));
+                        meal.getSource().name(),
+                        foodGroupCalories(items))));
     }
 
     private void validateDateRange(Instant from, Instant to) {

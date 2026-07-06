@@ -25,6 +25,7 @@ public class MealUpdatedEventConsumerImpl implements DomainEventConsumer<MealUpd
                 payload == null ? null : payload.totalProteinGrams(),
                 payload == null ? null : payload.totalCarbsGrams(),
                 payload == null ? null : payload.totalFatGrams(),
-                payload == null ? null : payload.itemCount());
+                payload == null ? null : payload.itemCount(),
+                payload == null ? null : payload.foodGroupCalories());
     }
 }
