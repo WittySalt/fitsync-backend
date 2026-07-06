@@ -34,7 +34,8 @@ class OpenFoodFactsFoodSourceHttpTests {
         OpenFoodFactsFoodSource source = new OpenFoodFactsFoodSource(enabledProperties(), builder);
         server.expect(once(), requestTo(BASE_URL
                         + "/api/v2/product/737628064502.json"
-                        + "?fields=code,product_name,brands,categories_tags,categories,nutriments"))
+                        + "?fields=code,product_name,brands,categories_tags,categories,nutriments,"
+                        + "nova_group,nutriscore_grade"))
                 .andExpect(header("User-Agent", USER_AGENT))
                 .andRespond(withSuccess("""
                         {
@@ -44,6 +45,8 @@ class OpenFoodFactsFoodSourceHttpTests {
                             "product_name": "Greek Yogurt",
                             "brands": "FAGE, Total",
                             "categories_tags": ["en:yogurts"],
+                            "nova_group": 3,
+                            "nutriscore_grade": "b",
                             "nutriments": {
                               "energy-kcal_100g": "59.4",
                               "proteins_100g": "10.25",
@@ -67,6 +70,8 @@ class OpenFoodFactsFoodSourceHttpTests {
         assertThat(detail.proteinGrams()).isEqualByComparingTo("10.25");
         assertThat(detail.sodiumMg()).isEqualByComparingTo("36.00");
         assertThat(detail.primaryBarcode()).isEqualTo("737628064502");
+        assertThat(detail.novaGroup()).isEqualTo(3);
+        assertThat(detail.nutriScore()).isEqualTo("B");
         server.verify();
     }
 
@@ -80,7 +85,8 @@ class OpenFoodFactsFoodSourceHttpTests {
         OpenFoodFactsFoodSource notFoundSource = new OpenFoodFactsFoodSource(enabledProperties(), notFoundBuilder);
         notFoundServer.expect(once(), requestTo(BASE_URL
                         + "/api/v2/product/0000000000000.json"
-                        + "?fields=code,product_name,brands,categories_tags,categories,nutriments"))
+                        + "?fields=code,product_name,brands,categories_tags,categories,nutriments,"
+                        + "nova_group,nutriscore_grade"))
                 .andRespond(withResourceNotFound());
         assertThat(notFoundSource.findByBarcode("0000000000000")).isEmpty();
         notFoundServer.verify();
@@ -90,7 +96,8 @@ class OpenFoodFactsFoodSourceHttpTests {
         OpenFoodFactsFoodSource malformedSource = new OpenFoodFactsFoodSource(enabledProperties(), malformedBuilder);
         malformedServer.expect(once(), requestTo(BASE_URL
                         + "/api/v2/product/1111111111111.json"
-                        + "?fields=code,product_name,brands,categories_tags,categories,nutriments"))
+                        + "?fields=code,product_name,brands,categories_tags,categories,nutriments,"
+                        + "nova_group,nutriscore_grade"))
                 .andRespond(withSuccess("{", MediaType.APPLICATION_JSON));
         assertThat(malformedSource.findByBarcode("1111111111111")).isEmpty();
         malformedServer.verify();
@@ -103,7 +110,8 @@ class OpenFoodFactsFoodSourceHttpTests {
         OpenFoodFactsFoodSource source = new OpenFoodFactsFoodSource(enabledProperties(), builder);
         server.expect(once(), requestTo(BASE_URL
                         + "/cgi/search.pl?search_terms=oat%20milk&search_simple=1&action=process&json=1"
-                        + "&page_size=2&fields=code,product_name,brands,categories_tags,categories,nutriments"))
+                        + "&page_size=2&fields=code,product_name,brands,categories_tags,categories,"
+                        + "nutriments,nova_group,nutriscore_grade"))
                 .andRespond(withSuccess("""
                         {
                           "products": [
@@ -156,7 +164,8 @@ class OpenFoodFactsFoodSourceHttpTests {
         OpenFoodFactsFoodSource errorSource = new OpenFoodFactsFoodSource(enabledProperties(), errorBuilder);
         errorServer.expect(once(), requestTo(BASE_URL
                         + "/cgi/search.pl?search_terms=oat&search_simple=1&action=process&json=1"
-                        + "&page_size=3&fields=code,product_name,brands,categories_tags,categories,nutriments"))
+                        + "&page_size=3&fields=code,product_name,brands,categories_tags,categories,"
+                        + "nutriments,nova_group,nutriscore_grade"))
                 .andRespond(withServerError());
         assertThat(errorSource.search("oat", 3)).isEmpty();
         errorServer.verify();
@@ -166,7 +175,8 @@ class OpenFoodFactsFoodSourceHttpTests {
         OpenFoodFactsFoodSource malformedSource = new OpenFoodFactsFoodSource(enabledProperties(), malformedBuilder);
         malformedServer.expect(once(), requestTo(BASE_URL
                         + "/cgi/search.pl?search_terms=oat&search_simple=1&action=process&json=1"
-                        + "&page_size=3&fields=code,product_name,brands,categories_tags,categories,nutriments"))
+                        + "&page_size=3&fields=code,product_name,brands,categories_tags,categories,"
+                        + "nutriments,nova_group,nutriscore_grade"))
                 .andRespond(withSuccess("{\"products\":{}}", MediaType.APPLICATION_JSON));
         assertThat(malformedSource.search("oat", 3)).isEmpty();
         malformedServer.verify();

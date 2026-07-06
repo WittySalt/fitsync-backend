@@ -47,6 +47,25 @@ public abstract class AbstractFoodLineItemEntity extends BaseAuditableEntity imp
     @Column(name = "snapshot_serving_label", length = 80)
     private String snapshotServingLabel;
 
+    // --- Food-classification snapshot (additive; nullable). Captured at line-item creation so analysis
+    // (e.g. food-group balance, ultra-processed share) is immune to later catalog recategorization and
+    // works for custom/external foods. Populated at log time by a later step (SNAP-3). See
+    // recommendation-service/analytics-collaboration.md and nutrition-data-plan.md. ---
+    @Column(name = "category_code", length = 40)
+    private String categoryCode;
+
+    @Column(name = "nova_group")
+    private Integer novaGroup;
+
+    @Column(name = "nutri_score", length = 1)
+    private String nutriScore;
+
+    @Column(name = "grams_consumed", precision = 10, scale = 2)
+    private BigDecimal gramsConsumed;
+
+    @Column(name = "source_dataset", length = 30)
+    private String sourceDataset;
+
     @Embedded
     private NutritionFacts nutritionFacts = new NutritionFacts();
 
@@ -144,6 +163,46 @@ public abstract class AbstractFoodLineItemEntity extends BaseAuditableEntity imp
 
     public void setSnapshotServingLabel(String snapshotServingLabel) {
         this.snapshotServingLabel = snapshotServingLabel;
+    }
+
+    public String getCategoryCode() {
+        return categoryCode;
+    }
+
+    public void setCategoryCode(String categoryCode) {
+        this.categoryCode = categoryCode;
+    }
+
+    public Integer getNovaGroup() {
+        return novaGroup;
+    }
+
+    public void setNovaGroup(Integer novaGroup) {
+        this.novaGroup = novaGroup;
+    }
+
+    public String getNutriScore() {
+        return nutriScore;
+    }
+
+    public void setNutriScore(String nutriScore) {
+        this.nutriScore = nutriScore;
+    }
+
+    public BigDecimal getGramsConsumed() {
+        return gramsConsumed;
+    }
+
+    public void setGramsConsumed(BigDecimal gramsConsumed) {
+        this.gramsConsumed = gramsConsumed;
+    }
+
+    public String getSourceDataset() {
+        return sourceDataset;
+    }
+
+    public void setSourceDataset(String sourceDataset) {
+        this.sourceDataset = sourceDataset;
     }
 
     @Override

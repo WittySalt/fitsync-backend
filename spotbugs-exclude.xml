@@ -249,6 +249,15 @@
         <Bug pattern="CRLF_INJECTION_LOGS"/>
     </Match>
 
+    <!-- UsdaSrLegacyImportRunner logs the import directory + a summary of ints. The directory is
+         operator-supplied application config (@Value fitsync.nutrition.usda-import.directory), not a
+         request/payload taint source, so CRLF/log-injection (CWE-117) does not apply. findsecbugs still
+         flags the non-constant argument (false positive), so exclude it for this class only. -->
+    <Match>
+        <Class name="com.fitsync.nutrition.service.ingest.UsdaSrLegacyImportRunner"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
+
     <!-- Account-deletion cascade consumers/projection services: Spring DI on singleton
          components triggers EI_EXPOSE_REP2 noise (same as the messaging consumers above). -->
     <Match>

@@ -63,7 +63,8 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
         try {
             throttle();
             String body = restClient.get()
-                    .uri("/api/v2/product/{barcode}.json?fields=code,product_name,brands,categories_tags,categories,nutriments",
+                    .uri("/api/v2/product/{barcode}.json?fields=code,product_name,brands,categories_tags,"
+                            + "categories,nutriments,nova_group,nutriscore_grade",
                             barcode)
                     .retrieve()
                     .body(String.class);
@@ -101,7 +102,8 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
                             .queryParam("action", "process")
                             .queryParam("json", "1")
                             .queryParam("page_size", limit)
-                            .queryParam("fields", "code,product_name,brands,categories_tags,categories,nutriments")
+                            .queryParam("fields", "code,product_name,brands,categories_tags,categories,"
+                                    + "nutriments,nova_group,nutriscore_grade")
                             .build())
                     .retrieve()
                     .body(String.class);
@@ -169,8 +171,32 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
                 new BigDecimal("100"),
                 "g",
                 barcode,
+                novaGroup(product),
+                nutriGrade(product),
                 List.of(),
                 List.of());
+    }
+
+    /** OpenFoodFacts {@code nova_group} (processing level 1-4); null when absent or out of range. */
+    private static Integer novaGroup(JsonNode product) {
+        JsonNode node = product.path("nova_group");
+        Integer value = null;
+        if (node.isInt()) {
+            value = node.asInt();
+        } else if (node.isTextual() && node.asText().matches("[1-4]")) {
+            value = Integer.valueOf(node.asText());
+        }
+        return value != null && value >= 1 && value <= 4 ? value : null;
+    }
+
+    /** OpenFoodFacts {@code nutriscore_grade} normalised to A-E; null for unknown/not-applicable. */
+    private static String nutriGrade(JsonNode product) {
+        String grade = product.path("nutriscore_grade").asText(null);
+        if (grade == null) {
+            return null;
+        }
+        grade = grade.trim().toUpperCase(Locale.ROOT);
+        return grade.matches("[A-E]") ? grade : null;
     }
 
     private static SimpleClientHttpRequestFactory requestFactory(ExternalFoodProperties properties) {

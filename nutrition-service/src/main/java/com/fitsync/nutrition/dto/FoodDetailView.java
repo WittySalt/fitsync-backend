@@ -34,6 +34,8 @@ public record FoodDetailView(
         BigDecimal basisQuantity,
         String basisUnit,
         String primaryBarcode,
+        Integer novaGroup,
+        String nutriScore,
         List<FoodServingView> servings,
         List<NutrientDetailView> nutrientDetails) {
 
