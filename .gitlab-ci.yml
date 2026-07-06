@@ -35,7 +35,10 @@ stages:
 
 variables:
   # Each runnable service ships as its own image: fitsync-<service>.
-  # (recommendation/notification are empty placeholder modules — not built.)
+  # recommendation-service is built + tested by the reactor (verify stage) but is
+  # intentionally NOT packaged as a deployable image yet: it lives only on the
+  # recommendation branch and its deployment shape (monolith-first vs standalone,
+  # backlog X-5) is undecided. notification-service is still an empty placeholder.
   RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service"
   MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
   MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress"
