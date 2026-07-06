@@ -146,6 +146,9 @@ class EventPayloadGoldenSamplesTests {
         if (List.class.isAssignableFrom(targetType)) {
             return convertList(value, genericType);
         }
+        if (Map.class.isAssignableFrom(targetType)) {
+            return convertMap(value, genericType);
+        }
         if (targetType.isRecord()) {
             @SuppressWarnings("unchecked")
             Class<? extends Record> recordType = (Class<? extends Record>) targetType;
@@ -181,6 +184,22 @@ class EventPayloadGoldenSamplesTests {
         throw new IllegalArgumentException("Unsupported list element type: " + elementType);
     }
 
+    private static Map<String, Object> convertMap(Object value, java.lang.reflect.Type genericType)
+            throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> source = (Map<String, Object>) value;
+        if (!(genericType instanceof ParameterizedType parameterizedType)) {
+            return new LinkedHashMap<>(source);
+        }
+        java.lang.reflect.Type valueType = parameterizedType.getActualTypeArguments()[1];
+        Class<?> valueClass = valueType instanceof Class<?> clazz ? clazz : Object.class;
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            result.put(entry.getKey(), convertValue(entry.getValue(), valueClass, valueClass));
+        }
+        return result;
+    }
+
     private static Map<String, Object> encodeRecord(Object value)
             throws InvocationTargetException, IllegalAccessException {
         Map<String, Object> object = new LinkedHashMap<>();
@@ -207,6 +226,13 @@ class EventPayloadGoldenSamplesTests {
                 encoded.add(encodeValue(item));
             }
             return List.copyOf(encoded);
+        }
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> encoded = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                encoded.put(String.valueOf(entry.getKey()), encodeValue(entry.getValue()));
+            }
+            return encoded;
         }
         if (value.getClass().isRecord()) {
             return encodeRecord(value);

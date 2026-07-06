@@ -7,5 +7,9 @@
   "totalCarbsGrams": 55.0,
   "totalFatGrams": 21.0,
   "itemCount": 3,
-  "source": "MANUAL"
+  "source": "MANUAL",
+  "foodGroupCalories": {
+    "MEAT_POULTRY": 400,
+    "GRAINS": 220
+  }
 }
