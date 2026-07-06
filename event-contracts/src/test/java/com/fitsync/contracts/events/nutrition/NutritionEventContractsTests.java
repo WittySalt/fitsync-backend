@@ -72,6 +72,7 @@ class NutritionEventContractsTests {
                 2,
                 "CUSTOM_FOOD");
 
+        assertEquals(java.util.Map.of(), payload.foodGroupCalories());
         assertEquals(mealId, payload.mealId());
         assertEquals("SNACK", payload.mealType());
         assertEquals(consumedAt, payload.consumedAt());

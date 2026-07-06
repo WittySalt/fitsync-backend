@@ -55,6 +55,11 @@ public class AnalyticsUserDailyNutritionEntity extends BaseAuditableEntity {
     @Column(name = "projection_updated_at", nullable = false)
     private Instant projectionUpdatedAt;
 
+    // Daily food-group energy aggregate, encoded as "CODE=kcal;CODE=kcal" (nullable). Delta-maintained
+    // from per-meal contributions; lets analytics/recommendation read food-group balance ("肉多菜少"). AN-1.
+    @Column(name = "food_group_calories", length = 600)
+    private String foodGroupCalories;
+
     public UUID getUserId() {
         return userId;
     }
@@ -149,5 +154,13 @@ public class AnalyticsUserDailyNutritionEntity extends BaseAuditableEntity {
 
     public void setProjectionUpdatedAt(Instant projectionUpdatedAt) {
         this.projectionUpdatedAt = projectionUpdatedAt;
+    }
+
+    public String getFoodGroupCalories() {
+        return foodGroupCalories;
+    }
+
+    public void setFoodGroupCalories(String foodGroupCalories) {
+        this.foodGroupCalories = foodGroupCalories;
     }
 }

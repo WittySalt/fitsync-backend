@@ -4,7 +4,12 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.fitsync.analytics.entity.AnalyticsMealContributionEntity;
 import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
@@ -58,7 +63,8 @@ public class MealNutritionProjectionService {
                            BigDecimal totalProteinGrams,
                            BigDecimal totalCarbsGrams,
                            BigDecimal totalFatGrams,
-                           Integer itemCount) {
+                           Integer itemCount,
+                           Map<String, Integer> foodGroupCalories) {
         if (processedEventRepository.existsById(event.eventId())) {
             return;
         }
@@ -86,6 +92,7 @@ public class MealNutritionProjectionService {
         newContribution.setTotalCarbsGrams(totalCarbsGrams);
         newContribution.setTotalFatGrams(totalFatGrams);
         newContribution.setItemCount(defaultInt(itemCount));
+        newContribution.setFoodGroupCalories(writeGroups(foodGroupCalories));
         newContribution.setLastAppliedAt(resolveOccurredAt(event.occurredAt(), consumedAt));
         mealContributionRepository.save(newContribution);
 
@@ -145,10 +152,64 @@ public class MealNutritionProjectionService {
         daily.setTotalCarbsGrams(nextCarbs.max(BigDecimal.ZERO));
         daily.setTotalFatGrams(nextFat.max(BigDecimal.ZERO));
         daily.setProjectionUpdatedAt(resolveOccurredAt(occurredAt, null));
+        applyFoodGroupDelta(daily, oldContribution, newContribution);
         recalculateAdherence(daily);
         dailyNutritionRepository.save(daily);
 
         syncDashboardSnapshot(userId, activityDate, daily, occurredAt);
+    }
+
+    /**
+     * Delta-adjusts the day's food-group energy aggregate: subtract the removed meal's per-group snapshot,
+     * add the new one. Groups that reach zero are dropped. Encoded as "CODE=kcal;CODE=kcal" (AN-1).
+     */
+    private void applyFoodGroupDelta(AnalyticsUserDailyNutritionEntity daily,
+                                     AnalyticsMealContributionEntity oldContribution,
+                                     AnalyticsMealContributionEntity newContribution) {
+        Map<String, Integer> aggregate = parseGroups(daily.getFoodGroupCalories());
+        Map<String, Integer> oldGroups = parseGroups(
+                oldContribution == null ? null : oldContribution.getFoodGroupCalories());
+        Map<String, Integer> newGroups = parseGroups(
+                newContribution == null ? null : newContribution.getFoodGroupCalories());
+        Set<String> codes = new HashSet<>(oldGroups.keySet());
+        codes.addAll(newGroups.keySet());
+        for (String code : codes) {
+            int next = aggregate.getOrDefault(code, 0)
+                    - oldGroups.getOrDefault(code, 0)
+                    + newGroups.getOrDefault(code, 0);
+            if (next > 0) {
+                aggregate.put(code, next);
+            } else {
+                aggregate.remove(code);
+            }
+        }
+        daily.setFoodGroupCalories(writeGroups(aggregate));
+    }
+
+    private static String writeGroups(Map<String, Integer> groups) {
+        if (groups == null || groups.isEmpty()) {
+            return null;
+        }
+        String encoded = groups.entrySet().stream()
+                .filter(entry -> entry.getValue() != null && entry.getValue() != 0)
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .collect(Collectors.joining(";"));
+        return encoded.isEmpty() ? null : encoded;
+    }
+
+    private static Map<String, Integer> parseGroups(String encoded) {
+        Map<String, Integer> groups = new HashMap<>();
+        if (encoded == null || encoded.isBlank()) {
+            return groups;
+        }
+        for (String part : encoded.split(";")) {
+            int separator = part.indexOf('=');
+            if (separator > 0) {
+                groups.put(part.substring(0, separator), Integer.parseInt(part.substring(separator + 1)));
+            }
+        }
+        return groups;
     }
 
     private AnalyticsUserDailyNutritionEntity createDailyNutritionRow(UUID userId, LocalDate activityDate) {
