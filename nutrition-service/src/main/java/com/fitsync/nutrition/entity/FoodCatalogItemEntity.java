@@ -61,6 +61,26 @@ public class FoodCatalogItemEntity extends BaseEffectiveEntity {
     @Column(name = "density_grams_per_ml", precision = 10, scale = 4)
     private BigDecimal densityGramsPerMl;
 
+    // --- Open-data provenance & diet-quality signals (additive; nullable) ---------------------------
+    // Populated by external-data importers (USDA FoodData Central, Open Food Facts). Kept nullable so
+    // existing/seeded rows and manually-created foods remain valid. See
+    // recommendation-service/nutrition-data-plan.md.
+
+    @Column(name = "source_dataset", length = 30)
+    private String sourceDataset;
+
+    @Column(name = "source_ref", length = 120)
+    private String sourceRef;
+
+    @Column(name = "nova_group")
+    private Integer novaGroup;
+
+    @Column(name = "nutri_score", length = 1)
+    private String nutriScore;
+
+    @Column(name = "data_completeness", precision = 4, scale = 3)
+    private BigDecimal dataCompleteness;
+
     public UUID getFoodId() {
         return foodId;
     }
@@ -163,5 +183,45 @@ public class FoodCatalogItemEntity extends BaseEffectiveEntity {
 
     public void setDensityGramsPerMl(BigDecimal densityGramsPerMl) {
         this.densityGramsPerMl = densityGramsPerMl;
+    }
+
+    public String getSourceDataset() {
+        return sourceDataset;
+    }
+
+    public void setSourceDataset(String sourceDataset) {
+        this.sourceDataset = sourceDataset;
+    }
+
+    public String getSourceRef() {
+        return sourceRef;
+    }
+
+    public void setSourceRef(String sourceRef) {
+        this.sourceRef = sourceRef;
+    }
+
+    public Integer getNovaGroup() {
+        return novaGroup;
+    }
+
+    public void setNovaGroup(Integer novaGroup) {
+        this.novaGroup = novaGroup;
+    }
+
+    public String getNutriScore() {
+        return nutriScore;
+    }
+
+    public void setNutriScore(String nutriScore) {
+        this.nutriScore = nutriScore;
+    }
+
+    public BigDecimal getDataCompleteness() {
+        return dataCompleteness;
+    }
+
+    public void setDataCompleteness(BigDecimal dataCompleteness) {
+        this.dataCompleteness = dataCompleteness;
     }
 }

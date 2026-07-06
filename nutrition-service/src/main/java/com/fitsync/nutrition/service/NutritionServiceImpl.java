@@ -1520,6 +1520,8 @@ public class NutritionServiceImpl implements NutritionService {
                 profile == null ? null : profile.getBasisQuantity(),
                 profile == null ? null : profile.getBasisUnit(),
                 primaryBarcode,
+                food.getNovaGroup(),
+                food.getNutriScore(),
                 servings,
                 nutrientDetails);
     }
@@ -1807,6 +1809,12 @@ public class NutritionServiceImpl implements NutritionService {
         food.setBrandId(brandId);
         food.setVerified(false);
         food.setDensityGramsPerMl(externalFood.densityGramsPerMl());
+        // Provenance + diet-quality signals from the external source (Open Food Facts today). Captured
+        // here so analytics can use NOVA / Nutri-Score and so imports are upsert-keyable by source ref.
+        food.setSourceDataset("OFF");
+        food.setSourceRef(barcode);
+        food.setNovaGroup(externalFood.novaGroup());
+        food.setNutriScore(externalFood.nutriScore());
         food.setActive(true);
         foodCatalogItemRepository.save(food);
 

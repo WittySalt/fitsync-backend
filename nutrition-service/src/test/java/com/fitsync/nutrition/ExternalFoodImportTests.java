@@ -103,6 +103,8 @@ class ExternalFoodImportTests {
                 .andExpect(jsonPath("$.verified").value(false))
                 .andExpect(jsonPath("$.calories").value(59))
                 .andExpect(jsonPath("$.primaryBarcode").value(BARCODE))
+                .andExpect(jsonPath("$.novaGroup").value(1))
+                .andExpect(jsonPath("$.nutriScore").value("A"))
                 .andExpect(jsonPath("$.servings.length()").value(1))
                 .andExpect(jsonPath("$.servings[0].label").value("100 g"))
                 .andReturn()
@@ -111,6 +113,11 @@ class ExternalFoodImportTests {
         String foodId = com.jayway.jsonpath.JsonPath.read(importResponse, "$.foodId");
 
         assertThat(foodCatalogItemRepository.count()).isEqualTo(1);
+        // FD-4: OFF provenance + diet-quality signals are captured on the persisted catalog row.
+        FoodCatalogItemEntity persisted = foodCatalogItemRepository
+                .findBySourceDatasetAndSourceRef("OFF", BARCODE).orElseThrow();
+        assertThat(persisted.getNovaGroup()).isEqualTo(1);
+        assertThat(persisted.getNutriScore()).isEqualTo("A");
         assertThat(foodNutrientProfileRepository.count()).isEqualTo(1);
         assertThat(foodServingRepository.count()).isEqualTo(1);
         assertThat(foodBarcodeRepository.count()).isEqualTo(1);
@@ -288,6 +295,8 @@ class ExternalFoodImportTests {
                 new BigDecimal("100.00"),
                 "g",
                 barcode,
+                1,
+                "A",
                 List.of(),
                 List.of());
     }
