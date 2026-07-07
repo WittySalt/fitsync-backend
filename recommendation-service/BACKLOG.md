@@ -23,7 +23,11 @@ The **food-data → snapshot → event → analytics** thread is complete and **
 
 So **"meat-heavy / veg-light" is now a live analytics fact**. The next (and only remaining MVP) leg is
 **building `recommendation-service` itself (EPIC RC)** — which lives on this branch and **never merges to
-`main`**. Start at **RC-1**. See `recommendation-service/CLAUDE.md` for session-handoff context.
+`main`**. See `recommendation-service/CLAUDE.md` for session-handoff context.
+
+**RC progress (this branch):** RC-1 (scaffold: app + security + `recommendation_context`/`recommendation_result`
+tables + CI) and RC-8 (11 thin Kafka consumers → context projection + stale marking, idempotent via
+`recommendation_processed_events`) are done. Next: **RC-2** (local rules R1–R5).
 
 ---
 
@@ -87,15 +91,15 @@ Everything else is documented growth path.
 
 | ID | Item | Status | Effort | Scope | Depends |
 |----|------|--------|--------|-------|---------|
-| RC-0 | Module is an empty scaffold (`pom.xml` only) | 🟡 scaffold | – | – | – |
-| RC-1 | Scaffold: main class, package skeleton, `recommendation_context` + `recommendation_result` tables | ⬜ todo | M | MVP | – |
+| RC-0 | Module is an empty scaffold (`pom.xml` only) | ✅ superseded by RC-1 | – | – | – |
+| RC-1 | Scaffold: main class, package skeleton, `recommendation_context` + `recommendation_result` tables | ✅ done (this branch) | – | MVP | – |
 | RC-2 | Local rule engine R1–R5 (nutrition gap, weekly adherence, goal pace, streak nudge, cold-start) | ⬜ todo | L | MVP | AN-1/AN-4 |
 | RC-3 | Rules R6–R8 (PR celebration, focus-area balance, logging reminder) | ⬜ todo | M | Full | EV-2 |
 | RC-4 | `RecommendationResolver` funnel: cache → rule → template → AI | ⬜ todo | M | MVP | RC-2 |
 | RC-5 | Hand-written narrative template library (10–20 templates, rule numbers fill slots) | ⬜ todo | S | MVP | RC-2 |
 | RC-6 | One live AI feature — A1 weekly narrative **or** A4 coach Q&A (async, prompt-cached, model-tiered, rule fallback) | ⬜ todo | M | MVP | RC-4 |
 | RC-7 | Read API: `GET /recommendations`, `GET /{type}`, `POST /refresh` | ⬜ todo | M | MVP | RC-1 |
-| RC-8 | Kafka consumers (group `recommendation-consumer-group`) → update context + mark stale (never trigger AI per-event) | ⬜ todo | M | MVP | RC-1 |
+| RC-8 | Kafka consumers (group `recommendation-consumer-group`) → update context + mark stale (never trigger AI per-event) | ✅ done (this branch) | – | MVP | RC-1 |
 | RC-9 | A2/A3/A5 AI features (workout plan, meal ideas, rationale) | ⬜ todo | L | Full | RC-6 |
 | RC-10 | Advanced cost/perf: retrieval-instead-of-generation, model cascade, Batch API, design-time distillation | ⬜ todo | L | Full | RC-9 |
 
@@ -104,7 +108,7 @@ Everything else is documented growth path.
 | ID | Item | Status | Effort | Scope | Depends |
 |----|------|--------|--------|-------|---------|
 | X-1 | Gateway: add `recommendation-service-base-url` + route `/api/v1/recommendations/**` (reserved, not wired) | ⬜ todo | S | MVP | RC-7 |
-| X-2 | CI: add `recommendation-service` to the build (currently excluded as empty placeholder) | ⬜ todo | S | MVP | RC-1 |
+| X-2 | CI: add `recommendation-service` to the build (currently excluded as empty placeholder) | ✅ done with RC-1 (reactor `verify` builds + tests it; deliberately not packaged as an image — X-5) | – | MVP | RC-1 |
 | X-3 | OFF attribution line (ODbL: "Data from Open Food Facts") in app/about + provenance | ⬜ todo | S | MVP | FD-0a |
 | X-4 | `ANTHROPIC_API_KEY` config/secret wiring for the AI tier | ⬜ todo | S | MVP | RC-6 |
 | X-5 | Decide monolith-first vs standalone deployment for recommendation (per kafka-arch §18) | ⬜ todo | S | – | – |

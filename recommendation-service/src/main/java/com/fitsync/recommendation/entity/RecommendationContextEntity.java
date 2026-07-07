@@ -37,6 +37,13 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
     @Column(name = "current_goal_target_date")
     private LocalDate currentGoalTargetDate;
 
+    // Profile inputs for the local TDEE estimate (from UserProfileUpdated) — README §2 fact 3.
+    @Column(name = "height_cm", precision = 5, scale = 1)
+    private BigDecimal heightCm;
+
+    @Column(name = "activity_level", length = 40)
+    private String activityLevel;
+
     // Derived locally (TDEE estimate adjusted by goal) — see README §2 fact 3 / R1.
     @Column(name = "energy_target_calories")
     private Integer energyTargetCalories;
@@ -80,7 +87,11 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
     @Column(name = "recent_week_start")
     private LocalDate recentWeekStart;
 
-    // Recent nutrition summary (from MealLogged rollups).
+    // Recent nutrition summary (from MealLogged rollups). today_date anchors the
+    // running totals so a new day resets them instead of accumulating forever.
+    @Column(name = "today_date")
+    private LocalDate todayDate;
+
     @Column(name = "today_calories_consumed")
     private Integer todayCaloriesConsumed;
 
@@ -142,6 +153,22 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
 
     public void setCurrentGoalTargetDate(LocalDate currentGoalTargetDate) {
         this.currentGoalTargetDate = currentGoalTargetDate;
+    }
+
+    public BigDecimal getHeightCm() {
+        return heightCm;
+    }
+
+    public void setHeightCm(BigDecimal heightCm) {
+        this.heightCm = heightCm;
+    }
+
+    public String getActivityLevel() {
+        return activityLevel;
+    }
+
+    public void setActivityLevel(String activityLevel) {
+        this.activityLevel = activityLevel;
     }
 
     public Integer getEnergyTargetCalories() {
@@ -246,6 +273,14 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
 
     public void setRecentWeekStart(LocalDate recentWeekStart) {
         this.recentWeekStart = recentWeekStart;
+    }
+
+    public LocalDate getTodayDate() {
+        return todayDate;
+    }
+
+    public void setTodayDate(LocalDate todayDate) {
+        this.todayDate = todayDate;
     }
 
     public Integer getTodayCaloriesConsumed() {

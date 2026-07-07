@@ -14,4 +14,6 @@ public interface RecommendationResultRepository extends JpaRepository<Recommenda
     List<RecommendationResultEntity> findByUserId(UUID userId);
 
     Optional<RecommendationResultEntity> findByUserIdAndType(UUID userId, String type);
+
+    void deleteByUserId(UUID userId);
 }

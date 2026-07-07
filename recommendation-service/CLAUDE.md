@@ -41,10 +41,13 @@ analytics per-day food-group aggregate. So **"meat-heavy / veg-light" is a live 
 
 ## What to build next — EPIC RC (see BACKLOG)
 
-Start at **RC-1** and go in order:
-`RC-1 scaffold (main class, packages, recommendation_context + recommendation_result tables, add to CI)`
-→ `RC-8 thin Kafka consumers (group recommendation-consumer-group; update context + mark stale, NEVER
-call AI per-event)` → `RC-2 local rules R1–R5` → `RC-4/RC-5 resolver funnel (cache→rule→template→AI) +
+**Done on this branch:** `RC-1 scaffold` (main class, packages, `recommendation_context` +
+`recommendation_result` tables, CI) and `RC-8 thin Kafka consumers` (group
+`recommendation-consumer-group`; 11 listeners in `consumer/` → handlers in `handler/` update the
+context + mark stale, idempotent via `recommendation_processed_events`; Flyway at V2).
+
+Continue in order:
+`RC-2 local rules R1–R5` → `RC-4/RC-5 resolver funnel (cache→rule→template→AI) +
 hand-written templates` → `RC-7 read API` + `X-1 gateway route` → `RC-6 one live AI feature (A1 weekly
 narrative OR A4 coach Q&A) + X-3 OFF attribution + X-4 ANTHROPIC_API_KEY`.
 

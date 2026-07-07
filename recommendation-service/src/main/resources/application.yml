@@ -23,6 +23,14 @@ spring:
     default-schema: recommendation
     schemas: recommendation
     table: recommendation_flyway_schema_history
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      missing-topics-fatal: false
 
 server:
   port: ${SERVER_PORT:8086}
@@ -45,3 +53,37 @@ security:
   jwt:
     secret: ${JWT_SECRET:change-me-change-me-change-me-change-me}
     expiration: ${JWT_EXPIRATION:PT2H}
+
+fitsync:
+  kafka:
+    enabled: ${KAFKA_ENABLED:false}
+    topics:
+      user-events: ${KAFKA_USER_EVENTS_TOPIC:user-events}
+      progress-events: ${KAFKA_PROGRESS_EVENTS_TOPIC:progress-events}
+      nutrition-events: ${KAFKA_NUTRITION_EVENTS_TOPIC:nutrition-events}
+      analytics-events: ${KAFKA_ANALYTICS_EVENTS_TOPIC:analytics-events}
+    consumer-groups:
+      recommendation-service: ${KAFKA_RECOMMENDATION_SERVICE_GROUP:recommendation-consumer-group}
+    listeners:
+      goal-updated:
+        enabled: ${KAFKA_GOAL_UPDATED_LISTENER_ENABLED:false}
+      body-metrics-recorded:
+        enabled: ${KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED:false}
+      meal-logged:
+        enabled: ${KAFKA_MEAL_LOGGED_LISTENER_ENABLED:false}
+      meal-updated:
+        enabled: ${KAFKA_MEAL_UPDATED_LISTENER_ENABLED:false}
+      meal-deleted:
+        enabled: ${KAFKA_MEAL_DELETED_LISTENER_ENABLED:false}
+      user-registered:
+        enabled: ${KAFKA_USER_REGISTERED_LISTENER_ENABLED:false}
+      user-profile-updated:
+        enabled: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:false}
+      user-preferences-updated:
+        enabled: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
+      weekly-recap-generated:
+        enabled: ${KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED:false}
+      streak-milestone-reached:
+        enabled: ${KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED:false}
+      account-deleted:
+        enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}

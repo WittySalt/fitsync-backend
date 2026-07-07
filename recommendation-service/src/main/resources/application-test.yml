@@ -18,8 +18,15 @@ spring:
     default-schema: recommendation
     schemas: recommendation
     table: recommendation_flyway_schema_history
+  kafka:
+    listener:
+      auto-startup: false
 
 security:
   jwt:
     secret: test-secret-test-secret-test-secret-123456
     expiration: PT1H
+
+fitsync:
+  kafka:
+    enabled: false

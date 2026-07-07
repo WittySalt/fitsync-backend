@@ -335,4 +335,72 @@
         <Class name="com.fitsync.workout.messaging.AccountDeletionProjectionService"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+
+    <!-- recommendation-service event handlers store constructor-injected Spring singletons
+         (context store / processed-event guard / repositories / clock); same Spring-DI noise
+         as the analytics/nutrition consumer impls above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.ProcessedEventGuard"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.RecommendationContextStore"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.GoalUpdatedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.BodyMetricsRecordedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.MealLoggedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.MealUpdatedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.MealDeletedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.UserRegisteredEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.UserProfileUpdatedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.UserPreferencesUpdatedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.WeeklyRecapGeneratedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.StreakMilestoneReachedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.AccountDeletedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>
