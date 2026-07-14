@@ -12,6 +12,7 @@ External user-scoped endpoints:
 - `GET /api/v1/analytics/nutrition/summary?from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `GET /api/v1/analytics/goals/progress?status=ACTIVE`
 - `GET /api/v1/analytics/streaks`
+- `GET /api/v1/analytics/achievements`
 
 Internal admin-only maintenance endpoints:
 
@@ -71,6 +72,7 @@ Cached endpoints:
 - workout summary: 10 minutes
 - nutrition summary: 10 minutes
 - streaks: 5 minutes
+- achievements: 5 minutes
 
 Default local/test mode:
 

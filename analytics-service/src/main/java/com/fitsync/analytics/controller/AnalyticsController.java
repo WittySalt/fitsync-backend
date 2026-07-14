@@ -2,6 +2,7 @@ package com.fitsync.analytics.controller;
 
 import java.time.LocalDate;
 
+import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
@@ -127,6 +128,20 @@ public class AnalyticsController {
     })
     public AnalyticsStreaksResponse streaks(Authentication authentication) {
         return analyticsService.getStreaks(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/achievements")
+    @Operation(summary = "Get achievements",
+            description = "Returns the authenticated user's gamification achievements, both unlocked and locked, "
+                    + "derived from workout, nutrition, body-metric and personal-record projections. Users without "
+                    + "data get the full list with every achievement locked at progress 0.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Achievement list returned"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsAchievementsResponse achievements(Authentication authentication) {
+        return analyticsService.getAchievements(currentPrincipal(authentication));
     }
 
     @GetMapping("/activity/calendar")

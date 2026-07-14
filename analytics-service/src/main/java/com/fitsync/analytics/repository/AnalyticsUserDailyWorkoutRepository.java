@@ -24,6 +24,8 @@ public interface AnalyticsUserDailyWorkoutRepository
             + "order by row.activityDate asc")
     List<LocalDate> findActiveActivityDatesByUserId(@Param("userId") UUID userId);
 
+    List<AnalyticsUserDailyWorkoutEntity> findByUserIdOrderByActivityDateAsc(UUID userId);
+
     List<AnalyticsUserDailyWorkoutEntity> findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(UUID userId,
                                                                                                     LocalDate from,
                                                                                                     LocalDate to);

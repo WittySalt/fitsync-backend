@@ -314,6 +314,37 @@ Rules:
   current streak that momentarily exceeds the materialized best is surfaced as the best
 - users without data get a zeroed payload (`200`), never a `404`
 
+### 5.7 Achievements
+
+#### GET `/api/v1/analytics/achievements`
+
+Purpose:
+
+- return the gamification achievement list (unlocked and locked) for the profile view
+
+Response shape:
+
+```json
+{
+  "achievements": [
+    { "code": "FIRST_WORKOUT", "title": "First workout", "unlocked": true,
+      "unlockedAt": "2026-05-01T10:00:00Z", "progress": 1.0 },
+    { "code": "STREAK_7", "title": "7-day streak", "unlocked": false, "progress": 0.86 }
+  ]
+}
+```
+
+Rules:
+
+- first batch of codes (stable contract): `FIRST_WORKOUT`, `WORKOUTS_10`, `WORKOUTS_50`,
+  `WORKOUTS_100`, `STREAK_7`, `STREAK_30`, `FIRST_MEAL_LOGGED`, `FIRST_WEIGHT_LOGGED`, `PR_FIRST`
+- everything is derived read-side from existing projections (daily workout/nutrition/body rows,
+  the streak rollup and `analytics_user_workout_records`); there is no per-achievement event stream
+- `progress` is clamped to `[0, 1]`; `unlockedAt` is reconstructed from the qualifying activity
+  date at start-of-day in the user's timezone (PR_FIRST uses the first projected record instant)
+- a zero-data user gets the full list with every achievement locked at progress `0`, not an empty
+  array
+
 ---
 
 ## 6. API Design Rules

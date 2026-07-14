@@ -2,6 +2,7 @@ package com.fitsync.analytics.service;
 
 import java.time.LocalDate;
 
+import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
@@ -37,4 +38,6 @@ public interface AnalyticsService {
     AnalyticsGoalProgressResponse getGoalProgress(CurrentUserPrincipal principal, String status);
 
     AnalyticsStreaksResponse getStreaks(CurrentUserPrincipal principal);
+
+    AnalyticsAchievementsResponse getAchievements(CurrentUserPrincipal principal);
 }
