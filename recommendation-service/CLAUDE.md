@@ -42,14 +42,17 @@ analytics per-day food-group aggregate. So **"meat-heavy / veg-light" is a live 
 ## What to build next — EPIC RC (see BACKLOG)
 
 **Done on this branch:** `RC-1 scaffold` (main class, packages, `recommendation_context` +
-`recommendation_result` tables, CI) and `RC-8 thin Kafka consumers` (group
+`recommendation_result` tables, CI); `RC-8 thin Kafka consumers` (group
 `recommendation-consumer-group`; 11 listeners in `consumer/` → handlers in `handler/` update the
-context + mark stale, idempotent via `recommendation_processed_events`; Flyway at V2).
+context + mark stale, idempotent via `recommendation_processed_events`); `RC-2 local rules R1–R5`
+(`service/rules`: Rule/RuleOutcome/RuleEngine + NutritionGap (TDEE est.), WeeklyAdherence, GoalPace
+(baseline captured at goal-set), StreakNudge, ColdStart — pure functions over the context, facts only,
+phrasing left to templates). Flyway at V3.
 
 Continue in order:
-`RC-2 local rules R1–R5` → `RC-4/RC-5 resolver funnel (cache→rule→template→AI) +
-hand-written templates` → `RC-7 read API` + `X-1 gateway route` → `RC-6 one live AI feature (A1 weekly
-narrative OR A4 coach Q&A) + X-3 OFF attribution + X-4 ANTHROPIC_API_KEY`.
+`RC-4/RC-5 resolver funnel (cache→rule→template→AI) + hand-written templates` → `RC-7 read API` +
+`X-1 gateway route` → `RC-6 one live AI feature (A1 weekly narrative OR A4 coach Q&A) + X-3 OFF
+attribution + X-4 ANTHROPIC_API_KEY`.
 
 The AI tier uses the **Claude API via the `anthropic-java` SDK**; default model `claude-opus-4-8`,
 tier down to `claude-sonnet-4-6` / `claude-haiku-4-5` for cheaper tasks (README §4.1). Keep AI async +

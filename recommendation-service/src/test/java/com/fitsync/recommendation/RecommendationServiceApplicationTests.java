@@ -2,6 +2,10 @@ package com.fitsync.recommendation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
+
+import com.fitsync.recommendation.service.rules.RecommendationTypes;
+import com.fitsync.recommendation.service.rules.Rule;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,6 +18,9 @@ class RecommendationServiceApplicationTests {
 
     @Autowired
     private Environment environment;
+
+    @Autowired
+    private List<Rule> rules;
 
     @Test
     void contextLoads() {
@@ -28,5 +35,15 @@ class RecommendationServiceApplicationTests {
                 .isEqualTo("recommendation_flyway_schema_history");
         assertThat(environment.getProperty("spring.jpa.properties.hibernate.default_schema"))
                 .isEqualTo("recommendation");
+    }
+
+    @Test
+    void registersAllFiveLocalRules() {
+        assertThat(rules).extracting(Rule::type).containsExactlyInAnyOrder(
+                RecommendationTypes.NUTRITION_GAP,
+                RecommendationTypes.WEEKLY_ADHERENCE,
+                RecommendationTypes.GOAL_PACE,
+                RecommendationTypes.STREAK_NUDGE,
+                RecommendationTypes.COLD_START);
     }
 }

@@ -2,15 +2,14 @@ package com.fitsync.recommendation.handler;
 
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
+import com.fitsync.recommendation.domain.UserTimeZones;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,22 +68,11 @@ public class MealLoggedEventHandler implements DomainEventConsumer<MealLoggedPay
                                       MealLoggedPayload payload,
                                       RecommendationContextEntity context) {
         Instant consumedAt = payload.consumedAt() != null ? payload.consumedAt() : event.occurredAt();
-        ZoneId zone = resolveZone(context.getTimezone());
+        ZoneId zone = UserTimeZones.resolve(context.getTimezone());
         if (consumedAt == null) {
             return LocalDate.now(clock.withZone(zone));
         }
         return consumedAt.atZone(zone).toLocalDate();
-    }
-
-    private static ZoneId resolveZone(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            return ZoneOffset.UTC;
-        }
-        try {
-            return ZoneId.of(timezone);
-        } catch (DateTimeException ignored) {
-            return ZoneOffset.UTC;
-        }
     }
 
     private static Integer addCalories(Integer current, Integer increment) {

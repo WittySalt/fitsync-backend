@@ -37,6 +37,13 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
     @Column(name = "current_goal_target_date")
     private LocalDate currentGoalTargetDate;
 
+    // Weight (and date) when the current weight goal was set — the R3 pace baseline.
+    @Column(name = "goal_baseline_weight_kg", precision = 6, scale = 2)
+    private BigDecimal goalBaselineWeightKg;
+
+    @Column(name = "goal_baseline_on")
+    private LocalDate goalBaselineOn;
+
     // Profile inputs for the local TDEE estimate (from UserProfileUpdated) — README §2 fact 3.
     @Column(name = "height_cm", precision = 5, scale = 1)
     private BigDecimal heightCm;
@@ -153,6 +160,22 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
 
     public void setCurrentGoalTargetDate(LocalDate currentGoalTargetDate) {
         this.currentGoalTargetDate = currentGoalTargetDate;
+    }
+
+    public BigDecimal getGoalBaselineWeightKg() {
+        return goalBaselineWeightKg;
+    }
+
+    public void setGoalBaselineWeightKg(BigDecimal goalBaselineWeightKg) {
+        this.goalBaselineWeightKg = goalBaselineWeightKg;
+    }
+
+    public LocalDate getGoalBaselineOn() {
+        return goalBaselineOn;
+    }
+
+    public void setGoalBaselineOn(LocalDate goalBaselineOn) {
+        this.goalBaselineOn = goalBaselineOn;
     }
 
     public BigDecimal getHeightCm() {

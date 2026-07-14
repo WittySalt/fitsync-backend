@@ -1,10 +1,12 @@
 package com.fitsync.recommendation.handler;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
+import com.fitsync.recommendation.domain.GoalTypes;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,8 +50,27 @@ public class BodyMetricsRecordedEventHandler implements DomainEventConsumer<Body
             }
             context.setBodyMetricsRecordedAt(measuredAt);
         }
+        fillGoalBaselineIfMissing(context, payload, measuredAt);
         contextStore.saveStale(context);
         processedEventGuard.record(event);
+    }
+
+    /**
+     * A weight goal set before any weight was recorded has no R3 pace baseline yet;
+     * the first weight that arrives afterwards becomes it.
+     */
+    private static void fillGoalBaselineIfMissing(RecommendationContextEntity context,
+                                                  BodyMetricsRecordedPayload payload,
+                                                  Instant measuredAt) {
+        if (!GoalTypes.isWeightGoal(context.getCurrentGoalType())
+                || context.getGoalBaselineWeightKg() != null
+                || payload.weightKg() == null) {
+            return;
+        }
+        context.setGoalBaselineWeightKg(payload.weightKg());
+        context.setGoalBaselineOn(measuredAt == null
+                ? null
+                : measuredAt.atZone(ZoneOffset.UTC).toLocalDate());
     }
 
     private static boolean isNewerThanCurrent(RecommendationContextEntity context, Instant measuredAt) {

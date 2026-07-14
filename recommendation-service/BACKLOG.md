@@ -26,8 +26,10 @@ So **"meat-heavy / veg-light" is now a live analytics fact**. The next (and only
 `main`**. See `recommendation-service/CLAUDE.md` for session-handoff context.
 
 **RC progress (this branch):** RC-1 (scaffold: app + security + `recommendation_context`/`recommendation_result`
-tables + CI) and RC-8 (11 thin Kafka consumers → context projection + stale marking, idempotent via
-`recommendation_processed_events`) are done. Next: **RC-2** (local rules R1–R5).
+tables + CI), RC-8 (11 thin Kafka consumers → context projection + stale marking, idempotent via
+`recommendation_processed_events`) and RC-2 (rule engine: `service/rules` — R1 nutrition gap w/ TDEE
+estimate, R2 weekly adherence, R3 goal pace w/ baseline capture at goal-set, R4 streak nudge, R5
+cold-start; Flyway at V3) are done. Next: **RC-4/RC-5** (resolver funnel + templates).
 
 ---
 
@@ -93,7 +95,7 @@ Everything else is documented growth path.
 |----|------|--------|--------|-------|---------|
 | RC-0 | Module is an empty scaffold (`pom.xml` only) | ✅ superseded by RC-1 | – | – | – |
 | RC-1 | Scaffold: main class, package skeleton, `recommendation_context` + `recommendation_result` tables | ✅ done (this branch) | – | MVP | – |
-| RC-2 | Local rule engine R1–R5 (nutrition gap, weekly adherence, goal pace, streak nudge, cold-start) | ⬜ todo | L | MVP | AN-1/AN-4 |
+| RC-2 | Local rule engine R1–R5 (nutrition gap, weekly adherence, goal pace, streak nudge, cold-start) | ✅ done (this branch) | – | MVP | AN-1/AN-4 |
 | RC-3 | Rules R6–R8 (PR celebration, focus-area balance, logging reminder) | ⬜ todo | M | Full | EV-2 |
 | RC-4 | `RecommendationResolver` funnel: cache → rule → template → AI | ⬜ todo | M | MVP | RC-2 |
 | RC-5 | Hand-written narrative template library (10–20 templates, rule numbers fill slots) | ⬜ todo | S | MVP | RC-2 |

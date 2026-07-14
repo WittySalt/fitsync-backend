@@ -100,6 +100,36 @@ class RecommendationContextProjectionTests {
     }
 
     @Test
+    void weightGoalCapturesThePaceBaselineFromTheKnownWeight() {
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("90.00"), null, null,
+                Instant.parse("2026-07-01T08:00:00Z"))));
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("80.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getGoalBaselineWeightKg()).isEqualByComparingTo("90.00");
+        assertThat(context.getGoalBaselineOn()).isEqualTo(LocalDate.parse("2026-07-06"));
+    }
+
+    @Test
+    void goalSetBeforeAnyWeightGetsItsBaselineFromTheFirstMeasurement() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("80.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+        assertThat(context().getGoalBaselineWeightKg()).isNull();
+
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("89.50"), null, null,
+                Instant.parse("2026-07-08T08:00:00Z"))));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getGoalBaselineWeightKg()).isEqualByComparingTo("89.50");
+        assertThat(context.getGoalBaselineOn()).isEqualTo(LocalDate.parse("2026-07-08"));
+    }
+
+    @Test
     void bodyMetricsKeepLatestMeasurementAndIgnoreOlderOnes() {
         bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
                 UUID.randomUUID(), new BigDecimal("82.50"), new BigDecimal("21.00"), null,
