@@ -53,12 +53,15 @@ unfired rule results; `service/rules/NarrativeTemplates`: 13 hand-written templa
 (`controller/RecommendationController`: GET /api/v1/recommendations, GET /{type} (case-insensitive,
 404 via web-support), POST /refresh → 202); `X-1` (api-gateway: `recommendation-service-base-url`
 (:8086) + `/api/v1/recommendations/**` proxy — the gateway change is branch-only like everything
-else here). Flyway at V3.
+else here); `RC-6 + X-4` (A1 weekly narrative in `service/ai`: `ClaudeClient` seam →
+`AnthropicClaudeClient` (`anthropic-java`, key via `fromEnv()`, prompt-cached system prompt,
+model/`max-tokens`/TTL under `fitsync.recommendation.ai.*`, default `claude-sonnet-4-6`, enabled=false
+by default) + `WeeklyNarrativeService` (enqueued by the recap handler + resolver refresh, hash-gated,
+P7D TTL, silent fallback to rule/template output — the read path never touches AI)). Flyway at V3.
 
-Next: `RC-6 one live AI feature (A1 weekly narrative OR A4 coach Q&A) + X-4 ANTHROPIC_API_KEY + X-3
-OFF attribution`. The resolver's AI stage is the reserved seam — async behind the cache (never on the
-read path), gated by the stored context hash, falling back to rule/template output on any AI failure.
-Claude API via the `anthropic-java` SDK; model IDs are configuration (README §4.1 tiering).
+**MVP cut line: everything done except X-3** (OFF attribution) — X-3 is main-bound
+(nutrition/frontend surface), so it needs the separate-branch → PR-to-`main` flow below, NOT this
+branch. Remaining RC work is Full-scope (RC-3, RC-9, RC-10).
 
 The AI tier uses the **Claude API via the `anthropic-java` SDK**; default model `claude-opus-4-8`,
 tier down to `claude-sonnet-4-6` / `claude-haiku-4-5` for cheaper tasks (README §4.1). Keep AI async +

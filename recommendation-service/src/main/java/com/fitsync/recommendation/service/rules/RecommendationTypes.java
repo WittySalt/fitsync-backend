@@ -12,6 +12,9 @@ public final class RecommendationTypes {
     public static final String STREAK_NUDGE = "STREAK_NUDGE";
     public static final String COLD_START = "COLD_START";
 
+    /** Tier-2 (A1): the AI-phrased weekly coaching narrative — source AI, not a rule. */
+    public static final String WEEKLY_NARRATIVE = "WEEKLY_NARRATIVE";
+
     private RecommendationTypes() {
     }
 }

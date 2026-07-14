@@ -57,6 +57,14 @@ security:
 fitsync:
   recommendation:
     rule-result-ttl: ${RECOMMENDATION_RULE_RESULT_TTL:PT24H}
+    ai:
+      # X-4: the API key is NOT configured here — the SDK reads ANTHROPIC_API_KEY
+      # from the environment (AnthropicOkHttpClient.fromEnv()). Enabling the tier
+      # without the env var fails fast at startup.
+      enabled: ${RECOMMENDATION_AI_ENABLED:false}
+      model: ${RECOMMENDATION_AI_MODEL:claude-sonnet-4-6}
+      max-tokens: ${RECOMMENDATION_AI_MAX_TOKENS:300}
+      narrative-ttl: ${RECOMMENDATION_AI_NARRATIVE_TTL:P7D}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

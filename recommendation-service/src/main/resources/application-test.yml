@@ -28,5 +28,8 @@ security:
     expiration: PT1H
 
 fitsync:
+  recommendation:
+    ai:
+      enabled: false
   kafka:
     enabled: false

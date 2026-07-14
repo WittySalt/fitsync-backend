@@ -422,4 +422,11 @@
         <Class name="com.fitsync.recommendation.controller.RecommendationController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
+
+    <!-- AI narrative service stores constructor-injected Spring singletons
+         (repositories, ObjectMapper); same Spring-DI noise as the handlers above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.service.ai.WeeklyNarrativeService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>

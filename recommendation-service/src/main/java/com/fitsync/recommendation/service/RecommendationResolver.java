@@ -1,12 +1,8 @@
 package com.fitsync.recommendation.service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +19,7 @@ import com.fitsync.recommendation.entity.RecommendationResultEntity;
 import com.fitsync.recommendation.entity.RecommendationSource;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.repository.RecommendationResultRepository;
+import com.fitsync.recommendation.service.ai.WeeklyNarrativeService;
 import com.fitsync.recommendation.service.rules.NarrativeTemplates;
 import com.fitsync.recommendation.service.rules.RuleEngine;
 import com.fitsync.recommendation.service.rules.RuleOutcome;
@@ -35,11 +32,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * Reads serve straight from {@code recommendation_result}; only when the context is
  * stale or results expired does the funnel drop to the rule stage — synchronous and
- * cheap (pure functions + one upsert). The AI stage is intentionally absent here:
- * RC-6 plugs it in asynchronously behind the same cache, so the read path never waits
- * on a model. Rule results carry the context hash so the future AI stage can skip
- * regeneration when the underlying context hasn't materially changed (§5.1
- * change-detection).
+ * cheap (pure functions + one upsert). The AI stage never runs inline: a refresh only
+ * <em>enqueues</em> the weekly-narrative generation, which is hash-gated and writes
+ * into the same cache, so the read path never waits on a model.
  */
 @Service
 public class RecommendationResolver {
@@ -48,6 +43,7 @@ public class RecommendationResolver {
     private final RecommendationResultRepository resultRepository;
     private final RuleEngine ruleEngine;
     private final NarrativeTemplates narrativeTemplates;
+    private final WeeklyNarrativeService weeklyNarrativeService;
     private final ObjectMapper objectMapper;
     private final RecommendationProperties properties;
     private final Clock clock;
@@ -56,6 +52,7 @@ public class RecommendationResolver {
                                   RecommendationResultRepository resultRepository,
                                   RuleEngine ruleEngine,
                                   NarrativeTemplates narrativeTemplates,
+                                  WeeklyNarrativeService weeklyNarrativeService,
                                   ObjectMapper objectMapper,
                                   RecommendationProperties properties,
                                   Clock clock) {
@@ -63,6 +60,7 @@ public class RecommendationResolver {
         this.resultRepository = resultRepository;
         this.ruleEngine = ruleEngine;
         this.narrativeTemplates = narrativeTemplates;
+        this.weeklyNarrativeService = weeklyNarrativeService;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
@@ -105,7 +103,7 @@ public class RecommendationResolver {
 
     private void refresh(RecommendationContextEntity context) {
         Instant now = Instant.now(clock);
-        String contextHash = hash(context);
+        String contextHash = ContextHashing.hash(context);
         List<RuleOutcome> outcomes = ruleEngine.evaluateAll(context);
 
         for (RuleOutcome outcome : outcomes) {
@@ -120,11 +118,15 @@ public class RecommendationResolver {
             resultRepository.save(result);
         }
         pruneUnfiredRuleResults(context.getUserId(), outcomes);
+        pruneExpiredAiResults(context.getUserId(), now);
 
         context.setStale(false);
         context.setContextHash(contextHash);
         context.setLastAssembledAt(now);
         contextRepository.save(context);
+
+        // AI stage: enqueue only — hash-gated inside the service, never inline here.
+        weeklyNarrativeService.generateAsync(context.getUserId());
     }
 
     /** A rule that no longer fires must not keep serving yesterday's advice. */
@@ -133,6 +135,17 @@ public class RecommendationResolver {
         resultRepository.findByUserId(userId).stream()
                 .filter(result -> result.getSource() == RecommendationSource.RULE)
                 .filter(result -> !firedTypes.contains(result.getType()))
+                .forEach(resultRepository::delete);
+    }
+
+    /**
+     * An expired AI narrative must not pin the cache stale forever (regeneration is
+     * async and may be disabled); drop it and let the AI stage rewrite it when it can.
+     */
+    private void pruneExpiredAiResults(UUID userId, Instant now) {
+        resultRepository.findByUserId(userId).stream()
+                .filter(result -> result.getSource() == RecommendationSource.AI)
+                .filter(result -> result.getExpiresAt() != null && now.isAfter(result.getExpiresAt()))
                 .forEach(resultRepository::delete);
     }
 
@@ -161,48 +174,6 @@ public class RecommendationResolver {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Failed to serialize recommendation payload", ex);
-        }
-    }
-
-    /**
-     * Change-detection hash (§5.1): a digest over every rule-relevant context field.
-     * Stored on each result so the future AI stage can skip regeneration when nothing
-     * material changed.
-     */
-    private static String hash(RecommendationContextEntity context) {
-        String canonical = String.join("|",
-                String.valueOf(context.getCurrentGoalType()),
-                String.valueOf(context.getCurrentGoalTargetValue()),
-                String.valueOf(context.getCurrentGoalTargetUnit()),
-                String.valueOf(context.getCurrentGoalTargetDate()),
-                String.valueOf(context.getGoalBaselineWeightKg()),
-                String.valueOf(context.getGoalBaselineOn()),
-                String.valueOf(context.getHeightCm()),
-                String.valueOf(context.getActivityLevel()),
-                String.valueOf(context.getLatestWeightKg()),
-                String.valueOf(context.getLatestBodyFatRate()),
-                String.valueOf(context.getWorkoutDaysPerWeek()),
-                String.valueOf(context.getDietaryPreference()),
-                String.valueOf(context.getFocusAreas()),
-                String.valueOf(context.getEquipmentInventory()),
-                String.valueOf(context.getRecentWorkoutCount()),
-                String.valueOf(context.getRecentWorkoutMinutes()),
-                String.valueOf(context.getRecentActiveDays()),
-                String.valueOf(context.getRecentWeekStart()),
-                String.valueOf(context.getTodayDate()),
-                String.valueOf(context.getTodayCaloriesConsumed()),
-                String.valueOf(context.getTodayProteinGrams()),
-                String.valueOf(context.getCurrentStreakDays()),
-                String.valueOf(context.getTimezone()));
-        return sha256Hex(canonical);
-    }
-
-    private static String sha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 unavailable", ex);
         }
     }
 

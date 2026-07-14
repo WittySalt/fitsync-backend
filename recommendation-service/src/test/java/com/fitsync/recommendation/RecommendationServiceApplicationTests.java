@@ -4,11 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
+import com.fitsync.recommendation.service.ai.ClaudeClient;
 import com.fitsync.recommendation.service.rules.RecommendationTypes;
 import com.fitsync.recommendation.service.rules.Rule;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -21,6 +23,9 @@ class RecommendationServiceApplicationTests {
 
     @Autowired
     private List<Rule> rules;
+
+    @Autowired
+    private ApplicationContext applicationContext;
 
     @Test
     void contextLoads() {
@@ -35,6 +40,11 @@ class RecommendationServiceApplicationTests {
                 .isEqualTo("recommendation_flyway_schema_history");
         assertThat(environment.getProperty("spring.jpa.properties.hibernate.default_schema"))
                 .isEqualTo("recommendation");
+    }
+
+    @Test
+    void aiTierIsOffByDefaultSoTheServiceRunsOnRulesAlone() {
+        assertThat(applicationContext.getBeanProvider(ClaudeClient.class).getIfAvailable()).isNull();
     }
 
     @Test

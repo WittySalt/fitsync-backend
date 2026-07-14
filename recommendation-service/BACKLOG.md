@@ -32,9 +32,14 @@ estimate, R2 weekly adherence, R3 goal pace w/ baseline capture at goal-set, R4 
 cold-start; Flyway at V3), RC-4/RC-5 (`RecommendationResolver` cache→rule→template funnel with
 context-hash change detection + TTL, 13-template `NarrativeTemplates` library; AI stage is a reserved
 seam for RC-6), RC-7 (read API: `GET /recommendations`, `GET /{type}`, `POST /refresh` on the resolver)
-and X-1 (gateway `recommendation-service-base-url` + `/api/v1/recommendations/**` proxy route — a
-branch-only api-gateway change) are done. Next: **RC-6** (one live AI feature) + **X-4** (API key)
-+ **X-3** (OFF attribution).
+X-1 (gateway `recommendation-service-base-url` + `/api/v1/recommendations/**` proxy route — a
+branch-only api-gateway change), RC-6 (A1 weekly narrative: `service/ai` — `ClaudeClient` seam +
+`anthropic-java` adapter (prompt-cached system prompt, configured model, Sonnet default) +
+`WeeklyNarrativeService` (async, hash-gated, P7D TTL, silent rule/template fallback)) and X-4
+(`ANTHROPIC_API_KEY` via SDK `fromEnv()`, tier gated by `fitsync.recommendation.ai.enabled`) are done.
+
+**The MVP cut line is complete except X-3** (OFF attribution), which is main-bound and needs its own
+branch + PR to `main` — do not fold it into this branch.
 
 ---
 
@@ -104,7 +109,7 @@ Everything else is documented growth path.
 | RC-3 | Rules R6–R8 (PR celebration, focus-area balance, logging reminder) | ⬜ todo | M | Full | EV-2 |
 | RC-4 | `RecommendationResolver` funnel: cache → rule → template → AI | ✅ done (this branch; AI seam reserved for RC-6) | – | MVP | RC-2 |
 | RC-5 | Hand-written narrative template library (10–20 templates, rule numbers fill slots) | ✅ done (this branch; 13 templates in `NarrativeTemplates`) | – | MVP | RC-2 |
-| RC-6 | One live AI feature — A1 weekly narrative **or** A4 coach Q&A (async, prompt-cached, model-tiered, rule fallback) | ⬜ todo | M | MVP | RC-4 |
+| RC-6 | One live AI feature — A1 weekly narrative **or** A4 coach Q&A (async, prompt-cached, model-tiered, rule fallback) | ✅ done (this branch — A1 via `anthropic-java`, hash-gated, off by default) | – | MVP | RC-4 |
 | RC-7 | Read API: `GET /recommendations`, `GET /{type}`, `POST /refresh` | ✅ done (this branch) | – | MVP | RC-1 |
 | RC-8 | Kafka consumers (group `recommendation-consumer-group`) → update context + mark stale (never trigger AI per-event) | ✅ done (this branch) | – | MVP | RC-1 |
 | RC-9 | A2/A3/A5 AI features (workout plan, meal ideas, rationale) | ⬜ todo | L | Full | RC-6 |
@@ -116,8 +121,8 @@ Everything else is documented growth path.
 |----|------|--------|--------|-------|---------|
 | X-1 | Gateway: add `recommendation-service-base-url` + route `/api/v1/recommendations/**` (reserved, not wired) | ✅ done (this branch — gateway change stays branch-only with the rest) | – | MVP | RC-7 |
 | X-2 | CI: add `recommendation-service` to the build (currently excluded as empty placeholder) | ✅ done with RC-1 (reactor `verify` builds + tests it; deliberately not packaged as an image — X-5) | – | MVP | RC-1 |
-| X-3 | OFF attribution line (ODbL: "Data from Open Food Facts") in app/about + provenance | ⬜ todo | S | MVP | FD-0a |
-| X-4 | `ANTHROPIC_API_KEY` config/secret wiring for the AI tier | ⬜ todo | S | MVP | RC-6 |
+| X-3 | OFF attribution line (ODbL: "Data from Open Food Facts") in app/about + provenance | ⬜ todo (**main-bound** — touches nutrition/frontend surfaces; needs a separate branch + PR to `main`, per the merge flow) | S | MVP | FD-0a |
+| X-4 | `ANTHROPIC_API_KEY` config/secret wiring for the AI tier | ✅ done (this branch — SDK `fromEnv()`; `fitsync.recommendation.ai.enabled` gates the client bean; key never in source/config/DB) | – | MVP | RC-6 |
 | X-5 | Decide monolith-first vs standalone deployment for recommendation (per kafka-arch §18) | ⬜ todo | S | – | – |
 
 ---
