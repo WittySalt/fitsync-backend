@@ -46,13 +46,16 @@ analytics per-day food-group aggregate. So **"meat-heavy / veg-light" is a live 
 `recommendation-consumer-group`; 11 listeners in `consumer/` → handlers in `handler/` update the
 context + mark stale, idempotent via `recommendation_processed_events`); `RC-2 local rules R1–R5`
 (`service/rules`: Rule/RuleOutcome/RuleEngine + NutritionGap (TDEE est.), WeeklyAdherence, GoalPace
-(baseline captured at goal-set), StreakNudge, ColdStart — pure functions over the context, facts only,
-phrasing left to templates). Flyway at V3.
+(baseline captured at goal-set), StreakNudge, ColdStart — pure functions over the context, facts only);
+`RC-4/RC-5` (`service/RecommendationResolver`: cache(fresh)→rule→template funnel, payload =
+{facts, narrative}, context-hash change detection + `fitsync.recommendation.rule-result-ttl`, prunes
+unfired rule results; `service/rules/NarrativeTemplates`: 13 hand-written templates). Flyway at V3.
 
 Continue in order:
-`RC-4/RC-5 resolver funnel (cache→rule→template→AI) + hand-written templates` → `RC-7 read API` +
+`RC-7 read API (controller on the resolver; GET /recommendations, GET /{type}, POST /refresh)` +
 `X-1 gateway route` → `RC-6 one live AI feature (A1 weekly narrative OR A4 coach Q&A) + X-3 OFF
-attribution + X-4 ANTHROPIC_API_KEY`.
+attribution + X-4 ANTHROPIC_API_KEY` (the resolver's AI stage is a reserved seam — async behind the
+cache, never on the read path).
 
 The AI tier uses the **Claude API via the `anthropic-java` SDK**; default model `claude-opus-4-8`,
 tier down to `claude-sonnet-4-6` / `claude-haiku-4-5` for cheaper tasks (README §4.1). Keep AI async +

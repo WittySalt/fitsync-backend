@@ -27,9 +27,11 @@ So **"meat-heavy / veg-light" is now a live analytics fact**. The next (and only
 
 **RC progress (this branch):** RC-1 (scaffold: app + security + `recommendation_context`/`recommendation_result`
 tables + CI), RC-8 (11 thin Kafka consumers → context projection + stale marking, idempotent via
-`recommendation_processed_events`) and RC-2 (rule engine: `service/rules` — R1 nutrition gap w/ TDEE
+`recommendation_processed_events`), RC-2 (rule engine: `service/rules` — R1 nutrition gap w/ TDEE
 estimate, R2 weekly adherence, R3 goal pace w/ baseline capture at goal-set, R4 streak nudge, R5
-cold-start; Flyway at V3) are done. Next: **RC-4/RC-5** (resolver funnel + templates).
+cold-start; Flyway at V3) and RC-4/RC-5 (`RecommendationResolver` cache→rule→template funnel with
+context-hash change detection + TTL, 13-template `NarrativeTemplates` library; AI stage is a reserved
+seam for RC-6) are done. Next: **RC-7** (read API) + **X-1** (gateway route).
 
 ---
 
@@ -97,8 +99,8 @@ Everything else is documented growth path.
 | RC-1 | Scaffold: main class, package skeleton, `recommendation_context` + `recommendation_result` tables | ✅ done (this branch) | – | MVP | – |
 | RC-2 | Local rule engine R1–R5 (nutrition gap, weekly adherence, goal pace, streak nudge, cold-start) | ✅ done (this branch) | – | MVP | AN-1/AN-4 |
 | RC-3 | Rules R6–R8 (PR celebration, focus-area balance, logging reminder) | ⬜ todo | M | Full | EV-2 |
-| RC-4 | `RecommendationResolver` funnel: cache → rule → template → AI | ⬜ todo | M | MVP | RC-2 |
-| RC-5 | Hand-written narrative template library (10–20 templates, rule numbers fill slots) | ⬜ todo | S | MVP | RC-2 |
+| RC-4 | `RecommendationResolver` funnel: cache → rule → template → AI | ✅ done (this branch; AI seam reserved for RC-6) | – | MVP | RC-2 |
+| RC-5 | Hand-written narrative template library (10–20 templates, rule numbers fill slots) | ✅ done (this branch; 13 templates in `NarrativeTemplates`) | – | MVP | RC-2 |
 | RC-6 | One live AI feature — A1 weekly narrative **or** A4 coach Q&A (async, prompt-cached, model-tiered, rule fallback) | ⬜ todo | M | MVP | RC-4 |
 | RC-7 | Read API: `GET /recommendations`, `GET /{type}`, `POST /refresh` | ⬜ todo | M | MVP | RC-1 |
 | RC-8 | Kafka consumers (group `recommendation-consumer-group`) → update context + mark stale (never trigger AI per-event) | ✅ done (this branch) | – | MVP | RC-1 |

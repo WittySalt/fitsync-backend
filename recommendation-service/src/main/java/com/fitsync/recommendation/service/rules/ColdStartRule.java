@@ -52,6 +52,7 @@ public class ColdStartRule implements Rule {
 
     private static boolean hasActivitySignal(RecommendationContextEntity context) {
         return context.getRecentWorkoutCount() != null
+                || context.getRecentActiveDays() != null
                 || context.getCurrentStreakDays() != null
                 || context.getTodayCaloriesConsumed() != null;
     }

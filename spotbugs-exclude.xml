@@ -403,4 +403,11 @@
         <Class name="com.fitsync.recommendation.handler.AccountDeletedEventHandler"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+
+    <!-- Resolver stores constructor-injected Spring singletons (repositories,
+         ObjectMapper); same Spring-DI noise as the handlers above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.service.RecommendationResolver"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>

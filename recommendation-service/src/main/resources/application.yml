@@ -55,6 +55,8 @@ security:
     expiration: ${JWT_EXPIRATION:PT2H}
 
 fitsync:
+  recommendation:
+    rule-result-ttl: ${RECOMMENDATION_RULE_RESULT_TTL:PT24H}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:
