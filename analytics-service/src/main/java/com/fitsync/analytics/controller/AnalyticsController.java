@@ -11,6 +11,7 @@ import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
 import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -202,6 +203,27 @@ public class AnalyticsController {
                                                             @Parameter(description = "Aggregation bucket.")
                                                             @RequestParam(defaultValue = "DAY") BodyTrendBucket bucket) {
         return analyticsService.getNutritionSeries(currentPrincipal(authentication), from, to, bucket);
+    }
+
+    @GetMapping("/reports/weekly")
+    @Operation(summary = "Get weekly report",
+            description = "Returns a single-week recap of workout, nutrition and weight metrics with "
+                    + "week-over-week workout deltas. weekStart defaults to the Monday of the current week in "
+                    + "the user's timezone; an explicit weekStart must be a Monday. Weeks without data return "
+                    + "zeroed totals and null averages.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Weekly report returned"),
+            @ApiResponse(responseCode = "400", description = "weekStart is not a Monday or not a valid date"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsWeeklyReportResponse weeklyReport(Authentication authentication,
+                                                      @Parameter(description = "ISO week start (a Monday). "
+                                                              + "Defaults to the current week in the user's timezone.")
+                                                      @RequestParam(required = false)
+                                                      @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                      LocalDate weekStart) {
+        return analyticsService.getWeeklyReport(currentPrincipal(authentication), weekStart);
     }
 
     @GetMapping("/summary/compare")

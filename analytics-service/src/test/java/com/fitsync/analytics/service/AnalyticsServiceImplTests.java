@@ -18,6 +18,7 @@ import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
 import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -1383,6 +1384,146 @@ class AnalyticsServiceImplTests {
                     streakRollupRepository,
                     workoutRecordsRepository,
                     Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC),
+                    analyticsProperties());
+        }
+    }
+
+    @Test
+    void shouldReturnZeroedWeeklyReportForEmptyWeek() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        WeeklyReportFixtures fixtures = new WeeklyReportFixtures(userId);
+
+        AnalyticsWeeklyReportResponse response = fixtures
+                .service(Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC))
+                .getWeeklyReport(principal(userId), LocalDate.parse("2026-06-01"));
+
+        assertThat(response.from()).isEqualTo(LocalDate.parse("2026-06-01"));
+        assertThat(response.to()).isEqualTo(LocalDate.parse("2026-06-07"));
+        assertThat(response.workoutCount()).isZero();
+        assertThat(response.workoutMinutes()).isZero();
+        assertThat(response.caloriesBurned()).isZero();
+        assertThat(response.avgDailyCaloriesConsumed()).isNull();
+        assertThat(response.proteinTargetHitDays()).isZero();
+        assertThat(response.weightDeltaKg()).isNull();
+        assertThat(response.vsPreviousWeek().workoutCount()).isZero();
+        assertThat(response.vsPreviousWeek().workoutMinutes()).isZero();
+    }
+
+    @Test
+    void shouldAggregateWeeklyReportWithWeekOverWeekDeltas() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        WeeklyReportFixtures fixtures = new WeeklyReportFixtures(userId);
+        LocalDate weekStart = LocalDate.parse("2026-06-08");
+
+        when(fixtures.workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, weekStart, LocalDate.parse("2026-06-14")))
+                .thenReturn(List.of(
+                        workoutDay(userId, "2026-06-08", 2, 60, 500, 8),
+                        workoutDay(userId, "2026-06-10", 2, 70, 450, 9)));
+        when(fixtures.workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, LocalDate.parse("2026-06-01"), LocalDate.parse("2026-06-07")))
+                .thenReturn(List.of(workoutDay(userId, "2026-06-02", 3, 98, 700, 12)));
+
+        AnalyticsUserDailyNutritionEntity mondayNutrition =
+                nutritionDay(userId, "2026-06-08", 2000, "155.00", null, null, 2100, "150.00");
+        mondayNutrition.setMealCount(3);
+        mondayNutrition.setMacroAdherenceScore(new BigDecimal("1.0333"));
+        AnalyticsUserDailyNutritionEntity tuesdayNutrition =
+                nutritionDay(userId, "2026-06-09", 2100, "120.00", null, null, 2100, "150.00");
+        tuesdayNutrition.setMealCount(2);
+        tuesdayNutrition.setMacroAdherenceScore(new BigDecimal("0.8000"));
+        AnalyticsUserDailyNutritionEntity untrackedDay =
+                nutritionDay(userId, "2026-06-10", 0, null, null, null, 2100, "150.00");
+        untrackedDay.setMealCount(0);
+        when(fixtures.nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
+                userId, weekStart, LocalDate.parse("2026-06-14")))
+                .thenReturn(List.of(mondayNutrition, tuesdayNutrition, untrackedDay));
+
+        when(fixtures.bodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(
+                userId, weekStart, LocalDate.parse("2026-06-14")))
+                .thenReturn(List.of(
+                        bodyDay(userId, "2026-06-08", "80.40", null, null, null, null, null),
+                        bodyDay(userId, "2026-06-12", "80.00", null, null, null, null, null)));
+
+        AnalyticsWeeklyReportResponse response = fixtures
+                .service(Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC))
+                .getWeeklyReport(principal(userId), weekStart);
+
+        assertThat(response.workoutCount()).isEqualTo(4);
+        assertThat(response.workoutMinutes()).isEqualTo(130);
+        assertThat(response.caloriesBurned()).isEqualTo(950);
+        assertThat(response.avgDailyCaloriesConsumed()).isEqualTo(2050);
+        assertThat(response.proteinTargetHitDays()).isEqualTo(1);
+        assertThat(response.weightDeltaKg()).isEqualTo(-0.4);
+        assertThat(response.vsPreviousWeek().workoutCount()).isEqualTo(1);
+        assertThat(response.vsPreviousWeek().workoutMinutes()).isEqualTo(32);
+    }
+
+    @Test
+    void shouldRejectWeekStartThatIsNotAMonday() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        WeeklyReportFixtures fixtures = new WeeklyReportFixtures(userId);
+        AnalyticsServiceImpl service = fixtures
+                .service(Clock.fixed(Instant.parse("2026-06-14T08:00:00Z"), ZoneOffset.UTC));
+        CurrentUserPrincipal principal = principal(userId);
+        LocalDate wednesday = LocalDate.parse("2026-06-03");
+
+        assertThatThrownBy(() -> service.getWeeklyReport(principal, wednesday))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("weekStart must be a Monday (ISO week start)");
+        verify(fixtures.workoutRepository, never())
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any());
+    }
+
+    @Test
+    void shouldDefaultWeekStartToCurrentMondayInUserTimezone() {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        WeeklyReportFixtures fixtures = new WeeklyReportFixtures(userId);
+        AnalyticsUserDashboardSnapshotEntity snapshot = new AnalyticsUserDashboardSnapshotEntity();
+        snapshot.setUserId(userId);
+        snapshot.setTimezone("Asia/Singapore");
+        when(fixtures.dashboardRepository.findById(userId)).thenReturn(Optional.of(snapshot));
+
+        // 2026-07-12T17:30Z is Sunday evening in UTC but already Monday 2026-07-13 01:30 in Singapore,
+        // so the default week must be the Singapore week, not the UTC one.
+        AnalyticsWeeklyReportResponse response = fixtures
+                .service(Clock.fixed(Instant.parse("2026-07-12T17:30:00Z"), ZoneOffset.UTC))
+                .getWeeklyReport(principal(userId), null);
+
+        assertThat(response.from()).isEqualTo(LocalDate.parse("2026-07-13"));
+        assertThat(response.to()).isEqualTo(LocalDate.parse("2026-07-19"));
+    }
+
+    private final class WeeklyReportFixtures {
+        private final AnalyticsUserDashboardSnapshotRepository dashboardRepository =
+                mock(AnalyticsUserDashboardSnapshotRepository.class);
+        private final AnalyticsUserDailyWorkoutRepository workoutRepository =
+                mock(AnalyticsUserDailyWorkoutRepository.class);
+        private final AnalyticsUserDailyNutritionRepository nutritionRepository =
+                mock(AnalyticsUserDailyNutritionRepository.class);
+        private final AnalyticsUserDailyBodyRepository bodyRepository =
+                mock(AnalyticsUserDailyBodyRepository.class);
+
+        private WeeklyReportFixtures(UUID userId) {
+            when(dashboardRepository.findById(userId)).thenReturn(Optional.empty());
+            when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any()))
+                    .thenReturn(List.of());
+            when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any()))
+                    .thenReturn(List.of());
+            when(bodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(any(), any(), any()))
+                    .thenReturn(List.of());
+        }
+
+        private AnalyticsServiceImpl service(Clock clock) {
+            return new AnalyticsServiceImpl(
+                    dashboardRepository,
+                    mock(AnalyticsUserGoalProgressRepository.class),
+                    bodyRepository,
+                    workoutRepository,
+                    nutritionRepository,
+                    mock(AnalyticsUserStreakRollupRepository.class),
+                    mock(AnalyticsUserWorkoutRecordsRepository.class),
+                    clock,
                     analyticsProperties());
         }
     }

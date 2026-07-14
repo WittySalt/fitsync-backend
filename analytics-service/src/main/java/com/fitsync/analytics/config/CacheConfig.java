@@ -27,6 +27,7 @@ public class CacheConfig {
     public static final String GOAL_PROGRESS_CACHE = "analyticsGoalProgress";
     public static final String STREAKS_CACHE = "analyticsStreaks";
     public static final String ACHIEVEMENTS_CACHE = "analyticsAchievements";
+    public static final String WEEKLY_REPORT_CACHE = "analyticsWeeklyReport";
 
     @Bean
     RedisCacheManagerBuilderCustomizer analyticsRedisCacheManagerBuilderCustomizer(ObjectMapper objectMapper) {
@@ -107,6 +108,12 @@ public class CacheConfig {
                         org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
                                 .disableCachingNullValues()
                                 .entryTtl(Duration.ofMinutes(5))
+                                .serializeValuesWith(valuePair))
+                .withCacheConfiguration(
+                        WEEKLY_REPORT_CACHE,
+                        org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
+                                .disableCachingNullValues()
+                                .entryTtl(Duration.ofMinutes(10))
                                 .serializeValuesWith(valuePair));
     }
 }

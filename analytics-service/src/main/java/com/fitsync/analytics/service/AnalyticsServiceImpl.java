@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -30,6 +31,7 @@ import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
 import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -518,6 +520,90 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         } catch (DateTimeException ex) {
             return ZoneOffset.UTC;
         }
+    }
+
+    /**
+     * Single-week recap aligned with the /summary/compare aggregation: workout totals reuse the same
+     * daily-row aggregation, and the week-over-week deltas compare full ISO weeks (this week's window
+     * against the seven days immediately before it). When weekStart is omitted it defaults to the
+     * Monday of the current week in the user's timezone; an explicit weekStart must itself be a
+     * Monday. A week without data returns zeroed totals and null averages/deltas, never a 404.
+     */
+    @Override
+    @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.WEEKLY_REPORT_CACHE,
+            key = "#principal.userId() + ':' + (#weekStart != null ? #weekStart.toString() "
+                    + ": 'current:' + #root.target.todayUtcForCacheKey())")
+    public AnalyticsWeeklyReportResponse getWeeklyReport(CurrentUserPrincipal principal, LocalDate weekStart) {
+        if (weekStart != null && weekStart.getDayOfWeek() != DayOfWeek.MONDAY) {
+            throw new BadRequestException("weekStart must be a Monday (ISO week start)");
+        }
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
+                .orElse(null);
+        ZoneId userZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        LocalDate from = weekStart != null
+                ? weekStart
+                : LocalDate.now(clock.withZone(userZone)).with(WeekFields.ISO.dayOfWeek(), 1);
+        LocalDate to = from.plusDays(6);
+
+        WorkoutSummaryAggregation currentWorkout = aggregateWorkoutSummary(principal.userId(), from, to);
+        WorkoutSummaryAggregation previousWorkout =
+                aggregateWorkoutSummary(principal.userId(), from.minusWeeks(1), from.minusDays(1));
+
+        List<AnalyticsUserDailyNutritionEntity> nutritionRows = dailyNutritionRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
+        Integer avgDailyCaloriesConsumed = averageDailyCaloriesConsumed(nutritionRows);
+        int proteinTargetHitDays = (int) nutritionRows.stream()
+                .map(AnalyticsUserDailyNutritionEntity::getMacroAdherenceScore)
+                .filter(Objects::nonNull)
+                .filter(score -> score.compareTo(BigDecimal.ONE) >= 0)
+                .count();
+
+        return new AnalyticsWeeklyReportResponse(
+                from,
+                to,
+                currentWorkout.totalWorkoutCount(),
+                currentWorkout.totalWorkoutMinutes(),
+                currentWorkout.totalCaloriesBurned(),
+                avgDailyCaloriesConsumed,
+                proteinTargetHitDays,
+                weeklyWeightDelta(principal.userId(), from, to),
+                new AnalyticsWeeklyReportResponse.WeekOverWeekDelta(
+                        currentWorkout.totalWorkoutCount() - previousWorkout.totalWorkoutCount(),
+                        currentWorkout.totalWorkoutMinutes() - previousWorkout.totalWorkoutMinutes()));
+    }
+
+    /**
+     * Averages calories over days that actually have logged meals, so sparse logging does not
+     * dilute the average with implicit zero days. Null when the week has no logged days.
+     */
+    private Integer averageDailyCaloriesConsumed(List<AnalyticsUserDailyNutritionEntity> rows) {
+        List<Integer> loggedDayCalories = rows.stream()
+                .filter(row -> defaultInteger(row.getMealCount()) > 0)
+                .map(row -> defaultInteger(row.getTotalCaloriesConsumed()))
+                .toList();
+        if (loggedDayCalories.isEmpty()) {
+            return null;
+        }
+        int total = loggedDayCalories.stream().mapToInt(Integer::intValue).sum();
+        return BigDecimal.valueOf(total)
+                .divide(BigDecimal.valueOf(loggedDayCalories.size()), 0, RoundingMode.HALF_UP)
+                .intValue();
+    }
+
+    /**
+     * In-week weight change: last weigh-in minus first weigh-in inside the window. Null with fewer
+     * than two weigh-ins because a single point has no delta.
+     */
+    private Double weeklyWeightDelta(UUID userId, LocalDate from, LocalDate to) {
+        List<BigDecimal> weights = dailyBodyRepository
+                .findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(userId, from, to).stream()
+                .map(AnalyticsUserDailyBodyEntity::getWeightKg)
+                .filter(Objects::nonNull)
+                .toList();
+        if (weights.size() < 2) {
+            return null;
+        }
+        return weights.get(weights.size() - 1).subtract(weights.get(0)).doubleValue();
     }
 
     private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(UUID userId, String status) {

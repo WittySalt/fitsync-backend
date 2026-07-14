@@ -345,6 +345,40 @@ Rules:
 - a zero-data user gets the full list with every achievement locked at progress `0`, not an empty
   array
 
+### 5.8 Weekly Report
+
+#### GET `/api/v1/analytics/reports/weekly`
+
+Purpose:
+
+- return a single-week recap for the gamification/weekly-report views
+
+Query params:
+
+- `weekStart`: optional ISO date; must be a Monday. Defaults to the Monday of the current week in
+  the user's timezone.
+
+Response shape:
+
+```json
+{
+  "from": "2026-07-06", "to": "2026-07-12",
+  "workoutCount": 4, "workoutMinutes": 190, "caloriesBurned": 1450,
+  "avgDailyCaloriesConsumed": 2050, "proteinTargetHitDays": 5,
+  "weightDeltaKg": -0.4,
+  "vsPreviousWeek": { "workoutCount": 1, "workoutMinutes": 32 }
+}
+```
+
+Rules:
+
+- workout totals reuse the same daily-row aggregation as `/workouts/summary` and
+  `/summary/compare`; `vsPreviousWeek` compares against the seven days immediately before the week
+- `avgDailyCaloriesConsumed` averages only days with logged meals (null when none);
+  `proteinTargetHitDays` counts days whose macro adherence score reached `1.0`;
+  `weightDeltaKg` is last minus first in-week weigh-in (null with fewer than two)
+- a week without data returns zeroed totals and null averages/deltas (`200`), never a `404`
+
 ---
 
 ## 6. API Design Rules

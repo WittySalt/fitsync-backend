@@ -15,6 +15,7 @@ import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
 import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
@@ -310,6 +311,50 @@ class AnalyticsControllerTests {
                 .andExpect(jsonPath("$.achievements[1].code").value("STREAK_7"))
                 .andExpect(jsonPath("$.achievements[1].unlocked").value(false))
                 .andExpect(jsonPath("$.achievements[1].progress").value(0.86));
+    }
+
+    @Test
+    void shouldRequireAuthenticationForWeeklyReport() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/reports/weekly"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldReturnWeeklyReportForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getWeeklyReport(any(), any())).thenReturn(new AnalyticsWeeklyReportResponse(
+                LocalDate.parse("2026-07-06"),
+                LocalDate.parse("2026-07-12"),
+                4,
+                190,
+                1450,
+                2050,
+                5,
+                -0.4,
+                new AnalyticsWeeklyReportResponse.WeekOverWeekDelta(1, 32)));
+
+        mockMvc.perform(get("/api/v1/analytics/reports/weekly")
+                        .with(authentication(authToken(principal)))
+                        .param("weekStart", "2026-07-06"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.from").value("2026-07-06"))
+                .andExpect(jsonPath("$.to").value("2026-07-12"))
+                .andExpect(jsonPath("$.workoutCount").value(4))
+                .andExpect(jsonPath("$.workoutMinutes").value(190))
+                .andExpect(jsonPath("$.caloriesBurned").value(1450))
+                .andExpect(jsonPath("$.avgDailyCaloriesConsumed").value(2050))
+                .andExpect(jsonPath("$.proteinTargetHitDays").value(5))
+                .andExpect(jsonPath("$.weightDeltaKg").value(-0.4))
+                .andExpect(jsonPath("$.vsPreviousWeek.workoutCount").value(1))
+                .andExpect(jsonPath("$.vsPreviousWeek.workoutMinutes").value(32));
+    }
+
+    @Test
+    void shouldRejectMalformedWeekStart() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/reports/weekly")
+                        .with(authentication(authToken(principal())))
+                        .param("weekStart", "not-a-date"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

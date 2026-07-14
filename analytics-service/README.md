@@ -13,6 +13,7 @@ External user-scoped endpoints:
 - `GET /api/v1/analytics/goals/progress?status=ACTIVE`
 - `GET /api/v1/analytics/streaks`
 - `GET /api/v1/analytics/achievements`
+- `GET /api/v1/analytics/reports/weekly?weekStart=YYYY-MM-DD`
 
 Internal admin-only maintenance endpoints:
 
@@ -73,6 +74,7 @@ Cached endpoints:
 - nutrition summary: 10 minutes
 - streaks: 5 minutes
 - achievements: 5 minutes
+- weekly report: 10 minutes
 
 Default local/test mode:
 

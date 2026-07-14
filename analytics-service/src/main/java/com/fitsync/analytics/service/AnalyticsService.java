@@ -11,6 +11,7 @@ import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
 import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -40,4 +41,6 @@ public interface AnalyticsService {
     AnalyticsStreaksResponse getStreaks(CurrentUserPrincipal principal);
 
     AnalyticsAchievementsResponse getAchievements(CurrentUserPrincipal principal);
+
+    AnalyticsWeeklyReportResponse getWeeklyReport(CurrentUserPrincipal principal, LocalDate weekStart);
 }
