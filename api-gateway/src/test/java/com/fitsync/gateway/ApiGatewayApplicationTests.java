@@ -45,6 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "fitsync.gateway.routes.workout-service-base-url=http://workout-service:8082",
         "fitsync.gateway.routes.nutrition-service-base-url=http://nutrition-service:8083",
         "fitsync.gateway.routes.analytics-service-base-url=http://analytics-service:8085",
+        "fitsync.gateway.routes.recommendation-service-base-url=http://recommendation-service:8086",
         "fitsync.gateway.cors.allowed-origins=https://d26vi6hikexzev.cloudfront.net,http://localhost:3000"
 })
 class ApiGatewayApplicationTests {
@@ -205,6 +206,28 @@ class ApiGatewayApplicationTests {
                 .andExpect(jsonPath("$.status").value("analytics-proxied"));
 
         verify(gatewayProxyService).forwardToAnalyticsService(any(), argThat(emptyBody()));
+    }
+
+    @Test
+    void protectedRecommendationRouteRejectsMissingToken() throws Exception {
+        mockMvc.perform(get("/api/v1/recommendations"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void protectedRecommendationRouteForwardsValidatedToken() throws Exception {
+        when(gatewayProxyService.forwardToRecommendationService(any(), any()))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":\"recommendation-proxied\"}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/v1/recommendations")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("recommendation-proxied"));
+
+        verify(gatewayProxyService).forwardToRecommendationService(any(), argThat(emptyBody()));
     }
 
     @Test

@@ -410,4 +410,16 @@
         <Class name="com.fitsync.recommendation.service.RecommendationResolver"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+
+    <!-- Spring wiring and controller in recommendation-service; same exclusions the
+         other services' controllers carry (DI singleton storage + endpoint marker). -->
+    <Match>
+        <Class name="com.fitsync.recommendation.controller.RecommendationController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.controller.RecommendationController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
 </FindBugsFilter>

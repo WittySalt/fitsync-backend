@@ -61,6 +61,14 @@ public class GatewayProxyController {
         return gatewayProxyService.forwardToAnalyticsService(request, body);
     }
 
+    @RequestMapping(path = "/api/v1/recommendations/**",
+            method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH,
+                    RequestMethod.DELETE, RequestMethod.OPTIONS})
+    public ResponseEntity<byte[]> proxyRecommendation(HttpServletRequest request,
+                                                      @RequestBody(required = false) byte[] body) {
+        return gatewayProxyService.forwardToRecommendationService(request, body);
+    }
+
     @RequestMapping(path = "/api/v1/**",
             method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH,
                     RequestMethod.DELETE, RequestMethod.OPTIONS})

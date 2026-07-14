@@ -14,4 +14,6 @@ public interface GatewayProxyService {
     ResponseEntity<byte[]> forwardToNutritionService(HttpServletRequest request, byte[] body);
 
     ResponseEntity<byte[]> forwardToAnalyticsService(HttpServletRequest request, byte[] body);
+
+    ResponseEntity<byte[]> forwardToRecommendationService(HttpServletRequest request, byte[] body);
 }

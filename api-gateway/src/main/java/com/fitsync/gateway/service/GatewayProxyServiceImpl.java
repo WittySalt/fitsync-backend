@@ -80,6 +80,11 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         return forward(routesProperties.analyticsServiceBaseUrl(), request, body);
     }
 
+    @Override
+    public ResponseEntity<byte[]> forwardToRecommendationService(HttpServletRequest request, byte[] body) {
+        return forward(routesProperties.recommendationServiceBaseUrl(), request, body);
+    }
+
     private ResponseEntity<byte[]> forward(String baseUrl, HttpServletRequest request, byte[] body) {
         HttpMethod method = HttpMethod.valueOf(request.getMethod());
         HttpHeaders headers = copyHeaders(request);

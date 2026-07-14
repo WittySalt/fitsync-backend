@@ -29,9 +29,12 @@ So **"meat-heavy / veg-light" is now a live analytics fact**. The next (and only
 tables + CI), RC-8 (11 thin Kafka consumers → context projection + stale marking, idempotent via
 `recommendation_processed_events`), RC-2 (rule engine: `service/rules` — R1 nutrition gap w/ TDEE
 estimate, R2 weekly adherence, R3 goal pace w/ baseline capture at goal-set, R4 streak nudge, R5
-cold-start; Flyway at V3) and RC-4/RC-5 (`RecommendationResolver` cache→rule→template funnel with
+cold-start; Flyway at V3), RC-4/RC-5 (`RecommendationResolver` cache→rule→template funnel with
 context-hash change detection + TTL, 13-template `NarrativeTemplates` library; AI stage is a reserved
-seam for RC-6) are done. Next: **RC-7** (read API) + **X-1** (gateway route).
+seam for RC-6), RC-7 (read API: `GET /recommendations`, `GET /{type}`, `POST /refresh` on the resolver)
+and X-1 (gateway `recommendation-service-base-url` + `/api/v1/recommendations/**` proxy route — a
+branch-only api-gateway change) are done. Next: **RC-6** (one live AI feature) + **X-4** (API key)
++ **X-3** (OFF attribution).
 
 ---
 
@@ -102,7 +105,7 @@ Everything else is documented growth path.
 | RC-4 | `RecommendationResolver` funnel: cache → rule → template → AI | ✅ done (this branch; AI seam reserved for RC-6) | – | MVP | RC-2 |
 | RC-5 | Hand-written narrative template library (10–20 templates, rule numbers fill slots) | ✅ done (this branch; 13 templates in `NarrativeTemplates`) | – | MVP | RC-2 |
 | RC-6 | One live AI feature — A1 weekly narrative **or** A4 coach Q&A (async, prompt-cached, model-tiered, rule fallback) | ⬜ todo | M | MVP | RC-4 |
-| RC-7 | Read API: `GET /recommendations`, `GET /{type}`, `POST /refresh` | ⬜ todo | M | MVP | RC-1 |
+| RC-7 | Read API: `GET /recommendations`, `GET /{type}`, `POST /refresh` | ✅ done (this branch) | – | MVP | RC-1 |
 | RC-8 | Kafka consumers (group `recommendation-consumer-group`) → update context + mark stale (never trigger AI per-event) | ✅ done (this branch) | – | MVP | RC-1 |
 | RC-9 | A2/A3/A5 AI features (workout plan, meal ideas, rationale) | ⬜ todo | L | Full | RC-6 |
 | RC-10 | Advanced cost/perf: retrieval-instead-of-generation, model cascade, Batch API, design-time distillation | ⬜ todo | L | Full | RC-9 |
@@ -111,7 +114,7 @@ Everything else is documented growth path.
 
 | ID | Item | Status | Effort | Scope | Depends |
 |----|------|--------|--------|-------|---------|
-| X-1 | Gateway: add `recommendation-service-base-url` + route `/api/v1/recommendations/**` (reserved, not wired) | ⬜ todo | S | MVP | RC-7 |
+| X-1 | Gateway: add `recommendation-service-base-url` + route `/api/v1/recommendations/**` (reserved, not wired) | ✅ done (this branch — gateway change stays branch-only with the rest) | – | MVP | RC-7 |
 | X-2 | CI: add `recommendation-service` to the build (currently excluded as empty placeholder) | ✅ done with RC-1 (reactor `verify` builds + tests it; deliberately not packaged as an image — X-5) | – | MVP | RC-1 |
 | X-3 | OFF attribution line (ODbL: "Data from Open Food Facts") in app/about + provenance | ⬜ todo | S | MVP | FD-0a |
 | X-4 | `ANTHROPIC_API_KEY` config/secret wiring for the AI tier | ⬜ todo | S | MVP | RC-6 |

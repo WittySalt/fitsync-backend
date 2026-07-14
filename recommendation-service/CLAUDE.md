@@ -49,13 +49,16 @@ context + mark stale, idempotent via `recommendation_processed_events`); `RC-2 l
 (baseline captured at goal-set), StreakNudge, ColdStart — pure functions over the context, facts only);
 `RC-4/RC-5` (`service/RecommendationResolver`: cache(fresh)→rule→template funnel, payload =
 {facts, narrative}, context-hash change detection + `fitsync.recommendation.rule-result-ttl`, prunes
-unfired rule results; `service/rules/NarrativeTemplates`: 13 hand-written templates). Flyway at V3.
+unfired rule results; `service/rules/NarrativeTemplates`: 13 hand-written templates); `RC-7 read API`
+(`controller/RecommendationController`: GET /api/v1/recommendations, GET /{type} (case-insensitive,
+404 via web-support), POST /refresh → 202); `X-1` (api-gateway: `recommendation-service-base-url`
+(:8086) + `/api/v1/recommendations/**` proxy — the gateway change is branch-only like everything
+else here). Flyway at V3.
 
-Continue in order:
-`RC-7 read API (controller on the resolver; GET /recommendations, GET /{type}, POST /refresh)` +
-`X-1 gateway route` → `RC-6 one live AI feature (A1 weekly narrative OR A4 coach Q&A) + X-3 OFF
-attribution + X-4 ANTHROPIC_API_KEY` (the resolver's AI stage is a reserved seam — async behind the
-cache, never on the read path).
+Next: `RC-6 one live AI feature (A1 weekly narrative OR A4 coach Q&A) + X-4 ANTHROPIC_API_KEY + X-3
+OFF attribution`. The resolver's AI stage is the reserved seam — async behind the cache (never on the
+read path), gated by the stored context hash, falling back to rule/template output on any AI failure.
+Claude API via the `anthropic-java` SDK; model IDs are configuration (README §4.1 tiering).
 
 The AI tier uses the **Claude API via the `anthropic-java` SDK**; default model `claude-opus-4-8`,
 tier down to `claude-sonnet-4-6` / `claude-haiku-4-5` for cheaper tasks (README §4.1). Keep AI async +

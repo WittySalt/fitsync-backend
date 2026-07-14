@@ -32,7 +32,8 @@ class GatewayProxyServiceImplTests {
                 "http://user-service:8081",
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
-                "http://analytics-service:8085"));
+                "http://analytics-service:8085",
+                "http://recommendation-service:8086"));
 
         server.expect(once(), requestTo("http://auth-service:8080/api/v1/auth/register?source=e2e"))
                 .andExpect(method(HttpMethod.POST))
@@ -55,7 +56,8 @@ class GatewayProxyServiceImplTests {
                 "http://user-service:8081",
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
-                "http://analytics-service:8085"));
+                "http://analytics-service:8085",
+                "http://recommendation-service:8086"));
 
         server.expect(once(), requestTo("http://auth-service:8080/api/v1/auth/bootstrap"))
                 .andExpect(method(HttpMethod.POST))
@@ -151,12 +153,35 @@ class GatewayProxyServiceImplTests {
                 .hasMessageContaining("query or fragment");
     }
 
+    @Test
+    void forwardsRecommendationTrafficToTheRecommendationService() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, new GatewayRoutesProperties(
+                "http://auth-service:8080",
+                "http://user-service:8081",
+                "http://workout-service:8082",
+                "http://nutrition-service:8083",
+                "http://analytics-service:8085",
+                "http://recommendation-service:8086"));
+
+        server.expect(once(), requestTo("http://recommendation-service:8086/api/v1/recommendations"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        service.forwardToRecommendationService(
+                new MockHttpServletRequest("GET", "/api/v1/recommendations"), null);
+
+        server.verify();
+    }
+
     private static GatewayProxyService newServiceWithAuthBaseUrl(String authServiceBaseUrl) {
         return new GatewayProxyServiceImpl(new RestTemplate(), new GatewayRoutesProperties(
                 authServiceBaseUrl,
                 "http://user-service:8081",
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
-                "http://analytics-service:8085"));
+                "http://analytics-service:8085",
+                "http://recommendation-service:8086"));
     }
 }
