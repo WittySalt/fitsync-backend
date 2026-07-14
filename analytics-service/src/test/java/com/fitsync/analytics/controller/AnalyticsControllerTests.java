@@ -13,6 +13,7 @@ import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
@@ -254,6 +255,34 @@ class AnalyticsControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.points[0].date").value("2026-06-14"))
                 .andExpect(jsonPath("$.points[0].weightKg").value(78.4));
+    }
+
+    @Test
+    void shouldRequireAuthenticationForStreaks() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/streaks"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldReturnStreaksForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getStreaks(any())).thenReturn(new AnalyticsStreaksResponse(
+                6,
+                14,
+                LocalDate.parse("2026-03-02"),
+                LocalDate.parse("2026-03-15"),
+                LocalDate.parse("2026-07-07"),
+                "Asia/Singapore"));
+
+        mockMvc.perform(get("/api/v1/analytics/streaks")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentStreakDays").value(6))
+                .andExpect(jsonPath("$.bestStreakDays").value(14))
+                .andExpect(jsonPath("$.bestStreakFrom").value("2026-03-02"))
+                .andExpect(jsonPath("$.bestStreakTo").value("2026-03-15"))
+                .andExpect(jsonPath("$.lastActiveDate").value("2026-07-07"))
+                .andExpect(jsonPath("$.timezone").value("Asia/Singapore"));
     }
 
     @Test

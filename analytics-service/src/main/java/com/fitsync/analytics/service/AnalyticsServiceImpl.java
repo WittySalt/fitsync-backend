@@ -25,6 +25,7 @@ import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -34,11 +35,13 @@ import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
+import com.fitsync.analytics.entity.AnalyticsUserStreakRollupEntity;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
+import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import org.springframework.cache.annotation.Cacheable;
@@ -54,6 +57,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     private final AnalyticsUserDailyBodyRepository dailyBodyRepository;
     private final AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository;
     private final AnalyticsUserDailyNutritionRepository dailyNutritionRepository;
+    private final AnalyticsUserStreakRollupRepository streakRollupRepository;
     private final Clock clock;
     private final AnalyticsProperties analyticsProperties;
 
@@ -62,6 +66,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                 AnalyticsUserDailyBodyRepository dailyBodyRepository,
                                 AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository,
                                 AnalyticsUserDailyNutritionRepository dailyNutritionRepository,
+                                AnalyticsUserStreakRollupRepository streakRollupRepository,
                                 Clock clock,
                                 AnalyticsProperties analyticsProperties) {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
@@ -69,6 +74,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         this.dailyBodyRepository = dailyBodyRepository;
         this.dailyWorkoutRepository = dailyWorkoutRepository;
         this.dailyNutritionRepository = dailyNutritionRepository;
+        this.streakRollupRepository = streakRollupRepository;
         this.clock = clock;
         this.analyticsProperties = analyticsProperties;
     }
@@ -310,6 +316,48 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                 goal.isOnTrack(),
                                 goal.getLastEvaluatedAt()))
                         .toList());
+    }
+
+    /**
+     * The current streak is read from the dashboard snapshot's {@code activeStreakDays}, so this
+     * endpoint and {@code /dashboard} always report the same streak from the same projection code.
+     * The best streak comes from the nightly AN-1 rollup; because that rollup can lag a same-day
+     * streak extension by up to one day, a live current streak that exceeds the materialized best
+     * is surfaced as the best, with its window derived from the last active date.
+     */
+    @Override
+    @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.STREAKS_CACHE,
+            key = "#principal.userId()")
+    public AnalyticsStreaksResponse getStreaks(CurrentUserPrincipal principal) {
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
+                .orElse(null);
+        int currentStreakDays = snapshot == null ? 0 : defaultInteger(snapshot.getActiveStreakDays());
+        String timezone = snapshot == null || snapshot.getTimezone() == null
+                ? DEFAULT_TIMEZONE
+                : snapshot.getTimezone();
+
+        LocalDate lastActiveDate = dailyWorkoutRepository
+                .findTopByUserIdAndCompletedWorkoutCountGreaterThanOrderByActivityDateDesc(principal.userId(), 0)
+                .map(AnalyticsUserDailyWorkoutEntity::getActivityDate)
+                .orElse(null);
+
+        AnalyticsUserStreakRollupEntity rollup = streakRollupRepository.findById(principal.userId()).orElse(null);
+        int bestStreakDays = rollup == null ? 0 : defaultInteger(rollup.getBestStreakDays());
+        LocalDate bestStreakFrom = rollup == null ? null : rollup.getBestStreakFrom();
+        LocalDate bestStreakTo = rollup == null ? null : rollup.getBestStreakTo();
+        if (currentStreakDays > bestStreakDays && lastActiveDate != null) {
+            bestStreakDays = currentStreakDays;
+            bestStreakFrom = lastActiveDate.minusDays(currentStreakDays - 1L);
+            bestStreakTo = lastActiveDate;
+        }
+
+        return new AnalyticsStreaksResponse(
+                currentStreakDays,
+                bestStreakDays,
+                bestStreakFrom,
+                bestStreakTo,
+                lastActiveDate,
+                timezone);
     }
 
     private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(UUID userId, String status) {

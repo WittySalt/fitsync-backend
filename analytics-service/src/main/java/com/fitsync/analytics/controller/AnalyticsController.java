@@ -9,6 +9,7 @@ import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -112,6 +113,20 @@ public class AnalyticsController {
                                                         @Parameter(description = "Aggregation bucket.")
                                                         @RequestParam(defaultValue = "DAY") BodyTrendBucket bucket) {
         return analyticsService.getWorkoutSeries(currentPrincipal(authentication), from, to, bucket);
+    }
+
+    @GetMapping("/streaks")
+    @Operation(summary = "Get workout streak state",
+            description = "Returns the authenticated user's current streak (same definition as the dashboard's "
+                    + "activeStreakDays), the materialized best streak with its date window, the last active date "
+                    + "and the timezone the streak days are evaluated in. Users without data get a zeroed payload.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Streak state returned"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsStreaksResponse streaks(Authentication authentication) {
+        return analyticsService.getStreaks(currentPrincipal(authentication));
     }
 
     @GetMapping("/activity/calendar")

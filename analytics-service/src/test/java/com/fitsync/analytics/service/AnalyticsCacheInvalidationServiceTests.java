@@ -33,7 +33,8 @@ class AnalyticsCacheInvalidationServiceTests {
             CacheConfig.NUTRITION_SERIES_CACHE,
             CacheConfig.COMPARE_CACHE,
             CacheConfig.ACTIVITY_CALENDAR_CACHE,
-            CacheConfig.GOAL_PROGRESS_CACHE);
+            CacheConfig.GOAL_PROGRESS_CACHE,
+            CacheConfig.STREAKS_CACHE);
 
     @Test
     @SuppressWarnings({"unchecked", "rawtypes"})

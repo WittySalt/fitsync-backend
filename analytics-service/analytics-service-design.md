@@ -283,6 +283,37 @@ Query params:
 
 - `status`: optional
 
+### 5.6 Streaks
+
+#### GET `/api/v1/analytics/streaks`
+
+Purpose:
+
+- return the current and best workout streak for the profile/gamification views
+
+Response shape:
+
+```json
+{
+  "currentStreakDays": 6,
+  "bestStreakDays": 14,
+  "bestStreakFrom": "2026-03-02",
+  "bestStreakTo": "2026-03-15",
+  "lastActiveDate": "2026-07-07",
+  "timezone": "Asia/Singapore"
+}
+```
+
+Rules:
+
+- `currentStreakDays` is read from the dashboard snapshot's `activeStreakDays`, so the streak
+  definition is exactly the dashboard's: natural days in the user's timezone, with a workout today
+  or yesterday keeping the streak alive
+- `bestStreakDays` and its window come from `analytics_user_streak_rollup`, materialized by the
+  nightly daily-rollup job (AN-1) instead of scanning workout history at request time; a live
+  current streak that momentarily exceeds the materialized best is surfaced as the best
+- users without data get a zeroed payload (`200`), never a `404`
+
 ---
 
 ## 6. API Design Rules

@@ -17,13 +17,16 @@ public class AnalyticsDailyRollupUserProcessor {
     private final AnalyticsUserGoalProgressRepository goalProgressRepository;
     private final AnalyticsRebuildService rebuildService;
     private final GoalProgressEvaluator goalProgressEvaluator;
+    private final AnalyticsStreakRollupService streakRollupService;
 
     public AnalyticsDailyRollupUserProcessor(AnalyticsUserGoalProgressRepository goalProgressRepository,
                                              AnalyticsRebuildService rebuildService,
-                                             GoalProgressEvaluator goalProgressEvaluator) {
+                                             GoalProgressEvaluator goalProgressEvaluator,
+                                             AnalyticsStreakRollupService streakRollupService) {
         this.goalProgressRepository = goalProgressRepository;
         this.rebuildService = rebuildService;
         this.goalProgressEvaluator = goalProgressEvaluator;
+        this.streakRollupService = streakRollupService;
     }
 
     @Transactional
@@ -31,6 +34,8 @@ public class AnalyticsDailyRollupUserProcessor {
         LocalDate today = goalProgressEvaluator.todayForUser(userId);
         updateActiveGoalCountdowns(userId, today, evaluatedAt);
         goalProgressEvaluator.recompute(userId, GoalProgressEvaluator.ALL_GOAL_TYPES, today);
+        // Before rebuildDashboard so its cache eviction also flushes streak reads materialized here.
+        streakRollupService.rollupUser(userId);
         rebuildService.rebuildDashboard(userId);
     }
 
