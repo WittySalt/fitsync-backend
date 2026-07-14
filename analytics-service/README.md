@@ -37,6 +37,7 @@ Phase 1 projections are updated from these events:
 - `WorkoutLogged`
 - `WorkoutUpdated`
 - `WorkoutDeleted`
+- `PersonalRecordAchieved`
 
 Kafka topics:
 
@@ -55,6 +56,7 @@ Projection tables:
 - `analytics_meal_contributions`
 - `analytics_workout_contributions`
 - `analytics_user_streak_rollup`
+- `analytics_user_workout_records`
 - `analytics_processed_events`
 
 ## Cache Strategy

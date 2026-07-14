@@ -388,6 +388,25 @@ Usage:
 
 Current payload is sufficient for phase 1, but replay logic must be idempotent.
 
+#### PersonalRecordAchieved
+
+Producer:
+
+- `workout-service`
+
+Consumers:
+
+- `analytics-service`
+
+Usage:
+
+- accumulate the per-user personal-record tally in `analytics_user_workout_records`
+- feeds the `PR_FIRST` achievement (and `personalRecordCount`-style aggregates) without opening a
+  new public endpoint
+
+The tally is append-only: workout deletions do not retract already-announced records, matching the
+"ever achieved" semantics of achievements.
+
 #### MealLogged
 
 Producer:
