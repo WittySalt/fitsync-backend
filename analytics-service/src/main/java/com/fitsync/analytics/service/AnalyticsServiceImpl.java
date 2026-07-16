@@ -343,9 +343,10 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
                 .orElse(null);
         int currentStreakDays = snapshot == null ? 0 : defaultInteger(snapshot.getActiveStreakDays());
-        String timezone = snapshot == null || snapshot.getTimezone() == null
-                ? DEFAULT_TIMEZONE
-                : snapshot.getTimezone();
+        // Normalized through resolveZone so an invalid stored timezone is reported as the UTC
+        // fallback actually used to evaluate streak days, not echoed verbatim.
+        ZoneId streakZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        String timezone = ZoneOffset.UTC.equals(streakZone) ? DEFAULT_TIMEZONE : streakZone.getId();
 
         LocalDate lastActiveDate = dailyWorkoutRepository
                 .findTopByUserIdAndCompletedWorkoutCountGreaterThanOrderByActivityDateDesc(principal.userId(), 0)
@@ -523,26 +524,22 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     }
 
     /**
-     * Single-week recap aligned with the /summary/compare aggregation: workout totals reuse the same
-     * daily-row aggregation, and the week-over-week deltas compare full ISO weeks (this week's window
-     * against the seven days immediately before it). When weekStart is omitted it defaults to the
-     * Monday of the current week in the user's timezone; an explicit weekStart must itself be a
-     * Monday. A week without data returns zeroed totals and null averages/deltas, never a 404.
+     * Single-week recap. Workout totals reuse the same daily-row aggregation as /workouts/summary
+     * and /summary/compare, and the week-over-week deltas compare full ISO weeks (this week's window
+     * against the seven days immediately before it). Unlike /summary/compare, whose windows are
+     * anchored to the UTC date, the default week here is anchored to the user's timezone as the
+     * weekly-report contract requires. When weekStart is omitted it defaults to the Monday of the
+     * current week in the user's timezone; an explicit weekStart must itself be a Monday. A week
+     * without data returns zeroed totals and null averages/deltas, never a 404.
      */
     @Override
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.WEEKLY_REPORT_CACHE,
-            key = "#principal.userId() + ':' + (#weekStart != null ? #weekStart.toString() "
-                    + ": 'current:' + #root.target.todayUtcForCacheKey())")
+            key = "#principal.userId() + ':' + #root.target.weeklyReportCacheWeekStart(#principal, #weekStart)")
     public AnalyticsWeeklyReportResponse getWeeklyReport(CurrentUserPrincipal principal, LocalDate weekStart) {
         if (weekStart != null && weekStart.getDayOfWeek() != DayOfWeek.MONDAY) {
             throw new BadRequestException("weekStart must be a Monday (ISO week start)");
         }
-        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
-                .orElse(null);
-        ZoneId userZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
-        LocalDate from = weekStart != null
-                ? weekStart
-                : LocalDate.now(clock.withZone(userZone)).with(WeekFields.ISO.dayOfWeek(), 1);
+        LocalDate from = weekStart != null ? weekStart : currentWeekStartInUserZone(principal.userId());
         LocalDate to = from.plusDays(6);
 
         WorkoutSummaryAggregation currentWorkout = aggregateWorkoutSummary(principal.userId(), from, to);
@@ -570,6 +567,24 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 new AnalyticsWeeklyReportResponse.WeekOverWeekDelta(
                         currentWorkout.totalWorkoutCount() - previousWorkout.totalWorkoutCount(),
                         currentWorkout.totalWorkoutMinutes() - previousWorkout.totalWorkoutMinutes()));
+    }
+
+    /**
+     * Resolves the effective week for the weekly-report cache key. Public because the
+     * {@code @Cacheable} SpEL expression calls it: the default week is the current ISO week in the
+     * user's timezone, so the cache entry must roll over at the user's local Monday midnight, not at
+     * the UTC date change.
+     */
+    public LocalDate weeklyReportCacheWeekStart(CurrentUserPrincipal principal, LocalDate weekStart) {
+        return weekStart != null ? weekStart : currentWeekStartInUserZone(principal.userId());
+    }
+
+    private LocalDate currentWeekStartInUserZone(UUID userId) {
+        String timezone = dashboardSnapshotRepository.findById(userId)
+                .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
+                .orElse(null);
+        return LocalDate.now(clock.withZone(resolveZone(timezone)))
+                .with(WeekFields.ISO.dayOfWeek(), 1);
     }
 
     /**

@@ -10,6 +10,7 @@ import com.fitsync.analytics.entity.AnalyticsUserStreakRollupEntity;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -36,7 +37,12 @@ public class AnalyticsStreakRollupService {
         this.clock = clock;
     }
 
-    @Transactional
+    /**
+     * Runs in its own transaction so a streak-materialization failure neither rolls back nor is
+     * rolled back by the caller's goal/dashboard rollup work — the rollup is derived data and
+     * self-heals on the next run.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public AnalyticsUserStreakRollupEntity rollupUser(UUID userId) {
         List<LocalDate> activeDates = dailyWorkoutRepository.findActiveActivityDatesByUserId(userId);
 
