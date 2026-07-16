@@ -23,6 +23,7 @@ AI is async, cached, model-tiered, with graceful fallback — never on the read 
 |---|---|
 | `README.md` | Functional plan: feature catalog (R1–R8 local, A1–A5 AI), cost/perf strategy, API, package layout |
 | `BACKLOG.md` | **The task tracker — start here.** Prioritized, with statuses + "Current state" + MVP cut line |
+| `HANDOFF.md` | **Delivery checkpoint** — what shipped (commits), invariants, gaps/limitations, how to run, next moves |
 | `analytics-collaboration.md` | analytics↔recommendation division of labor + derived-fact contracts |
 | `nutrition-data-plan.md` | open-data food DB build plan (USDA + OFF) — mostly delivered on `main` |
 | `data-validation-runbook.md` | how to validate the OFF import (FD-1, user's task) |
