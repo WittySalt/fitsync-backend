@@ -11,6 +11,9 @@ External user-scoped endpoints:
 - `GET /api/v1/analytics/workouts/summary?from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `GET /api/v1/analytics/nutrition/summary?from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `GET /api/v1/analytics/goals/progress?status=ACTIVE`
+- `GET /api/v1/analytics/streaks`
+- `GET /api/v1/analytics/achievements`
+- `GET /api/v1/analytics/reports/weekly?weekStart=YYYY-MM-DD`
 
 Internal admin-only maintenance endpoints:
 
@@ -36,6 +39,7 @@ Phase 1 projections are updated from these events:
 - `WorkoutLogged`
 - `WorkoutUpdated`
 - `WorkoutDeleted`
+- `PersonalRecordAchieved`
 
 Kafka topics:
 
@@ -53,6 +57,8 @@ Projection tables:
 - `analytics_user_goal_progress`
 - `analytics_meal_contributions`
 - `analytics_workout_contributions`
+- `analytics_user_streak_rollup`
+- `analytics_user_workout_records`
 - `analytics_processed_events`
 
 ## Cache Strategy
@@ -66,6 +72,9 @@ Cached endpoints:
 - body trends: 10 minutes
 - workout summary: 10 minutes
 - nutrition summary: 10 minutes
+- streaks: 5 minutes
+- achievements: 5 minutes
+- weekly report: 10 minutes
 
 Default local/test mode:
 

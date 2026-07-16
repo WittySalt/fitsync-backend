@@ -268,6 +268,35 @@ class AnalyticsCachingTests {
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, currentFrom, nextCurrentTo);
     }
 
+    @Test
+    void shouldCacheWeeklyReportByUserTimezoneWeekAcrossUtcMidnight() {
+        UUID userId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "fred@example.com", "Fred", "USER");
+        when(dashboardSnapshotRepository.findById(userId))
+                .thenReturn(Optional.of(dashboardSnapshot(userId, "Asia/Singapore")));
+        LocalDate weekStart = LocalDate.parse("2026-07-13");
+        LocalDate weekEnd = LocalDate.parse("2026-07-19");
+
+        // Sunday 17:30 UTC is already Monday 01:30 in Singapore, so the default week is 2026-07-13.
+        setUserZoneClockInstant("2026-07-12T17:30:00Z");
+        var first = analyticsService.getWeeklyReport(principal, null);
+        assertThat(first.from()).isEqualTo(weekStart);
+
+        // The UTC date has rolled over but the Singapore week has not: same cache entry must serve.
+        setUserZoneClockInstant("2026-07-13T00:30:00Z");
+        var second = analyticsService.getWeeklyReport(principal, null);
+        assertThat(second.from()).isEqualTo(weekStart);
+
+        verify(dailyWorkoutRepository, times(1))
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, weekStart, weekEnd);
+    }
+
+    private void setUserZoneClockInstant(String instant) {
+        org.mockito.Mockito.doAnswer(invocation ->
+                        Clock.fixed(Instant.parse(instant), invocation.getArgument(0)))
+                .when(clock).withZone(org.mockito.ArgumentMatchers.any());
+    }
+
     private void setClockDate(String date) {
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         when(clock.instant()).thenReturn(LocalDate.parse(date).atStartOfDay().toInstant(ZoneOffset.UTC));

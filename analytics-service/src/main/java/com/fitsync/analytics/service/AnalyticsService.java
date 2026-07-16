@@ -2,6 +2,7 @@ package com.fitsync.analytics.service;
 
 import java.time.LocalDate;
 
+import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
@@ -9,6 +10,8 @@ import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -34,4 +37,10 @@ public interface AnalyticsService {
     AnalyticsActivityCalendarResponse getActivityCalendar(CurrentUserPrincipal principal, LocalDate from, LocalDate to);
 
     AnalyticsGoalProgressResponse getGoalProgress(CurrentUserPrincipal principal, String status);
+
+    AnalyticsStreaksResponse getStreaks(CurrentUserPrincipal principal);
+
+    AnalyticsAchievementsResponse getAchievements(CurrentUserPrincipal principal);
+
+    AnalyticsWeeklyReportResponse getWeeklyReport(CurrentUserPrincipal principal, LocalDate weekStart);
 }

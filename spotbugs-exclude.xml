@@ -313,6 +313,18 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Streak rollup (AN-1) and personal-record projection (AN-11) store injected
+         repos/clock; same Spring-DI-on-singleton noise as the services above. -->
+    <Match>
+        <Class name="com.fitsync.analytics.service.AnalyticsStreakRollupService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.messaging.WorkoutRecordsProjectionService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- user-service: reconcile wiring added a UserService dependency to the internal
          controller; UserServiceImpl stores injected repos (pre-existing Spring-DI noise). -->
     <Match>

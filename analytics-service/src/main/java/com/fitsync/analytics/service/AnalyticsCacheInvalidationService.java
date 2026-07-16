@@ -35,7 +35,10 @@ public class AnalyticsCacheInvalidationService {
             CacheConfig.NUTRITION_SERIES_CACHE,
             CacheConfig.COMPARE_CACHE,
             CacheConfig.ACTIVITY_CALENDAR_CACHE,
-            CacheConfig.GOAL_PROGRESS_CACHE);
+            CacheConfig.GOAL_PROGRESS_CACHE,
+            CacheConfig.STREAKS_CACHE,
+            CacheConfig.ACHIEVEMENTS_CACHE,
+            CacheConfig.WEEKLY_REPORT_CACHE);
 
     private final StringRedisTemplate redisTemplate;
     private final CacheManager cacheManager;

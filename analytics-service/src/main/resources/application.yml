@@ -101,6 +101,8 @@ fitsync:
         enabled: ${KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED:false}
       workout-deleted:
         enabled: ${KAFKA_WORKOUT_DELETED_LISTENER_ENABLED:false}
+      personal-record-achieved:
+        enabled: ${KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED:false}
       user-preferences-updated:
         enabled: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
       user-profile-updated:
