@@ -20,6 +20,7 @@
 | `741df94` | **RC-7/X-1** | Read API: `GET /api/v1/recommendations`, `GET /{type}` (case-insensitive, 404), `POST /refresh` (202); api-gateway `recommendation-service-base-url` (:8086) + `/api/v1/recommendations/**` proxy route (branch-only gateway change) |
 | `74db57e` | **RC-6/X-4** | Live A1 weekly narrative: `ClaudeClient` seam → `anthropic-java` adapter (key via `ANTHROPIC_API_KEY`/`fromEnv()`, prompt-cached system prompt, model configured — default `claude-sonnet-4-6`) → `WeeklyNarrativeService` (async, hash-gated, P7D TTL, silent rule/template fallback). AI tier **off by default** |
 | (follow-up) | **RC-6** | Provider switch for the narrative backend: `fitsync.recommendation.ai.provider` = `anthropic` (default, unchanged) or `ollama` (`OllamaClaudeClient` → local open model via `/api/chat`, no API key anywhere). `NarrativeClientConfiguration` builds the one client bean; everything downstream of the seam is provider-agnostic. Verified live against local `llama3.2:3b` |
+| (follow-up) | **EV-3 consumption** | New `user-events` listener projects `EnergyProfileComputed` (user-service PR #9) into `energy_target_calories`; R1 target preference is now calorie goal → energy profile (± weight-goal adjustment) → local estimate, with basis `ENERGY_PROFILE` in the facts |
 | (follow-up) | **RC-3/RC-6/RC-9 slice** | Coach upgrade: (1) A1 facts rebuilt by `CoachFacts` — semantic groups with rule statuses (training/nutritionToday/goalPace/loggingStreak/personalRecord/foodGroupWeek), few-shot 3-sentence prompt with guardrails, previous-narrative continuity; (2) weekly food-group balance projected from `MealLogged.foodGroupCalories` with Monday-anchored rollover (Flyway V4); (3) R6 PR-celebration (new `workout-events` listener + PR snapshot, Flyway V5) and R8 logging-reminder rules + templates T14–T16; (4) A4 coach Q&A: `POST /api/v1/recommendations/coach/ask` — sync single-turn, grounded only on `CoachFacts`, per-user hourly budget (`coach-questions-per-hour`, default 5), friendly 503/429, rides the existing gateway route |
 
 **End-to-end thread now working:** domain/analytics events → context projection (stale marking) →
@@ -87,8 +88,10 @@ SERVER_PORT=8086 mvn -pl recommendation-service spring-boot:run
 - **Meal edits/deletes only mark stale** — `MealDeleted` carries no reversible delta, so the
   running today-totals can drift after an edit until the next `MealLogged`/day rollover. The clean
   fix is consuming an analytics daily-nutrition fact instead (see `analytics-collaboration.md` §3).
-- **TDEE uses neutral age/sex constants** (events carry neither — by design, PII). Precise targets
-  need EV-3 (`EnergyProfileComputed` from user-service) — the #1-ranked enrichment.
+- **TDEE precision now flows from EV-3**: user-service computes the real BMR/TDEE (PII stays
+  in-service) and R1 prefers the delivered `energyTargetCalories` (basis `ENERGY_PROFILE`) over
+  its neutral-constant estimate, which remains the fallback for users whose energy profile has
+  not been computed yet.
 - **R3 pace baseline starts at goal-set time**; goals predating the branch's deploy have no
   baseline until the next `GoalUpdated` or first `BodyMetricsRecorded`.
 - **Resolver upsert races** under concurrent refresh of the same user are resolved by the
@@ -110,7 +113,7 @@ SERVER_PORT=8086 mvn -pl recommendation-service spring-boot:run
 
 - **Branch/HEAD:** `claude/recommendation-interface-review-0x4pzv` @ `74db57e` (pushed).
 - **Read first:** `CLAUDE.md` (iron rule + conventions) → `BACKLOG.md` (statuses) → this file.
-- **Flyway:** V5. **Tests:** 96 (recommendation) + 27 (gateway). **SpotBugs:** clean (exclusions
+- **Flyway:** V5. **Tests:** 99 (recommendation) + 27 (gateway). **SpotBugs:** clean (exclusions
   in root `spotbugs-exclude.xml` are per-class with justifications).
 - **Sensible next moves,** in value order:
   1. X-3 via a main-bound PR (small, completes the MVP list).

@@ -16,6 +16,7 @@ import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
+import com.fitsync.contracts.events.user.EnergyProfileComputedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
@@ -52,6 +53,9 @@ class RecommendationContextProjectionTests {
 
     @Autowired
     private PersonalRecordAchievedEventHandler personalRecordAchievedEventHandler;
+
+    @Autowired
+    private EnergyProfileComputedEventHandler energyProfileComputedEventHandler;
 
     @Autowired
     private UserRegisteredEventHandler userRegisteredEventHandler;
@@ -223,6 +227,17 @@ class RecommendationContextProjectionTests {
         RecommendationContextEntity context = context();
         assertThat(context.getNutritionWeekStart()).isEqualTo(LocalDate.parse("2026-07-06"));
         assertThat(context.getWeekFoodGroupCaloriesJson()).isEqualTo("{\"MEAT\":300}");
+    }
+
+    @Test
+    void energyProfileComputedSetsThePreciseEnergyTarget() {
+        energyProfileComputedEventHandler.consume(event("EnergyProfileComputed",
+                new EnergyProfileComputedPayload(1814, 2812, "MODERATELY_ACTIVE",
+                        Instant.parse("2026-07-06T10:00:00Z"))));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getEnergyTargetCalories()).isEqualTo(2812);
+        assertThat(context.isStale()).isTrue();
     }
 
     @Test

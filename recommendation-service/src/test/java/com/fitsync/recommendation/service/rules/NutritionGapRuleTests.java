@@ -34,7 +34,7 @@ class NutritionGapRuleTests {
 
         // BMR = 10*82.5 + 6.25*181.5 - 5*30 - 78 = 1731.375; TDEE = *1.55 = 2684; -500 deficit.
         assertThat(outcome.facts())
-                .containsEntry("basis", "TDEE_ESTIMATE")
+                .containsEntry("basis", NutritionGapRule.BASIS_TDEE_ESTIMATE)
                 .containsEntry("targetCalories", 2184)
                 .containsEntry("consumedCalories", 1050)
                 .containsEntry("remainingCalories", 1134)
@@ -57,6 +57,25 @@ class NutritionGapRuleTests {
                 .containsEntry("consumedCalories", 0)
                 .containsEntry("targetCalories", 2684)
                 .containsEntry("remainingCalories", 2684);
+    }
+
+    @Test
+    void prefersThePreciseEnergyProfileOverTheLocalEstimate() {
+        RecommendationContextEntity context = baseContext();
+        context.setHeightCm(new BigDecimal("181.5"));
+        context.setLatestWeightKg(new BigDecimal("82.50"));
+        context.setActivityLevel("MODERATE");
+        context.setCurrentGoalType("WEIGHT");
+        context.setCurrentGoalTargetValue(new BigDecimal("75"));
+        // EV-3: user-service computed the exact TDEE (real age/sex) = 2812.
+        context.setEnergyTargetCalories(2812);
+
+        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+
+        // 2812 - 500 weight-loss deficit = 2312, replacing the 2184 neutral estimate.
+        assertThat(outcome.facts())
+                .containsEntry("basis", NutritionGapRule.BASIS_ENERGY_PROFILE)
+                .containsEntry("targetCalories", 2312);
     }
 
     @Test

@@ -27,6 +27,7 @@ public final class ContextHashing {
                 String.valueOf(context.getGoalBaselineOn()),
                 String.valueOf(context.getHeightCm()),
                 String.valueOf(context.getActivityLevel()),
+                String.valueOf(context.getEnergyTargetCalories()),
                 String.valueOf(context.getLatestWeightKg()),
                 String.valueOf(context.getLatestBodyFatRate()),
                 String.valueOf(context.getWorkoutDaysPerWeek()),

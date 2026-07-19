@@ -35,6 +35,7 @@ public class NutritionGapRule implements Rule {
     static final BigDecimal PROTEIN_GRAMS_PER_KG = new BigDecimal("1.6");
 
     static final String BASIS_CALORIE_GOAL = "CALORIE_GOAL";
+    static final String BASIS_ENERGY_PROFILE = "ENERGY_PROFILE";
     static final String BASIS_TDEE_ESTIMATE = "TDEE_ESTIMATE";
 
     private static final double DEFAULT_ACTIVITY_FACTOR = 1.4;
@@ -65,10 +66,7 @@ public class NutritionGapRule implements Rule {
                 : 0;
 
         Map<String, Object> facts = new LinkedHashMap<>();
-        facts.put("basis", GoalTypes.isCalorieGoal(context.getCurrentGoalType())
-                && context.getCurrentGoalTargetValue() != null
-                ? BASIS_CALORIE_GOAL
-                : BASIS_TDEE_ESTIMATE);
+        facts.put("basis", basis(context));
         facts.put("targetCalories", targetCalories);
         facts.put("consumedCalories", consumedCalories);
         facts.put("remainingCalories", targetCalories - consumedCalories);
@@ -87,10 +85,20 @@ public class NutritionGapRule implements Rule {
         return Optional.of(new RuleOutcome(type(), facts));
     }
 
+    /**
+     * Target preference: explicit calorie goal → EV-3 energy profile (exact TDEE from
+     * user-service, adjusted by the weight-goal direction) → the local neutral-constant
+     * estimate as the last resort.
+     */
     private static Integer resolveTargetCalories(RecommendationContextEntity context) {
         if (GoalTypes.isCalorieGoal(context.getCurrentGoalType())
                 && context.getCurrentGoalTargetValue() != null) {
             return context.getCurrentGoalTargetValue().intValue();
+        }
+        if (context.getEnergyTargetCalories() != null && context.getLatestWeightKg() != null) {
+            long target = context.getEnergyTargetCalories().longValue()
+                    + goalAdjustment(context, context.getLatestWeightKg().doubleValue());
+            return (int) Math.max(target, MIN_DAILY_CALORIES);
         }
         if (context.getHeightCm() == null || context.getLatestWeightKg() == null) {
             return null;
@@ -101,6 +109,17 @@ public class NutritionGapRule implements Rule {
         double tdee = bmr * activityFactor(context.getActivityLevel());
         long target = Math.round(tdee) + goalAdjustment(context, weightKg);
         return (int) Math.max(target, MIN_DAILY_CALORIES);
+    }
+
+    private static String basis(RecommendationContextEntity context) {
+        if (GoalTypes.isCalorieGoal(context.getCurrentGoalType())
+                && context.getCurrentGoalTargetValue() != null) {
+            return BASIS_CALORIE_GOAL;
+        }
+        if (context.getEnergyTargetCalories() != null && context.getLatestWeightKg() != null) {
+            return BASIS_ENERGY_PROFILE;
+        }
+        return BASIS_TDEE_ESTIMATE;
     }
 
     private static int goalAdjustment(RecommendationContextEntity context, double weightKg) {

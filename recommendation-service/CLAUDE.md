@@ -56,8 +56,10 @@ Full detail (commits, invariants, gaps, run/verify): **`HANDOFF.md`**. Summary:
 | FD-1 OFF data validation | ⬜ owner's task (needs the real DB) | `data-validation-runbook.md` |
 | RC-3 / RC-9 / RC-10 + FD/EV/AN Full items | ⬜ Full-scope growth path | `BACKLOG.md` |
 
-Flyway at **V5** · 96 + 27 tests green · SpotBugs clean · AI tier + all 12 Kafka listeners **off by
-default** (env flags in `application.yml`). The AI tier is provider-switchable
+Flyway at **V5** · 99 + 27 tests green · SpotBugs clean · AI tier + all 13 Kafka listeners **off by
+default** (env flags in `application.yml`). EV-3 consumption is wired: the `EnergyProfileComputed`
+listener feeds `energy_target_calories` and R1 prefers it (basis `ENERGY_PROFILE`) over the
+neutral estimate. The AI tier is provider-switchable
 (`RECOMMENDATION_AI_PROVIDER`): `anthropic` (default) or `ollama` for a local open model
 (no key; see `HANDOFF.md` §3). Coach upgrade landed on this branch: `CoachFacts` semantic
 facts + few-shot A1 prompt with continuity, weekly food-group balance (V4), R6/R8 rules

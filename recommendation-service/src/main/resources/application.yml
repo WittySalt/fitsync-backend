@@ -94,6 +94,8 @@ fitsync:
         enabled: ${KAFKA_USER_REGISTERED_LISTENER_ENABLED:false}
       user-profile-updated:
         enabled: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:false}
+      energy-profile-computed:
+        enabled: ${KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED:false}
       user-preferences-updated:
         enabled: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
       weekly-recap-generated:

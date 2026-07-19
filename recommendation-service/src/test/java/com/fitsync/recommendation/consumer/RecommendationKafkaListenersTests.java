@@ -20,6 +20,7 @@ import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
+import com.fitsync.contracts.events.user.EnergyProfileComputedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
@@ -128,6 +129,16 @@ class RecommendationKafkaListenersTests {
                 new StreakMilestoneReachedKafkaListener(objectMapper, consumer);
         verifyDispatchAndFiltering(consumer, listener::onMessage, "StreakMilestoneReached",
                 new StreakMilestoneReachedPayload(7, 7, LocalDate.parse("2026-07-05")));
+    }
+
+    @Test
+    void energyProfileComputedListenerDispatchesAndFilters() throws Exception {
+        DomainEventConsumer<EnergyProfileComputedPayload> consumer = mock(DomainEventConsumer.class);
+        EnergyProfileComputedKafkaListener listener =
+                new EnergyProfileComputedKafkaListener(objectMapper, consumer);
+        verifyDispatchAndFiltering(consumer, listener::onMessage, "EnergyProfileComputed",
+                new EnergyProfileComputedPayload(1814, 2812, "MODERATELY_ACTIVE",
+                        Instant.parse("2026-07-06T12:00:00Z")));
     }
 
     @Test
