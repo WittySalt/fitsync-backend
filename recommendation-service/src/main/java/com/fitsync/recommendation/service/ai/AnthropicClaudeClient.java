@@ -11,17 +11,16 @@ import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
 import com.fitsync.recommendation.config.RecommendationProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Service;
 
 /**
  * Claude API adapter (README §5.2): the key comes from {@code ANTHROPIC_API_KEY} via
  * the SDK's {@code fromEnv()} (X-4 — never from source or the database), the model ID
  * is configuration (§4.1 tiering), and the stable system prompt carries a
  * {@code cache_control} breakpoint so the cached prefix bills at ~0.1×.
+ *
+ * Wired by {@link com.fitsync.recommendation.config.NarrativeClientConfiguration} when
+ * the AI tier is enabled with the {@code anthropic} provider (the default).
  */
-@Service
-@ConditionalOnProperty(prefix = "fitsync.recommendation.ai", name = "enabled", havingValue = "true")
 public class AnthropicClaudeClient implements ClaudeClient {
 
     private final AnthropicClient client;

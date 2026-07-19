@@ -37,6 +37,9 @@ branch-only api-gateway change), RC-6 (A1 weekly narrative: `service/ai` — `Cl
 `anthropic-java` adapter (prompt-cached system prompt, configured model, Sonnet default) +
 `WeeklyNarrativeService` (async, hash-gated, P7D TTL, silent rule/template fallback)) and X-4
 (`ANTHROPIC_API_KEY` via SDK `fromEnv()`, tier gated by `fitsync.recommendation.ai.enabled`) are done.
+Follow-up: the narrative backend is provider-switchable (`fitsync.recommendation.ai.provider` —
+`anthropic` default, `ollama` for a local open model with no key; `OllamaClaudeClient` +
+`NarrativeClientConfiguration`).
 
 **The MVP cut line is complete except X-3** (OFF attribution), which is main-bound and needs its own
 branch + PR to `main` — do not fold it into this branch.

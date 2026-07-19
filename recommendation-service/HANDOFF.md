@@ -19,6 +19,7 @@
 | `3cc61ac` | **RC-4/RC-5** | `RecommendationResolver` read funnel (cache fresh → rule → template), payload `{facts, narrative}`, SHA-256 context-hash change detection, `rule-result-ttl` (PT24H), prunes unfired rules; `NarrativeTemplates` — 13 hand-written templates |
 | `741df94` | **RC-7/X-1** | Read API: `GET /api/v1/recommendations`, `GET /{type}` (case-insensitive, 404), `POST /refresh` (202); api-gateway `recommendation-service-base-url` (:8086) + `/api/v1/recommendations/**` proxy route (branch-only gateway change) |
 | `74db57e` | **RC-6/X-4** | Live A1 weekly narrative: `ClaudeClient` seam → `anthropic-java` adapter (key via `ANTHROPIC_API_KEY`/`fromEnv()`, prompt-cached system prompt, model configured — default `claude-sonnet-4-6`) → `WeeklyNarrativeService` (async, hash-gated, P7D TTL, silent rule/template fallback). AI tier **off by default** |
+| (follow-up) | **RC-6** | Provider switch for the narrative backend: `fitsync.recommendation.ai.provider` = `anthropic` (default, unchanged) or `ollama` (`OllamaClaudeClient` → local open model via `/api/chat`, no API key anywhere). `NarrativeClientConfiguration` builds the one client bean; everything downstream of the seam is provider-agnostic. Verified live against local `llama3.2:3b` |
 
 **End-to-end thread now working:** domain/analytics events → context projection (stale marking) →
 rules → templates → cached `recommendation_result` → JWT-protected read API behind the gateway,
@@ -67,6 +68,10 @@ SERVER_PORT=8086 mvn -pl recommendation-service spring-boot:run
 # Enable the AI tier (off by default):
 #   RECOMMENDATION_AI_ENABLED=true + ANTHROPIC_API_KEY=sk-ant-...   (fails fast without the key)
 #   Optional: RECOMMENDATION_AI_MODEL / _MAX_TOKENS / _NARRATIVE_TTL
+# Or run the narrative on a local open model instead (no key, zero cost — e.g. for demos):
+#   ollama pull llama3.2:3b, then
+#   RECOMMENDATION_AI_ENABLED=true RECOMMENDATION_AI_PROVIDER=ollama \
+#     RECOMMENDATION_AI_MODEL=llama3.2:3b   (RECOMMENDATION_AI_BASE_URL defaults to :11434)
 ```
 
 ## 4. What is NOT done (the honest gap list)
@@ -102,7 +107,7 @@ SERVER_PORT=8086 mvn -pl recommendation-service spring-boot:run
 
 - **Branch/HEAD:** `claude/recommendation-interface-review-0x4pzv` @ `74db57e` (pushed).
 - **Read first:** `CLAUDE.md` (iron rule + conventions) → `BACKLOG.md` (statuses) → this file.
-- **Flyway:** V3. **Tests:** 69 (recommendation) + 27 (gateway). **SpotBugs:** clean (exclusions
+- **Flyway:** V3. **Tests:** 75 (recommendation) + 27 (gateway). **SpotBugs:** clean (exclusions
   in root `spotbugs-exclude.xml` are per-class with justifications).
 - **Sensible next moves,** in value order:
   1. X-3 via a main-bound PR (small, completes the MVP list).
