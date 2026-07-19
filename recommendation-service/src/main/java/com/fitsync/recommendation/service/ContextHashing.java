@@ -40,6 +40,12 @@ public final class ContextHashing {
                 String.valueOf(context.getTodayDate()),
                 String.valueOf(context.getTodayCaloriesConsumed()),
                 String.valueOf(context.getTodayProteinGrams()),
+                String.valueOf(context.getNutritionWeekStart()),
+                String.valueOf(context.getWeekFoodGroupCaloriesJson()),
+                String.valueOf(context.getLastPrExercise()),
+                String.valueOf(context.getLastPrRecordType()),
+                String.valueOf(context.getLastPrValue()),
+                String.valueOf(context.getLastPrAt()),
                 String.valueOf(context.getCurrentStreakDays()),
                 String.valueOf(context.getTimezone()));
         return sha256Hex(canonical);

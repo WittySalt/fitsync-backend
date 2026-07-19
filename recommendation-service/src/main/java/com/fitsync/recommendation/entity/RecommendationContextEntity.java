@@ -105,6 +105,28 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
     @Column(name = "today_protein_grams", precision = 10, scale = 2)
     private BigDecimal todayProteinGrams;
 
+    // Weekly food-group balance (from MealLogged.foodGroupCalories, EV-1).
+    // nutrition_week_start anchors the running week (Monday, user timezone) so a
+    // new week resets the accumulation; the JSON maps food-group code -> kcal.
+    @Column(name = "nutrition_week_start")
+    private LocalDate nutritionWeekStart;
+
+    @Column(name = "week_food_group_calories", length = 1000)
+    private String weekFoodGroupCaloriesJson;
+
+    // Latest personal record (from PersonalRecordAchieved) — R6 celebrates it while fresh.
+    @Column(name = "last_pr_exercise", length = 120)
+    private String lastPrExercise;
+
+    @Column(name = "last_pr_record_type", length = 40)
+    private String lastPrRecordType;
+
+    @Column(name = "last_pr_value", precision = 12, scale = 2)
+    private BigDecimal lastPrValue;
+
+    @Column(name = "last_pr_at")
+    private Instant lastPrAt;
+
     // Consistency (from StreakMilestoneReached).
     @Column(name = "current_streak_days")
     private Integer currentStreakDays;
@@ -320,6 +342,54 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
 
     public void setTodayProteinGrams(BigDecimal todayProteinGrams) {
         this.todayProteinGrams = todayProteinGrams;
+    }
+
+    public LocalDate getNutritionWeekStart() {
+        return nutritionWeekStart;
+    }
+
+    public void setNutritionWeekStart(LocalDate nutritionWeekStart) {
+        this.nutritionWeekStart = nutritionWeekStart;
+    }
+
+    public String getWeekFoodGroupCaloriesJson() {
+        return weekFoodGroupCaloriesJson;
+    }
+
+    public void setWeekFoodGroupCaloriesJson(String weekFoodGroupCaloriesJson) {
+        this.weekFoodGroupCaloriesJson = weekFoodGroupCaloriesJson;
+    }
+
+    public String getLastPrExercise() {
+        return lastPrExercise;
+    }
+
+    public void setLastPrExercise(String lastPrExercise) {
+        this.lastPrExercise = lastPrExercise;
+    }
+
+    public String getLastPrRecordType() {
+        return lastPrRecordType;
+    }
+
+    public void setLastPrRecordType(String lastPrRecordType) {
+        this.lastPrRecordType = lastPrRecordType;
+    }
+
+    public BigDecimal getLastPrValue() {
+        return lastPrValue;
+    }
+
+    public void setLastPrValue(BigDecimal lastPrValue) {
+        this.lastPrValue = lastPrValue;
+    }
+
+    public Instant getLastPrAt() {
+        return lastPrAt;
+    }
+
+    public void setLastPrAt(Instant lastPrAt) {
+        this.lastPrAt = lastPrAt;
     }
 
     public Integer getCurrentStreakDays() {

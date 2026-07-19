@@ -68,6 +68,7 @@ fitsync:
       base-url: ${RECOMMENDATION_AI_BASE_URL:http://localhost:11434}
       max-tokens: ${RECOMMENDATION_AI_MAX_TOKENS:300}
       narrative-ttl: ${RECOMMENDATION_AI_NARRATIVE_TTL:P7D}
+      coach-questions-per-hour: ${RECOMMENDATION_AI_COACH_QUESTIONS_PER_HOUR:5}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:
@@ -75,6 +76,7 @@ fitsync:
       progress-events: ${KAFKA_PROGRESS_EVENTS_TOPIC:progress-events}
       nutrition-events: ${KAFKA_NUTRITION_EVENTS_TOPIC:nutrition-events}
       analytics-events: ${KAFKA_ANALYTICS_EVENTS_TOPIC:analytics-events}
+      workout-events: ${KAFKA_WORKOUT_EVENTS_TOPIC:workout-events}
     consumer-groups:
       recommendation-service: ${KAFKA_RECOMMENDATION_SERVICE_GROUP:recommendation-consumer-group}
     listeners:
@@ -98,5 +100,7 @@ fitsync:
         enabled: ${KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED:false}
       streak-milestone-reached:
         enabled: ${KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED:false}
+      personal-record-achieved:
+        enabled: ${KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED:false}
       account-deleted:
         enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}

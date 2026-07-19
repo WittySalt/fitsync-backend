@@ -21,7 +21,7 @@ public record RecommendationProperties(
 
     public RecommendationProperties {
         ruleResultTtl = ruleResultTtl == null ? DEFAULT_RULE_RESULT_TTL : ruleResultTtl;
-        ai = ai == null ? new Ai(false, null, null, null, null, null) : ai;
+        ai = ai == null ? new Ai(false, null, null, null, null, null, null) : ai;
     }
 
     /**
@@ -38,6 +38,8 @@ public record RecommendationProperties(
      * @param maxTokens    completion budget for one narrative
      * @param narrativeTtl how long a generated narrative stays fresh (README §5.2:
      *                     cached one week)
+     * @param coachQuestionsPerHour per-user budget for the synchronous A4 coach Q&A —
+     *                     the one AI surface the user waits on
      */
     public record Ai(
             boolean enabled,
@@ -45,7 +47,8 @@ public record RecommendationProperties(
             String model,
             String baseUrl,
             Integer maxTokens,
-            Duration narrativeTtl) {
+            Duration narrativeTtl,
+            Integer coachQuestionsPerHour) {
 
         public static final String PROVIDER_ANTHROPIC = "anthropic";
         public static final String PROVIDER_OLLAMA = "ollama";
@@ -54,6 +57,7 @@ public record RecommendationProperties(
         private static final String DEFAULT_BASE_URL = "http://localhost:11434";
         private static final Integer DEFAULT_MAX_TOKENS = 300;
         private static final Duration DEFAULT_NARRATIVE_TTL = Duration.ofDays(7);
+        private static final Integer DEFAULT_COACH_QUESTIONS_PER_HOUR = 5;
 
         public Ai {
             provider = provider == null || provider.isBlank() ? PROVIDER_ANTHROPIC : provider;
@@ -61,6 +65,9 @@ public record RecommendationProperties(
             baseUrl = baseUrl == null || baseUrl.isBlank() ? DEFAULT_BASE_URL : baseUrl;
             maxTokens = maxTokens == null ? DEFAULT_MAX_TOKENS : maxTokens;
             narrativeTtl = narrativeTtl == null ? DEFAULT_NARRATIVE_TTL : narrativeTtl;
+            coachQuestionsPerHour = coachQuestionsPerHour == null
+                    ? DEFAULT_COACH_QUESTIONS_PER_HOUR
+                    : coachQuestionsPerHour;
         }
     }
 }

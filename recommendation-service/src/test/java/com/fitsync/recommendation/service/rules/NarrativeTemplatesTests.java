@@ -35,6 +35,27 @@ class NarrativeTemplatesTests {
     }
 
     @Test
+    void personalRecordVariants() {
+        assertThat(render(RecommendationTypes.PERSONAL_RECORD, Map.of(
+                "exercise", "Barbell Squat", "recordType", "MAX_WEIGHT_KG",
+                "value", new BigDecimal("120.00"), "daysAgo", 1)))
+                .isEqualTo("New personal record: heaviest weight on Barbell Squat (120)"
+                        + " — that's the payoff of consistent work.");
+
+        assertThat(render(RecommendationTypes.PERSONAL_RECORD, Map.of(
+                "recordType", "BEST_SESSION_VOLUME_KG", "daysAgo", 0)))
+                .isEqualTo("New personal record: best session volume — that's the payoff of consistent work.");
+    }
+
+    @Test
+    void loggingReminderTemplate() {
+        assertThat(render(RecommendationTypes.LOGGING_REMINDER, Map.of(
+                "daysSinceLastMealLog", 4, "lastMealLogOn", "2026-07-02")))
+                .isEqualTo("It's been 4 days since your last logged meal"
+                        + " — one quick log today gets the picture back.");
+    }
+
+    @Test
     void weeklyAdherenceVariants() {
         assertThat(render(RecommendationTypes.WEEKLY_ADHERENCE, Map.of(
                 "targetDaysPerWeek", 3, "activeDays", 5, "shortfallDays", 0, "status", "MET")))

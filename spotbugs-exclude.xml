@@ -400,6 +400,11 @@
     </Match>
 
     <Match>
+        <Class name="com.fitsync.recommendation.handler.PersonalRecordAchievedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
         <Class name="com.fitsync.recommendation.handler.AccountDeletedEventHandler"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
@@ -427,6 +432,16 @@
          (repositories, ObjectMapper); same Spring-DI noise as the handlers above. -->
     <Match>
         <Class name="com.fitsync.recommendation.service.ai.WeeklyNarrativeService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.service.ai.CoachQaService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.service.ai.CoachFacts"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 </FindBugsFilter>

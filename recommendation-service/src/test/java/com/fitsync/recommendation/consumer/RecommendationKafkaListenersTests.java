@@ -24,6 +24,7 @@ import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
+import com.fitsync.contracts.events.workout.PersonalRecordAchievedPayload;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -127,6 +128,18 @@ class RecommendationKafkaListenersTests {
                 new StreakMilestoneReachedKafkaListener(objectMapper, consumer);
         verifyDispatchAndFiltering(consumer, listener::onMessage, "StreakMilestoneReached",
                 new StreakMilestoneReachedPayload(7, 7, LocalDate.parse("2026-07-05")));
+    }
+
+    @Test
+    void personalRecordAchievedListenerDispatchesAndFilters() throws Exception {
+        DomainEventConsumer<PersonalRecordAchievedPayload> consumer = mock(DomainEventConsumer.class);
+        PersonalRecordAchievedKafkaListener listener =
+                new PersonalRecordAchievedKafkaListener(objectMapper, consumer);
+        verifyDispatchAndFiltering(consumer, listener::onMessage, "PersonalRecordAchieved",
+                new PersonalRecordAchievedPayload(UUID.randomUUID(), "Barbell Squat", UUID.randomUUID(),
+                        List.of(new PersonalRecordAchievedPayload.RecordAchievement(
+                                "MAX_WEIGHT_KG", new BigDecimal("120.00"))),
+                        Instant.parse("2026-07-05T18:00:00Z")));
     }
 
     @Test

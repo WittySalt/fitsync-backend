@@ -2,13 +2,17 @@ package com.fitsync.recommendation.handler;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
+import com.fitsync.recommendation.domain.FoodGroupCalories;
 import com.fitsync.recommendation.domain.UserTimeZones;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import org.springframework.stereotype.Service;
@@ -26,13 +30,16 @@ public class MealLoggedEventHandler implements DomainEventConsumer<MealLoggedPay
 
     private final RecommendationContextStore contextStore;
     private final ProcessedEventGuard processedEventGuard;
+    private final ObjectMapper objectMapper;
     private final Clock clock;
 
     public MealLoggedEventHandler(RecommendationContextStore contextStore,
                                   ProcessedEventGuard processedEventGuard,
+                                  ObjectMapper objectMapper,
                                   Clock clock) {
         this.contextStore = contextStore;
         this.processedEventGuard = processedEventGuard;
+        this.objectMapper = objectMapper;
         this.clock = clock;
     }
 
@@ -60,8 +67,31 @@ public class MealLoggedEventHandler implements DomainEventConsumer<MealLoggedPay
             context.setTodayProteinGrams(
                     addGrams(context.getTodayProteinGrams(), payload.totalProteinGrams()));
         }
+        accumulateWeekFoodGroups(context, mealDate, payload);
         contextStore.saveStale(context);
         processedEventGuard.record(event);
+    }
+
+    /**
+     * Same rollover shape as the today-totals, one level up: a meal in a new (later)
+     * week restarts the food-group accumulation, a meal in the tracked week merges into
+     * it, and a historical meal is ignored.
+     */
+    private void accumulateWeekFoodGroups(RecommendationContextEntity context,
+                                          LocalDate mealDate,
+                                          MealLoggedPayload payload) {
+        LocalDate mealWeekStart = mealDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        if (context.getNutritionWeekStart() == null || mealWeekStart.isAfter(context.getNutritionWeekStart())) {
+            context.setNutritionWeekStart(mealWeekStart);
+            context.setWeekFoodGroupCaloriesJson(
+                    FoodGroupCalories.write(objectMapper, payload.foodGroupCalories()));
+        } else if (mealWeekStart.equals(context.getNutritionWeekStart())
+                && !payload.foodGroupCalories().isEmpty()) {
+            context.setWeekFoodGroupCaloriesJson(FoodGroupCalories.write(objectMapper,
+                    FoodGroupCalories.merge(
+                            FoodGroupCalories.read(objectMapper, context.getWeekFoodGroupCaloriesJson()),
+                            payload.foodGroupCalories())));
+        }
     }
 
     private LocalDate resolveMealDate(FitSyncDomainEvent<MealLoggedPayload> event,

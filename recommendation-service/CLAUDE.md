@@ -56,10 +56,12 @@ Full detail (commits, invariants, gaps, run/verify): **`HANDOFF.md`**. Summary:
 | FD-1 OFF data validation | ⬜ owner's task (needs the real DB) | `data-validation-runbook.md` |
 | RC-3 / RC-9 / RC-10 + FD/EV/AN Full items | ⬜ Full-scope growth path | `BACKLOG.md` |
 
-Flyway at **V3** · 75 + 27 tests green · SpotBugs clean · AI tier + all Kafka listeners **off by
+Flyway at **V5** · 96 + 27 tests green · SpotBugs clean · AI tier + all 12 Kafka listeners **off by
 default** (env flags in `application.yml`). The AI tier is provider-switchable
 (`RECOMMENDATION_AI_PROVIDER`): `anthropic` (default) or `ollama` for a local open model
-(no key; see `HANDOFF.md` §3).
+(no key; see `HANDOFF.md` §3). Coach upgrade landed on this branch: `CoachFacts` semantic
+facts + few-shot A1 prompt with continuity, weekly food-group balance (V4), R6/R8 rules
+(V5 + `workout-events` listener), and A4 `POST /coach/ask` (sync, grounded, rate-limited).
 
 ## What to build next (value order — details in `HANDOFF.md` §5)
 

@@ -20,6 +20,7 @@
 | `741df94` | **RC-7/X-1** | Read API: `GET /api/v1/recommendations`, `GET /{type}` (case-insensitive, 404), `POST /refresh` (202); api-gateway `recommendation-service-base-url` (:8086) + `/api/v1/recommendations/**` proxy route (branch-only gateway change) |
 | `74db57e` | **RC-6/X-4** | Live A1 weekly narrative: `ClaudeClient` seam → `anthropic-java` adapter (key via `ANTHROPIC_API_KEY`/`fromEnv()`, prompt-cached system prompt, model configured — default `claude-sonnet-4-6`) → `WeeklyNarrativeService` (async, hash-gated, P7D TTL, silent rule/template fallback). AI tier **off by default** |
 | (follow-up) | **RC-6** | Provider switch for the narrative backend: `fitsync.recommendation.ai.provider` = `anthropic` (default, unchanged) or `ollama` (`OllamaClaudeClient` → local open model via `/api/chat`, no API key anywhere). `NarrativeClientConfiguration` builds the one client bean; everything downstream of the seam is provider-agnostic. Verified live against local `llama3.2:3b` |
+| (follow-up) | **RC-3/RC-6/RC-9 slice** | Coach upgrade: (1) A1 facts rebuilt by `CoachFacts` — semantic groups with rule statuses (training/nutritionToday/goalPace/loggingStreak/personalRecord/foodGroupWeek), few-shot 3-sentence prompt with guardrails, previous-narrative continuity; (2) weekly food-group balance projected from `MealLogged.foodGroupCalories` with Monday-anchored rollover (Flyway V4); (3) R6 PR-celebration (new `workout-events` listener + PR snapshot, Flyway V5) and R8 logging-reminder rules + templates T14–T16; (4) A4 coach Q&A: `POST /api/v1/recommendations/coach/ask` — sync single-turn, grounded only on `CoachFacts`, per-user hourly budget (`coach-questions-per-hour`, default 5), friendly 503/429, rides the existing gateway route |
 
 **End-to-end thread now working:** domain/analytics events → context projection (stale marking) →
 rules → templates → cached `recommendation_result` → JWT-protected read API behind the gateway,
@@ -95,8 +96,10 @@ SERVER_PORT=8086 mvn -pl recommendation-service spring-boot:run
   acceptable at MVP traffic, revisit if refresh becomes hot.
 - **No deploy image / compose entry** — X-5 (monolith-first vs standalone) is deliberately open;
   CI builds and tests the module but does not ship it.
-- The weekly-narrative prompt uses recap + goal/streak facts only; it does not yet fold in R1/R3
-  outputs (cheap improvement).
+- **A4 coach Q&A is deliberately synchronous** (the user asked and is watching a spinner) — the
+  one sanctioned exception to invariant 2's "read path never generates". Its rate-limit window is
+  in-memory per instance; fine single-instance, needs a shared store if the service scales out.
+- **R7 (focus-area balance) remains blocked on EV-2**; A2/A3/A5 are still open (RC-9).
 
 ### Full-scope backlog (documented growth path, untouched)
 `RC-3` (rules R6–R8) · `RC-9` (A2/A3/A5) · `RC-10` (retrieval, cascade, Batch API, distillation) ·
@@ -107,7 +110,7 @@ SERVER_PORT=8086 mvn -pl recommendation-service spring-boot:run
 
 - **Branch/HEAD:** `claude/recommendation-interface-review-0x4pzv` @ `74db57e` (pushed).
 - **Read first:** `CLAUDE.md` (iron rule + conventions) → `BACKLOG.md` (statuses) → this file.
-- **Flyway:** V3. **Tests:** 75 (recommendation) + 27 (gateway). **SpotBugs:** clean (exclusions
+- **Flyway:** V5. **Tests:** 96 (recommendation) + 27 (gateway). **SpotBugs:** clean (exclusions
   in root `spotbugs-exclude.xml` are per-class with justifications).
 - **Sensible next moves,** in value order:
   1. X-3 via a main-bound PR (small, completes the MVP list).

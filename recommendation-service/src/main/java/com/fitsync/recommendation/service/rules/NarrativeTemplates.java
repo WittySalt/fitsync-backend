@@ -28,6 +28,8 @@ public class NarrativeTemplates {
             case RecommendationTypes.GOAL_PACE -> goalPace(facts);
             case RecommendationTypes.STREAK_NUDGE -> streakNudge(facts);
             case RecommendationTypes.COLD_START -> coldStart(facts);
+            case RecommendationTypes.PERSONAL_RECORD -> personalRecord(facts);
+            case RecommendationTypes.LOGGING_REMINDER -> loggingReminder(facts);
             default -> throw new IllegalArgumentException("No templates for type " + outcome.type());
         };
     }
@@ -104,6 +106,37 @@ public class NarrativeTemplates {
                     .formatted(String.valueOf(focusAreas.get(0)).toLowerCase(java.util.Locale.ROOT));
         }
         return "Log your first workout or meal to unlock personalized recommendations.";
+    }
+
+    // T14-T15 — PR celebration.
+    private static String personalRecord(Map<String, Object> facts) {
+        String what = recordTypeLabel(String.valueOf(facts.get("recordType")));
+        Object exercise = facts.get("exercise");
+        BigDecimal value = decimalFact(facts, "value");
+        String amount = value != null ? " (%s)".formatted(value.stripTrailingZeros().toPlainString()) : "";
+        if (exercise != null) {
+            return "New personal record: %s on %s%s — that's the payoff of consistent work."
+                    .formatted(what, exercise, amount);
+        }
+        return "New personal record: %s%s — that's the payoff of consistent work.".formatted(what, amount);
+    }
+
+    private static String recordTypeLabel(String recordType) {
+        return switch (recordType) {
+            case "MAX_WEIGHT_KG" -> "heaviest weight";
+            case "MAX_REPS" -> "most reps";
+            case "MAX_SINGLE_SET_VOLUME_KG" -> "biggest single-set volume";
+            case "ESTIMATED_ONE_REP_MAX_KG" -> "estimated one-rep max";
+            case "BEST_SESSION_VOLUME_KG" -> "best session volume";
+            // No case mapping (findsecbugs IMPROPER_UNICODE) — unknown types read fine as-is.
+            default -> recordType.replace('_', ' ');
+        };
+    }
+
+    // T16 — logging reminder.
+    private static String loggingReminder(Map<String, Object> facts) {
+        return "It's been %d days since your last logged meal — one quick log today gets the picture back."
+                .formatted(intFact(facts, "daysSinceLastMealLog"));
     }
 
     private static int intFact(Map<String, Object> facts, String key) {

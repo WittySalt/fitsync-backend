@@ -65,7 +65,45 @@ class WeeklyNarrativeServiceTests {
 
         JsonNode payload = objectMapper.readTree(result.getPayload());
         assertThat(payload.get("narrative").asText()).startsWith("Strong week");
-        assertThat(payload.get("facts").get("activeDays").asInt()).isEqualTo(4);
+        JsonNode training = payload.get("facts").get("training");
+        assertThat(training.get("activeDays").asInt()).isEqualTo(4);
+        assertThat(training.get("status").asText()).isEqualTo("MET");
+        assertThat(payload.get("facts").get("loggingStreak").get("streakDays").asInt()).isEqualTo(7);
+    }
+
+    @Test
+    void phrasesTheWeeklyFoodGroupBalanceWithPrecomputedShares() throws Exception {
+        RecommendationContextEntity context = new RecommendationContextEntity();
+        context.setUserId(userId);
+        context.setRecentWeekStart(LocalDate.parse("2026-06-29"));
+        context.setNutritionWeekStart(LocalDate.parse("2026-06-29"));
+        context.setWeekFoodGroupCaloriesJson("{\"MEAT\":1500,\"VEGETABLE\":200,\"GRAIN\":800}");
+        contextRepository.saveAndFlush(context);
+        when(claudeClient.complete(anyString(), anyString())).thenReturn("Balance note.");
+
+        weeklyNarrativeService.generateNow(userId);
+
+        RecommendationResultEntity result = resultRepository
+                .findByUserIdAndType(userId, RecommendationTypes.WEEKLY_NARRATIVE).orElseThrow();
+        JsonNode groups = objectMapper.readTree(result.getPayload()).get("facts").get("foodGroupWeek");
+        assertThat(groups.get("classifiedKcal").asInt()).isEqualTo(2500);
+        assertThat(groups.get("sharePctByGroup").get("MEAT").asInt()).isEqualTo(60);
+        assertThat(groups.get("sharePctByGroup").get("VEGETABLE").asInt()).isEqualTo(8);
+        assertThat(groups.get("sharePctByGroup").fieldNames().next()).isEqualTo("MEAT");
+    }
+
+    @Test
+    void feedsThePreviousNarrativeBackForContinuity() {
+        persistContext();
+        when(claudeClient.complete(anyString(), anyString())).thenReturn("First week story.");
+        weeklyNarrativeService.generateNow(userId);
+
+        RecommendationContextEntity context = contextRepository.findById(userId).orElseThrow();
+        context.setCurrentStreakDays(14);
+        contextRepository.saveAndFlush(context);
+        weeklyNarrativeService.generateNow(userId);
+
+        verify(claudeClient).complete(anyString(), contains("\"previousNarrative\":\"First week story.\""));
     }
 
     @Test

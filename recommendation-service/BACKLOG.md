@@ -40,6 +40,10 @@ branch-only api-gateway change), RC-6 (A1 weekly narrative: `service/ai` — `Cl
 Follow-up: the narrative backend is provider-switchable (`fitsync.recommendation.ai.provider` —
 `anthropic` default, `ollama` for a local open model with no key; `OllamaClaudeClient` +
 `NarrativeClientConfiguration`).
+Coach upgrade (this branch): A1 facts rebuilt semantically from rule outputs via `CoachFacts`
+(statuses in code, few-shot prompt, previous-narrative continuity), weekly food-group balance
+projected from `MealLogged.foodGroupCalories` (V4), R6 PR-celebration + R8 logging-reminder
+rules (V5, `workout-events` listener), and A4 coach Q&A (`POST /coach/ask`).
 
 **The MVP cut line is complete except X-3** (OFF attribution), which is main-bound and needs its own
 branch + PR to `main` — do not fold it into this branch.
@@ -109,13 +113,13 @@ Everything else is documented growth path.
 | RC-0 | Module is an empty scaffold (`pom.xml` only) | ✅ superseded by RC-1 | – | – | – |
 | RC-1 | Scaffold: main class, package skeleton, `recommendation_context` + `recommendation_result` tables | ✅ done (this branch) | – | MVP | – |
 | RC-2 | Local rule engine R1–R5 (nutrition gap, weekly adherence, goal pace, streak nudge, cold-start) | ✅ done (this branch) | – | MVP | AN-1/AN-4 |
-| RC-3 | Rules R6–R8 (PR celebration, focus-area balance, logging reminder) | ⬜ todo | M | Full | EV-2 |
+| RC-3 | Rules R6–R8 (PR celebration, focus-area balance, logging reminder) | 🟡 R6 + R8 done (this branch — `PersonalRecordAchieved` listener + `PersonalRecordRule`/`LoggingReminderRule`, Flyway V5); R7 still blocked on EV-2 | M | Full | EV-2 |
 | RC-4 | `RecommendationResolver` funnel: cache → rule → template → AI | ✅ done (this branch; AI seam reserved for RC-6) | – | MVP | RC-2 |
 | RC-5 | Hand-written narrative template library (10–20 templates, rule numbers fill slots) | ✅ done (this branch; 13 templates in `NarrativeTemplates`) | – | MVP | RC-2 |
 | RC-6 | One live AI feature — A1 weekly narrative **or** A4 coach Q&A (async, prompt-cached, model-tiered, rule fallback) | ✅ done (this branch — A1 via `anthropic-java`, hash-gated, off by default) | – | MVP | RC-4 |
 | RC-7 | Read API: `GET /recommendations`, `GET /{type}`, `POST /refresh` | ✅ done (this branch) | – | MVP | RC-1 |
 | RC-8 | Kafka consumers (group `recommendation-consumer-group`) → update context + mark stale (never trigger AI per-event) | ✅ done (this branch) | – | MVP | RC-1 |
-| RC-9 | A2/A3/A5 AI features (workout plan, meal ideas, rationale) | ⬜ todo | L | Full | RC-6 |
+| RC-9 | A2/A3/A4/A5 AI features (workout plan, meal ideas, coach Q&A, rationale) | 🟡 A4 done (this branch — `POST /coach/ask`, sync + facts-grounded + hourly budget); A2/A3/A5 todo | L | Full | RC-6 |
 | RC-10 | Advanced cost/perf: retrieval-instead-of-generation, model cascade, Batch API, design-time distillation | ⬜ todo | L | Full | RC-9 |
 
 ## EPIC X — Cross-cutting / ops

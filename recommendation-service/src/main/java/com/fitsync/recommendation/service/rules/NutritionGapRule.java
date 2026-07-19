@@ -30,7 +30,8 @@ public class NutritionGapRule implements Rule {
     static final int SEX_CONSTANT_MIDPOINT = -78;
     static final int WEIGHT_LOSS_DEFICIT_CALORIES = 500;
     static final int WEIGHT_GAIN_SURPLUS_CALORIES = 300;
-    static final int MIN_DAILY_CALORIES = 1200;
+    /** Safety floor — also handed to the A1 prompt as {@code minimumDailyCalories}. */
+    public static final int MIN_DAILY_CALORIES = 1200;
     static final BigDecimal PROTEIN_GRAMS_PER_KG = new BigDecimal("1.6");
 
     static final String BASIS_CALORIE_GOAL = "CALORIE_GOAL";

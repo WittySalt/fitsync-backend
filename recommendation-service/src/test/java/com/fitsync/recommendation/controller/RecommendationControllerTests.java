@@ -21,6 +21,8 @@ import com.fitsync.recommendation.entity.RecommendationSource;
 import com.fitsync.recommendation.security.CurrentUserPrincipal;
 import com.fitsync.recommendation.security.JwtService;
 import com.fitsync.recommendation.service.RecommendationResolver;
+import com.fitsync.recommendation.service.ai.CoachQaService;
+import com.fitsync.web.error.ApiException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -42,6 +44,9 @@ class RecommendationControllerTests {
 
     @MockBean
     private RecommendationResolver resolver;
+
+    @MockBean
+    private CoachQaService coachQaService;
 
     @MockBean
     private JwtService jwtService;
@@ -96,6 +101,45 @@ class RecommendationControllerTests {
                 .andExpect(status().isAccepted());
 
         verify(resolver).refresh(USER_ID);
+    }
+
+    @Test
+    void coachAnswersAGroundedQuestion() throws Exception {
+        when(coachQaService.ask(eq(USER_ID), eq("How is my week going?")))
+                .thenReturn("Solid week: 4 of 4 training days done.");
+
+        mockMvc.perform(post("/api/v1/recommendations/coach/ask")
+                        .with(csrf())
+                        .with(authentication(authToken()))
+                        .contentType("application/json")
+                        .content("{\"question\":\"How is my week going?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answer").value("Solid week: 4 of 4 training days done."));
+    }
+
+    @Test
+    void coachRejectsABlankQuestion() throws Exception {
+        mockMvc.perform(post("/api/v1/recommendations/coach/ask")
+                        .with(csrf())
+                        .with(authentication(authToken()))
+                        .contentType("application/json")
+                        .content("{\"question\":\"  \"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void coachSurfacesTheDisabledTierAsServiceUnavailable() throws Exception {
+        when(coachQaService.ask(eq(USER_ID), any(String.class))).thenThrow(new ApiException(
+                org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "COACH_UNAVAILABLE",
+                "The coach is not enabled on this deployment."));
+
+        mockMvc.perform(post("/api/v1/recommendations/coach/ask")
+                        .with(csrf())
+                        .with(authentication(authToken()))
+                        .contentType("application/json")
+                        .content("{\"question\":\"Anyone there?\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("COACH_UNAVAILABLE"));
     }
 
     private static RecommendationResultEntity result(String type, String payload) {

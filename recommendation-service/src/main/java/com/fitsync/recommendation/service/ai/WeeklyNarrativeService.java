@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.config.RecommendationProperties;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
@@ -41,15 +42,38 @@ public class WeeklyNarrativeService {
     private static final Logger log = LoggerFactory.getLogger(WeeklyNarrativeService.class);
 
     private static final String SYSTEM_PROMPT = """
-            You are FitSync's fitness coach writing a user's weekly recap.
-            Write 2-3 warm, encouraging sentences summarizing their week and one concrete, \
-            gentle suggestion for next week.
-            Use ONLY the numbers provided in the message - never invent or recompute numbers.
-            No greetings, no sign-offs, no emojis, no bullet points: just the narrative text.""";
+            You are FitSync's personal coach. You see one user's weekly training, nutrition \
+            and body-weight facts, all pre-computed by the app. Treat every number and every \
+            status word (MET / MISSED / AHEAD / ON_TRACK / BEHIND) as ground truth - never \
+            invent, recompute or reinterpret them.
+
+            Write exactly three sentences, plain text, no greetings, sign-offs, emojis or \
+            bullet points:
+            1. Acknowledge the strongest fact of the week.
+            2. Name the single most important gap - pick the area whose status is worst.
+            3. Give one concrete, gentle suggestion for next week that directly addresses \
+            that gap; if previousNarrative is present and its suggestion was clearly acted \
+            on, acknowledge that progress in this sentence.
+
+            Hard rules: no medical or injury advice; never suggest eating below \
+            minimumDailyCalories; mention only areas present in the facts.
+
+            Example input:
+            {"weekStart":"2026-06-01","training":{"targetDaysPerWeek":4,"activeDays":2,\
+            "shortfallDays":2,"status":"MISSED","workoutCount":2,"totalMinutes":75},\
+            "nutritionToday":{"basis":"CALORIE_GOAL","targetCalories":2000,\
+            "consumedCalories":1400,"remainingCalories":600,"minimumDailyCalories":1200},\
+            "loggingStreak":{"streakDays":12,"nextMilestone":14,"daysToNextMilestone":2}}
+            Example output:
+            Twelve straight days of logging is real consistency - just two more to reach \
+            your 14-day milestone. Training fell short this week at 2 active days against \
+            your target of 4. Next week, try booking two short sessions in advance so the \
+            target is back within reach.""";
 
     private final RecommendationContextRepository contextRepository;
     private final RecommendationResultRepository resultRepository;
     private final ObjectProvider<ClaudeClient> claudeClientProvider;
+    private final CoachFacts coachFacts;
     private final ObjectMapper objectMapper;
     private final RecommendationProperties properties;
     private final Clock clock;
@@ -62,12 +86,14 @@ public class WeeklyNarrativeService {
     public WeeklyNarrativeService(RecommendationContextRepository contextRepository,
                                   RecommendationResultRepository resultRepository,
                                   ObjectProvider<ClaudeClient> claudeClientProvider,
+                                  CoachFacts coachFacts,
                                   ObjectMapper objectMapper,
                                   RecommendationProperties properties,
                                   Clock clock) {
         this.contextRepository = contextRepository;
         this.resultRepository = resultRepository;
         this.claudeClientProvider = claudeClientProvider;
+        this.coachFacts = coachFacts;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
@@ -107,7 +133,7 @@ public class WeeklyNarrativeService {
             return;
         }
 
-        Map<String, Object> facts = weeklyFacts(context);
+        Map<String, Object> facts = coachFacts.assemble(context, existing.map(this::narrativeOf).orElse(null));
         try {
             String narrative = claudeClient.complete(SYSTEM_PROMPT, promptFor(facts));
             if (narrative.isBlank()) {
@@ -132,26 +158,14 @@ public class WeeklyNarrativeService {
                         existing.getContextHash().getBytes(StandardCharsets.UTF_8));
     }
 
-    /** Rule-computed facts only — the model phrases, it never sees raw data. */
-    private static Map<String, Object> weeklyFacts(RecommendationContextEntity context) {
-        Map<String, Object> facts = new LinkedHashMap<>();
-        facts.put("weekStart", context.getRecentWeekStart());
-        facts.put("workoutCount", context.getRecentWorkoutCount());
-        facts.put("workoutMinutes", context.getRecentWorkoutMinutes());
-        facts.put("activeDays", context.getRecentActiveDays());
-        if (context.getWorkoutDaysPerWeek() != null) {
-            facts.put("targetDaysPerWeek", context.getWorkoutDaysPerWeek());
+    /** The stored narrative text of a previous result, or null when unreadable. */
+    private String narrativeOf(RecommendationResultEntity result) {
+        try {
+            JsonNode narrative = objectMapper.readTree(result.getPayload()).get("narrative");
+            return narrative == null ? null : narrative.asText();
+        } catch (JsonProcessingException ex) {
+            return null;
         }
-        if (context.getCurrentGoalType() != null) {
-            facts.put("goalType", context.getCurrentGoalType());
-        }
-        if (context.getCurrentStreakDays() != null) {
-            facts.put("streakDays", context.getCurrentStreakDays());
-        }
-        if (context.getFocusAreas() != null) {
-            facts.put("focusAreas", context.getFocusAreas());
-        }
-        return facts;
     }
 
     private String promptFor(Map<String, Object> facts) {

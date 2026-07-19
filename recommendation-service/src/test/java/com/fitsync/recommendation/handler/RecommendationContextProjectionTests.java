@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -19,6 +20,7 @@ import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
+import com.fitsync.contracts.events.workout.PersonalRecordAchievedPayload;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.entity.RecommendationResultEntity;
 import com.fitsync.recommendation.entity.RecommendationSource;
@@ -47,6 +49,9 @@ class RecommendationContextProjectionTests {
 
     @Autowired
     private MealDeletedEventHandler mealDeletedEventHandler;
+
+    @Autowired
+    private PersonalRecordAchievedEventHandler personalRecordAchievedEventHandler;
 
     @Autowired
     private UserRegisteredEventHandler userRegisteredEventHandler;
@@ -187,6 +192,56 @@ class RecommendationContextProjectionTests {
     }
 
     @Test
+    void mealLoggedAccumulatesFoodGroupsOverTheWeekAndResetsOnANewWeek() {
+        // 2026-07-06 is a Monday.
+        mealLoggedEventHandler.consume(event("MealLogged", mealWithGroups(
+                Instant.parse("2026-07-06T08:00:00Z"), Map.of("MEAT", 300, "GRAIN", 100))));
+        mealLoggedEventHandler.consume(event("MealLogged", mealWithGroups(
+                Instant.parse("2026-07-09T12:00:00Z"), Map.of("MEAT", 200, "VEGETABLE", 50))));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getNutritionWeekStart()).isEqualTo(LocalDate.parse("2026-07-06"));
+        assertThat(context.getWeekFoodGroupCaloriesJson())
+                .isEqualTo("{\"GRAIN\":100,\"MEAT\":500,\"VEGETABLE\":50}");
+
+        // A meal in the next week restarts the accumulation.
+        mealLoggedEventHandler.consume(event("MealLogged", mealWithGroups(
+                Instant.parse("2026-07-13T09:00:00Z"), Map.of("FISH", 400))));
+
+        context = context();
+        assertThat(context.getNutritionWeekStart()).isEqualTo(LocalDate.parse("2026-07-13"));
+        assertThat(context.getWeekFoodGroupCaloriesJson()).isEqualTo("{\"FISH\":400}");
+    }
+
+    @Test
+    void mealsWithoutClassifiedItemsLeaveTheWeekAccumulationAlone() {
+        mealLoggedEventHandler.consume(event("MealLogged", mealWithGroups(
+                Instant.parse("2026-07-06T08:00:00Z"), Map.of("MEAT", 300))));
+        mealLoggedEventHandler.consume(event("MealLogged", meal(
+                Instant.parse("2026-07-07T08:00:00Z"), 500, new BigDecimal("30.00"))));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getNutritionWeekStart()).isEqualTo(LocalDate.parse("2026-07-06"));
+        assertThat(context.getWeekFoodGroupCaloriesJson()).isEqualTo("{\"MEAT\":300}");
+    }
+
+    @Test
+    void personalRecordAchievedKeepsOnlyTheLatestRecord() {
+        personalRecordAchievedEventHandler.consume(event("PersonalRecordAchieved",
+                new PersonalRecordAchievedPayload(UUID.randomUUID(), "Barbell Squat", UUID.randomUUID(),
+                        List.of(new PersonalRecordAchievedPayload.RecordAchievement(
+                                "MAX_WEIGHT_KG", new BigDecimal("120.00"))),
+                        Instant.parse("2026-07-05T18:00:00Z"))));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getLastPrExercise()).isEqualTo("Barbell Squat");
+        assertThat(context.getLastPrRecordType()).isEqualTo("MAX_WEIGHT_KG");
+        assertThat(context.getLastPrValue()).isEqualByComparingTo("120.00");
+        assertThat(context.getLastPrAt()).isEqualTo(Instant.parse("2026-07-05T18:00:00Z"));
+        assertThat(context.isStale()).isTrue();
+    }
+
+    @Test
     void mealDeletedOnlyMarksTheContextStale() {
         mealLoggedEventHandler.consume(event("MealLogged", meal(
                 Instant.parse("2026-07-06T08:00:00Z"), 400, new BigDecimal("25.00"))));
@@ -295,5 +350,10 @@ class RecommendationContextProjectionTests {
     private static MealLoggedPayload meal(Instant consumedAt, Integer calories, BigDecimal protein) {
         return new MealLoggedPayload(UUID.randomUUID(), "LUNCH", consumedAt, calories, protein,
                 new BigDecimal("50.00"), new BigDecimal("20.00"), 2, "MANUAL");
+    }
+
+    private static MealLoggedPayload mealWithGroups(Instant consumedAt, Map<String, Integer> foodGroupCalories) {
+        return new MealLoggedPayload(UUID.randomUUID(), "LUNCH", consumedAt, 400, new BigDecimal("25.00"),
+                new BigDecimal("50.00"), new BigDecimal("20.00"), 2, "MANUAL", foodGroupCalories);
     }
 }

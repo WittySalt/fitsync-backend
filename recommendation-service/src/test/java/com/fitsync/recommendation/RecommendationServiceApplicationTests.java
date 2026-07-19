@@ -48,12 +48,14 @@ class RecommendationServiceApplicationTests {
     }
 
     @Test
-    void registersAllFiveLocalRules() {
+    void registersAllSevenLocalRules() {
         assertThat(rules).extracting(Rule::type).containsExactlyInAnyOrder(
                 RecommendationTypes.NUTRITION_GAP,
                 RecommendationTypes.WEEKLY_ADHERENCE,
                 RecommendationTypes.GOAL_PACE,
                 RecommendationTypes.STREAK_NUDGE,
-                RecommendationTypes.COLD_START);
+                RecommendationTypes.COLD_START,
+                RecommendationTypes.PERSONAL_RECORD,
+                RecommendationTypes.LOGGING_REMINDER);
     }
 }

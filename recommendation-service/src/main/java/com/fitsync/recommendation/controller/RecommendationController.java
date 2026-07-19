@@ -3,20 +3,25 @@ package com.fitsync.recommendation.controller;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.recommendation.dto.CoachAnswerResponse;
+import com.fitsync.recommendation.dto.CoachQuestionRequest;
 import com.fitsync.recommendation.dto.RecommendationResponse;
 import com.fitsync.recommendation.security.CurrentUserPrincipal;
 import com.fitsync.recommendation.service.RecommendationResolver;
+import com.fitsync.recommendation.service.ai.CoachQaService;
 import com.fitsync.web.error.ResourceNotFoundException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,10 +37,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class RecommendationController {
 
     private final RecommendationResolver resolver;
+    private final CoachQaService coachQaService;
     private final ObjectMapper objectMapper;
 
-    public RecommendationController(RecommendationResolver resolver, ObjectMapper objectMapper) {
+    public RecommendationController(RecommendationResolver resolver,
+                                    CoachQaService coachQaService,
+                                    ObjectMapper objectMapper) {
         this.resolver = resolver;
+        this.coachQaService = coachQaService;
         this.objectMapper = objectMapper;
     }
 
@@ -83,6 +92,23 @@ public class RecommendationController {
     })
     public void refresh(Authentication authentication) {
         resolver.refresh(currentUserId(authentication));
+    }
+
+    @PostMapping("/coach/ask")
+    @Operation(summary = "Ask the coach one question",
+            description = "A4 — a synchronous, single-turn answer grounded only on the user's pre-computed "
+                    + "facts. Budgeted per user per hour; unavailable when the AI tier is off.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Answer returned"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "429", description = "Hourly question budget exhausted"),
+            @ApiResponse(responseCode = "503", description = "AI tier disabled or model unavailable")
+    })
+    public CoachAnswerResponse ask(Authentication authentication,
+                                   @Valid @RequestBody CoachQuestionRequest request) {
+        return new CoachAnswerResponse(
+                coachQaService.ask(currentUserId(authentication), request.question()));
     }
 
     private static java.util.UUID currentUserId(Authentication authentication) {
