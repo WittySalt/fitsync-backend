@@ -173,6 +173,7 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
                 barcode,
                 novaGroup(product),
                 nutriGrade(product),
+                "OFF",
                 List.of(),
                 List.of());
     }

@@ -36,6 +36,7 @@ public record FoodDetailView(
         String primaryBarcode,
         Integer novaGroup,
         String nutriScore,
+        String sourceDataset,
         List<FoodServingView> servings,
         List<NutrientDetailView> nutrientDetails) {
 
