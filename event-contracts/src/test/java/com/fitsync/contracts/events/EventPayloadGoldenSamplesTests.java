@@ -10,6 +10,7 @@ import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
+import com.fitsync.contracts.events.user.EnergyProfileComputedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
@@ -78,6 +79,7 @@ class EventPayloadGoldenSamplesTests {
                 sample("user/GoalUpdatedPayload.json", GoalUpdatedPayload.class),
                 sample("user/BodyMetricsRecordedPayload.json", BodyMetricsRecordedPayload.class),
                 sample("user/AccountDeletedPayload.json", AccountDeletedPayload.class),
+                sample("user/EnergyProfileComputedPayload.json", EnergyProfileComputedPayload.class),
                 sample("analytics/StreakMilestoneReachedPayload.json", StreakMilestoneReachedPayload.class),
                 sample("analytics/WeeklyRecapGeneratedPayload.json", WeeklyRecapGeneratedPayload.class));
     }
