@@ -1550,6 +1550,7 @@ public class NutritionServiceImpl implements NutritionService {
                 primaryBarcode,
                 food.getNovaGroup(),
                 food.getNutriScore(),
+                food.getSourceDataset(),
                 servings,
                 nutrientDetails);
     }
