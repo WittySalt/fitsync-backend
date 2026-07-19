@@ -40,29 +40,31 @@ analytics per-day food-group aggregate. So **"meat-heavy / veg-light" is a live 
 - Analytics read model / facts: daily nutrition (+ food-group aggregate), goal progress, dashboard,
   weekly recap, streaks.
 
-## What to build next — EPIC RC (see BACKLOG)
+## Status — MVP delivered on this branch (checkpoint: `2286060`)
 
-**Done on this branch:** `RC-1 scaffold` (main class, packages, `recommendation_context` +
-`recommendation_result` tables, CI); `RC-8 thin Kafka consumers` (group
-`recommendation-consumer-group`; 11 listeners in `consumer/` → handlers in `handler/` update the
-context + mark stale, idempotent via `recommendation_processed_events`); `RC-2 local rules R1–R5`
-(`service/rules`: Rule/RuleOutcome/RuleEngine + NutritionGap (TDEE est.), WeeklyAdherence, GoalPace
-(baseline captured at goal-set), StreakNudge, ColdStart — pure functions over the context, facts only);
-`RC-4/RC-5` (`service/RecommendationResolver`: cache(fresh)→rule→template funnel, payload =
-{facts, narrative}, context-hash change detection + `fitsync.recommendation.rule-result-ttl`, prunes
-unfired rule results; `service/rules/NarrativeTemplates`: 13 hand-written templates); `RC-7 read API`
-(`controller/RecommendationController`: GET /api/v1/recommendations, GET /{type} (case-insensitive,
-404 via web-support), POST /refresh → 202); `X-1` (api-gateway: `recommendation-service-base-url`
-(:8086) + `/api/v1/recommendations/**` proxy — the gateway change is branch-only like everything
-else here); `RC-6 + X-4` (A1 weekly narrative in `service/ai`: `ClaudeClient` seam →
-`AnthropicClaudeClient` (`anthropic-java`, key via `fromEnv()`, prompt-cached system prompt,
-model/`max-tokens`/TTL under `fitsync.recommendation.ai.*`, default `claude-sonnet-4-6`, enabled=false
-by default) + `WeeklyNarrativeService` (enqueued by the recap handler + resolver refresh, hash-gated,
-P7D TTL, silent fallback to rule/template output — the read path never touches AI)). Flyway at V3.
+Full detail (commits, invariants, gaps, run/verify): **`HANDOFF.md`**. Summary:
 
-**MVP cut line: everything done except X-3** (OFF attribution) — X-3 is main-bound
-(nutrition/frontend surface), so it needs the separate-branch → PR-to-`main` flow below, NOT this
-branch. Remaining RC work is Full-scope (RC-3, RC-9, RC-10).
+| Item | State | Where |
+|---|---|---|
+| RC-1 scaffold (app, security, tables V1) + X-2 CI | ✅ `7565272` | module root, `config/`, `security/` |
+| RC-8 Kafka consumers → context + stale (idempotent, V2) | ✅ `679ed0b` | `consumer/`, `handler/` |
+| RC-2 rules R1–R5 (baseline capture V3) | ✅ `21eb7cf` | `service/rules/` |
+| RC-4/RC-5 resolver funnel + 13 templates | ✅ `3cc61ac` | `service/RecommendationResolver`, `service/rules/NarrativeTemplates` |
+| RC-7 read API + X-1 gateway route | ✅ `741df94` | `controller/`, api-gateway (branch-only) |
+| RC-6 A1 weekly narrative + X-4 key wiring | ✅ `74db57e` | `service/ai/` (off by default) |
+| **X-3 OFF attribution** | ⬜ **main-bound** — separate branch → PR to `main`, NOT here | — |
+| FD-1 OFF data validation | ⬜ owner's task (needs the real DB) | `data-validation-runbook.md` |
+| RC-3 / RC-9 / RC-10 + FD/EV/AN Full items | ⬜ Full-scope growth path | `BACKLOG.md` |
+
+Flyway at **V3** · 69 + 27 tests green · SpotBugs clean · AI tier + all Kafka listeners **off by
+default** (env flags in `application.yml`).
+
+## What to build next (value order — details in `HANDOFF.md` §5)
+
+1. **X-3** OFF attribution — small main-bound PR; completes the MVP list.
+2. **EV-3** `EnergyProfileComputed` (user-service, main-bound) — unlocks exact R1 targets, PII-clean.
+3. Feed R1/R3 facts into the A1 prompt; optionally A5 rationale as a cheap second AI surface.
+4. **RC-3** rules R6–R8 once EV-2 lands.
 
 The AI tier uses the **Claude API via the `anthropic-java` SDK**; default model `claude-opus-4-8`,
 tier down to `claude-sonnet-4-6` / `claude-haiku-4-5` for cheaper tasks (README §4.1). Keep AI async +
