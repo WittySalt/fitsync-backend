@@ -3,8 +3,12 @@ package com.fitsync.analytics.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
@@ -18,6 +22,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import com.fitsync.analytics.config.AnalyticsProperties;
+import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
@@ -25,6 +30,8 @@ import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -34,11 +41,15 @@ import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
+import com.fitsync.analytics.entity.AnalyticsUserStreakRollupEntity;
+import com.fitsync.analytics.entity.AnalyticsUserWorkoutRecordsEntity;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
+import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
+import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import org.springframework.cache.annotation.Cacheable;
@@ -54,6 +65,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     private final AnalyticsUserDailyBodyRepository dailyBodyRepository;
     private final AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository;
     private final AnalyticsUserDailyNutritionRepository dailyNutritionRepository;
+    private final AnalyticsUserStreakRollupRepository streakRollupRepository;
+    private final AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository;
     private final Clock clock;
     private final AnalyticsProperties analyticsProperties;
 
@@ -62,6 +75,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                 AnalyticsUserDailyBodyRepository dailyBodyRepository,
                                 AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository,
                                 AnalyticsUserDailyNutritionRepository dailyNutritionRepository,
+                                AnalyticsUserStreakRollupRepository streakRollupRepository,
+                                AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository,
                                 Clock clock,
                                 AnalyticsProperties analyticsProperties) {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
@@ -69,6 +84,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         this.dailyBodyRepository = dailyBodyRepository;
         this.dailyWorkoutRepository = dailyWorkoutRepository;
         this.dailyNutritionRepository = dailyNutritionRepository;
+        this.streakRollupRepository = streakRollupRepository;
+        this.workoutRecordsRepository = workoutRecordsRepository;
         this.clock = clock;
         this.analyticsProperties = analyticsProperties;
     }
@@ -310,6 +327,298 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                 goal.isOnTrack(),
                                 goal.getLastEvaluatedAt()))
                         .toList());
+    }
+
+    /**
+     * The current streak is read from the dashboard snapshot's {@code activeStreakDays}, so this
+     * endpoint and {@code /dashboard} always report the same streak from the same projection code.
+     * The best streak comes from the nightly AN-1 rollup; because that rollup can lag a same-day
+     * streak extension by up to one day, a live current streak that exceeds the materialized best
+     * is surfaced as the best, with its window derived from the last active date.
+     */
+    @Override
+    @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.STREAKS_CACHE,
+            key = "#principal.userId()")
+    public AnalyticsStreaksResponse getStreaks(CurrentUserPrincipal principal) {
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
+                .orElse(null);
+        int currentStreakDays = snapshot == null ? 0 : defaultInteger(snapshot.getActiveStreakDays());
+        // Normalized through resolveZone so an invalid stored timezone is reported as the UTC
+        // fallback actually used to evaluate streak days, not echoed verbatim.
+        ZoneId streakZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        String timezone = ZoneOffset.UTC.equals(streakZone) ? DEFAULT_TIMEZONE : streakZone.getId();
+
+        LocalDate lastActiveDate = dailyWorkoutRepository
+                .findTopByUserIdAndCompletedWorkoutCountGreaterThanOrderByActivityDateDesc(principal.userId(), 0)
+                .map(AnalyticsUserDailyWorkoutEntity::getActivityDate)
+                .orElse(null);
+
+        AnalyticsUserStreakRollupEntity rollup = streakRollupRepository.findById(principal.userId()).orElse(null);
+        int bestStreakDays = rollup == null ? 0 : defaultInteger(rollup.getBestStreakDays());
+        LocalDate bestStreakFrom = rollup == null ? null : rollup.getBestStreakFrom();
+        LocalDate bestStreakTo = rollup == null ? null : rollup.getBestStreakTo();
+        if (currentStreakDays > bestStreakDays && lastActiveDate != null) {
+            bestStreakDays = currentStreakDays;
+            bestStreakFrom = lastActiveDate.minusDays(currentStreakDays - 1L);
+            bestStreakTo = lastActiveDate;
+        }
+
+        return new AnalyticsStreaksResponse(
+                currentStreakDays,
+                bestStreakDays,
+                bestStreakFrom,
+                bestStreakTo,
+                lastActiveDate,
+                timezone);
+    }
+
+    /**
+     * Achievements are derived read-side from the existing projections; there is no per-achievement
+     * event stream. {@code unlockedAt} is therefore reconstructed: date-based achievements use the
+     * start of the qualifying activity date in the user's timezone, streak achievements use the day
+     * the best run reached the threshold, and PR_FIRST uses the first projected personal-record
+     * instant. A zero-data user gets the full list with every achievement locked at progress 0.
+     */
+    @Override
+    @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.ACHIEVEMENTS_CACHE,
+            key = "#principal.userId()")
+    public AnalyticsAchievementsResponse getAchievements(CurrentUserPrincipal principal) {
+        UUID userId = principal.userId();
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId).orElse(null);
+        ZoneId userZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        int currentStreakDays = snapshot == null ? 0 : defaultInteger(snapshot.getActiveStreakDays());
+
+        List<AnalyticsUserDailyWorkoutEntity> workoutRows = dailyWorkoutRepository
+                .findByUserIdOrderByActivityDateAsc(userId);
+        int totalWorkouts = workoutRows.stream()
+                .mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount()))
+                .sum();
+        LocalDate lastActiveDate = null;
+        for (AnalyticsUserDailyWorkoutEntity row : workoutRows) {
+            if (defaultInteger(row.getCompletedWorkoutCount()) > 0) {
+                lastActiveDate = row.getActivityDate();
+            }
+        }
+
+        AnalyticsUserStreakRollupEntity rollup = streakRollupRepository.findById(userId).orElse(null);
+        int bestStreakDays = Math.max(
+                rollup == null ? 0 : defaultInteger(rollup.getBestStreakDays()),
+                currentStreakDays);
+
+        LocalDate firstMealDate = dailyNutritionRepository
+                .findTopByUserIdAndMealCountGreaterThanOrderByActivityDateAsc(userId, 0)
+                .map(AnalyticsUserDailyNutritionEntity::getActivityDate)
+                .orElse(null);
+        LocalDate firstWeightDate = dailyBodyRepository
+                .findTopByUserIdAndWeightKgIsNotNullOrderByMetricDateAsc(userId)
+                .map(AnalyticsUserDailyBodyEntity::getMetricDate)
+                .orElse(null);
+        AnalyticsUserWorkoutRecordsEntity records = workoutRecordsRepository.findById(userId).orElse(null);
+        int personalRecordCount = records == null ? 0 : defaultInteger(records.getPersonalRecordCount());
+
+        List<AnalyticsAchievementsResponse.AchievementView> achievements = new ArrayList<>();
+        achievements.add(workoutCountAchievement("FIRST_WORKOUT", "First workout", 1, workoutRows, totalWorkouts, userZone));
+        achievements.add(workoutCountAchievement("WORKOUTS_10", "10 workouts", 10, workoutRows, totalWorkouts, userZone));
+        achievements.add(workoutCountAchievement("WORKOUTS_50", "50 workouts", 50, workoutRows, totalWorkouts, userZone));
+        achievements.add(workoutCountAchievement("WORKOUTS_100", "100 workouts", 100, workoutRows, totalWorkouts, userZone));
+        achievements.add(streakAchievement("STREAK_7", "7-day streak", 7,
+                bestStreakDays, rollup, currentStreakDays, lastActiveDate, userZone));
+        achievements.add(streakAchievement("STREAK_30", "30-day streak", 30,
+                bestStreakDays, rollup, currentStreakDays, lastActiveDate, userZone));
+        achievements.add(firstEventAchievement("FIRST_MEAL_LOGGED", "First meal logged", firstMealDate, userZone));
+        achievements.add(firstEventAchievement("FIRST_WEIGHT_LOGGED", "First weigh-in", firstWeightDate, userZone));
+        achievements.add(new AnalyticsAchievementsResponse.AchievementView(
+                "PR_FIRST",
+                "First personal record",
+                personalRecordCount > 0,
+                personalRecordCount > 0 ? records.getFirstRecordAt() : null,
+                achievementProgress(personalRecordCount, 1)));
+        return new AnalyticsAchievementsResponse(achievements);
+    }
+
+    private AnalyticsAchievementsResponse.AchievementView workoutCountAchievement(
+            String code,
+            String title,
+            int target,
+            List<AnalyticsUserDailyWorkoutEntity> workoutRows,
+            int totalWorkouts,
+            ZoneId userZone) {
+        boolean unlocked = totalWorkouts >= target;
+        Instant unlockedAt = null;
+        if (unlocked) {
+            int cumulative = 0;
+            for (AnalyticsUserDailyWorkoutEntity row : workoutRows) {
+                cumulative += defaultInteger(row.getCompletedWorkoutCount());
+                if (cumulative >= target) {
+                    unlockedAt = startOfDay(row.getActivityDate(), userZone);
+                    break;
+                }
+            }
+        }
+        return new AnalyticsAchievementsResponse.AchievementView(
+                code, title, unlocked, unlockedAt, achievementProgress(totalWorkouts, target));
+    }
+
+    private AnalyticsAchievementsResponse.AchievementView streakAchievement(
+            String code,
+            String title,
+            int target,
+            int bestStreakDays,
+            AnalyticsUserStreakRollupEntity rollup,
+            int currentStreakDays,
+            LocalDate lastActiveDate,
+            ZoneId userZone) {
+        boolean unlocked = bestStreakDays >= target;
+        Instant unlockedAt = null;
+        if (unlocked) {
+            if (rollup != null && defaultInteger(rollup.getBestStreakDays()) >= target
+                    && rollup.getBestStreakFrom() != null) {
+                unlockedAt = startOfDay(rollup.getBestStreakFrom().plusDays(target - 1L), userZone);
+            } else if (currentStreakDays >= target && lastActiveDate != null) {
+                // Rollup lag: the live streak crossed the threshold before tonight's materialization.
+                unlockedAt = startOfDay(lastActiveDate.minusDays(currentStreakDays - (long) target), userZone);
+            }
+        }
+        return new AnalyticsAchievementsResponse.AchievementView(
+                code, title, unlocked, unlockedAt, achievementProgress(bestStreakDays, target));
+    }
+
+    private AnalyticsAchievementsResponse.AchievementView firstEventAchievement(
+            String code,
+            String title,
+            LocalDate firstDate,
+            ZoneId userZone) {
+        return new AnalyticsAchievementsResponse.AchievementView(
+                code,
+                title,
+                firstDate != null,
+                firstDate == null ? null : startOfDay(firstDate, userZone),
+                firstDate != null ? 1.0 : 0.0);
+    }
+
+    private double achievementProgress(int value, int target) {
+        if (value <= 0) {
+            return 0.0;
+        }
+        if (value >= target) {
+            return 1.0;
+        }
+        return BigDecimal.valueOf(value)
+                .divide(BigDecimal.valueOf(target), 4, RoundingMode.HALF_UP)
+                .doubleValue();
+    }
+
+    private Instant startOfDay(LocalDate date, ZoneId zone) {
+        return date.atStartOfDay(zone).toInstant();
+    }
+
+    private ZoneId resolveZone(String timezone) {
+        if (timezone == null || timezone.isBlank()) {
+            return ZoneOffset.UTC;
+        }
+        try {
+            return ZoneId.of(timezone.trim());
+        } catch (DateTimeException ex) {
+            return ZoneOffset.UTC;
+        }
+    }
+
+    /**
+     * Single-week recap. Workout totals reuse the same daily-row aggregation as /workouts/summary
+     * and /summary/compare, and the week-over-week deltas compare full ISO weeks (this week's window
+     * against the seven days immediately before it). Unlike /summary/compare, whose windows are
+     * anchored to the UTC date, the default week here is anchored to the user's timezone as the
+     * weekly-report contract requires. When weekStart is omitted it defaults to the Monday of the
+     * current week in the user's timezone; an explicit weekStart must itself be a Monday. A week
+     * without data returns zeroed totals and null averages/deltas, never a 404.
+     */
+    @Override
+    @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.WEEKLY_REPORT_CACHE,
+            key = "#principal.userId() + ':' + #root.target.weeklyReportCacheWeekStart(#principal, #weekStart)")
+    public AnalyticsWeeklyReportResponse getWeeklyReport(CurrentUserPrincipal principal, LocalDate weekStart) {
+        if (weekStart != null && weekStart.getDayOfWeek() != DayOfWeek.MONDAY) {
+            throw new BadRequestException("weekStart must be a Monday (ISO week start)");
+        }
+        LocalDate from = weekStart != null ? weekStart : currentWeekStartInUserZone(principal.userId());
+        LocalDate to = from.plusDays(6);
+
+        WorkoutSummaryAggregation currentWorkout = aggregateWorkoutSummary(principal.userId(), from, to);
+        WorkoutSummaryAggregation previousWorkout =
+                aggregateWorkoutSummary(principal.userId(), from.minusWeeks(1), from.minusDays(1));
+
+        List<AnalyticsUserDailyNutritionEntity> nutritionRows = dailyNutritionRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
+        Integer avgDailyCaloriesConsumed = averageDailyCaloriesConsumed(nutritionRows);
+        int proteinTargetHitDays = (int) nutritionRows.stream()
+                .map(AnalyticsUserDailyNutritionEntity::getMacroAdherenceScore)
+                .filter(Objects::nonNull)
+                .filter(score -> score.compareTo(BigDecimal.ONE) >= 0)
+                .count();
+
+        return new AnalyticsWeeklyReportResponse(
+                from,
+                to,
+                currentWorkout.totalWorkoutCount(),
+                currentWorkout.totalWorkoutMinutes(),
+                currentWorkout.totalCaloriesBurned(),
+                avgDailyCaloriesConsumed,
+                proteinTargetHitDays,
+                weeklyWeightDelta(principal.userId(), from, to),
+                new AnalyticsWeeklyReportResponse.WeekOverWeekDelta(
+                        currentWorkout.totalWorkoutCount() - previousWorkout.totalWorkoutCount(),
+                        currentWorkout.totalWorkoutMinutes() - previousWorkout.totalWorkoutMinutes()));
+    }
+
+    /**
+     * Resolves the effective week for the weekly-report cache key. Public because the
+     * {@code @Cacheable} SpEL expression calls it: the default week is the current ISO week in the
+     * user's timezone, so the cache entry must roll over at the user's local Monday midnight, not at
+     * the UTC date change.
+     */
+    public LocalDate weeklyReportCacheWeekStart(CurrentUserPrincipal principal, LocalDate weekStart) {
+        return weekStart != null ? weekStart : currentWeekStartInUserZone(principal.userId());
+    }
+
+    private LocalDate currentWeekStartInUserZone(UUID userId) {
+        String timezone = dashboardSnapshotRepository.findById(userId)
+                .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
+                .orElse(null);
+        return LocalDate.now(clock.withZone(resolveZone(timezone)))
+                .with(WeekFields.ISO.dayOfWeek(), 1);
+    }
+
+    /**
+     * Averages calories over days that actually have logged meals, so sparse logging does not
+     * dilute the average with implicit zero days. Null when the week has no logged days.
+     */
+    private Integer averageDailyCaloriesConsumed(List<AnalyticsUserDailyNutritionEntity> rows) {
+        List<Integer> loggedDayCalories = rows.stream()
+                .filter(row -> defaultInteger(row.getMealCount()) > 0)
+                .map(row -> defaultInteger(row.getTotalCaloriesConsumed()))
+                .toList();
+        if (loggedDayCalories.isEmpty()) {
+            return null;
+        }
+        int total = loggedDayCalories.stream().mapToInt(Integer::intValue).sum();
+        return BigDecimal.valueOf(total)
+                .divide(BigDecimal.valueOf(loggedDayCalories.size()), 0, RoundingMode.HALF_UP)
+                .intValue();
+    }
+
+    /**
+     * In-week weight change: last weigh-in minus first weigh-in inside the window. Null with fewer
+     * than two weigh-ins because a single point has no delta.
+     */
+    private Double weeklyWeightDelta(UUID userId, LocalDate from, LocalDate to) {
+        List<BigDecimal> weights = dailyBodyRepository
+                .findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(userId, from, to).stream()
+                .map(AnalyticsUserDailyBodyEntity::getWeightKg)
+                .filter(Objects::nonNull)
+                .toList();
+        if (weights.size() < 2) {
+            return null;
+        }
+        return weights.get(weights.size() - 1).subtract(weights.get(0)).doubleValue();
     }
 
     private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(UUID userId, String status) {

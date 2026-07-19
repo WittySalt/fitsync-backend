@@ -101,6 +101,7 @@ public class UserServiceImpl implements UserService {
             "image/jpeg", "jpg",
             "image/webp", "webp");
 
+    private final EnergyProfileService energyProfileService;
     private final DomainEventPublisher domainEventPublisher;
     private final ObjectProvider<MediaStorageService> mediaStorageServiceProvider;
     private final AccountDataExportRequestRepository accountDataExportRequestRepository;
@@ -123,7 +124,9 @@ public class UserServiceImpl implements UserService {
                            UserHealthReadinessRepository userHealthReadinessRepository,
                            UserNotificationPreferencesRepository userNotificationPreferencesRepository,
                            BodyMetricEntryRepository bodyMetricEntryRepository,
-                           UserGoalRepository userGoalRepository) {
+                           UserGoalRepository userGoalRepository,
+                           EnergyProfileService energyProfileService) {
+        this.energyProfileService = energyProfileService;
         this.domainEventPublisher = domainEventPublisher;
         this.mediaStorageServiceProvider = mediaStorageServiceProvider;
         this.accountDataExportRequestRepository = accountDataExportRequestRepository;
@@ -304,6 +307,7 @@ public class UserServiceImpl implements UserService {
         UserProfileEntity saved = userProfileRepository.save(entity);
         publishProfileUpdated(principal.userId(), saved, List.of("displayName", "firstName", "lastName",
                 "birthDate", "gender", "heightCm", "activityLevel", "timezone", "bio", "onboardingCompleted"));
+        energyProfileService.publishEnergyProfile(principal.userId());
         return toProfileView(saved);
     }
 
@@ -788,6 +792,8 @@ public class UserServiceImpl implements UserService {
                         saved.getBodyFatRate(),
                         saved.getWaistCm(),
                         saved.getMeasuredAt())));
+        // EV-3: a body-metric write may change the latest weight, so recompute.
+        energyProfileService.publishEnergyProfile(userId);
     }
 
     private UserProfileView toProfileView(UserProfileEntity entity) {

@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import java.time.LocalDate;
 
+import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
@@ -13,6 +14,8 @@ import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
@@ -254,6 +257,104 @@ class AnalyticsControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.points[0].date").value("2026-06-14"))
                 .andExpect(jsonPath("$.points[0].weightKg").value(78.4));
+    }
+
+    @Test
+    void shouldRequireAuthenticationForStreaks() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/streaks"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldReturnStreaksForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getStreaks(any())).thenReturn(new AnalyticsStreaksResponse(
+                6,
+                14,
+                LocalDate.parse("2026-03-02"),
+                LocalDate.parse("2026-03-15"),
+                LocalDate.parse("2026-07-07"),
+                "Asia/Singapore"));
+
+        mockMvc.perform(get("/api/v1/analytics/streaks")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentStreakDays").value(6))
+                .andExpect(jsonPath("$.bestStreakDays").value(14))
+                .andExpect(jsonPath("$.bestStreakFrom").value("2026-03-02"))
+                .andExpect(jsonPath("$.bestStreakTo").value("2026-03-15"))
+                .andExpect(jsonPath("$.lastActiveDate").value("2026-07-07"))
+                .andExpect(jsonPath("$.timezone").value("Asia/Singapore"));
+    }
+
+    @Test
+    void shouldRequireAuthenticationForAchievements() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/achievements"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldReturnAchievementsForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getAchievements(any())).thenReturn(new AnalyticsAchievementsResponse(List.of(
+                new AnalyticsAchievementsResponse.AchievementView(
+                        "FIRST_WORKOUT", "First workout", true, Instant.parse("2026-05-01T10:00:00Z"), 1.0),
+                new AnalyticsAchievementsResponse.AchievementView(
+                        "STREAK_7", "7-day streak", false, null, 0.86))));
+
+        mockMvc.perform(get("/api/v1/analytics/achievements")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.achievements[0].code").value("FIRST_WORKOUT"))
+                .andExpect(jsonPath("$.achievements[0].unlocked").value(true))
+                .andExpect(jsonPath("$.achievements[0].unlockedAt").value("2026-05-01T10:00:00Z"))
+                .andExpect(jsonPath("$.achievements[1].code").value("STREAK_7"))
+                .andExpect(jsonPath("$.achievements[1].unlocked").value(false))
+                .andExpect(jsonPath("$.achievements[1].progress").value(0.86));
+    }
+
+    @Test
+    void shouldRequireAuthenticationForWeeklyReport() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/reports/weekly"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldReturnWeeklyReportForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(analyticsService.getWeeklyReport(any(), any())).thenReturn(new AnalyticsWeeklyReportResponse(
+                LocalDate.parse("2026-07-06"),
+                LocalDate.parse("2026-07-12"),
+                4,
+                190,
+                1450,
+                2050,
+                5,
+                -0.4,
+                new AnalyticsWeeklyReportResponse.WeekOverWeekDelta(1, 32)));
+
+        mockMvc.perform(get("/api/v1/analytics/reports/weekly")
+                        .with(authentication(authToken(principal)))
+                        .param("weekStart", "2026-07-06"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.from").value("2026-07-06"))
+                .andExpect(jsonPath("$.to").value("2026-07-12"))
+                .andExpect(jsonPath("$.workoutCount").value(4))
+                .andExpect(jsonPath("$.workoutMinutes").value(190))
+                .andExpect(jsonPath("$.caloriesBurned").value(1450))
+                .andExpect(jsonPath("$.avgDailyCaloriesConsumed").value(2050))
+                .andExpect(jsonPath("$.proteinTargetHitDays").value(5))
+                .andExpect(jsonPath("$.weightDeltaKg").value(-0.4))
+                .andExpect(jsonPath("$.vsPreviousWeek.workoutCount").value(1))
+                .andExpect(jsonPath("$.vsPreviousWeek.workoutMinutes").value(32));
+    }
+
+    @Test
+    void shouldRejectMalformedWeekStart() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/reports/weekly")
+                        .with(authentication(authToken(principal())))
+                        .param("weekStart", "not-a-date"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

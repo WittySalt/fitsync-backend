@@ -20,6 +20,8 @@ import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
+import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
+import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -46,6 +48,8 @@ class AccountDeletionProjectionServiceTests {
         verify(fixtures.dailyWorkoutRepository).deleteByUserId(userId);
         verify(fixtures.goalProgressRepository).deleteByUserId(userId);
         verify(fixtures.dashboardSnapshotRepository).deleteById(userId);
+        verify(fixtures.streakRollupRepository).deleteById(userId);
+        verify(fixtures.workoutRecordsRepository).deleteById(userId);
         verify(fixtures.processedEventRepository).deleteByUserId(userId);
         verify(fixtures.cacheInvalidationService).evictForUser(userId);
 
@@ -97,6 +101,10 @@ class AccountDeletionProjectionServiceTests {
                 mock(AnalyticsUserGoalProgressRepository.class);
         private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository =
                 mock(AnalyticsUserDashboardSnapshotRepository.class);
+        private final AnalyticsUserStreakRollupRepository streakRollupRepository =
+                mock(AnalyticsUserStreakRollupRepository.class);
+        private final AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository =
+                mock(AnalyticsUserWorkoutRecordsRepository.class);
         private final AnalyticsCacheInvalidationService cacheInvalidationService =
                 mock(AnalyticsCacheInvalidationService.class);
         private final AccountDeletionProjectionService service = new AccountDeletionProjectionService(
@@ -108,6 +116,8 @@ class AccountDeletionProjectionServiceTests {
                 dailyWorkoutRepository,
                 goalProgressRepository,
                 dashboardSnapshotRepository,
+                streakRollupRepository,
+                workoutRecordsRepository,
                 cacheInvalidationService,
                 Clock.fixed(Instant.parse("2026-06-25T04:00:00Z"), ZoneOffset.UTC));
     }

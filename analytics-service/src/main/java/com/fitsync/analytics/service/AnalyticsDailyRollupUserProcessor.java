@@ -8,22 +8,29 @@ import java.util.UUID;
 
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AnalyticsDailyRollupUserProcessor {
 
+    private static final Logger log = LoggerFactory.getLogger(AnalyticsDailyRollupUserProcessor.class);
+
     private final AnalyticsUserGoalProgressRepository goalProgressRepository;
     private final AnalyticsRebuildService rebuildService;
     private final GoalProgressEvaluator goalProgressEvaluator;
+    private final AnalyticsStreakRollupService streakRollupService;
 
     public AnalyticsDailyRollupUserProcessor(AnalyticsUserGoalProgressRepository goalProgressRepository,
                                              AnalyticsRebuildService rebuildService,
-                                             GoalProgressEvaluator goalProgressEvaluator) {
+                                             GoalProgressEvaluator goalProgressEvaluator,
+                                             AnalyticsStreakRollupService streakRollupService) {
         this.goalProgressRepository = goalProgressRepository;
         this.rebuildService = rebuildService;
         this.goalProgressEvaluator = goalProgressEvaluator;
+        this.streakRollupService = streakRollupService;
     }
 
     @Transactional
@@ -31,7 +38,24 @@ public class AnalyticsDailyRollupUserProcessor {
         LocalDate today = goalProgressEvaluator.todayForUser(userId);
         updateActiveGoalCountdowns(userId, today, evaluatedAt);
         goalProgressEvaluator.recompute(userId, GoalProgressEvaluator.ALL_GOAL_TYPES, today);
+        // Before rebuildDashboard so its cache eviction also flushes streak reads materialized here.
+        // The streak rollup runs in its own transaction and is tolerated on failure: a broken streak
+        // materialization must not cost the user their nightly goal-countdown and dashboard refresh.
+        try {
+            streakRollupService.rollupUser(userId);
+        } catch (RuntimeException exception) {
+            log.warn("Analytics streak rollup failed userId={} exceptionType={} exceptionMessage={}",
+                    sanitizeForLog(userId),
+                    sanitizeForLog(exception.getClass().getName()),
+                    sanitizeForLog(exception.getMessage()));
+        }
         rebuildService.rebuildDashboard(userId);
+    }
+
+    private String sanitizeForLog(Object value) {
+        return String.valueOf(value)
+                .replace("\r", "_")
+                .replace("\n", "_");
     }
 
     private void updateActiveGoalCountdowns(UUID userId, LocalDate todayUtc, Instant evaluatedAt) {

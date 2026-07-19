@@ -14,6 +14,9 @@ public interface AnalyticsUserDailyNutritionRepository
 
     Optional<AnalyticsUserDailyNutritionEntity> findByUserIdAndActivityDate(UUID userId, LocalDate activityDate);
 
+    Optional<AnalyticsUserDailyNutritionEntity> findTopByUserIdAndMealCountGreaterThanOrderByActivityDateAsc(
+            UUID userId, int mealCount);
+
     List<AnalyticsUserDailyNutritionEntity> findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(UUID userId,
                                                                                                       LocalDate from,
                                                                                                       LocalDate to);

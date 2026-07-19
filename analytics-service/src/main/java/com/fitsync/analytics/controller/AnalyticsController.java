@@ -2,6 +2,7 @@ package com.fitsync.analytics.controller;
 
 import java.time.LocalDate;
 
+import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
@@ -9,6 +10,8 @@ import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
+import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
+import com.fitsync.analytics.dto.AnalyticsWeeklyReportResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
@@ -114,6 +117,34 @@ public class AnalyticsController {
         return analyticsService.getWorkoutSeries(currentPrincipal(authentication), from, to, bucket);
     }
 
+    @GetMapping("/streaks")
+    @Operation(summary = "Get workout streak state",
+            description = "Returns the authenticated user's current streak (same definition as the dashboard's "
+                    + "activeStreakDays), the materialized best streak with its date window, the last active date "
+                    + "and the timezone the streak days are evaluated in. Users without data get a zeroed payload.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Streak state returned"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsStreaksResponse streaks(Authentication authentication) {
+        return analyticsService.getStreaks(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/achievements")
+    @Operation(summary = "Get achievements",
+            description = "Returns the authenticated user's gamification achievements, both unlocked and locked, "
+                    + "derived from workout, nutrition, body-metric and personal-record projections. Users without "
+                    + "data get the full list with every achievement locked at progress 0.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Achievement list returned"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsAchievementsResponse achievements(Authentication authentication) {
+        return analyticsService.getAchievements(currentPrincipal(authentication));
+    }
+
     @GetMapping("/activity/calendar")
     @Operation(summary = "Get activity calendar",
             description = "Returns per-day workout activity intensity for the authenticated user, suitable for a "
@@ -172,6 +203,27 @@ public class AnalyticsController {
                                                             @Parameter(description = "Aggregation bucket.")
                                                             @RequestParam(defaultValue = "DAY") BodyTrendBucket bucket) {
         return analyticsService.getNutritionSeries(currentPrincipal(authentication), from, to, bucket);
+    }
+
+    @GetMapping("/reports/weekly")
+    @Operation(summary = "Get weekly report",
+            description = "Returns a single-week recap of workout, nutrition and weight metrics with "
+                    + "week-over-week workout deltas. weekStart defaults to the Monday of the current week in "
+                    + "the user's timezone; an explicit weekStart must be a Monday. Weeks without data return "
+                    + "zeroed totals and null averages.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Weekly report returned"),
+            @ApiResponse(responseCode = "400", description = "weekStart is not a Monday or not a valid date"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsWeeklyReportResponse weeklyReport(Authentication authentication,
+                                                      @Parameter(description = "ISO week start (a Monday). "
+                                                              + "Defaults to the current week in the user's timezone.")
+                                                      @RequestParam(required = false)
+                                                      @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                      LocalDate weekStart) {
+        return analyticsService.getWeeklyReport(currentPrincipal(authentication), weekStart);
     }
 
     @GetMapping("/summary/compare")

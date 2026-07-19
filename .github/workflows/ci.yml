@@ -74,18 +74,16 @@ jobs:
           fi
           # -T 2: two modules in parallel; each spins up Testcontainers.
           mvn $MAVEN_CLI_OPTS -T 2 verify -Psast -Dspring.profiles.active=test $SONAR_ARGS
-      - name: Upload build + test reports
+      # Reports only — the fat jars (~800MB/run) blew the account artifact quota;
+      # CD builds its own jars, so CI never needs to keep them. Non-fatal so a
+      # quota hiccup can't fail an otherwise green build.
+      - name: Upload test reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: backend-build-artifacts
+          name: backend-test-reports
           path: |
-            api-gateway/target/api-gateway-*.jar
-            auth-service/target/auth-service-*.jar
-            user-service/target/user-service-*.jar
-            workout-service/target/workout-service-*.jar
-            nutrition-service/target/nutrition-service-*.jar
-            analytics-service/target/analytics-service-*.jar
             **/target/surefire-reports/
             **/target/failsafe-reports/
             **/target/site/jacoco/
