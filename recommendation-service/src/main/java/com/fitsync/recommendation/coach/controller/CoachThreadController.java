@@ -64,7 +64,7 @@ public class CoachThreadController {
             @ApiResponse(responseCode = "401", description = "Authentication required")
     })
     public List<CoachThreadView> list(Authentication authentication) {
-        return threadService.listThreads(currentUserId(authentication));
+        return threadService.listThreads(CoachPrincipal.userId(authentication));
     }
 
     @PostMapping
@@ -79,7 +79,7 @@ public class CoachThreadController {
     public CoachThreadView create(Authentication authentication,
                                   @Valid @RequestBody(required = false) CreateCoachThreadRequest request) {
         String title = request == null ? null : request.title();
-        return threadService.createThread(currentUserId(authentication), title);
+        return threadService.createThread(CoachPrincipal.userId(authentication), title);
     }
 
     @GetMapping("/{threadId}")
@@ -91,7 +91,7 @@ public class CoachThreadController {
             @ApiResponse(responseCode = "404", description = "No such thread for this user")
     })
     public CoachThreadDetailView get(Authentication authentication, @PathVariable UUID threadId) {
-        return threadService.getThread(currentUserId(authentication), threadId);
+        return threadService.getThread(CoachPrincipal.userId(authentication), threadId);
     }
 
     @PostMapping("/{threadId}/messages")
@@ -114,7 +114,7 @@ public class CoachThreadController {
         // reads with exactly the caller's authority. Taken from the header rather than the security
         // context because the orchestrator runs tools off the request thread.
         return conversationService.send(
-                currentUserId(authentication), threadId, stripBearer(authorization), request.message());
+                CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization), request.message());
     }
 
     @PostMapping(path = "/{threadId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -137,7 +137,7 @@ public class CoachThreadController {
                              @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
                              @Valid @RequestBody SendCoachMessageRequest request) {
         return conversationService.stream(
-                currentUserId(authentication), threadId, stripBearer(authorization), request.message());
+                CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization), request.message());
     }
 
     @DeleteMapping("/{threadId}")
@@ -152,16 +152,7 @@ public class CoachThreadController {
             @ApiResponse(responseCode = "404", description = "No such thread for this user")
     })
     public void archive(Authentication authentication, @PathVariable UUID threadId) {
-        threadService.archiveThread(currentUserId(authentication), threadId);
+        threadService.archiveThread(CoachPrincipal.userId(authentication), threadId);
     }
 
-    private static String stripBearer(String authorization) {
-        return authorization != null && authorization.startsWith("Bearer ")
-                ? authorization.substring(7)
-                : authorization;
-    }
-
-    private static UUID currentUserId(Authentication authentication) {
-        return ((CurrentUserPrincipal) authentication.getPrincipal()).userId();
-    }
 }

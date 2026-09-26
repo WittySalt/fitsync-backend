@@ -19,6 +19,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                        hold the turn open.
  * @param workoutBaseUrl  root of the service that owns the exercise catalogue
  * @param nutritionBaseUrl root of the service that owns the food catalogue
+ * @param userBaseUrl     root of the service that owns the readiness questionnaire
  * @param streamTimeout   how long a streamed turn may stay open. Generous next to a turn measured
  *                        in seconds, because the cost of cutting a slow answer off is a user who
  *                        sees nothing, while the cost of holding a dead connection is one idle
@@ -30,6 +31,7 @@ public record CoachProperties(
         Duration catalogueTimeout,
         String workoutBaseUrl,
         String nutritionBaseUrl,
+        String userBaseUrl,
         Duration streamTimeout) {
 
     private static final int DEFAULT_MAX_TOOL_CALLS = 4;
@@ -43,6 +45,7 @@ public record CoachProperties(
         catalogueTimeout = catalogueTimeout == null ? DEFAULT_CATALOGUE_TIMEOUT : catalogueTimeout;
         workoutBaseUrl = workoutBaseUrl == null ? "http://localhost:8082" : stripTrailingSlash(workoutBaseUrl);
         nutritionBaseUrl = nutritionBaseUrl == null ? "http://localhost:8083" : stripTrailingSlash(nutritionBaseUrl);
+        userBaseUrl = userBaseUrl == null ? "http://localhost:8081" : stripTrailingSlash(userBaseUrl);
         streamTimeout = streamTimeout == null ? DEFAULT_STREAM_TIMEOUT : streamTimeout;
     }
 

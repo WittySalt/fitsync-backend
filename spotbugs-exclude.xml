@@ -583,4 +583,42 @@
         <Class name="com.fitsync.recommendation.coach.service.CoachConversationService"/>
         <Bug pattern="CRLF_INJECTION_LOGS"/>
     </Match>
+
+    <!-- Session drafting. Constructor-injected Spring singletons flagged as externally mutable,
+         and a controller flagged for being a controller: the same dependency-injection noise every
+         other component in this module already carries. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.controller.SessionDraftController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.controller.SessionDraftController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.draft.DraftContextAssembler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.draft.SessionDraftGenerator"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.service.SessionDraftService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- CRLF_INJECTION_LOGS on SessionDraftGenerator. The finding is right in principle and the
+         riskiest case of it in this module, because what is logged is raw model output rather than
+         a tool name. It is mitigated the same way: truncate() strips every character that could end
+         a log line and caps the length. findsecbugs cannot follow a sanitiser into a helper method,
+         the same limitation already recorded for GlobalApiExceptionHandler and ToolRegistry. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.draft.SessionDraftGenerator"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
 </FindBugsFilter>

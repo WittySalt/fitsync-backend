@@ -66,7 +66,12 @@ fitsync:
       provider: ${RECOMMENDATION_AI_PROVIDER:anthropic}
       model: ${RECOMMENDATION_AI_MODEL:claude-sonnet-4-6}
       base-url: ${RECOMMENDATION_AI_BASE_URL:http://localhost:11434}
-      max-tokens: ${RECOMMENDATION_AI_MAX_TOKENS:300}
+      # A ceiling, not a per-feature budget. 300 was right when a three-sentence weekly narrative
+      # was the only thing that called a model; a session draft is a nested JSON object with a
+      # rationale per exercise and was silently truncated mid-object, so every draft fell through
+      # to the rule engine while looking like a parsing bug. Raising a ceiling costs nothing on its
+      # own, because both providers bill for what is generated rather than what is allowed.
+      max-tokens: ${RECOMMENDATION_AI_MAX_TOKENS:1500}
       narrative-ttl: ${RECOMMENDATION_AI_NARRATIVE_TTL:P7D}
       coach-questions-per-hour: ${RECOMMENDATION_AI_COACH_QUESTIONS_PER_HOUR:5}
   kafka:

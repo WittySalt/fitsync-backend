@@ -325,7 +325,7 @@ class CoachOrchestratorTests {
 
     /** Two tool calls, so the budget is reachable inside a test without a long script. */
     private CoachProperties properties() {
-        return new CoachProperties(2, null, null, null, null);
+        return new CoachProperties(2, null, null, null, null, null);
     }
 
     private static List<String> repeat(String value, int times) {
