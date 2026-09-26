@@ -19,16 +19,22 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                        hold the turn open.
  * @param workoutBaseUrl  root of the service that owns the exercise catalogue
  * @param nutritionBaseUrl root of the service that owns the food catalogue
+ * @param streamTimeout   how long a streamed turn may stay open. Generous next to a turn measured
+ *                        in seconds, because the cost of cutting a slow answer off is a user who
+ *                        sees nothing, while the cost of holding a dead connection is one idle
+ *                        socket that the container reaps anyway.
  */
 @ConfigurationProperties(prefix = "fitsync.coach")
 public record CoachProperties(
         Integer maxToolCalls,
         Duration catalogueTimeout,
         String workoutBaseUrl,
-        String nutritionBaseUrl) {
+        String nutritionBaseUrl,
+        Duration streamTimeout) {
 
     private static final int DEFAULT_MAX_TOOL_CALLS = 4;
     private static final Duration DEFAULT_CATALOGUE_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration DEFAULT_STREAM_TIMEOUT = Duration.ofMinutes(2);
 
     public CoachProperties {
         maxToolCalls = maxToolCalls == null || maxToolCalls.intValue() < 1
@@ -37,6 +43,7 @@ public record CoachProperties(
         catalogueTimeout = catalogueTimeout == null ? DEFAULT_CATALOGUE_TIMEOUT : catalogueTimeout;
         workoutBaseUrl = workoutBaseUrl == null ? "http://localhost:8082" : stripTrailingSlash(workoutBaseUrl);
         nutritionBaseUrl = nutritionBaseUrl == null ? "http://localhost:8083" : stripTrailingSlash(nutritionBaseUrl);
+        streamTimeout = streamTimeout == null ? DEFAULT_STREAM_TIMEOUT : streamTimeout;
     }
 
     private static String stripTrailingSlash(String url) {

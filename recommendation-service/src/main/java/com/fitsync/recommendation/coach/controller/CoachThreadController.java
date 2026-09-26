@@ -18,6 +18,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Conversation state for the coach: threads and their turns.
@@ -94,10 +96,10 @@ public class CoachThreadController {
 
     @PostMapping("/{threadId}/messages")
     @Operation(summary = "Send a message and get the coach's answer",
-            description = "Synchronous for now. The orchestrator gathers what it needs through its "
-                    + "tools, each of which is recorded against the answering turn, so the trace is "
-                    + "available immediately afterwards. Streaming the progress of that gathering "
-                    + "comes next.",
+            description = "Answers in one response. The orchestrator gathers what it needs through "
+                    + "its tools, each of which is recorded against the answering turn, so the trace "
+                    + "is available immediately afterwards. Use the streaming variant to watch that "
+                    + "gathering happen.",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Answered"),
@@ -112,6 +114,29 @@ public class CoachThreadController {
         // reads with exactly the caller's authority. Taken from the header rather than the security
         // context because the orchestrator runs tools off the request thread.
         return conversationService.send(
+                currentUserId(authentication), threadId, stripBearer(authorization), request.message());
+    }
+
+    @PostMapping(path = "/{threadId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Send a message and watch the coach work",
+            description = "Same turn as the plain endpoint, with each step streamed as it happens: "
+                    + "tool_started and tool_finished per tool, thinking before each model call, then "
+                    + "a single answer event carrying the same body the plain endpoint returns. "
+                    + "Progress rather than tokens, because for an assistant that spends most of a "
+                    + "turn reading data, seeing which data it read is the more useful of the two. "
+                    + "POST rather than GET, so the message travels in a body; clients read it with "
+                    + "fetch rather than EventSource.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Event stream opened"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "No such thread for this user")
+    })
+    public SseEmitter stream(Authentication authentication,
+                             @PathVariable UUID threadId,
+                             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+                             @Valid @RequestBody SendCoachMessageRequest request) {
+        return conversationService.stream(
                 currentUserId(authentication), threadId, stripBearer(authorization), request.message());
     }
 

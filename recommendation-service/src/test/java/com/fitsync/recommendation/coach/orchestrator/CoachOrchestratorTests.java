@@ -187,6 +187,74 @@ class CoachOrchestratorTests {
                 .isEqualTo("That is enough to go on.");
     }
 
+    // --- progress reporting, which the streaming endpoint renders -----------------------------
+
+    @Test
+    @DisplayName("a watcher sees the model being asked, the tool going out, and the tool coming back")
+    void reportsEachStepOfTheTurn() {
+        List<String> seen = new ArrayList<>();
+        CoachOrchestrator orchestrator = orchestrator(
+                "{\"tool\":\"echo\",\"args\":{\"say\":\"chest\"}}",
+                "{\"answer\":\"Three movements.\"}");
+
+        orchestrator.answer(CONTEXT, "anything at all", List.of(),
+                event -> seen.add(event.kind() + (event.tool() == null ? "" : ":" + event.tool())));
+
+        assertThat(seen).containsExactly(
+                "THINKING",
+                "TOOL_STARTED:echo",
+                "TOOL_FINISHED:echo",
+                "THINKING");
+    }
+
+    @Test
+    @DisplayName("a planned read is reported as it is dispatched and again as it lands")
+    void reportsPlannedReads() {
+        List<String> seen = new ArrayList<>();
+
+        orchestrator("{\"answer\":\"Rest today.\"}")
+                .answer(CONTEXT, "should I train today?", List.of(),
+                        event -> seen.add(String.valueOf(event.kind())));
+
+        // readFacts and readRecentTraining are both planned for a training question, so two go out
+        // and two come back before the model is asked anything. Deliberately not asserting that both
+        // starts precede both finishes: how they interleave depends on how fast each read is, and
+        // reporting a result the moment it lands is the point of the planned path.
+        assertThat(seen).filteredOn("TOOL_STARTED"::equals).hasSize(2);
+        assertThat(seen).filteredOn("TOOL_FINISHED"::equals).hasSize(2);
+        assertThat(seen.indexOf("THINKING"))
+                .withFailMessage("the model must not be asked until the planned reads are in")
+                .isEqualTo(4);
+        assertThat(seen).endsWith("THINKING");
+    }
+
+    @Test
+    @DisplayName("a listener that throws does not take the turn down with it")
+    void survivesAListenerThatThrows() {
+        CoachOutcome outcome = orchestrator("{\"answer\":\"Rest today.\"}")
+                .answer(CONTEXT, "anything at all", List.of(), event -> {
+                    throw new IllegalStateException("client disconnected");
+                });
+
+        assertThat(outcome.answer()).isEqualTo("Rest today.");
+    }
+
+    @Test
+    @DisplayName("a finished tool reports its summary and how long it took")
+    void reportsToolSummaryAndLatency() {
+        List<CoachProgressEvent> seen = new ArrayList<>();
+
+        orchestrator("{\"tool\":\"echo\",\"args\":{\"say\":\"chest\"}}", "{\"answer\":\"done\"}")
+                .answer(CONTEXT, "anything at all", List.of(), seen::add);
+
+        CoachProgressEvent finished = seen.stream()
+                .filter(event -> event.kind() == CoachProgressEvent.Kind.TOOL_FINISHED)
+                .findFirst()
+                .orElseThrow();
+        assertThat(finished.summary()).isEqualTo("echoed");
+        assertThat(finished.latencyMs()).isNotNull().isGreaterThanOrEqualTo(0);
+    }
+
     // --- the planned path, which came out of the day-zero latency measurement -----------------
 
     @Test
@@ -257,7 +325,7 @@ class CoachOrchestratorTests {
 
     /** Two tool calls, so the budget is reachable inside a test without a long script. */
     private CoachProperties properties() {
-        return new CoachProperties(2, null, null, null);
+        return new CoachProperties(2, null, null, null, null);
     }
 
     private static List<String> repeat(String value, int times) {

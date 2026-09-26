@@ -29,6 +29,34 @@ public class CoachExecutorConfig {
     private static final int THREADS = 2;
     private static final int QUEUE_CAPACITY = 16;
     private static final long KEEP_ALIVE_SECONDS = 30L;
+    private static final int TURN_THREADS = 4;
+    private static final int TURN_QUEUE_CAPACITY = 32;
+
+    /**
+     * Runs a whole streamed turn, so the request thread can return the emitter and let the servlet
+     * container release it.
+     *
+     * <p>Separate from the tool pool rather than shared with it. A turn waits on its own planned
+     * tools, so running both on one two-thread pool would have turns holding the threads their
+     * tools need; the caller-runs policy stops that from deadlocking outright but converts the
+     * concurrency the planned path exists for back into a serial gather.
+     */
+    @Bean(name = "coachTurnExecutor", destroyMethod = "shutdown")
+    public ExecutorService coachTurnExecutor() {
+        AtomicInteger counter = new AtomicInteger();
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                TURN_THREADS, TURN_THREADS,
+                KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(TURN_QUEUE_CAPACITY),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "coach-turn-" + counter.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.allowCoreThreadTimeOut(true);
+        return executor;
+    }
 
     @Bean(name = "coachToolExecutor", destroyMethod = "shutdown")
     public ExecutorService coachToolExecutor() {

@@ -1,5 +1,7 @@
 package com.fitsync.gateway.service;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
@@ -11,10 +13,15 @@ import com.fitsync.gateway.config.GatewayRoutesProperties;
 import com.fitsync.gateway.exception.DownstreamServiceException;
 import com.fitsync.gateway.security.GatewayUserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.RequestEntity;
+import org.springframework.http.client.ClientHttpRequest;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -25,10 +32,13 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.web.util.UriUtils;
 
 @Service
 public class GatewayProxyServiceImpl implements GatewayProxyService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(GatewayProxyServiceImpl.class);
 
     private static final List<String> HOP_BY_HOP_HEADERS = List.of(
             HttpHeaders.HOST.toLowerCase(Locale.ROOT),
@@ -46,12 +56,18 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
             "x-user-roles",
             "x-correlation-id");
 
+    /** Copied in chunks this size and flushed after each one, so an event is not held back. */
+    private static final int STREAM_CHUNK_BYTES = 512;
+
     private final RestTemplate restTemplate;
+    private final ClientHttpRequestFactory coachRequestFactory;
     private final GatewayRoutesProperties routesProperties;
 
     public GatewayProxyServiceImpl(RestTemplate restTemplate,
+                                   ClientHttpRequestFactory coachRequestFactory,
                                    GatewayRoutesProperties routesProperties) {
         this.restTemplate = restTemplate;
+        this.coachRequestFactory = coachRequestFactory;
         this.routesProperties = routesProperties;
     }
 
@@ -83,6 +99,78 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
     @Override
     public ResponseEntity<byte[]> forwardToRecommendationService(HttpServletRequest request, byte[] body) {
         return forward(routesProperties.recommendationServiceBaseUrl(), request, body);
+    }
+
+    @Override
+    public ResponseEntity<StreamingResponseBody> forwardToCoachService(HttpServletRequest request, byte[] body) {
+        // The coach lives in recommendation-service; it is the timeout and the streaming that differ,
+        // not the destination.
+        return forwardToCoach(routesProperties.recommendationServiceBaseUrl(), request, body);
+    }
+
+    /**
+     * Passes a coach response through as it arrives.
+     *
+     * <p>The ordinary forward collects a whole response body and then sends it, which is right for
+     * every route that answers in one piece and useless for a stream: the client would wait out the
+     * entire turn and then receive all the progress events at once, describing work that had already
+     * finished.
+     *
+     * <p>So the downstream response is executed here and its body handed to the servlet container as
+     * a body still being written. The downstream response closes when the copy finishes, including
+     * when the client disconnects halfway and the write throws.
+     */
+    private ResponseEntity<StreamingResponseBody> forwardToCoach(String baseUrl, HttpServletRequest request, byte[] body) {
+        HttpMethod method = HttpMethod.valueOf(request.getMethod());
+        HttpHeaders headers = copyHeaders(request);
+        addGatewayHeaders(headers);
+        URI targetUri = buildTargetUri(baseUrl, request);
+
+        ClientHttpResponse response;
+        try {
+            ClientHttpRequest downstream = coachRequestFactory.createRequest(targetUri, method);
+            downstream.getHeaders().putAll(headers);
+            if (body != null && body.length > 0) {
+                downstream.getBody().write(body);
+            }
+            response = downstream.execute();
+        } catch (IOException ex) {
+            throw new DownstreamServiceException("Downstream service is temporarily unavailable", ex);
+        }
+
+        HttpStatusCode status;
+        HttpHeaders responseHeaders;
+        try {
+            status = response.getStatusCode();
+            responseHeaders = filterResponseHeaders(response.getHeaders());
+        } catch (IOException ex) {
+            closeQuietly(response);
+            throw new DownstreamServiceException("Downstream service is temporarily unavailable", ex);
+        }
+
+        StreamingResponseBody stream = outputStream -> {
+            try (ClientHttpResponse open = response; InputStream in = open.getBody()) {
+                byte[] buffer = new byte[STREAM_CHUNK_BYTES];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, read);
+                    // Without this the container decides when to send, and a progress event that
+                    // arrives while the turn is still running would sit in a buffer until the turn
+                    // ended, which is exactly the delay streaming exists to remove.
+                    outputStream.flush();
+                }
+            }
+        };
+
+        return ResponseEntity.status(status).headers(responseHeaders).body(stream);
+    }
+
+    private static void closeQuietly(ClientHttpResponse response) {
+        try {
+            response.close();
+        } catch (RuntimeException ex) {
+            LOG.debug("Closing a failed downstream response", ex);
+        }
     }
 
     private ResponseEntity<byte[]> forward(String baseUrl, HttpServletRequest request, byte[] body) {

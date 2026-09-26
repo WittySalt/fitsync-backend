@@ -108,6 +108,19 @@ public class CoachOrchestrator {
      * @param history prior turns, oldest first, already trimmed to the context window
      */
     public CoachOutcome answer(CoachCallContext context, String question, List<String> history) {
+        return answer(context, question, history, CoachProgressListener.NONE);
+    }
+
+    /**
+     * Answers one question, reporting each step to a listener as it happens.
+     *
+     * @param listener called from the tool pool as well as this thread, and never allowed to fail
+     *                 the turn
+     */
+    public CoachOutcome answer(CoachCallContext context,
+                               String question,
+                               List<String> history,
+                               CoachProgressListener listener) {
         ClaudeClient client = claudeClient.getIfAvailable();
         if (client == null) {
             return CoachOutcome.unavailable(
@@ -121,7 +134,7 @@ public class CoachOrchestrator {
         List<String> toolsUsed = new ArrayList<>();
         Set<String> alreadyCalled = new LinkedHashSet<>();
 
-        for (Map.Entry<String, ToolResult> planned : runPlannedTools(context, question).entrySet()) {
+        for (Map.Entry<String, ToolResult> planned : runPlannedTools(context, question, listener).entrySet()) {
             transcript.add(observationOf(planned.getKey(), "{}", planned.getValue()));
             toolsUsed.add(planned.getKey());
             alreadyCalled.add(signature(planned.getKey(), "{}"));
@@ -131,6 +144,7 @@ public class CoachOrchestrator {
         for (int step = 0; step < maxSteps(); step++) {
             String reply;
             try {
+                emit(listener, CoachProgressEvent.thinking());
                 reply = client.complete(system, userPrompt(question, transcript));
             } catch (RuntimeException ex) {
                 LOG.warn("Model call failed on step {}", step, ex); // step is ours, not the model's
@@ -158,7 +172,11 @@ public class CoachOrchestrator {
                         transcript.add("You have used all available tool calls. Answer now with what you have.");
                         continue;
                     }
+                    emit(listener, CoachProgressEvent.started(action.tool()));
+                    long toolStartedAt = System.nanoTime();
                     ToolResult result = toolRegistry.invoke(context, action.tool(), action.args());
+                    emit(listener, CoachProgressEvent.finished(
+                            action.tool(), result.summary(), elapsedMs(toolStartedAt)));
                     transcript.add(observationOf(action.tool(), args, result));
                     toolsUsed.add(action.tool());
                     toolCalls++;
@@ -204,7 +222,9 @@ public class CoachOrchestrator {
      * Results are collected back in plan order so the prompt the model sees is deterministic, which
      * matters for reproducing an answer later.
      */
-    private Map<String, ToolResult> runPlannedTools(CoachCallContext context, String question) {
+    private Map<String, ToolResult> runPlannedTools(CoachCallContext context,
+                                                    String question,
+                                                    CoachProgressListener listener) {
         Set<String> planned = plannedTools(question);
         if (planned.isEmpty()) {
             return Map.of();
@@ -212,9 +232,18 @@ public class CoachOrchestrator {
 
         Map<String, CompletableFuture<ToolResult>> inFlight = new LinkedHashMap<>();
         for (String tool : planned) {
-            inFlight.put(tool, CompletableFuture.supplyAsync(
-                    () -> toolRegistry.invoke(context, tool, objectMapper.createObjectNode()),
-                    toolExecutor));
+            emit(listener, CoachProgressEvent.started(tool));
+            long startedAt = System.nanoTime();
+            inFlight.put(tool, CompletableFuture
+                    .supplyAsync(() -> toolRegistry.invoke(context, tool, objectMapper.createObjectNode()),
+                            toolExecutor)
+                    // Reported as each one lands rather than in plan order, so a watching user sees
+                    // the concurrency that is actually happening. The prompt still assembles in plan
+                    // order below, because an answer has to be reproducible.
+                    .whenComplete((result, failure) -> emit(listener, CoachProgressEvent.finished(
+                            tool,
+                            failure == null ? result.summary() : "tool failed",
+                            elapsedMs(startedAt)))));
         }
 
         Map<String, ToolResult> results = new LinkedHashMap<>();
@@ -276,6 +305,18 @@ public class CoachOrchestrator {
     /** Tool names come from the plan or the model, so they are untrusted on a log line. */
     private static String safeForLog(String value) {
         return value == null ? null : value.replaceAll("[\\r\\n\\t]", "_");
+    }
+
+    /**
+     * A listener that throws must not take the turn down with it: the answer is still being written
+     * to the thread, and a client that has gone away can read it when it comes back.
+     */
+    private static void emit(CoachProgressListener listener, CoachProgressEvent event) {
+        try {
+            listener.onEvent(event);
+        } catch (RuntimeException ex) {
+            LOG.debug("Progress listener rejected an event", ex);
+        }
     }
 
     private static int elapsedMs(long startedAt) {

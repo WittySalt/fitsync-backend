@@ -27,7 +27,7 @@ class GatewayProxyServiceImplTests {
     void trimsAndNormalizesDownstreamBaseUrlBeforeForwarding() {
         RestTemplate restTemplate = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
-        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, new GatewayRoutesProperties(
+        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, coachRequestFactory(), new GatewayRoutesProperties(
                 " http://auth-service:8080/ ",
                 "http://user-service:8081",
                 "http://workout-service:8082",
@@ -51,7 +51,7 @@ class GatewayProxyServiceImplTests {
     void filtersDownstreamContentLengthBeforeReturningResponse() {
         RestTemplate restTemplate = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
-        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, new GatewayRoutesProperties(
+        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, coachRequestFactory(), new GatewayRoutesProperties(
                 "http://auth-service:8080",
                 "http://user-service:8081",
                 "http://workout-service:8082",
@@ -157,7 +157,7 @@ class GatewayProxyServiceImplTests {
     void forwardsRecommendationTrafficToTheRecommendationService() {
         RestTemplate restTemplate = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
-        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, new GatewayRoutesProperties(
+        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, coachRequestFactory(), new GatewayRoutesProperties(
                 "http://auth-service:8080",
                 "http://user-service:8081",
                 "http://workout-service:8082",
@@ -176,12 +176,17 @@ class GatewayProxyServiceImplTests {
     }
 
     private static GatewayProxyService newServiceWithAuthBaseUrl(String authServiceBaseUrl) {
-        return new GatewayProxyServiceImpl(new RestTemplate(), new GatewayRoutesProperties(
+        return new GatewayProxyServiceImpl(new RestTemplate(), coachRequestFactory(), new GatewayRoutesProperties(
                 authServiceBaseUrl,
                 "http://user-service:8081",
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
                 "http://analytics-service:8085",
                 "http://recommendation-service:8086"));
+    }
+
+    /** The coach routes use their own factory; these tests exercise the collected forward. */
+    private static org.springframework.http.client.ClientHttpRequestFactory coachRequestFactory() {
+        return new org.springframework.http.client.SimpleClientHttpRequestFactory();
     }
 }
