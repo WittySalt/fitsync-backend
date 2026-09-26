@@ -153,6 +153,7 @@ services:
       WORKOUT_SERVICE_BASE_URL: http://workout-service:8082
       NUTRITION_SERVICE_BASE_URL: http://nutrition-service:8083
       ANALYTICS_SERVICE_BASE_URL: http://analytics-service:8085
+      RECOMMENDATION_SERVICE_BASE_URL: http://recommendation-service:8086
       JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
     ports:
       - "8088:8088"
@@ -282,6 +283,47 @@ services:
       # analytics replays/projects on startup; give it longer before being marked
       # unhealthy (other services use 40s). Pairs with the deploy --wait-timeout.
       start_period: 180s
+    depends_on:
+      redis: {condition: service_healthy}
+
+  # X-5 resolved: recommendation-service ships as a standalone service in this stack
+  # rather than folding into another module. It owns the `recommendation` schema, consumes
+  # thirteen event streams into a per-user context projection, and serves the read API the
+  # gateway proxies at /api/v1/recommendations/**.
+  #
+  # Its listeners are OFF by default like every other consumer. Five of them have no entry in
+  # the shared x-kafka-consumer-env anchor because only this service consumes them, so they are
+  # declared here.
+  #
+  # The AI narrative tier is off by default too. Two providers are supported: `anthropic` needs
+  # ANTHROPIC_API_KEY in the environment, `ollama` needs a reachable local model and no key.
+  recommendation-service:
+    <<: *service-defaults
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-recommendation-service:${IMAGE_TAG:-latest}
+    container_name: fitsync-recommendation-service
+    environment:
+      <<: [*app-env, *kafka-consumer-env]
+      DB_USERNAME: recommendation_svc
+      DB_PASSWORD: ${RECOMMENDATION_DB_PASSWORD}
+      SERVER_PORT: 8086
+      # Consumed only by this service, so absent from the shared anchor.
+      KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:-false}
+      KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED: ${KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED:-false}
+      KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED: ${KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED:-false}
+      KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED: ${KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED:-false}
+      KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:-false}
+      # AI narrative tier (A1 weekly narrative + A4 coach Q&A).
+      RECOMMENDATION_AI_ENABLED: ${RECOMMENDATION_AI_ENABLED:-false}
+      RECOMMENDATION_AI_PROVIDER: ${RECOMMENDATION_AI_PROVIDER:-anthropic}
+      RECOMMENDATION_AI_MODEL: ${RECOMMENDATION_AI_MODEL:-claude-sonnet-4-6}
+      RECOMMENDATION_AI_BASE_URL: ${RECOMMENDATION_AI_BASE_URL:-http://localhost:11434}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     depends_on:
       redis: {condition: service_healthy}
 
