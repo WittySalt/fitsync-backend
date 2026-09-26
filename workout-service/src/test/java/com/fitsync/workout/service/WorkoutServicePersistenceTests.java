@@ -2427,6 +2427,61 @@ class WorkoutServicePersistenceTests {
         return sessionFactory.getStatistics();
     }
 
+    @Test
+    void shouldCarryThePrimaryCatalogImageOnPlanExercises() {
+        // Regression for functional-defects-2026-09-26 defect 8: the Today view issued one
+        // GET /exercises/{id} per plan exercise purely to read imageUrls[0]. The plan response
+        // carries it now, so the client needs no extra request at all.
+        UUID squatId = createExerciseWithImages("thumb-squat", "Thumb Squat",
+                "https://media.example/thumb-squat-0.png", "https://media.example/thumb-squat-1.png");
+        UUID rowId = createExercise("thumb-row", "Thumb Row");
+
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Thumbnail Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                30,
+                List.of(
+                        new WorkoutPlanExerciseInput(squatId, 1, 3, 8, null, null, null, 60, null, null),
+                        new WorkoutPlanExerciseInput(rowId, 2, 3, 8, null, null, null, 60, null, null))));
+
+        WorkoutPlanView reloaded = workoutService.getPlan(currentUser, plan.planId());
+
+        assertEquals(
+                "https://media.example/thumb-squat-0.png",
+                reloaded.exercises().get(0).primaryImageUrl(),
+                "the lowest-position image is the thumbnail");
+        assertNull(
+                reloaded.exercises().get(1).primaryImageUrl(),
+                "an exercise with no catalog image degrades to null, not an error");
+    }
+
+    /** Images are attached before the first save so the collection is a plain list, not a proxy. */
+    private UUID createExerciseWithImages(String code, String name, String... urls) {
+        ExerciseEntity entity = new ExerciseEntity();
+        entity.setExerciseId(UUID.randomUUID());
+        entity.setCode(code);
+        entity.setName(name);
+        entity.setExerciseType(ExerciseType.STRENGTH);
+        entity.setPrimaryMuscleGroup(MuscleGroup.BACK);
+        entity.setEquipment(ExerciseEquipment.BARBELL);
+        entity.setDifficulty(WorkoutDifficulty.BEGINNER);
+        entity.setStatus(ExerciseStatus.ACTIVE);
+        entity.setCustom(false);
+        for (int position = 0; position < urls.length; position++) {
+            com.fitsync.workout.entity.ExerciseImageEntity image =
+                    new com.fitsync.workout.entity.ExerciseImageEntity();
+            image.setImageId(UUID.randomUUID());
+            image.setExercise(entity);
+            image.setPosition(position);
+            image.setUrl(urls[position]);
+            entity.getImages().add(image);
+        }
+        return exerciseRepository.save(entity).getExerciseId();
+    }
+
     private UUID createExercise(String code, String name) {
         ExerciseEntity entity = new ExerciseEntity();
         entity.setExerciseId(UUID.randomUUID());

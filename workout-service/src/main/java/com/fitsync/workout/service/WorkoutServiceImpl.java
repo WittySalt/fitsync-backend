@@ -1369,6 +1369,17 @@ public class WorkoutServiceImpl implements WorkoutService {
                 session.getSource().name());
     }
 
+    /**
+     * The catalog image list is ordered by position and batch-fetched, so taking the first entry
+     * here does not reintroduce a per-exercise query.
+     */
+    private String primaryImageUrl(com.fitsync.workout.entity.ExerciseEntity exercise) {
+        if (exercise == null || exercise.getImages().isEmpty()) {
+            return null;
+        }
+        return exercise.getImages().get(0).getUrl();
+    }
+
     private WorkoutPlanView toPlanView(WorkoutPlanEntity entity) {
         return new WorkoutPlanView(
                 entity.getPlanId(),
@@ -1392,6 +1403,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                                 exercise.getTargetDistanceKm(),
                                 exercise.getRestSeconds(),
                                 exercise.getNotes(),
+                                primaryImageUrl(exercise.getExercise()),
                                 exercise.getSetTargets().stream()
                                         .map(setTarget -> new WorkoutPlanExerciseSetTargetView(
                                                 setTarget.getSetTargetId(),
