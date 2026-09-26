@@ -2,6 +2,7 @@ package com.fitsync.gateway.config;
 
 import com.fitsync.gateway.security.JwtAuthenticationFilter;
 import com.fitsync.gateway.security.RestAuthenticationEntryPoint;
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -47,6 +48,15 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint))
                 .authorizeHttpRequests(auth -> auth
+                        // The coach stream is written on an ASYNC dispatch after the REQUEST dispatch
+                        // has already authenticated the call and forwarded the token downstream. With
+                        // a stateless session the security context is not carried into that second
+                        // dispatch, so without this rule the authorization filter raised on a response
+                        // that was already being written, Tomcat could not render its error page, and
+                        // the connection hung open until the client gave up. Nothing is opened up: an
+                        // ASYNC or ERROR dispatch only ever follows a request this chain has already
+                        // decided.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login",

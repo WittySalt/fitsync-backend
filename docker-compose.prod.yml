@@ -318,6 +318,13 @@ services:
       RECOMMENDATION_AI_MODEL: ${RECOMMENDATION_AI_MODEL:-claude-sonnet-4-6}
       RECOMMENDATION_AI_BASE_URL: ${RECOMMENDATION_AI_BASE_URL:-http://localhost:11434}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # The coach reads the exercise and food catalogues from the services that own them,
+      # forwarding the caller's own token, so it sees exactly what the user would see.
+      FITSYNC_COACH_WORKOUT_BASE_URL: ${FITSYNC_COACH_WORKOUT_BASE_URL:-http://workout-service:8082}
+      FITSYNC_COACH_NUTRITION_BASE_URL: ${FITSYNC_COACH_NUTRITION_BASE_URL:-http://nutrition-service:8083}
+      # The draft validator reads the readiness questionnaire to exclude exercises that load
+      # an area the user flagged. Read with the caller's own token, never projected into this schema.
+      FITSYNC_COACH_USER_BASE_URL: ${FITSYNC_COACH_USER_BASE_URL:-http://user-service:8081}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
       interval: 30s

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 public class GatewayProxyController {
@@ -67,6 +68,22 @@ public class GatewayProxyController {
     public ResponseEntity<byte[]> proxyRecommendation(HttpServletRequest request,
                                                       @RequestBody(required = false) byte[] body) {
         return gatewayProxyService.forwardToRecommendationService(request, body);
+    }
+
+    /**
+     * The coach, which answers in seconds and may answer as a stream.
+     *
+     * <p>Its own route rather than a branch of the recommendations one, because the timeout and the
+     * pass-through both belong to the coach alone. The return type is written out rather than left
+     * as a wildcard because Spring reads it to decide whether to stream: a wildcard sends the body
+     * to the JSON converter, which turns a stream nobody has written yet into an empty object.
+     */
+    @RequestMapping(path = "/api/v1/coach/**",
+            method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH,
+                    RequestMethod.DELETE, RequestMethod.OPTIONS})
+    public ResponseEntity<StreamingResponseBody> proxyCoach(HttpServletRequest request,
+                                                            @RequestBody(required = false) byte[] body) {
+        return gatewayProxyService.forwardToCoachService(request, body);
     }
 
     @RequestMapping(path = "/api/v1/**",
