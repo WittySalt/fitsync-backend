@@ -132,6 +132,20 @@ public class CoachThreadService {
         return turn;
     }
 
+    /**
+     * Fills in an assistant turn once its answer exists.
+     *
+     * <p>The turn is created empty before the orchestrator runs, because tool invocations are
+     * children of a turn and have to be recorded as the loop makes them. This closes that gap.
+     */
+    @Transactional
+    public void replaceContent(UUID turnId, String content) {
+        CoachTurnEntity turn = turnRepository.findById(turnId)
+                .orElseThrow(() -> new ResourceNotFoundException("Turn not found"));
+        turn.setContent(content);
+        turnRepository.save(turn);
+    }
+
     /** Records how an assistant turn was produced. Called by the orchestrator once the answer is ready. */
     @Transactional
     public void recordTelemetry(UUID turnId,

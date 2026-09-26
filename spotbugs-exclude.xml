@@ -496,4 +496,82 @@
         <Class name="com.fitsync.recommendation.coach.service.CoachThreadService"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+
+    <!-- Coach orchestration layer. Constructor-injected Spring singletons (an ObjectMapper, the
+         repositories, the thread service) flagged as externally mutable: the same dependency-injection
+         noise every other component in this module already carries. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.ToolRegistry"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.ReadFactsTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.ReadRecentTrainingTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.SearchExercisesTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.SearchFoodsTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.client.WorkoutCatalogueClient"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.client.NutritionCatalogueClient"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.orchestrator.CoachOrchestrator"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.orchestrator.CoachActionParser"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.service.CoachConversationService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- CRLF_INJECTION_LOGS on ToolRegistry. The tool name is model-supplied, so the finding is
+         right in principle and it IS mitigated: safeForLog strips every character that could end a
+         log line. findsecbugs does not follow a sanitiser into a helper method, the same limitation
+         already documented for GlobalApiExceptionHandler. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.ToolRegistry"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
+
+    <!-- CRLF_INJECTION_LOGS on the coach orchestration layer. The findings are right in principle:
+         a tool name comes from the model and a URL is built from model-supplied arguments, so both
+         are untrusted on a log line. Both are mitigated — safeForLog strips every character that
+         could end a line, and the catalogue clients never log the bearer token at all. findsecbugs
+         cannot follow a sanitiser into a helper method, which is the same limitation already
+         recorded for GlobalApiExceptionHandler. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.orchestrator.CoachOrchestrator"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.client.CatalogueClient"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
 </FindBugsFilter>
