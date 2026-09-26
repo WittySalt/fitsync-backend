@@ -63,6 +63,8 @@ class AnalyticsCachingTests {
 
     @Test
     void shouldCacheDashboardAndEvictAfterInvalidation() {
+        // getDashboard now re-checks the snapshot against the clock, so the clock must be fixed.
+        setUserZoneClockInstant("2026-06-14T08:00:00Z");
         UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "alice@example.com", "Alice", "USER");
 
@@ -95,6 +97,8 @@ class AnalyticsCachingTests {
 
     @Test
     void shouldEvictOnlyTargetUserDashboardCache() {
+        // getDashboard now re-checks the snapshot against the clock, so the clock must be fixed.
+        setUserZoneClockInstant("2026-06-14T08:00:00Z");
         UUID targetUserId = UUID.fromString("77777777-7777-7777-7777-777777777777");
         UUID otherUserId = UUID.fromString("88888888-8888-8888-8888-888888888888");
         CurrentUserPrincipal targetPrincipal =
