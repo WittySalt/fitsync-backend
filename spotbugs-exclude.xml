@@ -478,4 +478,22 @@
         <Class name="com.fitsync.web.error.GlobalApiExceptionHandler"/>
         <Bug pattern="CRLF_INJECTION_LOGS"/>
     </Match>
+
+    <!-- Coach conversation layer. Same Spring-DI noise the other controllers and services here
+         already carry: EI_EXPOSE_REP2 on constructor-injected singletons, and SPRING_ENDPOINT,
+         which flags a controller for being a controller. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.controller.CoachThreadController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.controller.CoachThreadController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.service.CoachThreadService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>
