@@ -16,9 +16,21 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestControllerAdvice
 public class GlobalApiExceptionHandler {
+
+    private static final Logger LOG = LoggerFactory.getLogger(GlobalApiExceptionHandler.class);
+
+    /** Caps a caller-supplied value so an oversized header cannot flood the log. */
+    private static final int MAX_LOGGED_VALUE_LENGTH = 200;
+
+    /** Anything that could end a log line or shift a column, replaced rather than dropped. */
+    private static final String CONTROL_CHARACTERS = "[\\r\\n\\t\\f\\u0000-\\u001F\\u007F]";
 
     private final ApiErrorFactory apiErrorFactory;
 
@@ -98,10 +110,55 @@ public class GlobalApiExceptionHandler {
         return buildError(HttpStatus.BAD_REQUEST, "BAD_REQUEST", message, request, List.of(message));
     }
 
+    /**
+     * A request for a path no controller maps is a client mistake, not a server failure. Without
+     * these two handlers the catch-all below swallows Spring's no-handler exceptions and reports
+     * 404s as 500s, which breaks the API contract and inflates the 5xx error rate with bad client
+     * paths. Which of the two is raised depends on whether static resource handling is active, so
+     * both are mapped.
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ApiError> handleNoHandler(Exception ex,
+                                                    HttpServletRequest request) {
+        LOG.debug("No handler for {} {}", safeForLog(request.getMethod()), safeForLog(request.getRequestURI()));
+        return buildError(HttpStatus.NOT_FOUND, "NOT_FOUND", "Requested resource was not found", request, List.of());
+    }
+
+    /**
+     * Last resort. This MUST log: the response carries a correlation id so a user can quote it in a
+     * report, and that id is worthless unless the same id appears in a log line next to the stack
+     * trace. The correlation id is set by the gateway, which generates one when the caller does not
+     * supply it, so every request arriving through the normal path carries one.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnhandled(Exception ex,
                                                     HttpServletRequest request) {
-        return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred", request, List.of());
+        ResponseEntity<ApiError> response = buildError(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
+                "An unexpected error occurred", request, List.of());
+        ApiError body = response.getBody();
+        LOG.error("Unhandled exception [correlationId={}] {} {}",
+                safeForLog(body == null ? null : body.correlationId()),
+                safeForLog(request.getMethod()),
+                safeForLog(request.getRequestURI()),
+                ex);
+        return response;
+    }
+
+    /**
+     * The request path and the correlation-id header are caller-controlled, and a caller that puts
+     * a line break in either can forge whole log lines. SpotBugs flagged exactly this
+     * (CRLF_INJECTION_LOGS) on the first version of the logging added here, which is the gate doing
+     * its job. Control characters are replaced rather than dropped so the tampering stays visible,
+     * and the value is truncated so an oversized header cannot flood the log.
+     */
+    private static String safeForLog(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.length() > MAX_LOGGED_VALUE_LENGTH
+                ? value.substring(0, MAX_LOGGED_VALUE_LENGTH) + "..."
+                : value;
+        return trimmed.replaceAll(CONTROL_CHARACTERS, "_");
     }
 
     private ResponseEntity<ApiError> buildError(HttpStatus status,
