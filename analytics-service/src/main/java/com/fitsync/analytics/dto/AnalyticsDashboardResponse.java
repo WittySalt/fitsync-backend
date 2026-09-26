@@ -22,11 +22,17 @@ public record AnalyticsDashboardResponse(
         return List.copyOf(goals);
     }
 
+    /**
+     * {@code measuredOn} is the day the newest body measurement was taken. It used to be absent,
+     * which left the client captioning the "Latest body metric" card with the snapshot's generation
+     * time because that was the only date in the payload.
+     */
     public record BodySummary(
             Double latestWeightKg,
             Double latestBodyFatRate,
             Double bmi,
-            Double weightChange30d) {
+            Double weightChange30d,
+            LocalDate measuredOn) {
     }
 
     public record WorkoutSummary(
@@ -43,6 +49,12 @@ public record AnalyticsDashboardResponse(
             Double todayProteinTargetGrams) {
     }
 
+    /**
+     * {@code expired} is derived at read time from {@code targetDate}. Goal expiry was already
+     * applied when events were consumed and by the nightly rollup, but nothing re-evaluated a goal
+     * whose date passed in between, so the stored status stayed ACTIVE and the client kept showing
+     * "on track" against a deadline that had gone.
+     */
     public record GoalProgressSummary(
             UUID goalId,
             String goalType,
@@ -52,6 +64,7 @@ public record AnalyticsDashboardResponse(
             Double currentValue,
             Double progressRatio,
             boolean onTrack,
+            boolean expired,
             Instant lastEvaluatedAt) {
     }
 }
