@@ -8,10 +8,6 @@
 > This document defines what the service does, grounded in the data
 > signals FitSync actually emits, and splits the work between **locally-computed (rule-engine)**
 > recommendations and **externally-computed (AI API)** recommendations.
->
-> ⚠️ **Branch scope:** This plan and any recommendation-service code derived from it live on the
-> `claude/recommendation-interface-review-*` branch and are **intentionally excluded from `main`**.
-> Keep the module isolated on this branch until the team decides to graduate it.
 
 ---
 
