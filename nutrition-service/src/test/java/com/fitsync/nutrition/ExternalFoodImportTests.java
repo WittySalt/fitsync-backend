@@ -343,6 +343,7 @@ class ExternalFoodImportTests {
                 barcode,
                 1,
                 "A",
+                "OFF",
                 List.of(),
                 List.of());
     }
