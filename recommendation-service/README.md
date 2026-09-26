@@ -1,7 +1,11 @@
 # recommendation-service — Functional Plan
 
-> **Status:** Planning / design only. This module is currently an empty Maven scaffold
-> (`pom.xml` only). This document defines what the service *should* do, grounded in the data
+> **Status.** This service is on `main` as of 2026-09-26. It was developed on an isolated branch
+> while its shape was still being worked out; that constraint is retired. Contract and planning
+> documents live in `docs/`. The coach platform design that extends this service is in
+> `Documents/architecture/coach-platform-design.md`.
+
+> This document defines what the service does, grounded in the data
 > signals FitSync actually emits, and splits the work between **locally-computed (rule-engine)**
 > recommendations and **externally-computed (AI API)** recommendations.
 >
