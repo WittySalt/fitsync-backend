@@ -373,6 +373,7 @@ class AnalyticsControllerTests {
                                 0.42,
                                 48,
                                 true,
+                                false,
                                 Instant.parse("2026-06-14T08:00:00Z")))));
 
         mockMvc.perform(get("/api/v1/analytics/goals/progress")
