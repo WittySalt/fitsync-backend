@@ -223,6 +223,30 @@ class AnalyticsStaleReadModelTests {
         assertThat(summary.onTrack()).isTrue();
     }
 
+    @Test
+    @DisplayName("the standalone goal-progress endpoint expires goals too")
+    void goalProgressEndpointExpiresGoals() {
+        givenSnapshotWithStreak(0);
+        givenLastActiveDay(LAST_ACTIVE);
+        AnalyticsUserGoalProgressEntity goal = new AnalyticsUserGoalProgressEntity();
+        goal.setUserId(USER_ID);
+        goal.setGoalId(UUID.fromString("55555555-5555-5555-5555-555555555555"));
+        goal.setGoalType("PROTEIN");
+        goal.setGoalStatus("ACTIVE");
+        goal.setTargetDate(LocalDate.parse("2026-08-31"));
+        goal.setOnTrack(true);
+        when(goalRepository.findByUserIdOrderByTargetDateAscGoalIdAsc(USER_ID))
+                .thenReturn(List.of(goal));
+
+        var view = serviceAt(TODAY).getGoalProgress(PRINCIPAL, "ACTIVE").goals().get(0);
+
+        assertThat(view.expired())
+                .withFailMessage("this endpoint, not the dashboard's embedded summary, is what the "
+                        + "dashboard page actually calls")
+                .isTrue();
+        assertThat(view.onTrack()).isFalse();
+    }
+
     // ---------------------------------------------------------------------------------------
 
     private AnalyticsUserDashboardSnapshotEntity givenSnapshotWithStreak(int streakDays) {
