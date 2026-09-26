@@ -64,11 +64,11 @@ class AnalyticsControllerTests {
         AnalyticsDashboardResponse response = new AnalyticsDashboardResponse(
                 Instant.parse("2026-06-14T08:00:00Z"),
                 "Asia/Singapore",
-                new AnalyticsDashboardResponse.BodySummary(78.4, 19.8, 24.7, -1.6),
+                new AnalyticsDashboardResponse.BodySummary(78.4, 19.8, 24.7, -1.6, LocalDate.parse("2026-06-14")),
                 new AnalyticsDashboardResponse.WorkoutSummary(1, 4, 205, 3),
                 new AnalyticsDashboardResponse.NutritionSummary(1860, 2100, 132.5, 150.0),
                 List.of(new AnalyticsDashboardResponse.GoalProgressSummary(
-                        goalId, "WEIGHT", 75.0, "kg", LocalDate.parse("2026-08-01"), 77.0, 0.42, true,
+                        goalId, "WEIGHT", 75.0, "kg", LocalDate.parse("2026-08-01"), 77.0, 0.42, true, false,
                         Instant.parse("2026-06-14T07:00:00Z"))));
 
         when(analyticsService.getDashboard(any())).thenReturn(response);

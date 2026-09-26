@@ -103,6 +103,18 @@ public class AnalyticsServiceImpl implements AnalyticsService {
             return emptyDashboard(goals);
         }
 
+        // The snapshot is only rewritten when an event arrives, so a user who stops logging keeps
+        // whatever it last held. Fields named "today" and "week" therefore have to be re-checked
+        // against the clock at read time, or they report months-old activity as current. See
+        // Documents/architecture/functional-defects-2026-09-26.md, defect 4.
+        ZoneId zone = resolveZone(snapshot.getTimezone());
+        LocalDate today = LocalDate.now(clock.withZone(zone));
+        LocalDate snapshotDay = snapshot.getGeneratedAt() == null
+                ? null
+                : snapshot.getGeneratedAt().atZone(zone).toLocalDate();
+        boolean sameDay = today.equals(snapshotDay);
+        boolean sameWeek = isSameIsoWeek(snapshotDay, today);
+
         return new AnalyticsDashboardResponse(
                 snapshot.getGeneratedAt(),
                 snapshot.getTimezone() != null ? snapshot.getTimezone() : DEFAULT_TIMEZONE,
@@ -110,16 +122,17 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         toDouble(snapshot.getLatestWeightKg()),
                         toDouble(snapshot.getLatestBodyFatRate()),
                         toDouble(snapshot.getBmi()),
-                        toDouble(snapshot.getWeightChange30d())),
+                        toDouble(snapshot.getWeightChange30d()),
+                        latestBodyMeasurementDate(principal.userId())),
                 new AnalyticsDashboardResponse.WorkoutSummary(
-                        defaultInteger(snapshot.getTodayWorkoutCount()),
-                        defaultInteger(snapshot.getWeekWorkoutCount()),
-                        defaultInteger(snapshot.getWeekWorkoutMinutes()),
-                        defaultInteger(snapshot.getActiveStreakDays())),
+                        sameDay ? defaultInteger(snapshot.getTodayWorkoutCount()) : 0,
+                        sameWeek ? defaultInteger(snapshot.getWeekWorkoutCount()) : 0,
+                        sameWeek ? defaultInteger(snapshot.getWeekWorkoutMinutes()) : 0,
+                        liveStreakDays(principal.userId(), snapshot.getActiveStreakDays(), today)),
                 new AnalyticsDashboardResponse.NutritionSummary(
-                        snapshot.getTodayCaloriesConsumed(),
+                        sameDay ? snapshot.getTodayCaloriesConsumed() : Integer.valueOf(0),
                         snapshot.getTodayCaloriesTarget(),
-                        toDouble(snapshot.getTodayProteinGrams()),
+                        sameDay ? toDouble(snapshot.getTodayProteinGrams()) : Double.valueOf(0),
                         toDouble(snapshot.getTodayProteinTargetGrams())),
                 goals);
     }
@@ -342,7 +355,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     public AnalyticsStreaksResponse getStreaks(CurrentUserPrincipal principal) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
                 .orElse(null);
-        int currentStreakDays = snapshot == null ? 0 : defaultInteger(snapshot.getActiveStreakDays());
         // Normalized through resolveZone so an invalid stored timezone is reported as the UTC
         // fallback actually used to evaluate streak days, not echoed verbatim.
         ZoneId streakZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
@@ -352,6 +364,14 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .findTopByUserIdAndCompletedWorkoutCountGreaterThanOrderByActivityDateDesc(principal.userId(), 0)
                 .map(AnalyticsUserDailyWorkoutEntity::getActivityDate)
                 .orElse(null);
+
+        // The stored streak is only rewritten when an event arrives, so reading it back verbatim
+        // reports a streak that ended months ago as still running. Re-check it against the clock.
+        // See Documents/architecture/functional-defects-2026-09-26.md, defect 3.
+        int currentStreakDays = liveStreak(
+                snapshot == null ? null : snapshot.getActiveStreakDays(),
+                lastActiveDate,
+                LocalDate.now(clock.withZone(streakZone)));
 
         AnalyticsUserStreakRollupEntity rollup = streakRollupRepository.findById(principal.userId()).orElse(null);
         int bestStreakDays = rollup == null ? 0 : defaultInteger(rollup.getBestStreakDays());
@@ -510,6 +530,54 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     private Instant startOfDay(LocalDate date, ZoneId zone) {
         return date.atStartOfDay(zone).toInstant();
+    }
+
+    /**
+     * A streak is only "current" while it is still reachable: the last active day must be today or
+     * yesterday in the user's own zone. Anything older means the streak has been broken and the
+     * stored counter is a historical value, not a live one.
+     *
+     * <p>Shared by the dashboard and the streaks endpoint on purpose. They previously read the same
+     * stored field independently and so agreed on the same wrong answer; sharing the rule means they
+     * cannot drift apart.
+     */
+    private int liveStreak(Integer storedStreakDays, LocalDate lastActiveDate, LocalDate today) {
+        int stored = defaultInteger(storedStreakDays);
+        if (stored <= 0 || lastActiveDate == null) {
+            return 0;
+        }
+        return lastActiveDate.isBefore(today.minusDays(1)) ? 0 : stored;
+    }
+
+    /** Dashboard variant: looks the last active day up, since the snapshot does not carry it. */
+    private int liveStreakDays(UUID userId, Integer storedStreakDays, LocalDate today) {
+        if (defaultInteger(storedStreakDays) <= 0) {
+            return 0;
+        }
+        LocalDate lastActiveDate = dailyWorkoutRepository
+                .findTopByUserIdAndCompletedWorkoutCountGreaterThanOrderByActivityDateDesc(userId, 0)
+                .map(AnalyticsUserDailyWorkoutEntity::getActivityDate)
+                .orElse(null);
+        return liveStreak(storedStreakDays, lastActiveDate, today);
+    }
+
+    /**
+     * The dashboard carried no measurement date at all, so the client filled the "Latest body
+     * metric" caption with the snapshot's generation time instead. See defect 5.
+     */
+    private LocalDate latestBodyMeasurementDate(UUID userId) {
+        return dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(userId)
+                .map(AnalyticsUserDailyBodyEntity::getMetricDate)
+                .orElse(null);
+    }
+
+    private boolean isSameIsoWeek(LocalDate left, LocalDate right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        WeekFields isoWeek = WeekFields.ISO;
+        return left.get(isoWeek.weekBasedYear()) == right.get(isoWeek.weekBasedYear())
+                && left.get(isoWeek.weekOfWeekBasedYear()) == right.get(isoWeek.weekOfWeekBasedYear());
     }
 
     private ZoneId resolveZone(String timezone) {
@@ -710,7 +778,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return new AnalyticsDashboardResponse(
                 Instant.now(clock),
                 DEFAULT_TIMEZONE,
-                new AnalyticsDashboardResponse.BodySummary(null, null, null, null),
+                new AnalyticsDashboardResponse.BodySummary(null, null, null, null, null),
                 new AnalyticsDashboardResponse.WorkoutSummary(0, 0, 0, 0),
                 new AnalyticsDashboardResponse.NutritionSummary(null, null, null, null),
                 goals);
@@ -913,8 +981,17 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         };
     }
 
+    /**
+     * Expiry is re-evaluated here rather than trusted from the stored row. GoalExpiryPolicy already
+     * ran when the goal event was consumed and again in the nightly rollup, but a goal whose target
+     * date passes between those points keeps its ACTIVE status and its on-track flag, so the client
+     * renders "On track - by 31 Aug 2026" a month after that date. A goal past its deadline is never
+     * on track. See Documents/architecture/functional-defects-2026-09-26.md, defect 7.
+     */
     private AnalyticsDashboardResponse.GoalProgressSummary toGoalProgressSummary(
             AnalyticsUserGoalProgressEntity entity) {
+        boolean expired = GoalExpiryPolicy.isExpired(
+                entity.getTargetDate(), Instant.now(clock).atZone(ZoneOffset.UTC).toLocalDate());
         return new AnalyticsDashboardResponse.GoalProgressSummary(
                 entity.getGoalId(),
                 entity.getGoalType(),
@@ -923,7 +1000,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 entity.getTargetDate(),
                 toDouble(entity.getCurrentValue()),
                 toDouble(entity.getProgressRatio()),
-                entity.isOnTrack(),
+                !expired && entity.isOnTrack(),
+                expired,
                 entity.getLastEvaluatedAt());
     }
 
