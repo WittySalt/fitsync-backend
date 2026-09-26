@@ -15,6 +15,7 @@ public class WorkoutCatalogueClient extends CatalogueClient {
 
     private static final String EXERCISES = "/api/v1/workouts/exercises";
     private static final String SESSIONS = "/api/v1/workouts/sessions";
+    private static final String PLANS = "/api/v1/workouts/plans";
 
     public WorkoutCatalogueClient(@Qualifier("coachRestClientBuilder") RestClient.Builder builder,
                                       CoachProperties properties) {
@@ -60,5 +61,18 @@ public class WorkoutCatalogueClient extends CatalogueClient {
         params.put("page", 0);
         params.put("size", size);
         return get(SESSIONS, params, bearerToken);
+    }
+
+    /**
+     * Creates a plan from an accepted draft. The request body is workout-service's own contract,
+     * built by the mapper, so the coach writes exactly what a user would through the plan editor.
+     */
+    public String createPlan(String bearerToken, Object createPlanRequest) {
+        return post(PLANS, createPlanRequest, bearerToken);
+    }
+
+    /** Starts a session from a plan, which is the moment a draft becomes something to train from. */
+    public String startPlan(String bearerToken, UUID planId) {
+        return post(PLANS + "/" + planId + "/start", Map.of(), bearerToken);
     }
 }

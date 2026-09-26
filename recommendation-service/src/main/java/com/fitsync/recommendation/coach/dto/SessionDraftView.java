@@ -16,6 +16,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
  *
  * @param validationAttempts 1 when the model was right first time, 2 when it needed correcting,
  *                           0 when no model was involved
+ * @param planId             the plan this became once accepted, otherwise null
+ * @param sessionId          the session started from that plan, otherwise null; a client opens
+ *                           this directly rather than searching the Workout page for it
+ * @param rejectionReason    why the user turned it down, when they said
  */
 @Schema(description = "A proposed session, with how it was produced.")
 public record SessionDraftView(
@@ -23,5 +27,8 @@ public record SessionDraftView(
         ArtifactStatus status,
         DraftSource source,
         int validationAttempts,
-        SessionDraft session) {
+        SessionDraft session,
+        UUID planId,
+        UUID sessionId,
+        String rejectionReason) {
 }

@@ -621,4 +621,13 @@
         <Class name="com.fitsync.recommendation.coach.draft.SessionDraftGenerator"/>
         <Bug pattern="CRLF_INJECTION_LOGS"/>
     </Match>
+
+    <!-- CRLF_INJECTION_LOGS on SessionDraftService. Nothing user-supplied or model-supplied reaches
+         these lines: the interpolated values are a plan UUID we read back from workout-service, an
+         HTTP status code, and a field name that is a string literal at the call site. None has a
+         representation containing a line break. Same reasoning as CoachConversationService. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.service.SessionDraftService"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
 </FindBugsFilter>

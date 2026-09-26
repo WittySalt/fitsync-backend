@@ -3,7 +3,9 @@ package com.fitsync.recommendation.coach.controller;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.recommendation.coach.dto.AcceptSessionDraftResponse;
 import com.fitsync.recommendation.coach.dto.DraftMetricsView;
+import com.fitsync.recommendation.coach.dto.RejectSessionDraftRequest;
 import com.fitsync.recommendation.coach.dto.DraftSessionRequest;
 import com.fitsync.recommendation.coach.dto.SessionDraftView;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
@@ -86,6 +88,47 @@ public class SessionDraftController {
     })
     public SessionDraftView get(Authentication authentication, @PathVariable UUID artifactId) {
         return draftService.get(CoachPrincipal.userId(authentication), artifactId);
+    }
+
+    @PostMapping("/{artifactId}/accept")
+    @Operation(summary = "Accept a draft: create the plan and start the session",
+            description = "Creates a plan in workout-service from the validated draft, using the "
+                    + "caller's own token so it is exactly what they could have built by hand, then "
+                    + "starts a session from it. The plan is always created when this returns 200; "
+                    + "if the session could not be started the response says so and the plan is "
+                    + "still there to start manually. Accepting twice returns what the first accept "
+                    + "produced rather than creating a second plan.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Accepted; plan created"),
+            @ApiResponse(responseCode = "404", description = "No such draft for this user"),
+            @ApiResponse(responseCode = "409", description = "Draft was rejected, or workout-service declined the plan")
+    })
+    public AcceptSessionDraftResponse accept(Authentication authentication,
+                                             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+                                             @PathVariable UUID artifactId) {
+        CoachCallContext call = new CoachCallContext(
+                CoachPrincipal.userId(authentication), CoachPrincipal.bearerToken(authorization), null);
+        return draftService.accept(call, artifactId);
+    }
+
+    @PostMapping("/{artifactId}/reject")
+    @Operation(summary = "Reject a draft, with an optional reason",
+            description = "Marks the draft discarded and keeps the reason. Nothing is deleted: what "
+                    + "a user turned down, and why, is the most direct signal about whether the coach "
+                    + "is proposing things worth doing.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Rejected"),
+            @ApiResponse(responseCode = "404", description = "No such draft for this user"),
+            @ApiResponse(responseCode = "409", description = "Draft was already accepted")
+    })
+    public SessionDraftView reject(Authentication authentication,
+                                   @PathVariable UUID artifactId,
+                                   @Valid @RequestBody(required = false) RejectSessionDraftRequest request) {
+        return draftService.reject(
+                CoachPrincipal.userId(authentication), artifactId,
+                request == null ? null : request.reason());
     }
 
     @GetMapping("/metrics")

@@ -19,6 +19,11 @@ import com.fitsync.recommendation.coach.draft.DraftViolation;
 import com.fitsync.recommendation.coach.draft.SessionDraft;
 import com.fitsync.recommendation.coach.draft.SessionDraftGenerator;
 import com.fitsync.recommendation.coach.draft.TemplateSessionBuilder;
+import com.fitsync.recommendation.coach.draft.WorkoutPlanMapper;
+import com.fitsync.recommendation.coach.client.CatalogueClient.DownstreamWriteException;
+import com.fitsync.recommendation.coach.dto.AcceptSessionDraftResponse;
+import java.time.Clock;
+import java.time.Instant;
 import com.fitsync.recommendation.coach.dto.SessionDraftView;
 import com.fitsync.recommendation.coach.entity.ArtifactKind;
 import com.fitsync.recommendation.coach.entity.ArtifactStatus;
@@ -67,7 +72,9 @@ public class SessionDraftService {
     private final SessionDraftGenerator generator;
     private final TemplateSessionBuilder templateBuilder;
     private final GeneratedArtifactRepository artifactRepository;
+    private final WorkoutPlanMapper planMapper;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
 
     public SessionDraftService(WorkoutCatalogueClient workoutClient,
                                CandidateSelector candidateSelector,
@@ -75,14 +82,18 @@ public class SessionDraftService {
                                SessionDraftGenerator generator,
                                TemplateSessionBuilder templateBuilder,
                                GeneratedArtifactRepository artifactRepository,
-                               ObjectMapper objectMapper) {
+                               WorkoutPlanMapper planMapper,
+                               ObjectMapper objectMapper,
+                               Clock clock) {
         this.workoutClient = workoutClient;
         this.candidateSelector = candidateSelector;
         this.contextAssembler = contextAssembler;
         this.generator = generator;
         this.templateBuilder = templateBuilder;
         this.artifactRepository = artifactRepository;
+        this.planMapper = planMapper;
         this.objectMapper = objectMapper;
+        this.clock = clock;
     }
 
     /**
@@ -122,6 +133,120 @@ public class SessionDraftService {
                 .map(draft -> persist(call, threadId, draft, DraftSource.RULE_FALLBACK,
                         attempt.modelAvailable() ? 2 : 0, attempt.firstPassViolations()))
                 .orElseThrow(() -> new DraftUnavailableException(whyNothingCouldBeBuilt(candidates, context)));
+    }
+
+    /**
+     * Turns a draft into a real plan and, normally, a running session.
+     *
+     * <p>Two writes to workout-service, in order, and the second is allowed to fail on its own. If
+     * the plan is created but cannot be started, the user has still gained a plan they can open and
+     * start by hand, so the artifact records the plan and the response says the session did not
+     * start. Undoing the plan to keep the two in step would take something real away from the user
+     * to make a status field tidier.
+     *
+     * <p>Accepting an already accepted draft returns what it became rather than creating a second
+     * plan. The status check and the update happen in one transaction, and the entity's version
+     * column turns two simultaneous accepts into one success and one retryable failure.
+     */
+    @Transactional
+    public AcceptSessionDraftResponse accept(CoachCallContext call, UUID artifactId) {
+        GeneratedArtifactEntity artifact = artifactRepository
+                .findByArtifactIdAndUserId(artifactId, call.userId())
+                .orElseThrow(() -> new ResourceNotFoundException("Draft not found"));
+
+        if (artifact.getStatus() == ArtifactStatus.ACCEPTED) {
+            return new AcceptSessionDraftResponse(
+                    artifactId, ArtifactStatus.ACCEPTED, artifact.getAcceptedRef(),
+                    artifact.getStartedSessionRef(), artifact.getStartedSessionRef() != null);
+        }
+        if (artifact.getStatus() == ArtifactStatus.DISCARDED) {
+            throw new DraftNotAcceptableException("This draft was rejected and cannot be accepted.");
+        }
+
+        SessionDraft draft = readDraft(artifact);
+        UUID planId = createPlan(call, draft);
+
+        artifact.setStatus(ArtifactStatus.ACCEPTED);
+        artifact.setAcceptedRef(planId);
+        artifact.setAcceptedAt(Instant.now(clock));
+
+        UUID sessionId = startPlan(call, planId);
+        artifact.setStartedSessionRef(sessionId);
+        artifactRepository.save(artifact);
+
+        return new AcceptSessionDraftResponse(
+                artifactId, ArtifactStatus.ACCEPTED, planId, sessionId, sessionId != null);
+    }
+
+    /**
+     * Records that the user did not want this one, and why if they said.
+     *
+     * <p>Not a deletion. What a user turned down is the most direct signal the harness has, and it
+     * is kept next to how the draft was produced so the two can be read together.
+     */
+    @Transactional
+    public SessionDraftView reject(UUID userId, UUID artifactId, String reason) {
+        GeneratedArtifactEntity artifact = artifactRepository
+                .findByArtifactIdAndUserId(artifactId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Draft not found"));
+
+        if (artifact.getStatus() == ArtifactStatus.ACCEPTED) {
+            throw new DraftNotAcceptableException(
+                    "This draft has already been accepted; discard the plan it became instead.");
+        }
+        artifact.setStatus(ArtifactStatus.DISCARDED);
+        artifact.setRejectionReason(reason == null || reason.isBlank() ? null : reason.strip());
+        artifactRepository.save(artifact);
+        return toView(artifact);
+    }
+
+    private UUID createPlan(CoachCallContext call, SessionDraft draft) {
+        String body;
+        try {
+            body = workoutClient.createPlan(call.bearerToken(), planMapper.toCreatePlanRequest(draft));
+        } catch (DownstreamWriteException ex) {
+            throw new DraftNotAcceptableException(
+                    ex.status() == 0
+                            ? "The workout service could not be reached, so the plan was not created. Try again shortly."
+                            : "The workout service did not accept this session as a plan (status " + ex.status() + ").");
+        }
+        UUID planId = readId(body, "planId");
+        if (planId == null) {
+            throw new DraftNotAcceptableException("The workout service created a plan but did not say which.");
+        }
+        return planId;
+    }
+
+    /** @return the started session, or null when the plan was saved but could not be started */
+    private UUID startPlan(CoachCallContext call, UUID planId) {
+        try {
+            return readId(workoutClient.startPlan(call.bearerToken(), planId), "sessionId");
+        } catch (DownstreamWriteException ex) {
+            LOG.warn("Plan {} was created but its session could not be started (status {})",
+                    planId, ex.status());
+            return null;
+        }
+    }
+
+    private UUID readId(String body, String field) {
+        if (body == null) {
+            return null;
+        }
+        try {
+            String raw = objectMapper.readTree(body).path(field).asText(null);
+            return raw == null ? null : UUID.fromString(raw);
+        } catch (JsonProcessingException | IllegalArgumentException ex) {
+            LOG.warn("The workout service response did not carry a readable {}", field, ex);
+            return null;
+        }
+    }
+
+    private SessionDraft readDraft(GeneratedArtifactEntity artifact) {
+        try {
+            return objectMapper.readValue(artifact.getPayload(), SessionDraft.class);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("A stored draft could not be read back", ex);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -276,20 +401,19 @@ public class SessionDraftService {
         artifactRepository.save(artifact);
 
         return new SessionDraftView(
-                artifact.getArtifactId(), ArtifactStatus.DRAFT, source, attempts, draft);
+                artifact.getArtifactId(), ArtifactStatus.DRAFT, source, attempts, draft, null, null, null);
     }
 
     private SessionDraftView toView(GeneratedArtifactEntity artifact) {
-        try {
-            return new SessionDraftView(
-                    artifact.getArtifactId(),
-                    artifact.getStatus(),
-                    artifact.getSource(),
-                    artifact.getValidationAttempts(),
-                    objectMapper.readValue(artifact.getPayload(), SessionDraft.class));
-        } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("A stored draft could not be read back", ex);
-        }
+        return new SessionDraftView(
+                artifact.getArtifactId(),
+                artifact.getStatus(),
+                artifact.getSource(),
+                artifact.getValidationAttempts(),
+                readDraft(artifact),
+                artifact.getAcceptedRef(),
+                artifact.getStartedSessionRef(),
+                artifact.getRejectionReason());
     }
 
     private String write(Object value) {
@@ -344,6 +468,19 @@ public class SessionDraftService {
 
         public DraftUnavailableException(String message) {
             super(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "DRAFT_UNAVAILABLE", message);
+        }
+    }
+
+    /**
+     * Thrown when a draft is in a state that does not allow the requested transition, or when the
+     * service that would own the result declined it. 409, because the draft exists and the caller
+     * is allowed to see it; it is the requested change that conflicts with where things stand.
+     */
+    public static class DraftNotAcceptableException extends com.fitsync.web.error.ApiException {
+        private static final long serialVersionUID = 1L;
+
+        public DraftNotAcceptableException(String message) {
+            super(org.springframework.http.HttpStatus.CONFLICT, "DRAFT_NOT_ACCEPTABLE", message);
         }
     }
 }

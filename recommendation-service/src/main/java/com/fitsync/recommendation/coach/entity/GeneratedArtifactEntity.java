@@ -73,6 +73,14 @@ public class GeneratedArtifactEntity extends BaseAuditableEntity {
     @Column(name = "accepted_at")
     private Instant acceptedAt;
 
+    /** The session started from the accepted plan, so a client can open it straight from the draft. */
+    @Column(name = "started_session_ref")
+    private UUID startedSessionRef;
+
+    /** Why the user turned it down. Kept, because a rejection is the harness's most direct signal. */
+    @Column(name = "rejection_reason", length = 500)
+    private String rejectionReason;
+
     public UUID getArtifactId() {
         return artifactId;
     }
@@ -167,5 +175,21 @@ public class GeneratedArtifactEntity extends BaseAuditableEntity {
 
     public void setAcceptedAt(Instant acceptedAt) {
         this.acceptedAt = acceptedAt;
+    }
+
+    public UUID getStartedSessionRef() {
+        return startedSessionRef;
+    }
+
+    public void setStartedSessionRef(UUID startedSessionRef) {
+        this.startedSessionRef = startedSessionRef;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
+    }
+
+    public void setRejectionReason(String rejectionReason) {
+        this.rejectionReason = rejectionReason;
     }
 }

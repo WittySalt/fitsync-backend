@@ -74,6 +74,64 @@ public abstract class CatalogueClient {
         }
     }
 
+    /**
+     * Writes to a downstream service, and unlike {@link #get} does not hide failure.
+     *
+     * <p>A read that fails becomes an observation the model works around, which is the right shape
+     * for a read. A write that fails is a different matter: the user asked for something to be
+     * created, and "it may or may not have been" is not an answer they can act on. So this throws,
+     * with the downstream status, and the caller decides what the user is told.
+     */
+    protected String post(String path, Object body, String bearerToken) {
+        URI url = UriComponentsBuilder.fromUriString(baseUrl + path).build().encode().toUri();
+        try {
+            return restClient.post()
+                    .uri(url)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(String.class);
+        } catch (org.springframework.web.client.RestClientResponseException ex) {
+            // The URL is logged, the token never is, and the body is not either: a 4xx from a
+            // validation failure can echo the request back, which is the caller's data.
+            LOG.warn("{} write rejected for {} with status {}", label, path, ex.getStatusCode().value());
+            throw new DownstreamWriteException(label, ex.getStatusCode().value(), ex.getResponseBodyAsString());
+        } catch (RuntimeException ex) {
+            LOG.warn("{} write failed for {}: {}", label, path, ex.getMessage());
+            throw new DownstreamWriteException(label, 0, null);
+        }
+    }
+
+    /** A write the downstream service did not accept, with enough for the caller to say why. */
+    public static class DownstreamWriteException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        private final String service;
+        private final int status;
+        private final String responseBody;
+
+        public DownstreamWriteException(String service, int status, String responseBody) {
+            super(service + " write failed with status " + status);
+            this.service = service;
+            this.status = status;
+            this.responseBody = responseBody;
+        }
+
+        public String service() {
+            return service;
+        }
+
+        /** Zero when the service could not be reached at all. */
+        public int status() {
+            return status;
+        }
+
+        public String responseBody() {
+            return responseBody;
+        }
+    }
+
     protected static Map<String, Object> params() {
         return new LinkedHashMap<>();
     }
