@@ -11,6 +11,7 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.config.CoachProperties;
+import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
 import com.fitsync.recommendation.coach.service.CoachThreadService;
 import com.fitsync.recommendation.coach.tool.CoachTool;
 import com.fitsync.recommendation.coach.tool.ToolClass;
@@ -110,7 +111,7 @@ class CoachOrchestratorTests {
     @DisplayName("with the AI tier off there is no model bean, and that is not an error")
     void degradesWhenTheModelIsOff() {
         CoachOrchestrator orchestrator = new CoachOrchestrator(
-                emptyProvider(), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
+                emptyProvider(), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
                 java.util.concurrent.Executors.newSingleThreadExecutor());
 
         CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
@@ -127,7 +128,7 @@ class CoachOrchestratorTests {
             throw new IllegalStateException("connection refused");
         };
         CoachOrchestrator orchestrator = new CoachOrchestrator(
-                providerOf(throwing), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
+                providerOf(throwing), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
                 java.util.concurrent.Executors.newSingleThreadExecutor());
 
         CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
@@ -255,6 +256,40 @@ class CoachOrchestratorTests {
         assertThat(finished.latencyMs()).isNotNull().isGreaterThanOrEqualTo(0);
     }
 
+    // --- guardrails, which answer before any model is asked ------------------------------------
+
+    @Test
+    @DisplayName("a plan to eat below the calorie floor is refused without consulting the model")
+    void refusesBelowTheCalorieFloorBeforeTheModel() {
+        List<String> prompts = new ArrayList<>();
+        ClaudeClient scripted = (system, user) -> {
+            prompts.add(user);
+            return "{\"answer\":\"Sure, 800 kcal is fine.\"}";
+        };
+        CoachOrchestrator orchestrator = new CoachOrchestrator(
+                providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
+                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor());
+
+        CoachOutcome outcome = orchestrator.answer(CONTEXT, "Should I cut to 800 kcal a day?", List.of());
+
+        assertThat(prompts).withFailMessage("the model must never see a question the guardrail refused").isEmpty();
+        assertThat(calls).isEmpty();
+        assertThat(outcome.refused()).isTrue();
+        assertThat(outcome.guardrailVerdict()).isEqualTo("REFUSED_CALORIE_FLOOR");
+        assertThat(outcome.tier()).isEqualTo(CoachOrchestrator.TIER_RULE);
+        assertThat(outcome.answer()).contains("1200 kcal");
+    }
+
+    @Test
+    @DisplayName("an ordinary question is recorded as passed")
+    void recordsAPassedVerdict() {
+        CoachOutcome outcome = orchestrator("{\"answer\":\"Rest today.\"}")
+                .answer(CONTEXT, "Should I train today?", List.of());
+
+        assertThat(outcome.guardrailVerdict()).isEqualTo("PASSED");
+        assertThat(outcome.refused()).isFalse();
+    }
+
     // --- the planned path, which came out of the day-zero latency measurement -----------------
 
     @Test
@@ -291,7 +326,7 @@ class CoachOrchestratorTests {
         ClaudeClient scripted = (system, user) ->
                 script.isEmpty() ? "{\"answer\":\"script exhausted\"}" : script.poll();
         return new CoachOrchestrator(
-                providerOf(scripted), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
+                providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
                 java.util.concurrent.Executors.newSingleThreadExecutor());
     }
 

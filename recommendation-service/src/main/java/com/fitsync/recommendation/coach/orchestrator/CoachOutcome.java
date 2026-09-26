@@ -10,7 +10,19 @@ import java.util.List;
  * and 1, where the rules and templates answer without any model at all, are recorded by the callers
  * that take that path.
  */
-public record CoachOutcome(String answer, int tier, List<String> toolsUsed, int latencyMs, boolean modelAvailable) {
+public record CoachOutcome(String answer,
+                           int tier,
+                           List<String> toolsUsed,
+                           int latencyMs,
+                           boolean modelAvailable,
+                           String guardrailVerdict) {
+
+    /** The verdict recorded on a turn a model was allowed to answer. */
+    public static final String VERDICT_PASSED = "PASSED";
+    /** The verdict recorded when the AI tier was off and no model was consulted. */
+    public static final String VERDICT_MODEL_OFF = "MODEL_OFF";
+    /** Prefix for a refusal, followed by the rule that fired, so the harness can count each rule. */
+    public static final String VERDICT_REFUSED_PREFIX = "REFUSED_";
 
     public CoachOutcome {
         toolsUsed = toolsUsed == null ? List.of() : List.copyOf(toolsUsed);
@@ -22,10 +34,23 @@ public record CoachOutcome(String answer, int tier, List<String> toolsUsed, int 
     }
 
     static CoachOutcome answered(String answer, List<String> toolsUsed, int latencyMs) {
-        return new CoachOutcome(answer, CoachOrchestrator.TIER_LOCAL_MODEL, toolsUsed, latencyMs, true);
+        return new CoachOutcome(answer, CoachOrchestrator.TIER_LOCAL_MODEL, toolsUsed, latencyMs, true, VERDICT_PASSED);
     }
 
     static CoachOutcome unavailable(String message) {
-        return new CoachOutcome(message, CoachOrchestrator.TIER_UNAVAILABLE, List.of(), 0, false);
+        return new CoachOutcome(message, CoachOrchestrator.TIER_UNAVAILABLE, List.of(), 0, false, VERDICT_MODEL_OFF);
+    }
+
+    /**
+     * A guardrail answered instead of a model. Tier 0, because a rule decided; the model is still
+     * available, it was simply not asked.
+     */
+    static CoachOutcome refused(String rule, String message, int latencyMs) {
+        return new CoachOutcome(message, CoachOrchestrator.TIER_RULE, List.of(), latencyMs, true,
+                VERDICT_REFUSED_PREFIX + rule);
+    }
+
+    public boolean refused() {
+        return guardrailVerdict != null && guardrailVerdict.startsWith(VERDICT_REFUSED_PREFIX);
     }
 }

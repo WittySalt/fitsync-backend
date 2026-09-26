@@ -112,7 +112,7 @@ public class CoachConversationService {
                 null,
                 null,
                 outcome.latencyMs(),
-                outcome.modelAvailable() ? "PASSED" : "MODEL_OFF");
+                outcome.guardrailVerdict());
 
         return new CoachMessageResponse(
                 pending.threadId(), pending.turnId(), outcome.answer(),

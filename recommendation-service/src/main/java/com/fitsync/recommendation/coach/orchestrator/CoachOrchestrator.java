@@ -6,12 +6,14 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.config.CoachProperties;
+import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
 import com.fitsync.recommendation.coach.tool.ToolRegistry;
 import com.fitsync.recommendation.coach.tool.ToolResult;
 import com.fitsync.recommendation.service.ai.ClaudeClient;
@@ -46,6 +48,8 @@ public class CoachOrchestrator {
 
     private static final Logger LOG = LoggerFactory.getLogger(CoachOrchestrator.class);
 
+    /** Tier 0 is a rule: a guardrail that answered so a model did not have to. */
+    public static final int TIER_RULE = 0;
     /** Tier 2 is the local model. Recorded on the turn so the trace can show what answered. */
     public static final int TIER_LOCAL_MODEL = 2;
     public static final int TIER_UNAVAILABLE = -1;
@@ -82,6 +86,7 @@ public class CoachOrchestrator {
             """;
 
     private final ObjectProvider<ClaudeClient> claudeClient;
+    private final CoachGuardrail guardrail;
     private final ToolRegistry toolRegistry;
     private final CoachActionParser actionParser;
     private final CoachProperties properties;
@@ -89,12 +94,14 @@ public class CoachOrchestrator {
     private final ExecutorService toolExecutor;
 
     public CoachOrchestrator(ObjectProvider<ClaudeClient> claudeClient,
+                             CoachGuardrail guardrail,
                              ToolRegistry toolRegistry,
                              CoachActionParser actionParser,
                              CoachProperties properties,
                              ObjectMapper objectMapper,
                              @Qualifier("coachToolExecutor") ExecutorService toolExecutor) {
         this.claudeClient = claudeClient;
+        this.guardrail = guardrail;
         this.toolRegistry = toolRegistry;
         this.actionParser = actionParser;
         this.properties = properties;
@@ -121,6 +128,15 @@ public class CoachOrchestrator {
                                String question,
                                List<String> history,
                                CoachProgressListener listener) {
+        long startedAt = System.nanoTime();
+
+        // Before any model, and before any tool: a guardrail is a rule, and a rule that runs first
+        // cannot be talked out of it. A refusal is an answer in its own right, recorded as such.
+        Optional<CoachGuardrail.Refusal> refusal = guardrail.check(question);
+        if (refusal.isPresent()) {
+            return CoachOutcome.refused(refusal.get().rule(), refusal.get().message(), elapsedMs(startedAt));
+        }
+
         ClaudeClient client = claudeClient.getIfAvailable();
         if (client == null) {
             return CoachOutcome.unavailable(
@@ -128,7 +144,6 @@ public class CoachOrchestrator {
                             + "computed from your data. Those are on your dashboard.");
         }
 
-        long startedAt = System.nanoTime();
         String system = SYSTEM_PROMPT_HEAD + toolRegistry.promptBlock() + SYSTEM_PROMPT_TAIL;
         List<String> transcript = new ArrayList<>(history);
         List<String> toolsUsed = new ArrayList<>();
@@ -188,10 +203,35 @@ public class CoachOrchestrator {
             }
         }
 
+        // Out of steps. The evaluation harness showed this ending accounted for most grounding
+        // misses: the facts were in the transcript and the model kept asking for tools instead of
+        // using them. So the last call removes the tools altogether. Shown no tool catalogue and
+        // told to answer, a small model answers from what it has.
+        try {
+            CoachAction last = actionParser.parse(client.complete(
+                    ANSWER_ONLY_PROMPT, userPrompt(question, transcript)));
+            if (last.kind() == CoachAction.Kind.ANSWER) {
+                return CoachOutcome.answered(last.answer(), toolsUsed, elapsedMs(startedAt));
+            }
+        } catch (RuntimeException ex) {
+            LOG.warn("Model call failed on the final answer-only attempt", ex);
+        }
         return CoachOutcome.answered(
                 "I gathered what I could but could not put an answer together. Try asking more narrowly.",
                 toolsUsed, elapsedMs(startedAt));
     }
+
+    /** The prompt for the last resort: no tools exist, only an answer is possible. */
+    private static final String ANSWER_ONLY_PROMPT = """
+            You are the FitSync coach. You help one user with their training and nutrition.
+
+            You have no tools. The results of every tool you already used are in the conversation
+            below. Answer the user's question now from those results, in two or three plain
+            sentences. Every number must come from a result shown below. If the results do not
+            cover the question, say what you can see and that the rest is outside what you know.
+
+            Reply with ONE JSON object and nothing else: {"answer":"<text>"}
+            """;
 
     /**
      * How many times the loop may go round.
@@ -272,7 +312,10 @@ public class CoachOrchestrator {
         Set<String> planned = new LinkedHashSet<>();
 
         boolean aboutTraining = containsAny(lower, "train", "workout", "session", "exercise", "gym", "lift");
-        boolean aboutProgress = containsAny(lower, "week", "pace", "goal", "streak", "progress", "on track");
+        // "day" and "today" were missing at first, and the harness's very first question, "how is
+        // my day going?", got "outside what I know" because nothing had been read.
+        boolean aboutProgress = containsAny(lower, "week", "pace", "goal", "streak", "progress", "on track",
+                "day", "today", "how am i", "where do i stand", "summar");
         boolean aboutFood = containsAny(lower, "eat", "meal", "food", "protein", "calorie", "dinner", "lunch");
 
         if (aboutTraining || aboutProgress || aboutFood) {
