@@ -460,6 +460,7 @@
     <Match>
         <Class name="com.fitsync.recommendation.service.ai.CoachFacts"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 
     <!-- CRLF_INJECTION_LOGS on GlobalApiExceptionHandler's two log calls.
          The finding is correct in principle: the request path and the X-Correlation-Id header are
