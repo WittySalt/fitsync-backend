@@ -348,6 +348,120 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- recommendation-service event handlers store constructor-injected Spring singletons
+         (context store / processed-event guard / repositories / clock); same Spring-DI noise
+         as the analytics/nutrition consumer impls above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.ProcessedEventGuard"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.RecommendationContextStore"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.GoalUpdatedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.BodyMetricsRecordedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.MealLoggedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.MealUpdatedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.MealDeletedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.UserRegisteredEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.UserProfileUpdatedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.UserPreferencesUpdatedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.WeeklyRecapGeneratedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.StreakMilestoneReachedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.PersonalRecordAchievedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.EnergyProfileComputedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.handler.AccountDeletedEventHandler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Resolver stores constructor-injected Spring singletons (repositories,
+         ObjectMapper); same Spring-DI noise as the handlers above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.service.RecommendationResolver"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Spring wiring and controller in recommendation-service; same exclusions the
+         other services' controllers carry (DI singleton storage + endpoint marker). -->
+    <Match>
+        <Class name="com.fitsync.recommendation.controller.RecommendationController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.controller.RecommendationController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <!-- AI narrative service stores constructor-injected Spring singletons
+         (repositories, ObjectMapper); same Spring-DI noise as the handlers above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.service.ai.WeeklyNarrativeService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.service.ai.CoachQaService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.service.ai.CoachFacts"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- CRLF_INJECTION_LOGS on GlobalApiExceptionHandler's two log calls.
          The finding is correct in principle: the request path and the X-Correlation-Id header are
          caller-controlled, and a caller that puts a line break in either could forge log lines.

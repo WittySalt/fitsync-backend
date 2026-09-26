@@ -11,5 +11,6 @@ public record GatewayRoutesProperties(
         @NotBlank String userServiceBaseUrl,
         @NotBlank String workoutServiceBaseUrl,
         @NotBlank String nutritionServiceBaseUrl,
-        @NotBlank String analyticsServiceBaseUrl) {
+        @NotBlank String analyticsServiceBaseUrl,
+        @NotBlank String recommendationServiceBaseUrl) {
 }

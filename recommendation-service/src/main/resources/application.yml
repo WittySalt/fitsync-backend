@@ -1,0 +1,108 @@
+spring:
+  application:
+    name: recommendation-service
+  profiles:
+    default: local
+  datasource:
+    url: ${LOCAL_DB_URL:${DB_URL:jdbc:postgresql://localhost:5432/fitsync}}
+    username: ${LOCAL_DB_USERNAME:${DB_USERNAME:fitsync}}
+    password: ${LOCAL_DB_PASSWORD:${DB_PASSWORD:fitsync}}
+    hikari:
+      schema: recommendation
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        default_schema: recommendation
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    default-schema: recommendation
+    schemas: recommendation
+    table: recommendation_flyway_schema_history
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      missing-topics-fatal: false
+
+server:
+  port: ${SERVER_PORT:8086}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:change-me-change-me-change-me-change-me}
+    expiration: ${JWT_EXPIRATION:PT2H}
+
+fitsync:
+  recommendation:
+    rule-result-ttl: ${RECOMMENDATION_RULE_RESULT_TTL:PT24H}
+    ai:
+      # X-4: the API key is NOT configured here — the SDK reads ANTHROPIC_API_KEY
+      # from the environment (AnthropicOkHttpClient.fromEnv()). Enabling the tier
+      # without the env var fails fast at startup. The ollama provider needs no
+      # key at all: point base-url at a local Ollama and set model to a pulled tag.
+      enabled: ${RECOMMENDATION_AI_ENABLED:false}
+      provider: ${RECOMMENDATION_AI_PROVIDER:anthropic}
+      model: ${RECOMMENDATION_AI_MODEL:claude-sonnet-4-6}
+      base-url: ${RECOMMENDATION_AI_BASE_URL:http://localhost:11434}
+      max-tokens: ${RECOMMENDATION_AI_MAX_TOKENS:300}
+      narrative-ttl: ${RECOMMENDATION_AI_NARRATIVE_TTL:P7D}
+      coach-questions-per-hour: ${RECOMMENDATION_AI_COACH_QUESTIONS_PER_HOUR:5}
+  kafka:
+    enabled: ${KAFKA_ENABLED:false}
+    topics:
+      user-events: ${KAFKA_USER_EVENTS_TOPIC:user-events}
+      progress-events: ${KAFKA_PROGRESS_EVENTS_TOPIC:progress-events}
+      nutrition-events: ${KAFKA_NUTRITION_EVENTS_TOPIC:nutrition-events}
+      analytics-events: ${KAFKA_ANALYTICS_EVENTS_TOPIC:analytics-events}
+      workout-events: ${KAFKA_WORKOUT_EVENTS_TOPIC:workout-events}
+    consumer-groups:
+      recommendation-service: ${KAFKA_RECOMMENDATION_SERVICE_GROUP:recommendation-consumer-group}
+    listeners:
+      goal-updated:
+        enabled: ${KAFKA_GOAL_UPDATED_LISTENER_ENABLED:false}
+      body-metrics-recorded:
+        enabled: ${KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED:false}
+      meal-logged:
+        enabled: ${KAFKA_MEAL_LOGGED_LISTENER_ENABLED:false}
+      meal-updated:
+        enabled: ${KAFKA_MEAL_UPDATED_LISTENER_ENABLED:false}
+      meal-deleted:
+        enabled: ${KAFKA_MEAL_DELETED_LISTENER_ENABLED:false}
+      user-registered:
+        enabled: ${KAFKA_USER_REGISTERED_LISTENER_ENABLED:false}
+      user-profile-updated:
+        enabled: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:false}
+      energy-profile-computed:
+        enabled: ${KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED:false}
+      user-preferences-updated:
+        enabled: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
+      weekly-recap-generated:
+        enabled: ${KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED:false}
+      streak-milestone-reached:
+        enabled: ${KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED:false}
+      personal-record-achieved:
+        enabled: ${KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED:false}
+      account-deleted:
+        enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}

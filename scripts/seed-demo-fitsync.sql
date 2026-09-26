@@ -124,6 +124,21 @@ delete from analytics.analytics_user_goal_progress      where user_id in (select
 delete from analytics.analytics_user_dashboard_snapshot where user_id in (select user_id from demo_config);
 delete from analytics.analytics_processed_events        where user_id in (select user_id from demo_config);
 
+-- 1e. recommendation-service projection, when that service's schema is present.
+--     recommendation-service lives on a feature branch, so a database built from `main` has no
+--     `recommendation` schema at all. Guarded so this script stays runnable either way.
+do $$
+begin
+    if exists (select 1 from pg_namespace where nspname = 'recommendation') then
+        delete from recommendation.recommendation_result
+         where user_id in (select user_id from demo_config);
+        delete from recommendation.recommendation_processed_events
+         where user_id in (select user_id from demo_config);
+        delete from recommendation.recommendation_context
+         where user_id in (select user_id from demo_config);
+    end if;
+end $$;
+
 -- Note: per-service outbox_events (messaging infra) are intentionally NOT
 -- touched. Run while services are idle so no stale event re-projects.
 
@@ -296,7 +311,11 @@ with g(goal_type, target_value, target_unit, notes) as (values
 )
 select
     md5(c.user_id::text || 'GOAL' || g.goal_type)::uuid,
-    c.user_id, g.goal_type, g.target_value, g.target_unit, date '2026-08-31', 'ACTIVE', g.notes,
+    c.user_id, g.goal_type, g.target_value, g.target_unit,
+    -- Rolls with the window. A literal date makes every goal expire as soon as it passes, and the
+    -- analytics read path now marks a goal past its target date as overdue and not on track, so a
+    -- fixed date turns the whole Active-targets card into a wall of "Overdue".
+    (c.d_today + 60)::date, 'ACTIVE', g.notes,
     (c.d_start + time '08:00') at time zone c.tz,
     (c.d_today + time '08:00') at time zone c.tz,
     'demo-seed', 'demo-seed', 0
@@ -844,6 +863,254 @@ join lateral (
     order by bd.metric_date desc
     limit 1
 ) bd on true;
+
+-- ----------------------------------------------------------------------------
+-- 8b. Fields the Phase 2 work added after this seed was written.
+--
+--     The script predates three things and so left them empty, which meant the features built on
+--     them had nothing to show: the rules engine could not judge weekly adherence without a target,
+--     and the food-group breakdown, the payoff of the whole open-data thread, was blank.
+-- ----------------------------------------------------------------------------
+
+-- Training preferences. R2 compares active days against weekly_workout_days, so without this the
+-- weekly-adherence rule cannot fire at all. Five days against the four the window actually
+-- contains, so the rule has something true to say.
+insert into user_domain.user_training_preferences
+    (user_id, fitness_level_code, training_location_code, weekly_workout_days,
+     preferred_duration_minutes, preferred_workout_time, intensity_preference_code,
+     date_time_created, date_time_updated, created_by, updated_by, version)
+-- Codes are looked up by display name rather than pasted in, so the seed survives a renumbering
+-- of the code tables and reads as what it means.
+select c.user_id,
+       (select cv.code from user_domain.code_values cv
+         where cv.code_set_key = 'fitness_level' and cv.display_name = 'Intermediate'),
+       (select cv.code from user_domain.code_values cv
+         where cv.code_set_key = 'training_location' and cv.display_name = 'Gym'),
+       5, 45, time '19:00',
+       (select cv.code from user_domain.code_values cv
+         where cv.code_set_key = 'intensity_preference' and cv.display_name = 'Moderate'),
+       now(), now(), 'demo-seed', 'demo-seed', 0
+from demo_config c
+on conflict (user_id) do update
+   set weekly_workout_days = excluded.weekly_workout_days,
+       preferred_duration_minutes = excluded.preferred_duration_minutes,
+       date_time_updated = now();
+
+insert into user_domain.user_training_preference_focus_areas (user_id, sort_order, focus_area_code)
+select c.user_id, f.sort_order, f.code
+from demo_config c
+cross join lateral (
+    select row_number() over (order by cv.sort_order) - 1 as sort_order, cv.code
+      from user_domain.code_values cv
+     where cv.code_set_key = 'training_focus_area'
+       and cv.display_name in ('Upper body', 'Lower body', 'Core')
+) f
+on conflict do nothing;
+
+insert into user_domain.user_training_preference_equipment (user_id, sort_order, equipment_code)
+select c.user_id, e.sort_order, e.code
+from demo_config c
+cross join lateral (
+    select row_number() over (order by cv.sort_order) - 1 as sort_order, cv.code
+      from user_domain.code_values cv
+     where cv.code_set_key = 'training_equipment'
+       and cv.display_name in ('Barbell', 'Dumbbells', 'Full gym')
+) e
+on conflict do nothing;
+
+-- Food-group classification on the meal items, which the live path stamps at log time (SNAP-3).
+-- Direct SQL bypasses that. The seeded items are recorded by name rather than linked to the
+-- catalog, so the mapping is spelled out here for the foods this script itself authors. It is the
+-- curated half of the demo: without it the food-group breakdown is blank and the whole open-data
+-- thread, PRs #3 to #6, has nothing to show.
+update nutrition.meal_items mi
+   set category_code = m.code
+  from (values
+        ('Rolled Oats',              'GRAINS'),
+        ('Steamed White Rice',       'GRAINS'),
+        ('Banana',                   'FRUITS'),
+        ('Apple',                    'FRUITS'),
+        ('Mixed Berries',            'FRUITS'),
+        ('Garden Salad',             'VEGETABLES'),
+        ('Stir-fried Vegetables',    'VEGETABLES'),
+        ('Sweet Potato',             'VEGETABLES'),
+        ('Grilled Chicken Breast',   'MEAT_POULTRY'),
+        ('Homemade Chicken Breast',  'MEAT_POULTRY'),
+        ('Baked Salmon',             'SEAFOOD'),
+        ('Greek Yogurt',             'DAIRY'),
+        ('Almonds',                  'NUTS_SEEDS'),
+        ('Whey Protein Shake',       'PROTEIN_SUPPLEMENT')
+       ) as m(food_name, code),
+       nutrition.meal_logs ml,
+       demo_config c
+ where mi.meal_id = ml.meal_id
+   and ml.user_id = c.user_id
+   and mi.food_name = m.food_name;
+
+-- Per-day food-group energy, the aggregate AN-1 maintains from MealLogged.foodGroupCalories.
+-- Encoded as CODE=kcal;CODE=kcal, the compact internal format the analytics column already uses.
+update analytics.analytics_user_daily_nutrition n
+   set food_group_calories = agg.encoded
+  from (
+        select ml.user_id,
+               (ml.consumed_at at time zone c.tz)::date as activity_date,
+               string_agg(x.code || '=' || round(x.kcal)::text, ';' order by x.kcal desc) as encoded
+          from demo_config c
+          join nutrition.meal_logs ml on ml.user_id = c.user_id
+          join lateral (
+                select mi.category_code as code, sum(coalesce(mi.calories, 0)) as kcal
+                  from nutrition.meal_items mi
+                 where mi.meal_id = ml.meal_id
+                   and mi.category_code is not null
+                 group by mi.category_code
+          ) x on true
+         group by 1, 2
+       ) agg
+ where n.user_id = agg.user_id
+   and n.activity_date = agg.activity_date;
+
+-- ----------------------------------------------------------------------------
+-- 9. recommendation-service context projection.
+--
+--    Every value below is SELECTed from rows this script has just inserted, in the same
+--    transaction. Nothing is hardcoded, for two reasons.
+--
+--    The coach must not contradict the screen it sits on. Its numbers come from the same
+--    analytics rows the dashboard renders, so a demo cannot show "5 workouts this week" beside a
+--    month view reading zero.
+--
+--    The context is date-relative, and a literal date would not merely age, it would give the
+--    wrong answer. R1 only counts intake when today_date equals the actual current date, and R8
+--    measures a logging lapse from it. Joining demo_config inherits this script's rolling anchor,
+--    so the context is correct on whatever day the demo is recorded.
+--
+--    Normally these columns are filled by thirteen Kafka consumers. A fresh environment has no
+--    event history to replay, which is the gap described in
+--    Documents/architecture/projection-bootstrap-design.md; this is its Layer 1. Once the rebuild
+--    endpoint in Layer 2 exists, most of this section can be replaced by a call to it.
+--
+--    Guarded on the schema existing, because recommendation-service is branch-only.
+-- ----------------------------------------------------------------------------
+do $do$
+begin
+    if not exists (select 1 from pg_namespace where nspname = 'recommendation') then
+        raise notice 'recommendation schema absent - skipping the coach context seed';
+        return;
+    end if;
+
+    insert into recommendation.recommendation_context (
+        user_id, timezone, today_date,
+        current_goal_type, current_goal_target_value, current_goal_target_unit, current_goal_target_date,
+        goal_baseline_weight_kg, goal_baseline_on,
+        energy_target_calories, protein_target_grams,
+        latest_weight_kg, latest_body_fat_rate, body_metrics_recorded_at,
+        height_cm, activity_level, workout_days_per_week, dietary_preference,
+        focus_areas, equipment_inventory,
+        recent_week_start, recent_workout_count, recent_workout_minutes, recent_active_days,
+        today_calories_consumed, today_protein_grams, current_streak_days,
+        nutrition_week_start, week_food_group_calories,
+        last_pr_exercise, last_pr_record_type, last_pr_value, last_pr_at,
+        stale, context_hash, last_assembled_at,
+        date_time_created, date_time_updated, created_by, updated_by, version
+    )
+    select
+        c.user_id,
+        c.tz,
+        c.d_today,
+        wg.goal_type, wg.target_value, wg.target_unit, wg.target_date,
+        -- Pace baseline: earliest weight inside the demo window, so R3 has both ends of the line.
+        (select bd.weight_kg from analytics.analytics_user_daily_body bd
+          where bd.user_id = c.user_id and bd.weight_kg is not null
+          order by bd.metric_date asc limit 1),
+        (select bd.metric_date from analytics.analytics_user_daily_body bd
+          where bd.user_id = c.user_id and bd.weight_kg is not null
+          order by bd.metric_date asc limit 1),
+        (select n.calorie_target::int from analytics.analytics_user_daily_nutrition n
+          where n.user_id = c.user_id and n.activity_date = c.d_today),
+        (select n.protein_target_grams from analytics.analytics_user_daily_nutrition n
+          where n.user_id = c.user_id and n.activity_date = c.d_today),
+        bd_latest.weight_kg, bd_latest.body_fat_rate,
+        (bd_latest.metric_date + time '08:00') at time zone c.tz,
+        p.height_cm, p.activity_level,
+        tp.weekly_workout_days, np.dietary_pattern_code,
+        (select string_agg(fa.focus_area_code, ',' order by fa.sort_order)
+           from user_domain.user_training_preference_focus_areas fa
+          where fa.user_id = c.user_id),
+        (select string_agg(eq.equipment_code, ',' order by eq.sort_order)
+           from user_domain.user_training_preference_equipment eq
+          where eq.user_id = c.user_id),
+        wk.week_start, wk.workout_count, wk.workout_minutes, wk.active_days,
+        (select n.total_calories_consumed from analytics.analytics_user_daily_nutrition n
+          where n.user_id = c.user_id and n.activity_date = c.d_today),
+        (select n.total_protein_grams from analytics.analytics_user_daily_nutrition n
+          where n.user_id = c.user_id and n.activity_date = c.d_today),
+        snap.active_streak_days,
+        wk.week_start,
+        -- Weekly food-group totals, re-encoded into the CODE=kcal;CODE=kcal form the rules parse.
+        (select string_agg(agg.code || '=' || round(agg.kcal)::text, ';' order by agg.kcal desc)
+           from (
+                 select split_part(pair, '=', 1) as code,
+                        sum(split_part(pair, '=', 2)::numeric) as kcal
+                   from analytics.analytics_user_daily_nutrition n
+                   cross join lateral unnest(string_to_array(coalesce(n.food_group_calories, ''), ';')) as pair
+                  where n.user_id = c.user_id
+                    and n.activity_date >= wk.week_start
+                    and pair <> ''
+                  group by 1
+                ) agg),
+        pr.exercise_name, pr.record_type, pr.record_value, pr.achieved_at,
+        -- Left stale with no hash, so the first read recomputes the rules against this context.
+        true, null, null,
+        now(), now(), 'demo-seed', 'demo-seed', 0
+    from demo_config c
+    join user_domain.user_profiles p on p.user_id = c.user_id
+    left join user_domain.user_training_preferences tp on tp.user_id = c.user_id
+    left join user_domain.user_nutrition_preferences np on np.user_id = c.user_id
+    left join analytics.analytics_user_dashboard_snapshot snap on snap.user_id = c.user_id
+    left join lateral (
+        select bd.weight_kg, bd.body_fat_rate, bd.metric_date
+          from analytics.analytics_user_daily_body bd
+         where bd.user_id = c.user_id
+         order by bd.metric_date desc
+         limit 1
+    ) bd_latest on true
+    left join lateral (
+        select g.goal_type, g.target_value, g.target_unit, g.target_date
+          from user_domain.user_goals g
+         where g.user_id = c.user_id and g.goal_type = 'WEIGHT'
+         limit 1
+    ) wg on true
+    left join lateral (
+        -- Monday-anchored current week, matching the rules' own week boundary.
+        select (c.d_today - ((extract(isodow from c.d_today)::int) - 1))::date as week_start,
+               coalesce(sum(w.completed_workout_count), 0)::int                as workout_count,
+               coalesce(sum(w.total_workout_minutes), 0)::int                  as workout_minutes,
+               count(*) filter (where w.completed_workout_count > 0)::int      as active_days
+          from analytics.analytics_user_daily_workout w
+         where w.user_id = c.user_id
+           and w.activity_date >= (c.d_today - ((extract(isodow from c.d_today)::int) - 1))::date
+    ) wk on true
+    left join lateral (
+        -- Heaviest single set in the window, presented as the most recent personal record so R6
+        -- has something real to celebrate.
+        select e.exercise_name_snapshot as exercise_name,
+               'MAX_WEIGHT'             as record_type,
+               max(sl.weight_kg)        as record_value,
+               max(s.completed_at)      as achieved_at
+          from workout.workout_sessions s
+          join workout.workout_exercise_logs e on e.session_id = s.session_id
+          join workout.workout_exercise_set_logs sl on sl.exercise_log_id = e.exercise_log_id
+         where s.user_id = c.user_id
+           and s.completed_at is not null
+           and sl.weight_kg is not null
+         group by e.exercise_name_snapshot
+         order by max(sl.weight_kg) desc
+         limit 1
+    ) pr on true;
+
+    raise notice 'coach context seeded';
+end
+$do$;
 
 commit;
 
