@@ -19,8 +19,11 @@ spring:
         default_schema: nutrition
   flyway:
     enabled: true
-    # db/migration = schema + core seeds (run everywhere incl. tests);
-    # db/seed = large prod-only data seeds (USDA foods) — excluded in the test profile.
+    # db/migration = schema + core seeds (run everywhere incl. tests), versions V1..V899;
+    # db/seed = large prod-only data seeds (USDA foods), versions V900+ — excluded in the test
+    # profile. Flyway shares ONE version namespace across both locations, so the ranges must not
+    # overlap: a seed numbered inside the schema range collides with a future migration and the
+    # service refuses to start. DuplicateFlywayVersionTest enforces this.
     locations: classpath:db/migration,classpath:db/seed
     default-schema: nutrition
     schemas: nutrition
