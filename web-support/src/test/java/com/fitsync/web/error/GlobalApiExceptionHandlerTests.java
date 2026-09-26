@@ -115,6 +115,24 @@ class GlobalApiExceptionHandlerTests {
         assertThat(appender.list).noneMatch(event -> event.getLevel() == Level.ERROR);
     }
 
+    @Test
+    @DisplayName("a line break in a caller-supplied value cannot forge a log line")
+    void loggedValuesAreSanitised() {
+        MockHttpServletRequest request = request("GET", "/api/v1/users/me\r\nERROR forged entry");
+        request.addHeader(CORRELATION_HEADER, "corr\nINJECTED");
+
+        handler.handleUnhandled(new IllegalStateException("boom"), request);
+
+        assertThat(appender.list)
+                .withFailMessage("the request path and the correlation-id header are caller-controlled; "
+                        + "SpotBugs flagged CRLF_INJECTION_LOGS on the first version of this logging")
+                .allSatisfy(event -> assertThat(event.getFormattedMessage())
+                        .doesNotContain("\r")
+                        .doesNotContain("\n"));
+        assertThat(appender.list).anySatisfy(event ->
+                assertThat(event.getFormattedMessage()).contains("corr_INJECTED"));
+    }
+
     private MockHttpServletRequest request(String method, String uri) {
         MockHttpServletRequest request = new MockHttpServletRequest(method, uri);
         request.setRequestURI(uri);

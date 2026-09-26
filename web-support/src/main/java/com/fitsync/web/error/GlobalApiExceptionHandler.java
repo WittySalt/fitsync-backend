@@ -26,6 +26,12 @@ public class GlobalApiExceptionHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(GlobalApiExceptionHandler.class);
 
+    /** Caps a caller-supplied value so an oversized header cannot flood the log. */
+    private static final int MAX_LOGGED_VALUE_LENGTH = 200;
+
+    /** Anything that could end a log line or shift a column, replaced rather than dropped. */
+    private static final String CONTROL_CHARACTERS = "[\\r\\n\\t\\f\\u0000-\\u001F\\u007F]";
+
     private final ApiErrorFactory apiErrorFactory;
 
     public GlobalApiExceptionHandler(ApiErrorFactory apiErrorFactory) {
@@ -114,7 +120,7 @@ public class GlobalApiExceptionHandler {
     @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
     public ResponseEntity<ApiError> handleNoHandler(Exception ex,
                                                     HttpServletRequest request) {
-        LOG.debug("No handler for {} {}", request.getMethod(), request.getRequestURI());
+        LOG.debug("No handler for {} {}", safeForLog(request.getMethod()), safeForLog(request.getRequestURI()));
         return buildError(HttpStatus.NOT_FOUND, "NOT_FOUND", "Requested resource was not found", request, List.of());
     }
 
@@ -131,11 +137,28 @@ public class GlobalApiExceptionHandler {
                 "An unexpected error occurred", request, List.of());
         ApiError body = response.getBody();
         LOG.error("Unhandled exception [correlationId={}] {} {}",
-                body == null ? null : body.correlationId(),
-                request.getMethod(),
-                request.getRequestURI(),
+                safeForLog(body == null ? null : body.correlationId()),
+                safeForLog(request.getMethod()),
+                safeForLog(request.getRequestURI()),
                 ex);
         return response;
+    }
+
+    /**
+     * The request path and the correlation-id header are caller-controlled, and a caller that puts
+     * a line break in either can forge whole log lines. SpotBugs flagged exactly this
+     * (CRLF_INJECTION_LOGS) on the first version of the logging added here, which is the gate doing
+     * its job. Control characters are replaced rather than dropped so the tampering stays visible,
+     * and the value is truncated so an oversized header cannot flood the log.
+     */
+    private static String safeForLog(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.length() > MAX_LOGGED_VALUE_LENGTH
+                ? value.substring(0, MAX_LOGGED_VALUE_LENGTH) + "..."
+                : value;
+        return trimmed.replaceAll(CONTROL_CHARACTERS, "_");
     }
 
     private ResponseEntity<ApiError> buildError(HttpStatus status,

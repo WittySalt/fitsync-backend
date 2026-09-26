@@ -347,4 +347,21 @@
         <Class name="com.fitsync.workout.messaging.AccountDeletionProjectionService"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+
+    <!-- CRLF_INJECTION_LOGS on GlobalApiExceptionHandler's two log calls.
+         The finding is correct in principle: the request path and the X-Correlation-Id header are
+         caller-controlled, and a caller that puts a line break in either could forge log lines.
+         It IS mitigated. Every value passed to a logger goes through safeForLog(), which replaces
+         every control character and truncates to 200 characters, and
+         GlobalApiExceptionHandlerTests.loggedValuesAreSanitised asserts that no CR or LF survives
+         into a formatted log message.
+         findsecbugs cannot see that. Its taint analysis does not follow a sanitiser into a helper
+         method, and inlining the same replaceAll at the call site does not satisfy it either: the
+         detector flags any value derived from getRequestURI() regardless of what happens in
+         between. Suppressed here with the mitigation named rather than weakening the gate or
+         dropping the logging that makes a 500 diagnosable at all. -->
+    <Match>
+        <Class name="com.fitsync.web.error.GlobalApiExceptionHandler"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
 </FindBugsFilter>
