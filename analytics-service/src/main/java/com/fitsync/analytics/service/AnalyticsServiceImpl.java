@@ -327,18 +327,23 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         .sorted(Comparator.comparing(AnalyticsUserGoalProgressEntity::getTargetDate,
                                         Comparator.nullsLast(Comparator.naturalOrder()))
                                 .thenComparing(AnalyticsUserGoalProgressEntity::getGoalId))
-                        .map(goal -> new AnalyticsGoalProgressResponse.GoalProgressView(
-                                goal.getGoalId(),
-                                goal.getGoalType(),
-                                goal.getGoalStatus(),
-                                toDouble(goal.getTargetValue()),
-                                goal.getTargetUnit(),
-                                goal.getTargetDate(),
-                                toDouble(goal.getCurrentValue()),
-                                toDouble(goal.getProgressRatio()),
-                                goal.getDaysRemaining(),
-                                goal.isOnTrack(),
-                                goal.getLastEvaluatedAt()))
+                        .map(goal -> {
+                            boolean expired = GoalExpiryPolicy.isExpired(
+                                    goal.getTargetDate(), Instant.now(clock).atZone(ZoneOffset.UTC).toLocalDate());
+                            return new AnalyticsGoalProgressResponse.GoalProgressView(
+                                    goal.getGoalId(),
+                                    goal.getGoalType(),
+                                    goal.getGoalStatus(),
+                                    toDouble(goal.getTargetValue()),
+                                    goal.getTargetUnit(),
+                                    goal.getTargetDate(),
+                                    toDouble(goal.getCurrentValue()),
+                                    toDouble(goal.getProgressRatio()),
+                                    goal.getDaysRemaining(),
+                                    !expired && goal.isOnTrack(),
+                                    expired,
+                                    goal.getLastEvaluatedAt());
+                        })
                         .toList());
     }
 

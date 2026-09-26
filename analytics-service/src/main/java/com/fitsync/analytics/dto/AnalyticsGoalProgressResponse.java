@@ -17,6 +17,11 @@ public record AnalyticsGoalProgressResponse(
         return List.copyOf(goals);
     }
 
+    /**
+     * {@code expired} is derived at read time from {@code targetDate}, exactly as the dashboard's
+     * own goal summary does. The two shapes must agree: this endpoint is what the dashboard page
+     * actually calls, so fixing only the embedded summary left the visible defect in place.
+     */
     public record GoalProgressView(
             UUID goalId,
             String goalType,
@@ -28,6 +33,7 @@ public record AnalyticsGoalProgressResponse(
             Double progressRatio,
             Integer daysRemaining,
             boolean onTrack,
+            boolean expired,
             Instant lastEvaluatedAt) {
     }
 }
