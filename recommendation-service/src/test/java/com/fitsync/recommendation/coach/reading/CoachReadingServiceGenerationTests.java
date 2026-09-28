@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -253,6 +254,118 @@ class CoachReadingServiceGenerationTests {
         CoachPageReadingEntity reclaimed =
                 readingRepository.findByUserIdAndSurface(userId, ReadingSurface.WORKOUT).orElseThrow();
         assertThat(reclaimed.getOutcome()).isEqualTo(ReadingOutcome.ACCEPTED);
+    }
+
+    // --- pinnedWorkoutReading, the read-only path a coach turn uses to cite a reading -------------
+
+    @Test
+    @DisplayName("a matching reading id returns the facts and the rule-written text, with no side effect")
+    void pinnedReadingWithMatchingIdReturnsFactsAndRuleWrittenText() {
+        TrainingInsight insight = fullInsight();
+        List<ReadingFact> facts = factsBuilder.build(insight);
+        String readingId = CoachReadingService.hash(insight, facts).substring(0, 16);
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(insight);
+
+        Optional<CoachReadingService.PinnedReading> pinned =
+                service.pinnedWorkoutReading(userId, TOKEN, "UTC", readingId);
+
+        assertThat(pinned).isPresent();
+        assertThat(pinned.get().readingId()).isEqualTo(readingId);
+        assertThat(pinned.get().source()).isEqualTo("RULES");
+        assertThat(pinned.get().headline()).isNotBlank();
+        assertThat(pinned.get().body()).isNotBlank();
+        assertThat(pinned.get().facts()).hasSize(4);
+        assertThat(readingRepository.findByUserIdAndSurface(userId, ReadingSurface.WORKOUT)).isEmpty();
+        verify(claudeClient, never()).complete(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("a stored ACCEPTED model reading is preferred over the rule-written one")
+    void pinnedReadingPrefersAStoredAcceptedModelReading() {
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
+        when(claudeClient.complete(anyString(), anyString())).thenReturn(validAnswerJson());
+
+        // Same sequence as firstCallReadyWithRulesThenSecondCallReadyWithModel: the first call
+        // enqueues a generation the synchronous test executor already ran, so the second call reads
+        // it back as ACCEPTED.
+        CoachReadingResponse first = service.workoutReading(userId, TOKEN, "UTC");
+        service.workoutReading(userId, TOKEN, "UTC");
+        verify(claudeClient, times(1)).complete(anyString(), anyString());
+
+        Optional<CoachReadingService.PinnedReading> pinned =
+                service.pinnedWorkoutReading(userId, TOKEN, "UTC", first.readingId());
+
+        assertThat(pinned).isPresent();
+        assertThat(pinned.get().source()).isEqualTo("MODEL");
+        assertThat(pinned.get().headline()).isEqualTo(HEADLINE);
+        assertThat(pinned.get().body()).isEqualTo(BODY);
+        // Resolving a pinned reading must not itself call the model again.
+        verify(claudeClient, times(1)).complete(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("a different reading id returns empty")
+    void pinnedReadingWithADifferentIdReturnsEmpty() {
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
+
+        Optional<CoachReadingService.PinnedReading> pinned =
+                service.pinnedWorkoutReading(userId, TOKEN, "UTC", "0000000000000000");
+
+        assertThat(pinned).isEmpty();
+        verify(claudeClient, never()).complete(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("an unavailable upstream returns empty and never throws")
+    void pinnedReadingWithUpstreamUnavailableReturnsEmpty() {
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(null);
+
+        Optional<CoachReadingService.PinnedReading> pinned =
+                service.pinnedWorkoutReading(userId, TOKEN, "UTC", "0000000000000000");
+
+        assertThat(pinned).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an upstream that throws still returns empty rather than propagating")
+    void pinnedReadingWithUpstreamThrowingReturnsEmpty() {
+        when(workoutClient.trainingInsight(anyString(), anyString()))
+                .thenThrow(new IllegalStateException("connection refused"));
+
+        Optional<CoachReadingService.PinnedReading> pinned =
+                service.pinnedWorkoutReading(userId, TOKEN, "UTC", "0000000000000000");
+
+        assertThat(pinned).isEmpty();
+    }
+
+    @Test
+    @DisplayName("period NONE returns empty")
+    void pinnedReadingWithPeriodNoneReturnsEmpty() {
+        TrainingInsight insight = new TrainingInsight("UTC", LocalDate.parse("2026-09-28"), "NONE", null, null,
+                0, 0, null, null, null, null, null, null, List.of());
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(insight);
+
+        Optional<CoachReadingService.PinnedReading> pinned =
+                service.pinnedWorkoutReading(userId, TOKEN, "UTC", "0000000000000000");
+
+        assertThat(pinned).isEmpty();
+    }
+
+    @Test
+    @DisplayName("resolving a pinned reading never claims a pending row or enqueues a generation")
+    void pinnedReadingHasNoSideEffect() {
+        TrainingInsight insight = fullInsight();
+        List<ReadingFact> facts = factsBuilder.build(insight);
+        String readingId = CoachReadingService.hash(insight, facts).substring(0, 16);
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(insight);
+        when(claudeClient.complete(anyString(), anyString())).thenReturn(validAnswerJson());
+
+        service.pinnedWorkoutReading(userId, TOKEN, "UTC", readingId);
+
+        assertThat(readingRepository.findByUserIdAndSurface(userId, ReadingSurface.WORKOUT))
+                .withFailMessage("pinnedWorkoutReading must never write a row")
+                .isEmpty();
+        verify(claudeClient, never()).complete(anyString(), anyString());
     }
 
     @Test

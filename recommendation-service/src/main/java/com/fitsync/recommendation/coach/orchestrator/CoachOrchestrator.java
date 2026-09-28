@@ -13,6 +13,7 @@ import java.util.concurrent.ExecutorService;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.config.CoachProperties;
+import com.fitsync.recommendation.coach.dto.CoachSurface;
 import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
 import com.fitsync.recommendation.coach.tool.ToolRegistry;
 import com.fitsync.recommendation.coach.tool.ToolResult;
@@ -61,6 +62,22 @@ public class CoachOrchestrator {
      * the final prompt to answer once the budget is gone.
      */
     private static final int STEPS_FOR_CORRECTIONS = 3;
+
+    /**
+     * The name a pinned reading's observation is recorded under in the trace. Deliberately not a
+     * registered {@link com.fitsync.recommendation.coach.tool.CoachTool}: it never appears in the
+     * tool catalogue the model is shown, so the model cannot ask for it — it is placed in the
+     * transcript directly, the same way a planned tool's result is, because the security rule behind
+     * this feature is that a client can only ever point at a reading the server already computed, not
+     * hand the server facts to relay unchecked.
+     */
+    static final String PINNED_READING_TOOL_NAME = "readPinnedReading";
+
+    /** A citation marker such as {@code [2]}, with any leading space, stripped from reading text. */
+    private static final java.util.regex.Pattern CITATION_MARKER = java.util.regex.Pattern.compile("\\s?\\[\\d+\\]");
+
+    /** How much of any one fact part (label, value, unit, note, detail) reaches the transcript. */
+    private static final int MAX_FACT_PART_LENGTH = 120;
 
     private static final String SYSTEM_PROMPT_HEAD = """
             You are the FitSync coach. You help one user with their training and nutrition.
@@ -115,7 +132,7 @@ public class CoachOrchestrator {
      * @param history prior turns, oldest first, already trimmed to the context window
      */
     public CoachOutcome answer(CoachCallContext context, String question, List<String> history) {
-        return answer(context, question, history, CoachProgressListener.NONE);
+        return answer(context, question, history, null, CoachProgressListener.NONE);
     }
 
     /**
@@ -127,6 +144,35 @@ public class CoachOrchestrator {
     public CoachOutcome answer(CoachCallContext context,
                                String question,
                                List<String> history,
+                               CoachProgressListener listener) {
+        return answer(context, question, history, null, listener);
+    }
+
+    /**
+     * Answers one question with the page and reading the user was looking at when they asked it.
+     *
+     * @param turnContext the surface and any pinned reading, already resolved by the caller, or null
+     *                    when the request carried no context at all
+     */
+    public CoachOutcome answer(CoachCallContext context,
+                               String question,
+                               List<String> history,
+                               TurnContext turnContext) {
+        return answer(context, question, history, turnContext, CoachProgressListener.NONE);
+    }
+
+    /**
+     * Answers one question, with page context and reporting each step to a listener as it happens.
+     *
+     * @param turnContext the surface and any pinned reading, already resolved by the caller, or null
+     *                    when the request carried no context at all
+     * @param listener    called from the tool pool as well as this thread, and never allowed to fail
+     *                    the turn
+     */
+    public CoachOutcome answer(CoachCallContext context,
+                               String question,
+                               List<String> history,
+                               TurnContext turnContext,
                                CoachProgressListener listener) {
         long startedAt = System.nanoTime();
 
@@ -148,6 +194,17 @@ public class CoachOrchestrator {
         List<String> transcript = new ArrayList<>(history);
         List<String> toolsUsed = new ArrayList<>();
         Set<String> alreadyCalled = new LinkedHashSet<>();
+
+        // The page and the pinned reading go in ahead of anything the loop itself gathers, so a
+        // model that answers on its very first reply still opens from the same context a human
+        // helper would already have.
+        if (turnContext != null && turnContext.surface() != null) {
+            transcript.add(surfaceLine(turnContext.surface()));
+        }
+        if (turnContext != null && turnContext.pinnedReading() != null) {
+            transcript.add(pinnedReadingObservation(turnContext.pinnedReading()));
+            toolsUsed.add(PINNED_READING_TOOL_NAME);
+        }
 
         for (Map.Entry<String, ToolResult> planned : runPlannedTools(context, question, listener).entrySet()) {
             transcript.add(observationOf(planned.getKey(), "{}", planned.getValue()));
@@ -334,6 +391,86 @@ public class CoachOrchestrator {
         }
         prompt.append("User question: ").append(question);
         return prompt.toString();
+    }
+
+    /** The one line that opens the transcript when the client says which page the user is on. */
+    private static String surfaceLine(CoachSurface surface) {
+        String pageName = switch (surface) {
+            case HOME -> "Home";
+            case WORKOUT -> "Workout";
+            case NUTRITION -> "Nutrition";
+            case PROGRESS -> "Progress";
+            case PROFILE -> "Me";
+        };
+        return "The user is on the " + pageName + " page.";
+    }
+
+    /**
+     * The pinned reading, shaped as a tool result so the system prompt's rule that every number must
+     * come from a tool result covers it too, and recorded as though {@link #PINNED_READING_TOOL_NAME}
+     * had actually been called so the trace shows what grounded the answer.
+     */
+    private static String pinnedReadingObservation(TurnContext.PinnedReading pinned) {
+        StringBuilder body = new StringBuilder();
+        body.append("The user is asking about this reading on their Workout page.");
+        String headline = sanitizeFactPart(pinned.headline());
+        String text = stripCitations(sanitizeFactPart(pinned.body()));
+        if (!headline.isEmpty() || !text.isEmpty()) {
+            body.append(System.lineSeparator()).append("Reading: ")
+                    .append((headline + " " + text).strip());
+        }
+        body.append(System.lineSeparator()).append("Facts:");
+        for (TurnContext.PinnedFact fact : pinned.facts()) {
+            body.append(System.lineSeparator()).append(factLine(fact));
+        }
+        body.append(System.lineSeparator()).append("When you state a number from these facts, write "
+                + "the fact's number in square brackets after it, like [2].");
+        return "Result of " + PINNED_READING_TOOL_NAME + "({}):" + System.lineSeparator() + body;
+    }
+
+    /** One fact line: {@code [n] label: value unit. note. detail.}, with empty parts left out. */
+    private static String factLine(TurnContext.PinnedFact fact) {
+        StringBuilder line = new StringBuilder();
+        line.append('[').append(fact.number()).append("] ");
+        line.append(sanitizeFactPart(fact.label())).append(':').append(' ')
+                .append(sanitizeFactPart(fact.value()));
+        String unit = sanitizeFactPart(fact.unit());
+        if (!unit.isEmpty()) {
+            line.append(' ').append(unit);
+        }
+        line.append('.');
+        String note = sanitizeFactPart(fact.note());
+        if (!note.isEmpty()) {
+            line.append(' ').append(note).append('.');
+        }
+        String detail = sanitizeFactPart(fact.detail());
+        if (!detail.isEmpty()) {
+            line.append(' ').append(detail).append('.');
+        }
+        return line.toString();
+    }
+
+    /**
+     * A citation marker such as {@code [2]} removed from reading text before it is quoted back in a
+     * tool observation, so the fact numbers a model sees always come from the facts list below it
+     * rather than from a citation written for a different rendering of the same reading.
+     */
+    private static String stripCitations(String text) {
+        return CITATION_MARKER.matcher(text).replaceAll("");
+    }
+
+    /**
+     * Facts partly originate from user-named exercises, so every part is stripped of control
+     * characters and newlines and cut to a bounded length before it can reach the transcript — a
+     * label with an embedded newline and an instruction on the next line must still arrive as one
+     * line the model reads as data, not as a second line of the prompt.
+     */
+    private static String sanitizeFactPart(String value) {
+        if (value == null) {
+            return "";
+        }
+        String cleaned = value.replaceAll("[\\p{Cntrl}]+", " ").strip();
+        return cleaned.length() > MAX_FACT_PART_LENGTH ? cleaned.substring(0, MAX_FACT_PART_LENGTH) : cleaned;
     }
 
     private static boolean containsAny(String haystack, String... needles) {

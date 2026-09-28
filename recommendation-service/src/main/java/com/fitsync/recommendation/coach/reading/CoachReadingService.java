@@ -144,6 +144,93 @@ public class CoachReadingService {
         this.executor = executor;
     }
 
+    /**
+     * The reading a coach turn may cite, resolved fresh and matched against the id the client sent.
+     *
+     * <p>This is the read side of the security rule the coach message context is built on: a client
+     * sends only a page name and this opaque id, never facts or reading text, so the server is the
+     * only party that ever decides what a citation refers to. The facts are worked out exactly as
+     * {@link #workoutReading} works them out; the difference is what happens once they exist.
+     *
+     * <p>Unlike {@link #workoutReading}, this method has no side effect: it never claims a
+     * {@code PENDING} row and never enqueues a generation. A coach turn needs an answer regardless of
+     * whether a model reading exists yet, so there is nothing here worth starting a generation over —
+     * the page itself is what does that, the next time its own GET runs.
+     *
+     * @return the matched reading, or empty when the id does not match, there are fewer than two
+     *         facts, the period is {@link TrainingInsight#PERIOD_NONE}, or the upstream could not be
+     *         read at all. Never throws for an unavailable upstream — a coach turn must still be
+     *         answered without the reading rather than fail because a dependency is down.
+     */
+    public Optional<PinnedReading> pinnedWorkoutReading(UUID userId, String bearerToken, String timezone,
+                                                         String readingId) {
+        if (readingId == null) {
+            return Optional.empty();
+        }
+
+        TrainingInsight insight;
+        try {
+            insight = workoutClient.trainingInsight(bearerToken, timezone);
+        } catch (RuntimeException ex) {
+            LOG.warn("event=coach_pinned_reading_upstream_failed reason={}",
+                    String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));
+            return Optional.empty();
+        }
+        if (insight == null || TrainingInsight.PERIOD_NONE.equals(insight.period())) {
+            return Optional.empty();
+        }
+
+        List<ReadingFact> facts = factsBuilder.build(insight);
+        if (facts.size() < 2) {
+            return Optional.empty();
+        }
+
+        String hash = hash(insight, facts);
+        String computedId = hash.substring(0, 16);
+        if (!CoachPageReadingStore.hashesMatch(computedId, readingId)) {
+            return Optional.empty();
+        }
+
+        Optional<CoachPageReadingEntity> existing = store.find(userId, ReadingSurface.WORKOUT);
+        Instant now = Instant.now(clock);
+        if (existing.isPresent() && CoachPageReadingStore.hashesMatch(hash, existing.get().getFactsHash())) {
+            CoachPageReadingEntity row = existing.get();
+            boolean expired = row.getExpiresAt() != null && now.isAfter(row.getExpiresAt());
+            if (!expired && row.getOutcome() == ReadingOutcome.ACCEPTED) {
+                return Optional.of(new PinnedReading(computedId, row.getHeadline(), row.getBody(), row.getSource(), facts));
+            }
+        }
+
+        RuleReadingWriter ruleReadingWriter = ruleReadingWriterProvider.getObject();
+        Optional<RuleReadingWriter.RuleReading> ruleReading = ruleReadingWriter.write(insight, facts);
+        if (ruleReading.isPresent()) {
+            RuleReadingWriter.RuleReading rule = ruleReading.get();
+            return Optional.of(new PinnedReading(computedId, rule.headline(), rule.body(), "RULES", facts));
+        }
+        return Optional.of(new PinnedReading(computedId, null, null, null, facts));
+    }
+
+    /**
+     * A reading a coach turn is allowed to cite: the id it was matched against, its text (absent when
+     * neither a model nor the rule writer has one), and the facts it was built from.
+     *
+     * <p>Deliberately shaped without a dependency on the orchestrator: {@code coach.orchestrator}
+     * maps this into its own {@code TurnContext.PinnedReading} rather than this type reaching the
+     * agent loop directly, which keeps the two packages decoupled from each other's internals the
+     * same way {@link CoachReadingResponse} is already decoupled from the orchestrator.
+     */
+    public record PinnedReading(String readingId, String headline, String body, String source, List<ReadingFact> facts) {
+
+        public PinnedReading {
+            facts = facts == null ? List.of() : List.copyOf(facts);
+        }
+
+        @Override
+        public List<ReadingFact> facts() {
+            return List.copyOf(facts);
+        }
+    }
+
     public CoachReadingResponse workoutReading(UUID userId, String bearerToken, String timezone) {
         TrainingInsight insight = workoutClient.trainingInsight(bearerToken, timezone);
         if (insight == null) {
