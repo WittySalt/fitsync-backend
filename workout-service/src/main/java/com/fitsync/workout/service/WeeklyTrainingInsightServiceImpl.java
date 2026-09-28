@@ -3,11 +3,9 @@ package com.fitsync.workout.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -280,22 +278,15 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         return value.setScale(2, RoundingMode.HALF_UP);
     }
 
-    /** Resolves the caller-supplied IANA zone id, defaulting to UTC; never returns null. */
+    /** Resolves the caller-supplied IANA zone id, defaulting to UTC; never returns null. Delegates
+     * to {@link InsightDates} so this logic is shared, unchanged, with the training page insight. */
     static ZoneId resolveZone(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            return ZoneOffset.UTC;
-        }
-        try {
-            return ZoneId.of(timezone);
-        } catch (DateTimeException ex) {
-            // The value is left out of the message, so the response never repeats what was sent.
-            throw new IllegalArgumentException("The timezone is not a recognised zone id.");
-        }
+        return InsightDates.resolveZone(timezone);
     }
 
-    /** The Monday of the week containing the given date. */
+    /** The Monday of the week containing the given date. Delegates to {@link InsightDates}. */
     static LocalDate mondayOf(LocalDate date) {
-        return date.minusDays(date.getDayOfWeek().getValue() - 1L);
+        return InsightDates.mondayOf(date);
     }
 
     /** A per-request accumulator for a single week's session count, minutes, and volume. */

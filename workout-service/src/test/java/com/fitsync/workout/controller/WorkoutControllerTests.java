@@ -12,6 +12,7 @@ import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.GoalFocus;
+import com.fitsync.workout.domain.InsightPeriod;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
@@ -37,6 +38,10 @@ import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
 import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
+import com.fitsync.workout.dto.LiftProgressView;
+import com.fitsync.workout.dto.MostTrainedView;
+import com.fitsync.workout.dto.TrainingPageInsightView;
+import com.fitsync.workout.dto.TrainingRecordView;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.MuscleGroupInsightView;
@@ -55,6 +60,7 @@ import com.fitsync.workout.security.JwtService;
 import com.fitsync.workout.messaging.OutboxEventRelay;
 import com.fitsync.workout.service.ExerciseCatalogImportService;
 import com.fitsync.workout.service.ExerciseService;
+import com.fitsync.workout.service.TrainingPageInsightService;
 import com.fitsync.workout.service.WeeklyTrainingInsightService;
 import com.fitsync.workout.service.WorkoutService;
 import com.fitsync.web.error.ForbiddenException;
@@ -107,6 +113,9 @@ class WorkoutControllerTests {
 
     @MockBean
     private WeeklyTrainingInsightService weeklyTrainingInsightService;
+
+    @MockBean
+    private TrainingPageInsightService trainingPageInsightService;
 
     @MockBean
     private JwtService jwtService;
@@ -237,6 +246,91 @@ class WorkoutControllerTests {
         CurrentUserPrincipal principal = principal();
 
         mockMvc.perform(get("/api/v1/workouts/insights/weekly")
+                        .with(authentication(authToken(principal)))
+                        .param("date", "yesterday"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldRequireAuthenticationForTrainingPageInsight() throws Exception {
+        mockMvc.perform(get("/api/v1/workouts/insights/training"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldReturnTrainingPageInsightForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        TrainingPageInsightView response = new TrainingPageInsightView(
+                "Asia/Singapore",
+                LocalDate.parse("2026-09-28"),
+                InsightPeriod.PREVIOUS_WEEK,
+                LocalDate.parse("2026-09-21"),
+                LocalDate.parse("2026-09-27"),
+                4,
+                2,
+                new BigDecimal("1923.00"),
+                new BigDecimal("1716.00"),
+                50,
+                50,
+                new TrainingRecordView("Dumbbell Bench Press", new BigDecimal("22.50"), LocalDate.parse("2026-09-21"), new BigDecimal("20.00")),
+                new MostTrainedView(MuscleGroup.CORE, 4, List.of("Plank Hold")),
+                List.of(new LiftProgressView("Dumbbell Bench Press", new BigDecimal("20.00"), LocalDate.parse("2026-09-16"),
+                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))));
+
+        when(trainingPageInsightService.getTrainingPageInsight(
+                        eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-28"))))
+                .thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/insights/training")
+                        .with(authentication(authToken(principal)))
+                        .param("timezone", "Asia/Singapore")
+                        .param("date", "2026-09-28"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timezone").value("Asia/Singapore"))
+                .andExpect(jsonPath("$.referenceDate").value("2026-09-28"))
+                .andExpect(jsonPath("$.period").value("PREVIOUS_WEEK"))
+                .andExpect(jsonPath("$.periodStart").value("2026-09-21"))
+                .andExpect(jsonPath("$.periodEnd").value("2026-09-27"))
+                .andExpect(jsonPath("$.sessions").value(4))
+                .andExpect(jsonPath("$.liftingSessions").value(2))
+                .andExpect(jsonPath("$.volumePerSessionKg").value(1923.00))
+                .andExpect(jsonPath("$.earlierVolumePerSessionKg").value(1716.00))
+                .andExpect(jsonPath("$.minutesPerLiftingSession").value(50))
+                .andExpect(jsonPath("$.earlierMinutesPerLiftingSession").value(50))
+                .andExpect(jsonPath("$.record.exerciseName").value("Dumbbell Bench Press"))
+                .andExpect(jsonPath("$.record.weightKg").value(22.50))
+                .andExpect(jsonPath("$.record.achievedOn").value("2026-09-21"))
+                .andExpect(jsonPath("$.record.previousBestKg").value(20.00))
+                .andExpect(jsonPath("$.mostTrained.muscleGroup").value("CORE"))
+                .andExpect(jsonPath("$.mostTrained.sessions").value(4))
+                .andExpect(jsonPath("$.mostTrained.exerciseNames[0]").value("Plank Hold"))
+                .andExpect(jsonPath("$.lifts[0].exerciseName").value("Dumbbell Bench Press"))
+                .andExpect(jsonPath("$.lifts[0].fromKg").value(20.00))
+                .andExpect(jsonPath("$.lifts[0].toKg").value(22.50));
+
+        verify(trainingPageInsightService).getTrainingPageInsight(
+                eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-28")));
+    }
+
+    @Test
+    void shouldReturnBadRequestForInvalidTimezoneOnTrainingPageInsight() throws Exception {
+        CurrentUserPrincipal principal = principal();
+
+        when(trainingPageInsightService.getTrainingPageInsight(any(), eq("Not/AZone"), any()))
+                .thenThrow(new IllegalArgumentException("The timezone is not a recognised zone id."));
+
+        mockMvc.perform(get("/api/v1/workouts/insights/training")
+                        .with(authentication(authToken(principal)))
+                        .param("timezone", "Not/AZone"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The timezone is not a recognised zone id."));
+    }
+
+    @Test
+    void shouldReturnBadRequestForUnparseableDateOnTrainingPageInsight() throws Exception {
+        CurrentUserPrincipal principal = principal();
+
+        mockMvc.perform(get("/api/v1/workouts/insights/training")
                         .with(authentication(authToken(principal)))
                         .param("date", "yesterday"))
                 .andExpect(status().isBadRequest());

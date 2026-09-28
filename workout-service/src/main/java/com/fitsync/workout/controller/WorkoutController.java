@@ -24,6 +24,7 @@ import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.TrainingPageInsightView;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExportView;
@@ -32,6 +33,7 @@ import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.workout.service.ExerciseService;
+import com.fitsync.workout.service.TrainingPageInsightService;
 import com.fitsync.workout.service.WeeklyTrainingInsightService;
 import com.fitsync.workout.service.WorkoutService;
 import com.fitsync.web.response.PageResponse;
@@ -66,13 +68,16 @@ public class WorkoutController {
     private final WorkoutService workoutService;
     private final ExerciseService exerciseService;
     private final WeeklyTrainingInsightService weeklyTrainingInsightService;
+    private final TrainingPageInsightService trainingPageInsightService;
 
     public WorkoutController(WorkoutService workoutService,
                              ExerciseService exerciseService,
-                             WeeklyTrainingInsightService weeklyTrainingInsightService) {
+                             WeeklyTrainingInsightService weeklyTrainingInsightService,
+                             TrainingPageInsightService trainingPageInsightService) {
         this.workoutService = workoutService;
         this.exerciseService = exerciseService;
         this.weeklyTrainingInsightService = weeklyTrainingInsightService;
+        this.trainingPageInsightService = trainingPageInsightService;
     }
 
     @PostMapping("/exercises")
@@ -141,6 +146,15 @@ public class WorkoutController {
             @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return weeklyTrainingInsightService.getWeeklyTrainingInsight(currentPrincipal(authentication), timezone, date);
+    }
+
+    @Operation(summary = "Get the training page insight summary for the current user")
+    @GetMapping("/insights/training")
+    public TrainingPageInsightView getTrainingPageInsight(
+            Authentication authentication,
+            @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return trainingPageInsightService.getTrainingPageInsight(currentPrincipal(authentication), timezone, date);
     }
 
     @Operation(summary = "Update a custom exercise")
