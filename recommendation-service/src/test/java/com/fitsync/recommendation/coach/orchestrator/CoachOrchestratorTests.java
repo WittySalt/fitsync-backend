@@ -497,4 +497,24 @@ class CoachOrchestratorTests {
         Mockito.when(provider.getIfAvailable()).thenReturn(null);
         return provider;
     }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("square brackets the model invented are removed, and a citation of a pinned fact is kept")
+    void tidyKeepsOnlyCitationsOfPinnedFacts() {
+        TurnContext pinned = new TurnContext(
+                com.fitsync.recommendation.coach.dto.CoachSurface.WORKOUT,
+                new TurnContext.PinnedReading("A headline.", "A body.", List.of(
+                        new TurnContext.PinnedFact(1, "Weight moved per session", "1,923", "kg", "Up 12%", ""),
+                        new TurnContext.PinnedFact(2, "Session length", "50", "min", "Unchanged", ""))));
+
+        org.assertj.core.api.Assertions.assertThat(CoachOrchestrator.tidy(
+                "You moved 1,923 kg a session [1] in 50 min[2], on 4 days [training target] and [7].", pinned))
+                .isEqualTo("You moved 1,923 kg a session [1] in 50 min [2], on 4 days and.");
+        org.assertj.core.api.Assertions.assertThat(CoachOrchestrator.tidy(
+                "You trained 4 days [training: 4 activeDays] this week [1].", null))
+                .isEqualTo("You trained 4 days this week.");
+        org.assertj.core.api.Assertions.assertThat(CoachOrchestrator.tidy("Nothing to tidy.", pinned))
+                .isEqualTo("Nothing to tidy.");
+        org.assertj.core.api.Assertions.assertThat(CoachOrchestrator.tidy(null, pinned)).isNull();
+    }
 }

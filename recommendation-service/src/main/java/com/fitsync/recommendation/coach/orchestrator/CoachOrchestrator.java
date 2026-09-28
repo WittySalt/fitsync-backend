@@ -100,6 +100,14 @@ public class CoachOrchestrator {
             When you answer: two or three sentences, plain and specific, addressed to the user.
             If the facts do not cover the question, say what you can see and that the rest is
             outside what you know. Never guess.
+
+            How you speak: you describe what the records show and leave every decision to the
+            user. When the user asks whether to do something, say what the records show on each
+            side and that the choice is theirs. No instruction, no "you should", no "consider",
+            no "try", no "keep it up". No exclamation mark and no dash used as punctuation.
+            Say exactly what a number measures, in the words its label uses. A figure for one
+            session is not a figure for the week.
+            Write nothing in square brackets, except the number of a fact from a pinned reading.
             """;
 
     private final ObjectProvider<ClaudeClient> claudeClient;
@@ -228,7 +236,7 @@ public class CoachOrchestrator {
             CoachAction action = actionParser.parse(reply);
             switch (action.kind()) {
                 case ANSWER -> {
-                    return CoachOutcome.answered(action.answer(), toolsUsed, elapsedMs(startedAt));
+                    return CoachOutcome.answered(tidy(action.answer(), turnContext), toolsUsed, elapsedMs(startedAt));
                 }
                 case TOOL -> {
                     String args = action.args() == null ? "{}" : action.args().toString();
@@ -268,7 +276,7 @@ public class CoachOrchestrator {
             CoachAction last = actionParser.parse(client.complete(
                     ANSWER_ONLY_PROMPT, userPrompt(question, transcript)));
             if (last.kind() == CoachAction.Kind.ANSWER) {
-                return CoachOutcome.answered(last.answer(), toolsUsed, elapsedMs(startedAt));
+                return CoachOutcome.answered(tidy(last.answer(), turnContext), toolsUsed, elapsedMs(startedAt));
             }
         } catch (RuntimeException ex) {
             LOG.warn("Model call failed on the final answer-only attempt", ex);
@@ -286,6 +294,14 @@ public class CoachOrchestrator {
             below. Answer the user's question now from those results, in two or three plain
             sentences. Every number must come from a result shown below. If the results do not
             cover the question, say what you can see and that the rest is outside what you know.
+
+            How you speak: you describe what the records show and leave every decision to the
+            user. When the user asks whether to do something, say what the records show on each
+            side and that the choice is theirs. No instruction, no "you should", no "consider",
+            no "try", no "keep it up". No exclamation mark and no dash used as punctuation.
+            Say exactly what a number measures, in the words its label uses. A figure for one
+            session is not a figure for the week.
+            Write nothing in square brackets, except the number of a fact from a pinned reading.
 
             Reply with ONE JSON object and nothing else: {"answer":"<text>"}
             """;
@@ -391,6 +407,37 @@ public class CoachOrchestrator {
         }
         prompt.append("User question: ").append(question);
         return prompt.toString();
+    }
+
+    /** Anything in square brackets, with the space before it. */
+    private static final java.util.regex.Pattern BRACKETED = java.util.regex.Pattern.compile("\\s?\\[([^\\[\\]]{0,200})]");
+
+    /**
+     * Removes what the model put in square brackets, except a citation of a pinned fact.
+     *
+     * <p>A model that has been shown citations tends to invent its own, such as a field name from a
+     * tool result. Those mean nothing to a reader, and a citation of a fact that does not exist
+     * would point nowhere. This is a cleanup of form. It does not check that the answer is true.
+     */
+    static String tidy(String answer, TurnContext turnContext) {
+        if (answer == null || answer.indexOf('[') < 0) {
+            return answer;
+        }
+        int factCount = turnContext == null || turnContext.pinnedReading() == null
+                ? 0
+                : turnContext.pinnedReading().facts().size();
+        java.util.regex.Matcher matcher = BRACKETED.matcher(answer);
+        StringBuilder tidied = new StringBuilder();
+        while (matcher.find()) {
+            String inside = matcher.group(1).strip();
+            boolean citation = inside.matches("\\d{1,2}") && Integer.parseInt(inside) >= 1
+                    && Integer.parseInt(inside) <= factCount;
+            matcher.appendReplacement(tidied, citation
+                    ? java.util.regex.Matcher.quoteReplacement(" [" + inside + "]")
+                    : "");
+        }
+        matcher.appendTail(tidied);
+        return tidied.toString().replaceAll(" {2,}", " ").strip();
     }
 
     /** The one line that opens the transcript when the client says which page the user is on. */
