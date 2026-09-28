@@ -1,0 +1,346 @@
+package com.fitsync.recommendation.coach.reading;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
+import com.fitsync.recommendation.service.ai.ClaudeClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+
+/**
+ * Serves the workout page's insight panel: four measured facts, built in pure code, and one short
+ * model-written reading over them once it exists and has passed validation for exactly those facts.
+ *
+ * <p>The GET this backs is cheap by design, because a client is expected to poll it while a reading
+ * is being written. It never runs the model itself; it reads the current cached row, decides what
+ * that row means (nothing yet, in flight, already failed, or ready), and — the one side effect it
+ * does have — enqueues a generation when one is owed and none is already running. Everything that
+ * touches the model happens on {@code coachReadingExecutor}, off this thread.
+ *
+ * <p>Two rules matter more than anything the model was told, and both are enforced here rather than
+ * trusted to the prompt: a reading never tells the user what to do, and every number in it is one of
+ * the measured facts. {@link ReadingValidator} is where both are actually checked.
+ */
+@Service
+public class CoachReadingService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(CoachReadingService.class);
+
+    /** How long a PENDING row is trusted to mean "a generation is genuinely still running". */
+    private static final long PENDING_ABANDON_SECONDS = 60L;
+
+    private static final String SYSTEM_PROMPT = """
+            You are FitSync's coach, noticing patterns in one page of pre-computed facts. You never \
+            give advice, an instruction, a suggestion or a question - you only observe what the facts \
+            show together, which the numbers alone do not.
+
+            Answer with exactly one JSON object and nothing else: {"headline": "...", "body": "..."}
+
+            Rules for the headline:
+            - One sentence, at most 80 characters.
+            - It does not need to contain a number.
+
+            Rules for the body:
+            - One or two sentences, at most 320 characters, on a single line.
+            - It connects at least two of the facts and says what they show together.
+            - Every number you write must be copied exactly from the facts you were given - do not \
+            calculate a percentage, ratio or difference yourself.
+            - Immediately after each number or claim taken from a fact, write that fact's number in \
+            square brackets, like [2].
+
+            Style:
+            - Second person, plain English.
+            - No advice, no instruction, no suggestion, no question, no exclamation mark, no emoji, \
+            no medical statement.
+            - No dash used as punctuation.
+
+            Facts are given as a JSON array, each with a number, a label, a value, a unit, a short \
+            note and a longer detail. The period label tells you whether this covers the current or \
+            the previous week.
+
+            Example input:
+            period: PREVIOUS_WEEK
+            facts: [
+              {"number":1,"label":"Weight moved per session","value":"1,923","unit":"kg","note":"Up 12%","detail":"1,716 kg the week before"},
+              {"number":2,"label":"Session length","value":"50","unit":"min","note":"Unchanged","detail":"50 min the week before"},
+              {"number":3,"label":"Dumbbell Bench Press record","value":"22.5","unit":"kg","note":"Monday","detail":"20 kg before"},
+              {"number":4,"label":"Sessions with core work","value":"4","unit":"of 4","note":"Every one","detail":"Plank Hold"}
+            ]
+
+            Example output:
+            {"headline": "Your lifts grew while your sessions stayed the same length.", "body": "You moved 1,923 kg a session [1], up from 1,716 kg, and each one still took 50 min [2]."}""";
+
+    private final WorkoutCatalogueClient workoutClient;
+    // The builder is pure and holds no state, so the service keeps its own.
+    private final ReadingFactsBuilder factsBuilder = new ReadingFactsBuilder();
+    private final ReadingValidator validator;
+    private final CoachPageReadingStore store;
+    private final ObjectProvider<ClaudeClient> claudeClientProvider;
+    // A reader and a writer are immutable, which a shared ObjectMapper is not.
+    private final ObjectReader answerReader;
+    private final ObjectWriter factsWriter;
+    private final Clock clock;
+    private final ExecutorService executor;
+
+    public CoachReadingService(WorkoutCatalogueClient workoutClient,
+                               ReadingValidator validator,
+                               CoachPageReadingStore store,
+                               ObjectProvider<ClaudeClient> claudeClientProvider,
+                               ObjectMapper objectMapper,
+                               Clock clock,
+                               @Qualifier("coachReadingExecutor") ExecutorService executor) {
+        this.workoutClient = workoutClient;
+        this.validator = validator;
+        this.store = store;
+        this.claudeClientProvider = claudeClientProvider;
+        this.answerReader = objectMapper.readerFor(ModelAnswer.class);
+        this.factsWriter = objectMapper.writer();
+        this.clock = clock;
+        this.executor = executor;
+    }
+
+    public CoachReadingResponse workoutReading(UUID userId, String bearerToken, String timezone) {
+        TrainingInsight insight = workoutClient.trainingInsight(bearerToken, timezone);
+        if (insight == null) {
+            throw new ReadingUnavailableException(
+                    "The workout service could not be read, so there is nothing to build today's reading from.");
+        }
+
+        List<ReadingFact> facts = factsBuilder.build(insight);
+        if (TrainingInsight.PERIOD_NONE.equals(insight.period()) || facts.size() < 2) {
+            return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.EMPTY, null,
+                    insight.period(), insight.periodStart(), insight.periodEnd(), facts, null, insight.lifts());
+        }
+
+        String hash = hash(insight, facts);
+        String readingId = hash.substring(0, 16);
+        Instant now = Instant.now(clock);
+
+        Optional<CoachPageReadingEntity> existing = store.find(userId, ReadingSurface.WORKOUT);
+        if (existing.isPresent() && CoachPageReadingStore.hashesMatch(hash, existing.get().getFactsHash())) {
+            CoachPageReadingEntity row = existing.get();
+            boolean expired = row.getExpiresAt() != null && now.isAfter(row.getExpiresAt());
+            if (!expired) {
+                if (row.getOutcome() == ReadingOutcome.ACCEPTED) {
+                    return ready(insight, facts, readingId, row);
+                }
+                if (row.getOutcome() == ReadingOutcome.REJECTED) {
+                    return resting(insight, facts, readingId);
+                }
+                if (row.getOutcome() == ReadingOutcome.PENDING
+                        && row.getStartedAt() != null
+                        && Duration.between(row.getStartedAt(), now).getSeconds() < PENDING_ABANDON_SECONDS) {
+                    return writing(insight, facts, readingId);
+                }
+                // A PENDING row older than the window is abandoned - a worker died or was never
+                // scheduled - and falls through to be reclaimed below rather than wedging this page.
+            }
+        }
+
+        ClaudeClient client = claudeClientProvider.getIfAvailable();
+        if (client == null) {
+            return resting(insight, facts, readingId);
+        }
+
+        store.claimPending(userId, ReadingSurface.WORKOUT, hash, now);
+        executor.execute(() -> generate(userId, hash, facts, insight.period()));
+        return writing(insight, facts, readingId);
+    }
+
+    /**
+     * The generation itself: one attempt, and on a failed validation, one repair attempt that is
+     * told exactly what was wrong. Runs entirely off the request thread.
+     */
+    private void generate(UUID userId, String factsHash, List<ReadingFact> facts, String period) {
+        try {
+            generateOrReject(userId, factsHash, facts, period);
+        } catch (RuntimeException ex) {
+            // Anything unexpected ends as a rejection. Without this the row would stay pending,
+            // and every visit after the sixty seconds would start the same failing work again.
+            LOG.warn("event=coach_reading_generation_failed reason={}",
+                    String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));
+            store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock));
+        }
+    }
+
+    private void generateOrReject(UUID userId, String factsHash, List<ReadingFact> facts, String period) {
+        ClaudeClient client = claudeClientProvider.getIfAvailable();
+        if (client == null) {
+            // The AI tier was switched off between the GET and this running; nothing to do, and the
+            // row is simply picked up as abandoned on the next request past the sixty-second window.
+            return;
+        }
+
+        String prompt = promptFor(facts, period);
+        ModelAnswer first = tryGenerate(client, prompt);
+        ReadingValidator.Result firstResult =
+                first == null ? null : validator.validate(first.headline(), first.body(), facts);
+        if (firstResult != null && firstResult.valid()) {
+            accept(userId, factsHash, first, firstResult);
+            return;
+        }
+
+        List<String> violations = firstResult != null ? firstResult.violations() : List.of("MODEL_CALL_FAILED");
+        String repairPrompt = prompt + "\n\nYour previous answer failed these checks: "
+                + String.join(", ", violations) + ". Answer again, fixing them, in the same JSON shape.";
+        ModelAnswer second = tryGenerate(client, repairPrompt);
+        ReadingValidator.Result secondResult =
+                second == null ? null : validator.validate(second.headline(), second.body(), facts);
+        if (secondResult != null && secondResult.valid()) {
+            accept(userId, factsHash, second, secondResult);
+            return;
+        }
+
+        store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock));
+        logOutcome(userId, "REJECTED");
+    }
+
+    private void accept(UUID userId, String factsHash, ModelAnswer answer, ReadingValidator.Result result) {
+        store.persistAccepted(userId, ReadingSurface.WORKOUT, factsHash,
+                answer.headline(), answer.body(), result.citations(), Instant.now(clock));
+        logOutcome(userId, "ACCEPTED");
+    }
+
+    private ModelAnswer tryGenerate(ClaudeClient client, String userPrompt) {
+        String raw;
+        try {
+            raw = client.complete(SYSTEM_PROMPT, userPrompt);
+        } catch (RuntimeException ex) {
+            LOG.warn("event=coach_reading_model_call_failed reason={}",
+                    String.valueOf(ex.getMessage()).replace("\r", "_").replace("\n", "_"));
+            return null;
+        }
+        return parseAnswer(raw);
+    }
+
+    /** Strips a Markdown code fence if the model wrapped its JSON in one, then parses leniently. */
+    private ModelAnswer parseAnswer(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.strip();
+        if (text.startsWith("```")) {
+            int firstNewline = text.indexOf('\n');
+            int lastFence = text.lastIndexOf("```");
+            if (firstNewline != -1 && lastFence > firstNewline) {
+                text = text.substring(firstNewline + 1, lastFence).strip();
+            }
+        }
+        try {
+            return answerReader.readValue(text);
+        } catch (JsonProcessingException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * The prompt carries only the numbered facts (label, value, unit, note, detail) and the period
+     * label - never the user id, never the token, never anything the model could echo back that
+     * identifies who this is about.
+     */
+    private String promptFor(List<ReadingFact> facts, String period) {
+        List<Map<String, Object>> compact = facts.stream().map(fact -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("number", fact.number());
+            map.put("label", fact.label());
+            map.put("value", fact.value());
+            map.put("unit", fact.unit());
+            map.put("note", fact.note());
+            map.put("detail", fact.detail());
+            return map;
+        }).toList();
+        try {
+            return "period: " + period + "\nfacts: " + factsWriter.writeValueAsString(compact);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialise reading facts", ex);
+        }
+    }
+
+    private CoachReadingResponse ready(TrainingInsight insight, List<ReadingFact> facts, String readingId,
+                                       CoachPageReadingEntity row) {
+        ModelReadingView reading = new ModelReadingView(
+                row.getHeadline(), row.getBody(), parseCitations(row.getCitations()), row.getSource(), row.getGeneratedAt());
+        return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.READY, readingId,
+                insight.period(), insight.periodStart(), insight.periodEnd(), facts, reading, insight.lifts());
+    }
+
+    private CoachReadingResponse writing(TrainingInsight insight, List<ReadingFact> facts, String readingId) {
+        return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.WRITING, readingId,
+                insight.period(), insight.periodStart(), insight.periodEnd(), facts, null, insight.lifts());
+    }
+
+    private CoachReadingResponse resting(TrainingInsight insight, List<ReadingFact> facts, String readingId) {
+        return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.RESTING, readingId,
+                insight.period(), insight.periodStart(), insight.periodEnd(), facts, null, insight.lifts());
+    }
+
+    private static List<Integer> parseCitations(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(csv.split(",")).map(Integer::valueOf).toList();
+    }
+
+    private void logOutcome(UUID userId, String outcome) {
+        // Both values are sanitised inline against CRLF injection (CWE-117), the same way
+        // WeeklyNarrativeService does it: findsecbugs only accepts replace() directly in the
+        // dataflow to the log sink, not through a helper method. userId is a real identifier and
+        // outcome is always one of this class's own literals, but the detector flags any
+        // non-constant argument regardless, so both are cleaned the same way.
+        LOG.info("event=coach_reading_outcome userId={} surface=WORKOUT outcome={}",
+                String.valueOf(userId).replace("\r", "_").replace("\n", "_"),
+                String.valueOf(outcome).replace("\r", "_").replace("\n", "_"));
+    }
+
+    /**
+     * SHA-256 over the facts that determine what a reading says, so a changed page starts a new
+     * generation and an unchanged one keeps serving what was already validated. The separator is a
+     * control character that cannot occur in any of the joined values, so two different fact sets
+     * cannot be shuffled into producing the same string.
+     *
+     * <p>Package-private rather than private so {@code CoachReadingServiceTests} can pre-compute the
+     * hash for a fixture it wants to seed directly into the repository — the only way to construct
+     * the "abandoned PENDING row" scenario without a background thread actually going stale.
+     */
+    static String hash(TrainingInsight insight, List<ReadingFact> facts) {
+        StringBuilder canonical = new StringBuilder();
+        char separator = '\u001F';
+        canonical.append(insight.period()).append(separator);
+        canonical.append(insight.periodStart()).append(separator);
+        canonical.append(insight.periodEnd()).append(separator);
+        for (ReadingFact fact : facts) {
+            canonical.append(fact.key()).append(separator)
+                    .append(fact.value()).append(separator)
+                    .append(fact.unit()).append(separator)
+                    .append(fact.note()).append(separator)
+                    .append(fact.detail()).append(separator);
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashed = digest.digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hashed);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is not available", ex);
+        }
+    }
+}

@@ -630,4 +630,11 @@
         <Class name="com.fitsync.recommendation.coach.service.SessionDraftService"/>
         <Bug pattern="CRLF_INJECTION_LOGS"/>
     </Match>
+    <!-- The page reading controller. SPRING_ENDPOINT flags a controller for being a controller,
+         as it does for the two coach controllers above. The service behind it carries no
+         suppression: it holds an ObjectReader and an ObjectWriter and reads through its store. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.controller.CoachReadingController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
 </FindBugsFilter>

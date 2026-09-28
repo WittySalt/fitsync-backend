@@ -4,7 +4,12 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.config.CoachProperties;
+import com.fitsync.recommendation.coach.reading.TrainingInsight;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -13,13 +18,20 @@ import org.springframework.web.client.RestClient;
 @Component
 public class WorkoutCatalogueClient extends CatalogueClient {
 
+    private static final Logger LOG = LoggerFactory.getLogger(WorkoutCatalogueClient.class);
+
     private static final String EXERCISES = "/api/v1/workouts/exercises";
     private static final String SESSIONS = "/api/v1/workouts/sessions";
     private static final String PLANS = "/api/v1/workouts/plans";
+    private static final String TRAINING_INSIGHT = "/api/v1/workouts/insights/training";
+
+    private final ObjectMapper objectMapper;
 
     public WorkoutCatalogueClient(@Qualifier("coachRestClientBuilder") RestClient.Builder builder,
-                                      CoachProperties properties) {
+                                      CoachProperties properties,
+                                      ObjectMapper objectMapper) {
         super(builder, properties.workoutBaseUrl(), "workout");
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -74,5 +86,33 @@ public class WorkoutCatalogueClient extends CatalogueClient {
     /** Starts a session from a plan, which is the moment a draft becomes something to train from. */
     public String startPlan(String bearerToken, UUID planId) {
         return post(PLANS + "/" + planId + "/start", Map.of(), bearerToken);
+    }
+
+    /**
+     * The pre-computed training facts a workout-page reading is built from.
+     *
+     * <p>Parsed here, unlike this class's other reads, because a reading has nothing further to do
+     * with the raw JSON: every caller wants the typed shape. A null return covers both "the service
+     * could not be reached" (the base class already turns that into null) and "the body came back
+     * but was not valid JSON for this contract" (workout-service is a different codebase, and a
+     * malformed body is exactly the kind of failure a coach page should degrade in front of rather
+     * than crash on). Callers treat both the same way: the upstream is unavailable.
+     */
+    public TrainingInsight trainingInsight(String bearerToken, String timezone) {
+        Map<String, Object> params = params();
+        params.put("timezone", timezone);
+        String body = get(TRAINING_INSIGHT, params, bearerToken);
+        if (body == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(body, TrainingInsight.class);
+        } catch (JsonProcessingException ex) {
+            // Sanitised inline against CRLF injection (CWE-117): findsecbugs only accepts replace()
+            // directly in the dataflow to the log sink, the same way WeeklyNarrativeService does it.
+            // The parser's own message can quote the body, so it is left out of the log.
+            LOG.warn("event=training_insight_unreadable");
+            return null;
+        }
     }
 }

@@ -22,6 +22,10 @@ import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import com.fitsync.contracts.events.workout.PersonalRecordAchievedPayload;
+import com.fitsync.recommendation.coach.reading.CoachPageReadingEntity;
+import com.fitsync.recommendation.coach.reading.CoachPageReadingRepository;
+import com.fitsync.recommendation.coach.reading.ReadingOutcome;
+import com.fitsync.recommendation.coach.reading.ReadingSurface;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.entity.RecommendationResultEntity;
 import com.fitsync.recommendation.entity.RecommendationSource;
@@ -80,6 +84,9 @@ class RecommendationContextProjectionTests {
 
     @Autowired
     private RecommendationResultRepository resultRepository;
+
+    @Autowired
+    private CoachPageReadingRepository readingRepository;
 
     @Autowired
     private RecommendationProcessedEventRepository processedEventRepository;
@@ -429,12 +436,22 @@ class RecommendationContextProjectionTests {
         result.setGeneratedAt(Instant.parse("2026-07-06T09:00:00Z"));
         resultRepository.saveAndFlush(result);
 
+        CoachPageReadingEntity reading = new CoachPageReadingEntity();
+        reading.setId(UUID.randomUUID());
+        reading.setUserId(userId);
+        reading.setSurface(ReadingSurface.WORKOUT);
+        reading.setFactsHash("hash");
+        reading.setOutcome(ReadingOutcome.ACCEPTED);
+        reading.setStartedAt(Instant.parse("2026-07-06T09:00:00Z"));
+        readingRepository.saveAndFlush(reading);
+
         FitSyncDomainEvent<AccountDeletedPayload> deletion = event("AccountDeleted",
                 new AccountDeletedPayload(Instant.parse("2026-07-06T10:00:00Z"), "USER_REQUEST"));
         accountDeletedEventHandler.consume(deletion);
 
         assertThat(contextRepository.findById(userId)).isEmpty();
         assertThat(resultRepository.findByUserId(userId)).isEmpty();
+        assertThat(readingRepository.findByUserIdAndSurface(userId, ReadingSurface.WORKOUT)).isEmpty();
         assertThat(processedEventRepository.findAll())
                 .singleElement()
                 .satisfies(processed -> assertThat(processed.getEventId()).isEqualTo(deletion.eventId()));
