@@ -179,7 +179,8 @@ public class CoachReadingService {
             // and every visit after the sixty seconds would start the same failing work again.
             LOG.warn("event=coach_reading_generation_failed reason={}",
                     String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));
-            store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock));
+            store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock),
+                    CoachPageReadingStore.REJECTED_TTL);
         }
     }
 
@@ -192,27 +193,46 @@ public class CoachReadingService {
         }
 
         String prompt = promptFor(facts, period);
-        ModelAnswer first = tryGenerate(client, prompt);
-        ReadingValidator.Result firstResult =
-                first == null ? null : validator.validate(first.headline(), first.body(), facts);
+        Attempt first = tryGenerate(client, prompt);
+        if (!first.reached()) {
+            // A model that cannot be reached has not failed any check. It is asked again after a
+            // short wait, so the reading returns soon after the model does.
+            store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock),
+                    CoachPageReadingStore.UNREACHABLE_TTL);
+            logOutcome(userId, "UNREACHABLE");
+            return;
+        }
+        ReadingValidator.Result firstResult = validate(first, facts);
         if (firstResult != null && firstResult.valid()) {
-            accept(userId, factsHash, first, firstResult);
+            accept(userId, factsHash, first.answer(), firstResult);
             return;
         }
 
-        List<String> violations = firstResult != null ? firstResult.violations() : List.of("MODEL_CALL_FAILED");
+        List<String> violations = firstResult != null ? firstResult.violations() : List.of("ANSWER_NOT_JSON");
         String repairPrompt = prompt + "\n\nYour previous answer failed these checks: "
                 + String.join(", ", violations) + ". Answer again, fixing them, in the same JSON shape.";
-        ModelAnswer second = tryGenerate(client, repairPrompt);
-        ReadingValidator.Result secondResult =
-                second == null ? null : validator.validate(second.headline(), second.body(), facts);
+        Attempt second = tryGenerate(client, repairPrompt);
+        ReadingValidator.Result secondResult = validate(second, facts);
         if (secondResult != null && secondResult.valid()) {
-            accept(userId, factsHash, second, secondResult);
+            accept(userId, factsHash, second.answer(), secondResult);
             return;
         }
 
-        store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock));
-        logOutcome(userId, "REJECTED");
+        store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock),
+                second.reached() ? CoachPageReadingStore.REJECTED_TTL : CoachPageReadingStore.UNREACHABLE_TTL);
+        logOutcome(userId, second.reached() ? "REJECTED" : "UNREACHABLE");
+    }
+
+    private ReadingValidator.Result validate(Attempt attempt, List<ReadingFact> facts) {
+        ModelAnswer answer = attempt.answer();
+        return answer == null ? null : validator.validate(answer.headline(), answer.body(), facts);
+    }
+
+    /**
+     * One call to the model. {@code reached} is false when the call itself failed, and an answer
+     * that arrived but could not be read as JSON has {@code reached} true and no answer.
+     */
+    private record Attempt(ModelAnswer answer, boolean reached) {
     }
 
     private void accept(UUID userId, String factsHash, ModelAnswer answer, ReadingValidator.Result result) {
@@ -221,16 +241,16 @@ public class CoachReadingService {
         logOutcome(userId, "ACCEPTED");
     }
 
-    private ModelAnswer tryGenerate(ClaudeClient client, String userPrompt) {
+    private Attempt tryGenerate(ClaudeClient client, String userPrompt) {
         String raw;
         try {
             raw = client.complete(SYSTEM_PROMPT, userPrompt);
         } catch (RuntimeException ex) {
             LOG.warn("event=coach_reading_model_call_failed reason={}",
                     String.valueOf(ex.getMessage()).replace("\r", "_").replace("\n", "_"));
-            return null;
+            return new Attempt(null, false);
         }
-        return parseAnswer(raw);
+        return new Attempt(parseAnswer(raw), true);
     }
 
     /** Strips a Markdown code fence if the model wrapped its JSON in one, then parses leniently. */

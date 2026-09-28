@@ -30,6 +30,8 @@ class CoachPageReadingStore {
 
     static final Duration ACCEPTED_TTL = Duration.ofDays(7);
     static final Duration REJECTED_TTL = Duration.ofHours(1);
+    /** How long an unreachable model is left alone before it is asked again. */
+    static final Duration UNREACHABLE_TTL = Duration.ofMinutes(2);
 
     private final CoachPageReadingRepository repository;
 
@@ -96,15 +98,18 @@ class CoachPageReadingStore {
                 });
     }
 
-    /** Records that generation failed validation twice (or the model could not be reached). */
+    /**
+     * Records that no reading could be kept for these facts, and for how long that stands. A failed
+     * check stands for an hour. An unreachable model stands for two minutes.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    void persistRejected(UUID userId, ReadingSurface surface, String factsHash, Instant now) {
+    void persistRejected(UUID userId, ReadingSurface surface, String factsHash, Instant now, Duration keptFor) {
         repository.findByUserIdAndSurface(userId, surface)
                 .filter(row -> hashesMatch(factsHash, row.getFactsHash()))
                 .ifPresent(row -> {
                     row.setOutcome(ReadingOutcome.REJECTED);
                     row.setGeneratedAt(now);
-                    row.setExpiresAt(now.plus(REJECTED_TTL));
+                    row.setExpiresAt(now.plus(keptFor));
                     repository.save(row);
                 });
     }

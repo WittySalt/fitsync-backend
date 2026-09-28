@@ -133,6 +133,28 @@ class CoachReadingServiceGenerationTests {
     }
 
     @Test
+    @DisplayName("an unreachable model is asked once, rests for two minutes, and is then asked again")
+    void anUnreachableModelIsAskedAgainAfterTwoMinutes() {
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
+        when(claudeClient.complete(anyString(), anyString()))
+                .thenThrow(new IllegalStateException("connection refused"))
+                .thenReturn(validAnswerJson());
+
+        service.workoutReading(userId, TOKEN, "UTC");
+        // A model that could not be reached is not asked a second time in the same attempt.
+        verify(claudeClient, times(1)).complete(anyString(), anyString());
+
+        when(clock.instant()).thenReturn(NOW.plusSeconds(60));
+        assertThat(service.workoutReading(userId, TOKEN, "UTC").status()).isEqualTo(ReadingStatus.RESTING);
+        verify(claudeClient, times(1)).complete(anyString(), anyString());
+
+        when(clock.instant()).thenReturn(NOW.plusSeconds(121));
+        assertThat(service.workoutReading(userId, TOKEN, "UTC").status()).isEqualTo(ReadingStatus.WRITING);
+        verify(claudeClient, times(2)).complete(anyString(), anyString());
+        assertThat(service.workoutReading(userId, TOKEN, "UTC").status()).isEqualTo(ReadingStatus.READY);
+    }
+
+    @Test
     @DisplayName("changed facts produce a new reading id and start a new generation")
     void changedFactsStartANewGeneration() {
         when(workoutClient.trainingInsight(anyString(), anyString()))
