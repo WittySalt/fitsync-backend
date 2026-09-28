@@ -1,6 +1,7 @@
 package com.fitsync.workout.controller;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.ExerciseEquipment;
@@ -23,6 +24,7 @@ import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
@@ -30,11 +32,13 @@ import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.workout.service.ExerciseService;
+import com.fitsync.workout.service.WeeklyTrainingInsightService;
 import com.fitsync.workout.service.WorkoutService;
 import com.fitsync.web.response.PageResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -61,10 +65,14 @@ public class WorkoutController {
 
     private final WorkoutService workoutService;
     private final ExerciseService exerciseService;
+    private final WeeklyTrainingInsightService weeklyTrainingInsightService;
 
-    public WorkoutController(WorkoutService workoutService, ExerciseService exerciseService) {
+    public WorkoutController(WorkoutService workoutService,
+                             ExerciseService exerciseService,
+                             WeeklyTrainingInsightService weeklyTrainingInsightService) {
         this.workoutService = workoutService;
         this.exerciseService = exerciseService;
+        this.weeklyTrainingInsightService = weeklyTrainingInsightService;
     }
 
     @PostMapping("/exercises")
@@ -124,6 +132,15 @@ public class WorkoutController {
     @GetMapping("/export")
     public WorkoutExportView exportWorkoutData(Authentication authentication) {
         return workoutService.exportWorkoutData(currentPrincipal(authentication));
+    }
+
+    @Operation(summary = "Get the weekly training insight summary for the current user")
+    @GetMapping("/insights/weekly")
+    public WeeklyTrainingInsightView getWeeklyTrainingInsight(
+            Authentication authentication,
+            @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return weeklyTrainingInsightService.getWeeklyTrainingInsight(currentPrincipal(authentication), timezone, date);
     }
 
     @Operation(summary = "Update a custom exercise")
