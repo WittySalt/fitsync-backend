@@ -73,22 +73,31 @@ public class CoachReadingService {
             - No advice, no instruction, no suggestion, no question, no exclamation mark, no emoji, \
             no medical statement.
             - No dash used as punctuation.
+            - Say only what happened. Never write that something did not happen, and do not use \
+            the words no, not, never or without.
+            - A fact whose label ends in "record" means that a record was set.
+            - Say that something went up, went down or stayed the same only when the note of a \
+            fact you cite in that sentence says Up, Down or Unchanged, or that fact is a record.
+            - Every sentence of the body cites at least one fact.
 
             Facts are given as a JSON array, each with a number, a label, a value, a unit, a short \
             note and a longer detail. The period label tells you whether this covers the current or \
             the previous week.
 
+            The example below shows the form only. Its numbers belong to someone else, so none \
+            of them may appear in your answer.
+
             Example input:
-            period: PREVIOUS_WEEK
+            period: THIS_WEEK
             facts: [
-              {"number":1,"label":"Weight moved per session","value":"1,923","unit":"kg","note":"Up 12%","detail":"1,716 kg the week before"},
-              {"number":2,"label":"Session length","value":"50","unit":"min","note":"Unchanged","detail":"50 min the week before"},
-              {"number":3,"label":"Dumbbell Bench Press record","value":"22.5","unit":"kg","note":"Monday","detail":"20 kg before"},
-              {"number":4,"label":"Sessions with core work","value":"4","unit":"of 4","note":"Every one","detail":"Plank Hold"}
+              {"number":1,"label":"Weight moved per session","value":"2,480","unit":"kg","note":"Down 6%","detail":"2,640 kg the week before"},
+              {"number":2,"label":"Session length","value":"45","unit":"min","note":"Down 10 min","detail":"55 min the week before"},
+              {"number":3,"label":"Barbell Deadlift record","value":"80","unit":"kg","note":"Thursday","detail":"75 kg before"},
+              {"number":4,"label":"Sessions with leg work","value":"3","unit":"of 5","note":"","detail":"Back Squat"}
             ]
 
             Example output:
-            {"headline": "Your lifts grew while your sessions stayed the same length.", "body": "You moved 1,923 kg a session [1], up from 1,716 kg, and each one still took 50 min [2]."}""";
+            {"headline": "Shorter sessions moved less weight and still set a record.", "body": "Each session moved 2,480 kg [1] in 45 min [2], both lower than the week before. Thursday still brought a deadlift of 80 kg [3], up from 75 kg [3]."}""";
 
     private final WorkoutCatalogueClient workoutClient;
     // The builder is pure and holds no state, so the service keeps its own.
@@ -209,8 +218,8 @@ public class CoachReadingService {
         }
 
         List<String> violations = firstResult != null ? firstResult.violations() : List.of("ANSWER_NOT_JSON");
-        String repairPrompt = prompt + "\n\nYour previous answer failed these checks: "
-                + String.join(", ", violations) + ". Answer again, fixing them, in the same JSON shape.";
+        String repairPrompt = prompt + "\n\nYour previous answer was not accepted. "
+                + explain(violations) + " Answer again in the same JSON shape.";
         Attempt second = tryGenerate(client, repairPrompt);
         ReadingValidator.Result secondResult = validate(second, facts);
         if (secondResult != null && secondResult.valid()) {
@@ -221,6 +230,39 @@ public class CoachReadingService {
         store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock),
                 second.reached() ? CoachPageReadingStore.REJECTED_TTL : CoachPageReadingStore.UNREACHABLE_TTL);
         logOutcome(userId, second.reached() ? "REJECTED" : "UNREACHABLE");
+    }
+
+    /**
+     * Turns the validator's codes into sentences. A small model does little with a bare code, and
+     * the sentence names the rule in the same words the system prompt used.
+     */
+    static String explain(List<String> violations) {
+        StringBuilder text = new StringBuilder();
+        for (String violation : violations) {
+            String code = violation.contains(":") ? violation.substring(0, violation.indexOf(':')) : violation;
+            String detail = violation.contains(":") ? violation.substring(violation.indexOf(':') + 1) : "";
+            String sentence = switch (code) {
+                case "NUMBER_NOT_IN_FACTS" -> "The number " + detail + " is not in the facts.";
+                case "INVALID_CITATION" -> "There is no fact numbered " + detail + ".";
+                case "NO_CITATION" -> "The body cited no fact in square brackets.";
+                case "NEGATION" -> "It said that something did not happen.";
+                case "DIRECTION_NOT_IN_FACTS" -> "It described something as " + detail
+                        + ", and no fact cited there says so.";
+                case "SENTENCE_WITHOUT_CITATION" -> "Sentence " + detail + " of the body cited no fact.";
+                case "BANNED_PHRASE" -> "It gave advice or an instruction.";
+                case "QUESTION_MARK" -> "It asked a question.";
+                case "EXCLAMATION_MARK" -> "It used an exclamation mark.";
+                case "DASH_AS_PUNCTUATION" -> "It used a dash as punctuation.";
+                case "HEADLINE_TOO_LONG" -> "The headline was longer than 80 characters.";
+                case "BODY_TOO_LONG" -> "The body was longer than 320 characters.";
+                case "ANSWER_NOT_JSON" -> "It was not a single JSON object.";
+                default -> "It broke the rule " + code + ".";
+            };
+            if (text.indexOf(sentence) < 0) {
+                text.append(text.length() == 0 ? "" : " ").append(sentence);
+            }
+        }
+        return text.toString();
     }
 
     private ReadingValidator.Result validate(Attempt attempt, List<ReadingFact> facts) {

@@ -48,7 +48,7 @@ class ReadingValidatorTests {
     @Test
     @DisplayName("1923 and 1,923.0 are numerically the same fact number and both pass")
     void groupingAndTrailingZerosDoNotMatter() {
-        String body = "You moved 1923 kg a session [1], which reads the same as 1,923.0 kg [1].";
+        String body = "You moved 1923 kg a session [1], also written as 1,923.0 kg [1].";
 
         ReadingValidator.Result result = validator.validate(HEADLINE, body, facts);
 
@@ -210,6 +210,115 @@ class ReadingValidatorTests {
 
         assertThat(result.valid()).isFalse();
         assertThat(result.violations()).anyMatch(v -> v.startsWith("NUMBER_NOT_IN_FACTS:99999999999999999999"));
+    }
+
+    @Test
+    @DisplayName("the example in the system prompt passes against its own facts and fails against the demo facts")
+    void thePromptExampleIsValidForItsOwnFactsOnly() {
+        List<ReadingFact> promptFacts = List.of(
+                new ReadingFact(1, "VOLUME_PER_SESSION", "Weight moved per session", "2,480", "kg",
+                        new BigDecimal("2480"), "Down 6%", "2,640 kg the week before"),
+                new ReadingFact(2, "SESSION_LENGTH", "Session length", "45", "min",
+                        new BigDecimal("45"), "Down 10 min", "55 min the week before"),
+                new ReadingFact(3, "RECORD", "Barbell Deadlift record", "80", "kg",
+                        new BigDecimal("80"), "Thursday", "75 kg before"),
+                new ReadingFact(4, "MOST_TRAINED", "Sessions with leg work", "3", "of 5",
+                        new BigDecimal("3"), "", "Back Squat"));
+        String headline = "Shorter sessions moved less weight and still set a record.";
+        String body = "Each session moved 2,480 kg [1] in 45 min [2], both lower than the week before. "
+                + "Thursday still brought a deadlift of 80 kg [3], up from 75 kg [3].";
+
+        assertThat(validator.validate(headline, body, promptFacts).violations()).isEmpty();
+        // A model that copies the example for a different user is caught by the number check.
+        assertThat(validator.validate(headline, body, facts).valid()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a claim that something did not happen fails, whatever its numbers")
+    void aNegationFails() {
+        // What a small local model wrote on 28 September 2026, beside a fact that was a record.
+        String headline = "Increased sessions moved more weight but no record was set.";
+        String body = "Each session moved 1,923 kg [1] in 50 min [2], up from the week before. "
+                + "Monday still did not bring a new record in Bench Press.";
+
+        ReadingValidator.Result result = validator.validate(headline, body, facts);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.violations()).contains("NEGATION");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "Your week had no rest in it [4].",
+            "Your core never sat out a session [4].",
+            "Your sessions didn't get longer [2].",
+            "You lifted 1,923 kg a session [1] without adding time [2]."})
+    @DisplayName("each form of negation fails")
+    void eachFormOfNegationFails(String body) {
+        assertThat(validator.validate(HEADLINE, body, facts).violations()).contains("NEGATION");
+    }
+
+    @Test
+    @DisplayName("words that only contain a negation, such as notable and another, pass")
+    void wordsThatContainANegationPass() {
+        String body = "Another notable week, with 1,923 kg a session [1] and a record of 22.5 kg [3].";
+
+        assertThat(validator.validate(HEADLINE, body, facts).violations()).doesNotContain("NEGATION");
+    }
+
+    @Test
+    @DisplayName("a fall is rejected when every measured change was a rise")
+    void aFallIsRejectedWhenNothingFell() {
+        String body = "You moved 1,923 kg a session [1], and your sessions were shorter at 50 min [2].";
+
+        assertThat(validator.validate(HEADLINE, body, facts).violations()).contains("DIRECTION_NOT_IN_FACTS:falling in the sentence 1");
+    }
+
+    @Test
+    @DisplayName("a rise is rejected when nothing rose and no record was set")
+    void aRiseIsRejectedWhenNothingRose() {
+        List<ReadingFact> flat = List.of(
+                new ReadingFact(1, "VOLUME_PER_SESSION", "Weight moved per session", "1,923", "kg",
+                        new BigDecimal("1923"), "Down 4%", "2,003 kg the week before"),
+                new ReadingFact(2, "SESSION_LENGTH", "Session length", "50", "min",
+                        new BigDecimal("50"), "Unchanged", "50 min the week before"));
+        String rising = "You moved 1,923 kg a session [1], more than before, in 50 min [2].";
+        String falling = "You moved 1,923 kg a session [1], down from 2,003 kg [1], in 50 min [2].";
+
+        assertThat(validator.validate("Your week in two numbers.", rising, flat).violations())
+                .contains("DIRECTION_NOT_IN_FACTS:rising in the sentence 1");
+        assertThat(validator.validate("Your week in two numbers.", falling, flat).valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a sentence may call something unchanged only when a fact it cites is unchanged")
+    void steadyWordsAreCheckedAgainstTheCitedFact() {
+        // What a small local model wrote on 28 September 2026. Fact 3 is a record, and fact 2, which
+        // the sentence does not cite, is the one that was unchanged.
+        String headline = "Core workouts went up while moving weight and press records stayed the same";
+        String body = "Each session moved 1,923 kg [1] and had 4 sessions of core work [4], both higher than "
+                + "the week before. Dumbbell Bench Press remained at 22.5 kg [3], unchanged since Monday.";
+
+        ReadingValidator.Result result = validator.validate(headline, body, facts);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.violations()).contains("DIRECTION_NOT_IN_FACTS:unchanged in the sentence 2");
+    }
+
+    @Test
+    @DisplayName("every sentence of the body must cite a fact")
+    void aSentenceWithoutACitationFails() {
+        String body = "You moved 1,923 kg a session [1]. Your week looked strong.";
+
+        assertThat(validator.validate(HEADLINE, body, facts).violations()).contains("SENTENCE_WITHOUT_CITATION:2");
+    }
+
+    @Test
+    @DisplayName("a decimal point does not end a sentence")
+    void aDecimalPointDoesNotEndASentence() {
+        String body = "Monday brought a bench press of 22.5 kg [3], up from 20 kg [3].";
+
+        assertThat(validator.validate(HEADLINE, body, facts).violations()).isEmpty();
     }
 
     private static List<ReadingFact> exampleFacts() {

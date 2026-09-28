@@ -50,6 +50,29 @@ public class ReadingValidator {
 
     private static final Pattern TRY_AT_SENTENCE_START = Pattern.compile("(?i)(?:^|[.]\\s+)try\\s");
 
+    /**
+     * A claim that something did not happen. No fact can confirm it, because the facts only record
+     * what was measured, so the number check passes it however wrong it is. A small model wrote
+     * "no record was set" beside a fact that was a record, and that answer contained no number at
+     * all that could have failed.
+     */
+    private static final Pattern NEGATION = Pattern.compile(
+            "(?i)\\b(no|not|never|none|nothing|nobody|without|neither|nor|cannot)\\b|n['\u2019]t\\b");
+
+    private static final Pattern RISING = Pattern.compile(
+            "(?i)\\b(up|rose|risen|rising|grew|grown|growing|increas(?:e|es|ed|ing)|more|higher|heavier|"
+                    + "longer|gain(?:s|ed|ing)?|climb(?:s|ed|ing)?|improv(?:e|es|ed|ing))\\b");
+
+    private static final Pattern FALLING = Pattern.compile(
+            "(?i)\\b(down|fell|fallen|falling|drop(?:s|ped|ping)?|decreas(?:e|es|ed|ing)|less|lower|"
+                    + "lighter|shorter|fewer|declin(?:e|es|ed|ing)|slipp(?:ed|ing))\\b");
+
+    private static final Pattern STEADY = Pattern.compile(
+            "(?i)\\b(unchanged|same|remain(?:s|ed|ing)?|stay(?:s|ed|ing)?|steady|held|flat|constant)\\b");
+
+    /** A sentence ends at a full stop that is followed by a space, so 22.5 stays whole. */
+    private static final Pattern SENTENCE_END = Pattern.compile("(?<=[.])\\s+");
+
     private static final List<String> BANNED_PHRASES = List.of(
             "you should", "you must", "you need to", "you ought", "make sure", "be sure to",
             "try to", "consider ", "aim to", "aim for", "remember to", "don't ", "do not ",
@@ -123,6 +146,12 @@ public class ReadingValidator {
         if (!isPrintableAsciiOrApostrophe(combined)) {
             violations.add("NON_ASCII_CHARACTER");
         }
+
+        if (NEGATION.matcher(combined).find()) {
+            violations.add("NEGATION");
+        }
+        violations.addAll(directionViolations(headline, facts, "headline"));
+        violations.addAll(sentenceViolations(body, facts));
 
         guardrail.check(combined).ifPresent(refusal -> violations.add("GUARDRAIL:" + refusal.rule()));
 
@@ -204,6 +233,65 @@ public class ReadingValidator {
         }
         if (DASH_AS_PUNCTUATION.matcher(text).find()) {
             violations.add("DASH_AS_PUNCTUATION");
+        }
+        return violations;
+    }
+
+    /**
+     * Checks the body one sentence at a time against the facts that sentence cites.
+     *
+     * <p>Every sentence must cite a fact, so that every claim can be traced. A sentence may say
+     * that something went up, went down or stayed the same only when one of the facts it cites did
+     * so. Checking against all the facts at once was not enough: a small model wrote that a lift
+     * "remained unchanged" and cited the record for that lift, while a different fact happened to
+     * be unchanged.
+     */
+    private static List<String> sentenceViolations(String body, List<ReadingFact> facts) {
+        List<String> violations = new ArrayList<>();
+        String[] sentences = SENTENCE_END.split(body.strip());
+        for (int i = 0; i < sentences.length; i++) {
+            String sentence = sentences[i];
+            List<ReadingFact> cited = new ArrayList<>();
+            for (Integer number : citationsIn(sentence)) {
+                for (ReadingFact fact : facts) {
+                    if (fact.number() == number) {
+                        cited.add(fact);
+                    }
+                }
+            }
+            if (cited.isEmpty()) {
+                violations.add("SENTENCE_WITHOUT_CITATION:" + (i + 1));
+                continue;
+            }
+            violations.addAll(directionViolations(stripCitations(sentence), cited, "sentence " + (i + 1)));
+        }
+        return violations;
+    }
+
+    /**
+     * A fact went up when its note begins with "Up" or when it is a record. It went down when its
+     * note begins with "Down", and it stayed the same when its note is "Unchanged". A text may use
+     * a word for one of these only when one of the given facts did so.
+     */
+    private static List<String> directionViolations(String text, List<ReadingFact> facts, String where) {
+        boolean rose = false;
+        boolean fell = false;
+        boolean steady = false;
+        for (ReadingFact fact : facts) {
+            String note = fact.note() == null ? "" : fact.note();
+            rose = rose || note.startsWith("Up") || "RECORD".equals(fact.key());
+            fell = fell || note.startsWith("Down");
+            steady = steady || note.startsWith("Unchanged");
+        }
+        List<String> violations = new ArrayList<>();
+        if (!rose && RISING.matcher(text).find()) {
+            violations.add("DIRECTION_NOT_IN_FACTS:rising in the " + where);
+        }
+        if (!fell && FALLING.matcher(text).find()) {
+            violations.add("DIRECTION_NOT_IN_FACTS:falling in the " + where);
+        }
+        if (!steady && STEADY.matcher(text).find()) {
+            violations.add("DIRECTION_NOT_IN_FACTS:unchanged in the " + where);
         }
         return violations;
     }

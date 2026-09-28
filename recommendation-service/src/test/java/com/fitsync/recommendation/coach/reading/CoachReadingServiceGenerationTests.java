@@ -112,7 +112,7 @@ class CoachReadingServiceGenerationTests {
 
         ArgumentCaptor<String> prompts = ArgumentCaptor.forClass(String.class);
         verify(claudeClient, times(2)).complete(anyString(), prompts.capture());
-        assertThat(prompts.getAllValues().get(1)).contains("failed these checks");
+        assertThat(prompts.getAllValues().get(1)).contains("was not accepted").contains("It was not a single JSON object.");
 
         CoachReadingResponse result = service.workoutReading(userId, TOKEN, "UTC");
         assertThat(result.status()).isEqualTo(ReadingStatus.READY);
