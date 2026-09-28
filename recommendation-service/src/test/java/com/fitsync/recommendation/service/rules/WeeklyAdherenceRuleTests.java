@@ -22,6 +22,7 @@ class WeeklyAdherenceRuleTests {
 
         assertThat(outcome.facts())
                 .containsEntry("targetDaysPerWeek", 4)
+                .containsEntry("targetBasis", WeeklyAdherenceRule.TARGET_BASIS_PREFERENCE)
                 .containsEntry("activeDays", 2)
                 .containsEntry("shortfallDays", 2)
                 .containsEntry("status", "MISSED")
@@ -43,6 +44,38 @@ class WeeklyAdherenceRuleTests {
         assertThat(rule.evaluate(context(null, 3))).isEmpty();
         assertThat(rule.evaluate(context(0, 3))).isEmpty();
         assertThat(rule.evaluate(context(4, null))).isEmpty();
+    }
+
+    @Test
+    void prefersAnExplicitWorkoutFrequencyGoalOverThePreference() {
+        RecommendationContextEntity context = context(5, 4);
+        context.setWeeklyWorkoutGoalDays(4);
+
+        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+
+        assertThat(outcome.facts())
+                .containsEntry("targetDaysPerWeek", 4)
+                .containsEntry("targetBasis", WeeklyAdherenceRule.TARGET_BASIS_GOAL)
+                .containsEntry("shortfallDays", 0)
+                .containsEntry("status", "MET");
+    }
+
+    @Test
+    void fallsBackToThePreferenceWhenTheGoalIsZeroOrAbsent() {
+        RecommendationContextEntity zeroGoal = context(5, 4);
+        zeroGoal.setWeeklyWorkoutGoalDays(0);
+        RuleOutcome zeroGoalOutcome = rule.evaluate(zeroGoal).orElseThrow();
+        assertThat(zeroGoalOutcome.facts())
+                .containsEntry("targetDaysPerWeek", 5)
+                .containsEntry("targetBasis", WeeklyAdherenceRule.TARGET_BASIS_PREFERENCE)
+                .containsEntry("shortfallDays", 1);
+
+        RecommendationContextEntity noGoal = context(5, 4);
+        noGoal.setWeeklyWorkoutGoalDays(null);
+        RuleOutcome noGoalOutcome = rule.evaluate(noGoal).orElseThrow();
+        assertThat(noGoalOutcome.facts())
+                .containsEntry("targetDaysPerWeek", 5)
+                .containsEntry("targetBasis", WeeklyAdherenceRule.TARGET_BASIS_PREFERENCE);
     }
 
     private static RecommendationContextEntity context(Integer targetDays, Integer activeDays) {

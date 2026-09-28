@@ -109,6 +109,94 @@ class RecommendationContextProjectionTests {
     }
 
     @Test
+    void proteinGoalProjectsIntoItsOwnFieldAndLeavesTheCurrentGoalSlotAlone() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("90.00"), null, null,
+                Instant.parse("2026-07-01T08:00:00Z"))));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "PROTEIN", new BigDecimal("140.000"), "g",
+                null, "ACTIVE")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getProteinTargetGrams()).isEqualByComparingTo("140.000");
+        assertThat(context.getCurrentGoalType()).isEqualTo("WEIGHT");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("75");
+    }
+
+    @Test
+    void workoutFrequencyGoalProjectsIntoItsOwnFieldAndLeavesTheCurrentGoalSlotAlone() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
+                null, "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WORKOUT_FREQUENCY", new BigDecimal("4.000"), "days",
+                null, "ACTIVE")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getWeeklyWorkoutGoalDays()).isEqualTo(4);
+        assertThat(context.getCurrentGoalType()).isEqualTo("CALORIES");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("2100");
+    }
+
+    @Test
+    void archivedProteinGoalClearsOnlyTheProteinTarget() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "PROTEIN", new BigDecimal("140.000"), "g",
+                null, "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "PROTEIN", new BigDecimal("140.000"), "g",
+                null, "ARCHIVED")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getProteinTargetGrams()).isNull();
+        assertThat(context.getCurrentGoalType()).isEqualTo("WEIGHT");
+    }
+
+    @Test
+    void archivedGoalForADifferentTypeThanTheSlotLeavesTheSlotAlone() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
+                null, "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ARCHIVED")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getCurrentGoalType()).isEqualTo("CALORIES");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("2100");
+    }
+
+    @Test
+    void archivedGoalMatchingTheSlotClearsTheSlotAndBaseline() {
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("90.00"), null, null,
+                Instant.parse("2026-07-01T08:00:00Z"))));
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ARCHIVED")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getCurrentGoalType()).isNull();
+        assertThat(context.getCurrentGoalTargetValue()).isNull();
+        assertThat(context.getGoalBaselineWeightKg()).isNull();
+        assertThat(context.getGoalBaselineOn()).isNull();
+    }
+
+    @Test
     void weightGoalCapturesThePaceBaselineFromTheKnownWeight() {
         bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
                 UUID.randomUUID(), new BigDecimal("90.00"), null, null,

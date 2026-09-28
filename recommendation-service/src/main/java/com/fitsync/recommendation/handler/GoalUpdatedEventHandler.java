@@ -14,8 +14,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Projects the user's current goal into the context (inputs for R1 nutrition gap and
- * R3 goal pace). A goal that is archived/cancelled upstream clears the goal fields.
+ * Projects the user's goals into the context (inputs for R1 nutrition gap, R2 weekly
+ * adherence and R3 goal pace). A user can hold several goals at once — WEIGHT, CALORIES,
+ * PROTEIN and WORKOUT_FREQUENCY all arrive on this same event type — so PROTEIN and
+ * WORKOUT_FREQUENCY goals are projected into their own dedicated fields instead of the
+ * single "current goal" slot, which stays reserved for WEIGHT/CALORIES (and any other
+ * goal type not handled specially). A goal that is archived/cancelled upstream clears
+ * only the field(s) that goal type owns; it never clears a different goal type's data.
  */
 @Service
 public class GoalUpdatedEventHandler implements DomainEventConsumer<GoalUpdatedPayload> {
@@ -44,13 +49,13 @@ public class GoalUpdatedEventHandler implements DomainEventConsumer<GoalUpdatedP
         }
 
         RecommendationContextEntity context = contextStore.getOrCreate(event.userId());
-        if (payload.status() != null && REMOVED_STATUSES.contains(payload.status())) {
-            context.setCurrentGoalType(null);
-            context.setCurrentGoalTargetValue(null);
-            context.setCurrentGoalTargetUnit(null);
-            context.setCurrentGoalTargetDate(null);
-            context.setGoalBaselineWeightKg(null);
-            context.setGoalBaselineOn(null);
+        boolean removed = payload.status() != null && REMOVED_STATUSES.contains(payload.status());
+        if (GoalTypes.isProteinGoal(payload.goalType())) {
+            context.setProteinTargetGrams(removed ? null : payload.targetValue());
+        } else if (GoalTypes.isWorkoutFrequencyGoal(payload.goalType())) {
+            context.setWeeklyWorkoutGoalDays(removed ? null : weeklyWorkoutGoalDays(payload));
+        } else if (removed) {
+            clearCurrentGoalSlot(payload, context);
         } else {
             context.setCurrentGoalType(payload.goalType());
             context.setCurrentGoalTargetValue(payload.targetValue());
@@ -60,6 +65,37 @@ public class GoalUpdatedEventHandler implements DomainEventConsumer<GoalUpdatedP
         }
         contextStore.saveStale(context);
         processedEventGuard.record(event);
+    }
+
+    /**
+     * The removed goal only owns the slot when its type matches what is currently
+     * projected there (case-insensitively), or when the payload carries no goal type at
+     * all — the latter keeps the pre-existing behaviour for that legacy event shape.
+     * Otherwise the slot belongs to a different goal and is left untouched.
+     */
+    private static void clearCurrentGoalSlot(GoalUpdatedPayload payload, RecommendationContextEntity context) {
+        if (payload.goalType() != null
+                && (context.getCurrentGoalType() == null
+                        || String.CASE_INSENSITIVE_ORDER.compare(payload.goalType(), context.getCurrentGoalType()) != 0)) {
+            return;
+        }
+        context.setCurrentGoalType(null);
+        context.setCurrentGoalTargetValue(null);
+        context.setCurrentGoalTargetUnit(null);
+        context.setCurrentGoalTargetDate(null);
+        context.setGoalBaselineWeightKg(null);
+        context.setGoalBaselineOn(null);
+    }
+
+    /**
+     * A missing or non-positive target value means "no goal" rather than "target zero
+     * workouts a week".
+     */
+    private static Integer weeklyWorkoutGoalDays(GoalUpdatedPayload payload) {
+        if (payload.targetValue() == null || payload.targetValue().signum() <= 0) {
+            return null;
+        }
+        return payload.targetValue().intValue();
     }
 
     /**
