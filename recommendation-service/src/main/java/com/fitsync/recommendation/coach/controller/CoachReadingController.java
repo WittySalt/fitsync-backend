@@ -44,10 +44,13 @@ public class CoachReadingController {
 
     @GetMapping("/workout")
     @Operation(summary = "The workout page's insight panel",
-            description = "Four measured facts, built without a model, and the coach's short reading "
-                    + "over them once one has been written and has passed the number and tone checks. "
-                    + "The reading is never present unless status is READY; while it is being written "
-                    + "the client is expected to poll this endpoint again shortly.",
+            description = "Four measured facts, built without a model, and a short reading over them. "
+                    + "The reading is written by fixed rules by default; a model-written reading only "
+                    + "ever replaces it once one has been generated for exactly these facts and has "
+                    + "passed the same number and tone checks. The reading is never present unless "
+                    + "status is READY; on the rare turn the fixed rules have nothing to say, the "
+                    + "client sees WRITING while a model generation is in flight and is expected to "
+                    + "poll this endpoint again shortly, or RESTING when none is.",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Facts returned, with a reading when one is ready"),

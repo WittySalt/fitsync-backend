@@ -1,0 +1,296 @@
+package com.fitsync.recommendation.coach.reading;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+/**
+ * The default, model-free reading: fixed templates chosen from the direction each fact's note
+ * carries, and never any text the validator itself would reject.
+ */
+class RuleReadingWriterTests {
+
+    private final ReadingValidator validator = new ReadingValidator(new CoachGuardrail());
+    private final ReadingFactsBuilder factsBuilder = new ReadingFactsBuilder();
+    private final RuleReadingWriter writer = new RuleReadingWriter(validator);
+
+    @Test
+    @DisplayName("the demo case: volume up, length unchanged, a record and a most-trained group")
+    void theDemoCase() {
+        TrainingInsight insight = insight(
+                new BigDecimal("1923.00"), new BigDecimal("1716.00"),
+                50, 50,
+                record("Dumbbell Bench Press", "22.5", DayOfWeekName.MONDAY, "20.00"),
+                mostTrained("CORE", 4));
+        List<ReadingFact> facts = factsBuilder.build(insight);
+
+        RuleReadingWriter.RuleReading reading = writer.write(insight, facts).orElseThrow();
+
+        assertThat(reading.headline()).isEqualTo("Your lifts grew while your sessions stayed the same length.");
+        assertThat(reading.body()).isEqualTo(
+                "You moved 1,923 kg a session [1], up from 1,716 kg, in 50 min [2]. "
+                        + "Monday brought a Dumbbell Bench Press of 22.5 kg [3], up from 20 kg. "
+                        + "Core work was part of 4 of 4 sessions [4].");
+        assertThat(reading.citations()).containsExactly(1, 2, 3, 4);
+    }
+
+    @Test
+    @DisplayName("volume up, length down")
+    void volumeUpLengthDown() {
+        TrainingInsight insight = insight(
+                new BigDecimal("2000"), new BigDecimal("1800"), 40, 55, null, null);
+
+        String headline = headlineOnly(insight);
+
+        assertThat(headline).isEqualTo("You moved more weight in shorter sessions.");
+    }
+
+    @Test
+    @DisplayName("volume up, length up")
+    void volumeUpLengthUp() {
+        TrainingInsight insight = insight(
+                new BigDecimal("2000"), new BigDecimal("1800"), 60, 50, null, null);
+
+        String headline = headlineOnly(insight);
+
+        assertThat(headline).isEqualTo("Your sessions grew longer and moved more weight.");
+    }
+
+    @Test
+    @DisplayName("volume up, no length fact at all: the general up rule applies")
+    void volumeUpNoLength() {
+        TrainingInsight insight = insight(
+                new BigDecimal("2000"), new BigDecimal("1800"), null, null, null, null);
+
+        String headline = headlineOnly(insight);
+
+        assertThat(headline).isEqualTo("You moved more weight a session than the week before.");
+    }
+
+    @Test
+    @DisplayName("volume down, length down")
+    void volumeDownLengthDown() {
+        TrainingInsight insight = insight(
+                new BigDecimal("1500"), new BigDecimal("1800"), 40, 55, null, null);
+
+        String headline = headlineOnly(insight);
+
+        assertThat(headline).isEqualTo("Your sessions were shorter and moved less weight.");
+    }
+
+    @Test
+    @DisplayName("volume down, length unchanged: the general down rule applies")
+    void volumeDownOtherLength() {
+        TrainingInsight insight = insight(
+                new BigDecimal("1500"), new BigDecimal("1800"), 50, 50, null, null);
+
+        String headline = headlineOnly(insight);
+
+        assertThat(headline).isEqualTo("You moved less weight a session than the week before.");
+    }
+
+    @Test
+    @DisplayName("volume unchanged, whatever the length is doing")
+    void volumeUnchanged() {
+        TrainingInsight insight = insight(
+                new BigDecimal("1800"), new BigDecimal("1800"), 40, 55, null, null);
+
+        String headline = headlineOnly(insight);
+
+        assertThat(headline).isEqualTo("Your sessions moved the same weight as the week before.");
+    }
+
+    @Test
+    @DisplayName("no volume or length fact, but a record: the record headline")
+    void recordOnlyHeadline() {
+        TrainingInsight insight = insight(
+                null, null, null, null,
+                record("Barbell Squat", "100", DayOfWeekName.FRIDAY, "90"), null);
+
+        String headline = headlineOnly(insight);
+
+        assertThat(headline).isEqualTo("You set a new personal best.");
+    }
+
+    @Test
+    @DisplayName("nothing that matches a specific rule: the fact-count fallback headline")
+    void fallbackHeadline() {
+        TrainingInsight insight = insight(
+                null, null, 45, null, null, mostTrained("BACK", 2));
+
+        String headline = headlineOnly(insight);
+
+        assertThat(headline).isEqualTo("Your training in two numbers.");
+    }
+
+    @Test
+    @DisplayName("volume down sentence names the earlier value as 'down from'")
+    void volumeDownSentence() {
+        TrainingInsight insight = insight(
+                new BigDecimal("1500"), new BigDecimal("1800"), 40, 40, null, null);
+        List<ReadingFact> facts = factsBuilder.build(insight);
+
+        RuleReadingWriter.RuleReading reading = writer.write(insight, facts).orElseThrow();
+
+        assertThat(reading.body()).isEqualTo("You moved 1,500 kg a session [1], down from 1,800 kg, in 40 min [2].");
+    }
+
+    @Test
+    @DisplayName("volume unchanged sentence says so instead of naming a direction")
+    void volumeUnchangedSentence() {
+        TrainingInsight insight = insight(
+                new BigDecimal("1800"), new BigDecimal("1800"), 40, 40, null, null);
+        List<ReadingFact> facts = factsBuilder.build(insight);
+
+        RuleReadingWriter.RuleReading reading = writer.write(insight, facts).orElseThrow();
+
+        assertThat(reading.body())
+                .isEqualTo("You moved 1,800 kg a session [1], the same as the week before, in 40 min [2].");
+    }
+
+    @Test
+    @DisplayName("no length fact: the record is renumbered to fact 2 and cited as [2]")
+    void factsNumberedDifferentlyWithNoLengthFact() {
+        TrainingInsight insight = insight(
+                new BigDecimal("2000"), new BigDecimal("1800"), null, null,
+                record("Deadlift", "120", DayOfWeekName.FRIDAY, "110"), null);
+        List<ReadingFact> facts = factsBuilder.build(insight);
+
+        RuleReadingWriter.RuleReading reading = writer.write(insight, facts).orElseThrow();
+
+        assertThat(facts).extracting(ReadingFact::key).containsExactly("VOLUME_PER_SESSION", "RECORD");
+        assertThat(reading.body()).contains("[2]").doesNotContain("[3]");
+    }
+
+    @ParameterizedTest
+    @DisplayName("an exercise name the validator would reject drops the record sentence but the reading still validates")
+    @MethodSource("awkwardExerciseNames")
+    void awkwardExerciseNameDropsTheRecordSentence(String exerciseName) {
+        TrainingInsight insight = insight(
+                new BigDecimal("1923.00"), new BigDecimal("1716.00"),
+                50, 50,
+                record(exerciseName, "22.5", DayOfWeekName.MONDAY, "20.00"),
+                mostTrained("CORE", 4));
+        List<ReadingFact> facts = factsBuilder.build(insight);
+
+        RuleReadingWriter.RuleReading reading = writer.write(insight, facts).orElseThrow();
+
+        assertThat(reading.headline()).isEqualTo("Your lifts grew while your sessions stayed the same length.");
+        assertThat(reading.body()).doesNotContain(exerciseName).doesNotContain("[3]");
+        assertThat(validator.validate(reading.headline(), reading.body(), facts).valid()).isTrue();
+    }
+
+    static Stream<String> awkwardExerciseNames() {
+        return Stream.of(
+                "21s Barbell Curl",
+                "Is this a press?",
+                "No-Hands Squat",
+                "Row - wide grip",
+                "Barbell Curl 💪");
+    }
+
+    @ParameterizedTest
+    @DisplayName("every combination the rules can produce validates cleanly and stays within length limits")
+    @MethodSource("directionCombinations")
+    void everyCombinationValidates(BigDecimal volume, BigDecimal earlierVolume, Integer minutes,
+                                   Integer earlierMinutes, boolean withRecord, boolean withMostTrained) {
+        TrainingInsight insight = insight(volume, earlierVolume, minutes, earlierMinutes,
+                withRecord ? record("Barbell Row", "60", DayOfWeekName.TUESDAY, "55") : null,
+                withMostTrained ? mostTrained("LEGS", 3) : null);
+        List<ReadingFact> facts = factsBuilder.build(insight);
+        if (facts.isEmpty()) {
+            return;
+        }
+
+        Optional<RuleReadingWriter.RuleReading> reading = writer.write(insight, facts);
+
+        assertThat(reading).isPresent();
+        ReadingValidator.Result result = validator.validate(reading.get().headline(), reading.get().body(), facts);
+        assertThat(result.valid()).isTrue();
+        assertThat(result.violations()).isEmpty();
+        assertThat(reading.get().headline().length()).isLessThanOrEqualTo(80);
+        assertThat(reading.get().body().length()).isLessThanOrEqualTo(320);
+    }
+
+    static Stream<Arguments> directionCombinations() {
+        BigDecimal up = new BigDecimal("2000");
+        BigDecimal upEarlier = new BigDecimal("1800");
+        BigDecimal down = new BigDecimal("1500");
+        BigDecimal downEarlier = new BigDecimal("1800");
+        BigDecimal same = new BigDecimal("1800");
+        return Stream.of(
+                Arguments.of(up, upEarlier, 40, 55, false, false),
+                Arguments.of(up, upEarlier, 60, 50, false, false),
+                Arguments.of(up, upEarlier, 50, 50, false, false),
+                Arguments.of(up, upEarlier, null, null, false, false),
+                Arguments.of(down, downEarlier, 40, 55, false, false),
+                Arguments.of(down, downEarlier, 50, 50, false, false),
+                Arguments.of(same, same, 40, 55, false, false),
+                Arguments.of(up, upEarlier, 50, 50, true, true),
+                Arguments.of(down, downEarlier, 40, 55, true, false),
+                Arguments.of(same, same, 40, 40, false, true),
+                Arguments.of((BigDecimal) null, null, 45, null, true, true),
+                Arguments.of((BigDecimal) null, null, 45, null, false, true),
+                Arguments.of(up, upEarlier, null, null, true, false),
+                Arguments.of(down, downEarlier, null, null, false, true));
+    }
+
+    @Test
+    @DisplayName("facts with nothing usable to say produce no reading")
+    void nothingToSayIsEmpty() {
+        TrainingInsight insight = insight(null, null, null, null, null, mostTrained("UNKNOWN_GROUP", 2));
+        List<ReadingFact> facts = factsBuilder.build(insight);
+
+        Optional<RuleReadingWriter.RuleReading> reading = writer.write(insight, facts);
+
+        assertThat(reading).isEmpty();
+    }
+
+    private String headlineOnly(TrainingInsight insight) {
+        List<ReadingFact> facts = factsBuilder.build(insight);
+        return writer.write(insight, facts).orElseThrow().headline();
+    }
+
+    private enum DayOfWeekName { MONDAY, TUESDAY, FRIDAY }
+
+    private static TrainingInsight.RecordInfo record(String exerciseName, String weight, DayOfWeekName day,
+                                                      String previousBest) {
+        LocalDate achievedOn = switch (day) {
+            case MONDAY -> LocalDate.parse("2026-09-21");
+            case TUESDAY -> LocalDate.parse("2026-09-22");
+            case FRIDAY -> LocalDate.parse("2026-09-25");
+        };
+        return new TrainingInsight.RecordInfo(exerciseName, new BigDecimal(weight), achievedOn,
+                previousBest == null ? null : new BigDecimal(previousBest));
+    }
+
+    private static TrainingInsight.MostTrainedInfo mostTrained(String muscleGroup, int sessions) {
+        return new TrainingInsight.MostTrainedInfo(muscleGroup, sessions, List.of("Plank Hold"));
+    }
+
+    private static TrainingInsight insight(BigDecimal volume, BigDecimal earlierVolume, Integer minutes,
+                                           Integer earlierMinutes, TrainingInsight.RecordInfo record,
+                                           TrainingInsight.MostTrainedInfo mostTrained) {
+        int sessionsInPeriod = mostTrained == null ? 4 : (mostTrained.muscleGroup().equals("CORE") ? 4
+                : mostTrained.muscleGroup().equals("BACK") ? 3
+                : mostTrained.muscleGroup().equals("LEGS") ? 5 : 3);
+        return new TrainingInsight(
+                "Asia/Singapore", LocalDate.parse("2026-09-28"), "PREVIOUS_WEEK",
+                LocalDate.parse("2026-09-21"), LocalDate.parse("2026-09-27"),
+                sessionsInPeriod, 2,
+                volume, earlierVolume,
+                minutes, earlierMinutes,
+                record, mostTrained, List.of());
+    }
+}

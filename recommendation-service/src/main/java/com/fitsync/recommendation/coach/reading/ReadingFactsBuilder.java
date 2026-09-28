@@ -139,14 +139,26 @@ public class ReadingFactsBuilder {
         return trimmed.length() > MAX_TEXT_LENGTH ? trimmed.substring(0, MAX_TEXT_LENGTH) : trimmed;
     }
 
-    /** Whole kilograms, rounded, with a thousands separator: {@code 1923.4} becomes {@code "1,923"}. */
-    private static String wholeWithCommas(BigDecimal value) {
+    /**
+     * Whole kilograms, rounded, with a thousands separator: {@code 1923.4} becomes {@code "1,923"}.
+     *
+     * <p>Package-private rather than private so {@link RuleReadingWriter} can format the earlier
+     * volume value the same way the facts themselves are formatted, instead of duplicating this
+     * rounding and grouping logic.
+     */
+    static String wholeWithCommas(BigDecimal value) {
         long rounded = value.setScale(0, RoundingMode.HALF_UP).longValueExact();
         return NumberFormat.getIntegerInstance(Locale.US).format(rounded);
     }
 
-    /** At most one decimal place, with a trailing {@code .0} dropped: {@code 20.00} becomes {@code "20"}. */
-    private static String upToOneDecimal(BigDecimal value) {
+    /**
+     * At most one decimal place, with a trailing {@code .0} dropped: {@code 20.00} becomes {@code "20"}.
+     *
+     * <p>Package-private rather than private so {@link RuleReadingWriter} can format a previous
+     * personal best the same way the record fact's own value is formatted, instead of duplicating
+     * this rounding logic.
+     */
+    static String upToOneDecimal(BigDecimal value) {
         if (value == null) {
             return "";
         }

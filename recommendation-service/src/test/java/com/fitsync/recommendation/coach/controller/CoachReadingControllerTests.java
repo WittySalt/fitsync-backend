@@ -8,11 +8,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.recommendation.coach.reading.CoachReadingResponse;
 import com.fitsync.recommendation.coach.reading.CoachReadingService;
+import com.fitsync.recommendation.coach.reading.ModelReadingView;
 import com.fitsync.recommendation.coach.reading.ReadingStatus;
 import com.fitsync.recommendation.coach.reading.ReadingSurface;
 import com.fitsync.recommendation.coach.reading.ReadingUnavailableException;
@@ -54,8 +56,12 @@ class CoachReadingControllerTests {
     void returnsTheReadingShapeForAnAuthenticatedUser() throws Exception {
         when(readingService.workoutReading(eq(USER_ID), any(String.class), eq("Asia/Singapore")))
                 .thenReturn(new CoachReadingResponse(
-                        ReadingSurface.WORKOUT, ReadingStatus.WRITING, "9f2c4e1ab03d77aa",
-                        "PREVIOUS_WEEK", null, null, List.of(), null, List.of()));
+                        ReadingSurface.WORKOUT, ReadingStatus.READY, "9f2c4e1ab03d77aa",
+                        "PREVIOUS_WEEK", null, null, List.of(),
+                        new ModelReadingView("Your lifts grew while your sessions stayed the same length.",
+                                "You moved 1,923 kg a session [1], up from 1,716 kg, in 50 min [2].",
+                                List.of(1, 2), "RULES", Instant.parse("2026-09-28T12:00:00Z")),
+                        List.of()));
 
         mockMvc.perform(get("/api/v1/coach/readings/workout")
                         .param("timezone", "Asia/Singapore")
@@ -63,10 +69,10 @@ class CoachReadingControllerTests {
                         .with(authentication(authToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.surface").value("WORKOUT"))
-                .andExpect(jsonPath("$.status").value("WRITING"))
+                .andExpect(jsonPath("$.status").value("READY"))
                 .andExpect(jsonPath("$.readingId").value("9f2c4e1ab03d77aa"))
                 .andExpect(jsonPath("$.period").value("PREVIOUS_WEEK"))
-                .andExpect(jsonPath("$.reading").doesNotExist());
+                .andExpect(jsonPath("$.reading.source").value("RULES"));
     }
 
     @Test

@@ -1,7 +1,10 @@
 package com.fitsync.recommendation.coach.reading;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -11,12 +14,14 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
+import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
 import com.fitsync.recommendation.service.ai.ClaudeClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,6 +38,13 @@ import org.springframework.test.context.ActiveProfiles;
  * Everything that happens once an AI tier is actually configured: the model is asked, a failed
  * validation gets one repair attempt, a rejection is remembered so it is not retried within the
  * hour, and a changed page starts over.
+ *
+ * <p>{@link RuleReadingWriter} is mocked here too, but only so one test can force it empty; every
+ * other test lets the mock delegate to a real instance, because the facts used throughout this class
+ * are the same full, demo-shaped facts the rule writer always has something to say about. That is why
+ * most of these scenarios are READY with source RULES on the very first call: the fixed-rule reading
+ * is available immediately, and only the *source* of a later READY response — RULES the first time,
+ * MODEL once a generation this same call enqueued has been accepted — changes from call to call.
  *
  * <p>{@code coachReadingExecutor} is replaced here with a same-thread executor, so a generation
  * this test enqueues has already run by the time {@code workoutReading} returns to the *next*
@@ -74,23 +86,37 @@ class CoachReadingServiceGenerationTests {
     @MockBean
     private Clock clock;
 
+    @MockBean
+    private RuleReadingWriter ruleReadingWriter;
+
+    private final RuleReadingWriter realRuleReadingWriter =
+            new RuleReadingWriter(new ReadingValidator(new CoachGuardrail()));
+
     private UUID userId;
 
     @BeforeEach
     void freshUserAndStubbedClock() {
         userId = UUID.randomUUID();
         when(clock.instant()).thenReturn(NOW);
+        // The default stub is the real writer, so every test not exercising the "nothing to say"
+        // fallback sees the same rule-written reading a production deployment would. doAnswer, not
+        // when(...), because when(mock.write(any(), any())) would call the mock with the any()
+        // matchers' null placeholders through whatever is already stubbed - including, on the second
+        // such call in a test that re-stubs this, the real delegate below itself.
+        doAnswer(invocation -> realRuleReadingWriter.write(invocation.getArgument(0), invocation.getArgument(1)))
+                .when(ruleReadingWriter).write(any(), any());
     }
 
     @Test
-    @DisplayName("the first call writes, and the second call sees what the generation produced")
-    void firstCallWritesThenSecondCallIsReady() {
+    @DisplayName("the first call is READY with a rule-written reading and enqueues a generation; "
+            + "the second call is READY with the model's reading")
+    void firstCallReadyWithRulesThenSecondCallReadyWithModel() {
         when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
         when(claudeClient.complete(anyString(), anyString())).thenReturn(validAnswerJson());
 
         CoachReadingResponse first = service.workoutReading(userId, TOKEN, "UTC");
-        assertThat(first.status()).isEqualTo(ReadingStatus.WRITING);
-        assertThat(first.reading()).isNull();
+        assertThat(first.status()).isEqualTo(ReadingStatus.READY);
+        assertThat(first.reading().source()).isEqualTo("RULES");
 
         CoachReadingResponse second = service.workoutReading(userId, TOKEN, "UTC");
         assertThat(second.status()).isEqualTo(ReadingStatus.READY);
@@ -101,57 +127,70 @@ class CoachReadingServiceGenerationTests {
     }
 
     @Test
-    @DisplayName("a rejected first answer is repaired, the repair prompt lists the violations, and the result is READY")
+    @DisplayName("a rejected first answer is repaired, the repair prompt lists the violations, and a later call is READY with MODEL")
     void repairedAfterAFailedFirstAttempt() {
         when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
         when(claudeClient.complete(anyString(), anyString()))
                 .thenReturn("not valid json at all")
                 .thenReturn(validAnswerJson());
 
-        service.workoutReading(userId, TOKEN, "UTC");
+        CoachReadingResponse first = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(first.status()).isEqualTo(ReadingStatus.READY);
+        assertThat(first.reading().source()).isEqualTo("RULES");
 
         ArgumentCaptor<String> prompts = ArgumentCaptor.forClass(String.class);
         verify(claudeClient, times(2)).complete(anyString(), prompts.capture());
         assertThat(prompts.getAllValues().get(1)).contains("was not accepted").contains("It was not a single JSON object.");
 
-        CoachReadingResponse result = service.workoutReading(userId, TOKEN, "UTC");
-        assertThat(result.status()).isEqualTo(ReadingStatus.READY);
+        CoachReadingResponse second = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(second.status()).isEqualTo(ReadingStatus.READY);
+        assertThat(second.reading().source()).isEqualTo("MODEL");
     }
 
     @Test
-    @DisplayName("two failed attempts end RESTING, and a later call within the hour does not call the model again")
-    void twoFailedAttemptsRestAndStayRested() {
+    @DisplayName("two rejected answers stay READY with RULES, and a later call within the hour does not call the model again")
+    void twoRejectedAnswersDoNotCallTheModelAgainWithinTheHour() {
         when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
         when(claudeClient.complete(anyString(), anyString())).thenReturn("not valid json at all");
 
-        service.workoutReading(userId, TOKEN, "UTC");
+        CoachReadingResponse first = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(first.status()).isEqualTo(ReadingStatus.READY);
+        assertThat(first.reading().source()).isEqualTo("RULES");
         verify(claudeClient, times(2)).complete(anyString(), anyString());
 
         CoachReadingResponse second = service.workoutReading(userId, TOKEN, "UTC");
-        assertThat(second.status()).isEqualTo(ReadingStatus.RESTING);
+        assertThat(second.status()).isEqualTo(ReadingStatus.READY);
+        assertThat(second.reading().source()).isEqualTo("RULES");
         verify(claudeClient, times(2)).complete(anyString(), anyString());
     }
 
     @Test
-    @DisplayName("an unreachable model is asked once, rests for two minutes, and is then asked again")
+    @DisplayName("an unreachable model still serves RULES, is not retried within two minutes, and is asked again after")
     void anUnreachableModelIsAskedAgainAfterTwoMinutes() {
         when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
         when(claudeClient.complete(anyString(), anyString()))
                 .thenThrow(new IllegalStateException("connection refused"))
                 .thenReturn(validAnswerJson());
 
-        service.workoutReading(userId, TOKEN, "UTC");
+        CoachReadingResponse first = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(first.status()).isEqualTo(ReadingStatus.READY);
+        assertThat(first.reading().source()).isEqualTo("RULES");
         // A model that could not be reached is not asked a second time in the same attempt.
         verify(claudeClient, times(1)).complete(anyString(), anyString());
 
         when(clock.instant()).thenReturn(NOW.plusSeconds(60));
-        assertThat(service.workoutReading(userId, TOKEN, "UTC").status()).isEqualTo(ReadingStatus.RESTING);
+        CoachReadingResponse second = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(second.status()).isEqualTo(ReadingStatus.READY);
+        assertThat(second.reading().source()).isEqualTo("RULES");
         verify(claudeClient, times(1)).complete(anyString(), anyString());
 
         when(clock.instant()).thenReturn(NOW.plusSeconds(121));
-        assertThat(service.workoutReading(userId, TOKEN, "UTC").status()).isEqualTo(ReadingStatus.WRITING);
+        CoachReadingResponse third = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(third.status()).isEqualTo(ReadingStatus.READY);
         verify(claudeClient, times(2)).complete(anyString(), anyString());
-        assertThat(service.workoutReading(userId, TOKEN, "UTC").status()).isEqualTo(ReadingStatus.READY);
+
+        CoachReadingResponse fourth = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(fourth.reading().source()).isEqualTo("MODEL");
     }
 
     @Test
@@ -214,6 +253,22 @@ class CoachReadingServiceGenerationTests {
         CoachPageReadingEntity reclaimed =
                 readingRepository.findByUserIdAndSurface(userId, ReadingSurface.WORKOUT).orElseThrow();
         assertThat(reclaimed.getOutcome()).isEqualTo(ReadingOutcome.ACCEPTED);
+    }
+
+    @Test
+    @DisplayName("when the rule writer has nothing to say, the response falls back to WRITING then RESTING")
+    void ruleWriterEmptyFallsBackToWritingThenResting() {
+        doReturn(Optional.empty()).when(ruleReadingWriter).write(any(), any());
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
+        when(claudeClient.complete(anyString(), anyString())).thenReturn("not valid json at all");
+
+        CoachReadingResponse first = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(first.status()).isEqualTo(ReadingStatus.WRITING);
+        assertThat(first.reading()).isNull();
+
+        CoachReadingResponse second = service.workoutReading(userId, TOKEN, "UTC");
+        assertThat(second.status()).isEqualTo(ReadingStatus.RESTING);
+        assertThat(second.reading()).isNull();
     }
 
     private static String validAnswerJson() {

@@ -29,17 +29,26 @@ import org.springframework.stereotype.Service;
 
 /**
  * Serves the workout page's insight panel: four measured facts, built in pure code, and one short
- * model-written reading over them once it exists and has passed validation for exactly those facts.
+ * reading over them.
  *
- * <p>The GET this backs is cheap by design, because a client is expected to poll it while a reading
- * is being written. It never runs the model itself; it reads the current cached row, decides what
- * that row means (nothing yet, in flight, already failed, or ready), and — the one side effect it
- * does have — enqueues a generation when one is owed and none is already running. Everything that
- * touches the model happens on {@code coachReadingExecutor}, off this thread.
+ * <p>The reading is written by {@link RuleReadingWriter} from fixed templates by default. A model
+ * reading only ever replaces it when one exists for exactly these facts and has already passed
+ * {@link ReadingValidator} — the model is never trusted to be the only source of the reading, because
+ * a small model has previously written a reading that passed every check and was still false. The
+ * rule writer cannot make that mistake, because it has no free text to make it in.
+ *
+ * <p>The GET this backs is cheap by design, because a client is expected to poll it while a model
+ * reading is being written in the background. It never runs the model itself; it reads the current
+ * cached row, decides what that row means (nothing yet, in flight, already failed, or ready), and —
+ * the one side effect it does have — enqueues a generation when one is owed and none is already
+ * running. Everything that touches the model happens on {@code coachReadingExecutor}, off this
+ * thread, and none of it changes what this call returns: that is decided by the rule writer, or by an
+ * already-accepted model reading found on the way in.
  *
  * <p>Two rules matter more than anything the model was told, and both are enforced here rather than
  * trusted to the prompt: a reading never tells the user what to do, and every number in it is one of
- * the measured facts. {@link ReadingValidator} is where both are actually checked.
+ * the measured facts. {@link ReadingValidator} is where both are actually checked, for the model's
+ * answer and for the rule writer's own candidates alike.
  */
 @Service
 public class CoachReadingService {
@@ -103,6 +112,11 @@ public class CoachReadingService {
     // The builder is pure and holds no state, so the service keeps its own.
     private final ReadingFactsBuilder factsBuilder = new ReadingFactsBuilder();
     private final ReadingValidator validator;
+    // Resolved through ObjectProvider rather than stored directly, the same fix
+    // SpringKafkaEventProducer uses elsewhere in this codebase, because SpotBugs' EI_EXPOSE_REP2
+    // flags a constructor-injected singleton bean stored as a plain field regardless of whether the
+    // bean itself is stateless.
+    private final ObjectProvider<RuleReadingWriter> ruleReadingWriterProvider;
     private final CoachPageReadingStore store;
     private final ObjectProvider<ClaudeClient> claudeClientProvider;
     // A reader and a writer are immutable, which a shared ObjectMapper is not.
@@ -113,6 +127,7 @@ public class CoachReadingService {
 
     public CoachReadingService(WorkoutCatalogueClient workoutClient,
                                ReadingValidator validator,
+                               ObjectProvider<RuleReadingWriter> ruleReadingWriterProvider,
                                CoachPageReadingStore store,
                                ObjectProvider<ClaudeClient> claudeClientProvider,
                                ObjectMapper objectMapper,
@@ -120,6 +135,7 @@ public class CoachReadingService {
                                @Qualifier("coachReadingExecutor") ExecutorService executor) {
         this.workoutClient = workoutClient;
         this.validator = validator;
+        this.ruleReadingWriterProvider = ruleReadingWriterProvider;
         this.store = store;
         this.claudeClientProvider = claudeClientProvider;
         this.answerReader = objectMapper.readerFor(ModelAnswer.class);
@@ -149,17 +165,48 @@ public class CoachReadingService {
         if (existing.isPresent() && CoachPageReadingStore.hashesMatch(hash, existing.get().getFactsHash())) {
             CoachPageReadingEntity row = existing.get();
             boolean expired = row.getExpiresAt() != null && now.isAfter(row.getExpiresAt());
+            if (!expired && row.getOutcome() == ReadingOutcome.ACCEPTED) {
+                return ready(insight, facts, readingId, row);
+            }
+        }
+
+        // Deciding whether a model generation is owed never changes what this call returns; it only
+        // decides whether the client should be told WRITING or RESTING on the rare turn the rule
+        // writer itself has nothing to say.
+        boolean modelGenerationInFlight = decideModelGeneration(userId, hash, facts, insight, existing, now);
+
+        RuleReadingWriter ruleReadingWriter = ruleReadingWriterProvider.getObject();
+        Optional<RuleReadingWriter.RuleReading> ruleReading = ruleReadingWriter.write(insight, facts);
+        if (ruleReading.isPresent()) {
+            return readyWithRules(insight, facts, readingId, ruleReading.get(), now);
+        }
+        return modelGenerationInFlight ? writing(insight, facts, readingId) : resting(insight, facts, readingId);
+    }
+
+    /**
+     * The unchanged claim-and-enqueue decision from before rule-written readings existed: a fresh
+     * rejection or a fresh generation already in flight means there is nothing to do, an abandoned or
+     * missing row means a fresh attempt is claimed and enqueued, and no configured {@link ClaudeClient}
+     * means there is nothing that could be enqueued at all.
+     *
+     * @return whether a model generation is now in flight for these facts (already running, or just
+     *         started here) — the only thing about this decision the caller still needs to know, now
+     *         that the response itself is decided by the rule writer instead
+     */
+    private boolean decideModelGeneration(UUID userId, String hash, List<ReadingFact> facts,
+                                          TrainingInsight insight, Optional<CoachPageReadingEntity> existing,
+                                          Instant now) {
+        if (existing.isPresent() && CoachPageReadingStore.hashesMatch(hash, existing.get().getFactsHash())) {
+            CoachPageReadingEntity row = existing.get();
+            boolean expired = row.getExpiresAt() != null && now.isAfter(row.getExpiresAt());
             if (!expired) {
-                if (row.getOutcome() == ReadingOutcome.ACCEPTED) {
-                    return ready(insight, facts, readingId, row);
-                }
                 if (row.getOutcome() == ReadingOutcome.REJECTED) {
-                    return resting(insight, facts, readingId);
+                    return false;
                 }
                 if (row.getOutcome() == ReadingOutcome.PENDING
                         && row.getStartedAt() != null
                         && Duration.between(row.getStartedAt(), now).getSeconds() < PENDING_ABANDON_SECONDS) {
-                    return writing(insight, facts, readingId);
+                    return true;
                 }
                 // A PENDING row older than the window is abandoned - a worker died or was never
                 // scheduled - and falls through to be reclaimed below rather than wedging this page.
@@ -168,12 +215,12 @@ public class CoachReadingService {
 
         ClaudeClient client = claudeClientProvider.getIfAvailable();
         if (client == null) {
-            return resting(insight, facts, readingId);
+            return false;
         }
 
         store.claimPending(userId, ReadingSurface.WORKOUT, hash, now);
         executor.execute(() -> generate(userId, hash, facts, insight.period()));
-        return writing(insight, facts, readingId);
+        return true;
     }
 
     /**
@@ -342,6 +389,13 @@ public class CoachReadingService {
                                        CoachPageReadingEntity row) {
         ModelReadingView reading = new ModelReadingView(
                 row.getHeadline(), row.getBody(), parseCitations(row.getCitations()), row.getSource(), row.getGeneratedAt());
+        return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.READY, readingId,
+                insight.period(), insight.periodStart(), insight.periodEnd(), facts, reading, insight.lifts());
+    }
+
+    private CoachReadingResponse readyWithRules(TrainingInsight insight, List<ReadingFact> facts, String readingId,
+                                                RuleReadingWriter.RuleReading rule, Instant now) {
+        ModelReadingView reading = new ModelReadingView(rule.headline(), rule.body(), rule.citations(), "RULES", now);
         return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.READY, readingId,
                 insight.period(), insight.periodStart(), insight.periodEnd(), facts, reading, insight.lifts());
     }

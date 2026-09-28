@@ -20,6 +20,9 @@ import org.springframework.test.context.ActiveProfiles;
  * The two paths that need no model at all: an empty period, and no AI tier configured. Neither
  * declares a {@code ClaudeClient} bean, so {@code ObjectProvider.getIfAvailable()} genuinely returns
  * null, exactly as it would with the AI tier switched off in a real deployment.
+ *
+ * <p>With no model configured at all there is still a reading: the rule writer runs for every real
+ * period with at least two facts, and its output is what {@code READY} serves as {@code RULES}.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -71,15 +74,18 @@ class CoachReadingServiceTests {
     }
 
     @Test
-    @DisplayName("with no ClaudeClient bean at all, a real period rests rather than writes")
-    void noModelMeansResting() {
+    @DisplayName("with no ClaudeClient bean at all, a real period is READY with a rule-written reading")
+    void noModelMeansReadyWithRules() {
         when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
 
         CoachReadingResponse response = service.workoutReading(USER_ID, TOKEN, "UTC");
 
-        assertThat(response.status()).isEqualTo(ReadingStatus.RESTING);
+        assertThat(response.status()).isEqualTo(ReadingStatus.READY);
         assertThat(response.readingId()).isNotNull();
-        assertThat(response.reading()).isNull();
+        assertThat(response.reading()).isNotNull();
+        assertThat(response.reading().source()).isEqualTo("RULES");
+        assertThat(response.reading().headline()).isNotBlank();
+        assertThat(response.reading().body()).isNotBlank();
         assertThat(response.facts()).hasSize(4);
     }
 
