@@ -53,6 +53,16 @@ public class AnswerValidator {
 
     private static final Pattern CURRENT_WEEK = Pattern.compile("(?i)\\bthis week\\b");
 
+    /** A count of sessions or minutes, such as "4 workouts". A number after "of" is a target. */
+    private static final Pattern COUNTED = Pattern.compile(
+            "(?i)(?<!\\bof )(\\d{1,3}(?:,\\d{3})+|\\d+)\\s+(?:completed\\s+|total\\s+)?"
+                    + "(workouts?|sessions?|minutes|min)\\b");
+
+    /** Words that place a sentence in a week before the current one, or in a run of days. */
+    private static final Pattern EARLIER_PERIOD = Pattern.compile(
+            "(?i)\\b(last (?:full )?week|the week before|previous week|past week|"
+                    + "(?:last|past) (?:7|seven) days)\\b");
+
     /** @return the checked result: valid with no violations, or invalid with every rule broken */
     public Result validate(String answer, String question, List<String> transcript, TurnContext turnContext) {
         List<String> violations = new ArrayList<>();
@@ -72,6 +82,8 @@ public class AnswerValidator {
         }
 
         violations.addAll(CoachVoice.toneViolations(answer));
+
+        violations.addAll(weekNotNamedViolations(answer, WeekFigures.from(transcript)));
 
         TurnContext.PinnedReading pinnedReading = turnContext == null ? null : turnContext.pinnedReading();
         if (pinnedReading != null) {
@@ -211,6 +223,35 @@ public class AnswerValidator {
                 String label = fact.label() == null ? "" : fact.label().toLowerCase(Locale.ROOT);
                 if (label.contains("per session")) {
                     violations.add("MEASURE_MISMATCH:" + fact.number());
+                }
+            }
+        }
+        return violations;
+    }
+
+    /**
+     * The computed facts count the last full week, and a question about "my week" is about the
+     * current one. A sentence that states last week's count of sessions or minutes has to say that
+     * it is last week's. The rule runs only when the two weeks are both known and differ, and it
+     * leaves a count alone when the current week has the same one.
+     */
+    private static List<String> weekNotNamedViolations(String answer, WeekFigures weeks) {
+        List<String> violations = new ArrayList<>();
+        if (!weeks.comparable()) {
+            return violations;
+        }
+        for (String sentence : SENTENCE_END.split(answer.strip())) {
+            if (EARLIER_PERIOD.matcher(sentence).find()) {
+                continue;
+            }
+            Matcher matcher = COUNTED.matcher(sentence);
+            while (matcher.find()) {
+                int stated = parseNumber(matcher.group(1)).intValue();
+                boolean minutes = matcher.group(2).toLowerCase(Locale.ROOT).startsWith("min");
+                Integer lastWeek = minutes ? weeks.lastWeekMinutes() : weeks.lastWeekSessions();
+                Integer currentWeek = minutes ? weeks.currentWeekMinutes() : weeks.currentWeekSessions();
+                if (lastWeek != null && stated == lastWeek && stated != currentWeek) {
+                    violations.add("WEEK_NOT_NAMED:" + matcher.group(1) + " " + matcher.group(2));
                 }
             }
         }

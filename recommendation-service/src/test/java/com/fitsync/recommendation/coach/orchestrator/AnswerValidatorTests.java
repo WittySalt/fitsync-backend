@@ -309,6 +309,71 @@ class AnswerValidatorTests {
         assertThat(result.valid()).isTrue();
     }
 
+    private static final List<String> TWO_WEEKS = List.of("Result of readFacts({}):\n" + """
+            {
+              "weekStart" : "2026-09-21",
+              "training" : {
+                "period" : "LAST_FULL_WEEK",
+                "targetDaysPerWeek" : 4,
+                "activeDays" : 4,
+                "status" : "MET",
+                "workoutCount" : 4,
+                "totalMinutes" : 170
+              },
+              "trainingThisWeek" : {
+                "period" : "CURRENT_WEEK_SO_FAR",
+                "weekStart" : "2026-09-28",
+                "sessions" : 1,
+                "totalMinutes" : 50
+              }
+            }""");
+
+    @Test
+    @DisplayName("last week's count cannot stand for the week without being named")
+    void rejectsLastWeeksCountGivenAsTheWeek() {
+        AnswerValidator.Result result = validator.validate(
+                "Your week is on track. You completed 4 workouts for 170 minutes.",
+                "How is my week going", TWO_WEEKS, null);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.violations()).containsExactly("WEEK_NOT_NAMED:4 workouts", "WEEK_NOT_NAMED:170 minutes");
+    }
+
+    @Test
+    @DisplayName("the same count passes when the sentence says it is last week's")
+    void acceptsLastWeeksCountWhenTheSentenceNamesTheWeek() {
+        AnswerValidator.Result result = validator.validate(
+                "You have 1 session and 50 minutes so far this week. "
+                        + "Last week you completed 4 sessions for 170 minutes, against a target of 4.",
+                "How is my week going", TWO_WEEKS, null);
+
+        assertThat(result.valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a count the two weeks share is left alone")
+    void leavesACountTheTwoWeeksShare() {
+        List<String> sameCounts = List.of(TWO_WEEKS.get(0)
+                .replace("\"sessions\" : 1", "\"sessions\" : 4")
+                .replace("\"totalMinutes\" : 50", "\"totalMinutes\" : 170"));
+
+        AnswerValidator.Result result = validator.validate(
+                "You completed 4 workouts for 170 minutes.", "How is my week going", sameCounts, null);
+
+        assertThat(result.valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("without the current week there is nothing to compare, and the rule stays out")
+    void staysOutWhenTheCurrentWeekIsUnknown() {
+        List<String> lastWeekOnly = List.of(TWO_WEEKS.get(0).replace("trainingThisWeek", "somethingElse"));
+
+        AnswerValidator.Result result = validator.validate(
+                "You completed 4 workouts for 170 minutes.", "How is my week going", lastWeekOnly, null);
+
+        assertThat(result.valid()).isTrue();
+    }
+
     private static TurnContext describing(TurnContext.PinnedPeriod period) {
         TurnContext.PinnedReading reading = pinnedReadingWithTheWorkedExampleFacts().pinnedReading();
         return new TurnContext(CoachSurface.WORKOUT, new TurnContext.PinnedReading(
