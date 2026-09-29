@@ -17,7 +17,8 @@ public record ExerciseMetadataView(
         List<ExerciseEquipment> equipment,
         List<WorkoutDifficulty> difficulties,
         List<WorkoutType> workoutTypes,
-        List<GoalFocus> goalFocuses) {
+        List<GoalFocus> goalFocuses,
+        List<SportActivityView> sportActivities) {
 
     public ExerciseMetadataView {
         exerciseTypes = exerciseTypes == null ? List.of() : List.copyOf(exerciseTypes);
@@ -26,6 +27,12 @@ public record ExerciseMetadataView(
         difficulties = difficulties == null ? List.of() : List.copyOf(difficulties);
         workoutTypes = workoutTypes == null ? List.of() : List.copyOf(workoutTypes);
         goalFocuses = goalFocuses == null ? List.of() : List.copyOf(goalFocuses);
+        sportActivities = sportActivities == null ? List.of() : List.copyOf(sportActivities);
+    }
+
+    @Override
+    public List<SportActivityView> sportActivities() {
+        return List.copyOf(sportActivities);
     }
 
     @Override

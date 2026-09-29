@@ -1,6 +1,7 @@
 package com.fitsync.workout.service;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -10,11 +11,13 @@ import com.fitsync.media.MediaStorageService;
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.GoalFocus;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.ExerciseImageView;
 import com.fitsync.workout.dto.ExerciseInstructionView;
 import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseView;
+import com.fitsync.workout.dto.SportActivityView;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.MuscleGroup;
@@ -96,7 +99,10 @@ public class ExerciseServiceImpl implements ExerciseService {
                 List.of(ExerciseEquipment.values()),
                 List.of(WorkoutDifficulty.values()),
                 List.of(WorkoutType.values()),
-                List.of(GoalFocus.values()));
+                List.of(GoalFocus.values()),
+                Arrays.stream(SportActivity.values())
+                        .map(activity -> new SportActivityView(activity, activity.label(), activity.effort(), activity.measure()))
+                        .toList());
     }
 
     @Override

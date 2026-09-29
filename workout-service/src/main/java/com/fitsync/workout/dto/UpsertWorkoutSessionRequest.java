@@ -4,10 +4,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -68,14 +70,38 @@ public record UpsertWorkoutSessionRequest(
         @Min(0) Integer caloriesBurned,
         @Min(1) @Max(10) Integer perceivedExertion,
         @Size(max = 1000) String notes,
-        @Valid List<WorkoutExerciseLogInput> exercises) {
+        @Valid List<WorkoutExerciseLogInput> exercises,
+        SportActivity sportActivity) {
 
     public UpsertWorkoutSessionRequest {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
     }
 
+    /** A request without a sport activity, which is every request that is not a sport session. */
+    public UpsertWorkoutSessionRequest(UUID planId,
+            String name,
+            WorkoutType workoutType,
+            WorkoutSessionStatus status,
+            WorkoutSource source,
+            Instant startedAt,
+            Instant completedAt,
+            Integer durationMinutes,
+            Integer caloriesBurned,
+            Integer perceivedExertion,
+            String notes,
+            List<WorkoutExerciseLogInput> exercises) {
+        this(planId, name, workoutType, status, source, startedAt, completedAt, durationMinutes,
+                caloriesBurned, perceivedExertion, notes, exercises, null);
+    }
+
     @Override
     public List<WorkoutExerciseLogInput> exercises() {
         return List.copyOf(exercises);
+    }
+
+    /** Bean Validation calls this by reflection, so it cannot be private. */
+    @AssertTrue(message = "A sport session needs a sport activity.")
+    boolean isSportActivityPresentWhenRequired() {
+        return workoutType != WorkoutType.SPORTS || sportActivity != null;
     }
 }

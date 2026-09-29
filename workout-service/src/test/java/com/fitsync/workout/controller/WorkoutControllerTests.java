@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,6 +15,8 @@ import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.domain.InsightPeriod;
 import com.fitsync.workout.domain.MuscleGroup;
+import com.fitsync.workout.domain.SessionKind;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSetStatus;
@@ -45,6 +48,7 @@ import com.fitsync.workout.dto.TrainingRecordView;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.MuscleGroupInsightView;
+import com.fitsync.workout.dto.SportActivityView;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WeeklyVolumeView;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
@@ -383,7 +387,10 @@ class WorkoutControllerTests {
                 List.of(ExerciseEquipment.values()),
                 List.of(WorkoutDifficulty.values()),
                 List.of(WorkoutType.values()),
-                List.of(GoalFocus.values()));
+                List.of(GoalFocus.values()),
+                Arrays.stream(SportActivity.values())
+                        .map(activity -> new SportActivityView(activity, activity.label(), activity.effort(), activity.measure()))
+                        .toList());
 
         when(exerciseService.getExerciseMetadata()).thenReturn(response);
 
@@ -396,7 +403,10 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.equipment.length()").value(ExerciseEquipment.values().length))
                 .andExpect(jsonPath("$.difficulties.length()").value(WorkoutDifficulty.values().length))
                 .andExpect(jsonPath("$.workoutTypes.length()").value(WorkoutType.values().length))
-                .andExpect(jsonPath("$.goalFocuses.length()").value(GoalFocus.values().length));
+                .andExpect(jsonPath("$.goalFocuses.length()").value(GoalFocus.values().length))
+                .andExpect(jsonPath("$.sportActivities.length()").value(15))
+                .andExpect(jsonPath("$.sportActivities[0].code").value(SportActivity.BASKETBALL.name()))
+                .andExpect(jsonPath("$.sportActivities[0].label").value("Basketball"));
 
         verify(exerciseService).getExerciseMetadata();
     }
@@ -938,6 +948,84 @@ class WorkoutControllerTests {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Validation failed"));
+    }
+
+    @Test
+    void shouldRejectSportsSessionWithoutSportActivity() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Pickup Game",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of());
+
+        mockMvc.perform(post("/api/v1/workouts/sessions")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Validation failed"));
+    }
+
+    @Test
+    void shouldCreateSportsSessionWithSportActivity() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UUID sessionId = UUID.randomUUID();
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Pickup Game",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                SportActivity.BASKETBALL);
+        WorkoutSessionView response = new WorkoutSessionView(
+                sessionId,
+                null,
+                "Pickup Game",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                List.of(),
+                Instant.parse("2026-06-11T10:00:00Z"),
+                Instant.parse("2026-06-11T10:00:00Z"),
+                SessionKind.SPORT,
+                SportActivity.BASKETBALL,
+                "Basketball");
+
+        when(workoutService.createSession(any(), any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/sessions")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.kind").value("SPORT"))
+                .andExpect(jsonPath("$.sportActivity").value("BASKETBALL"))
+                .andExpect(jsonPath("$.sportLabel").value("Basketball"));
     }
 
     @Test

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutType;
 import jakarta.validation.Valid;
@@ -44,10 +45,32 @@ public record ImportWorkoutSessionRowRequest(
         @Min(0) Integer caloriesBurned,
         @Min(1) @Max(10) Integer perceivedExertion,
         @Size(max = 1000) String notes,
-        @Valid List<WorkoutExerciseLogInput> exercises) {
+        @Valid List<WorkoutExerciseLogInput> exercises,
+        SportActivity sportActivity) {
 
     public ImportWorkoutSessionRowRequest {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
+    }
+
+    /**
+     * A row without a sport activity. An imported sport session without one is stored as
+     * {@code OTHER}, because imported history cannot be asked again.
+     */
+    public ImportWorkoutSessionRowRequest(String externalId,
+            String source,
+            UUID planId,
+            String name,
+            WorkoutType workoutType,
+            WorkoutSessionStatus status,
+            Instant startedAt,
+            Instant completedAt,
+            Integer durationMinutes,
+            Integer caloriesBurned,
+            Integer perceivedExertion,
+            String notes,
+            List<WorkoutExerciseLogInput> exercises) {
+        this(externalId, source, planId, name, workoutType, status, startedAt, completedAt,
+                durationMinutes, caloriesBurned, perceivedExertion, notes, exercises, null);
     }
 
     @Override

@@ -14,6 +14,8 @@ import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.MuscleGroup;
+import com.fitsync.workout.domain.SessionKind;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSetStatus;
@@ -26,6 +28,7 @@ import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseCatalogImportResponse;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
+import com.fitsync.workout.dto.ExerciseMetadataView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
@@ -419,6 +422,179 @@ class WorkoutServicePersistenceTests {
                 .reduce((first, second) -> second)
                 .orElseThrow()
                 .getEventType());
+    }
+
+    @Test
+    void shouldStoreStrengthSessionWithStrengthKind() {
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Strength Kind Session",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+
+        assertEquals(SessionKind.STRENGTH, session.kind());
+        assertNull(session.sportActivity());
+        assertNull(session.sportLabel());
+    }
+
+    @Test
+    void shouldStoreHiitSessionWithCardioKind() {
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "HIIT Kind Session",
+                WorkoutType.HIIT,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+
+        assertEquals(SessionKind.CARDIO, session.kind());
+    }
+
+    @Test
+    void shouldStoreSportsSessionWithSportKindAndBadmintonActivity() {
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Badminton Night",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                SportActivity.BADMINTON));
+
+        assertEquals(SessionKind.SPORT, session.kind());
+        assertEquals(SportActivity.BADMINTON, session.sportActivity());
+        assertEquals("Badminton", session.sportLabel());
+    }
+
+    @Test
+    void shouldStoreCustomSessionOfTwoCardioAndOneStrengthExerciseWithCardioKind() {
+        UUID cardioExerciseA = createExerciseOfType("custom-kind-cardio-a", "Custom Kind Cardio A", ExerciseType.CARDIO);
+        UUID cardioExerciseB = createExerciseOfType("custom-kind-cardio-b", "Custom Kind Cardio B", ExerciseType.CARDIO);
+        UUID strengthExercise = createExerciseOfType("custom-kind-strength", "Custom Kind Strength", ExerciseType.STRENGTH);
+
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Custom Mixed Session",
+                WorkoutType.CUSTOM,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(
+                        new WorkoutExerciseLogInput(cardioExerciseA, 1, null, null, null, null, null, null, null, null, List.of()),
+                        new WorkoutExerciseLogInput(cardioExerciseB, 2, null, null, null, null, null, null, null, null, List.of()),
+                        new WorkoutExerciseLogInput(strengthExercise, 3, null, null, null, null, null, null, null, null, List.of()))));
+
+        assertEquals(SessionKind.CARDIO, session.kind());
+    }
+
+    @Test
+    void shouldFollowTheExercisesAddedToAFreeSession() {
+        UUID run = createExerciseOfType("free-kind-run", "Free Kind Run", ExerciseType.CARDIO);
+
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Free Session",
+                WorkoutType.CUSTOM,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+        assertEquals(SessionKind.SPORT, session.kind());
+
+        WorkoutSessionView withRun = workoutService.appendOrReplaceExercise(currentUser, session.sessionId(),
+                new WorkoutExerciseLogInput(run, 1, null, null, null, null, null, null, null, null, List.of()));
+
+        assertEquals(SessionKind.CARDIO, withRun.kind());
+    }
+
+    @Test
+    void shouldSetKindOnSessionStartedFromPlan() {
+        UUID squatId = createExercise("kind-start-squat", "Kind Start Squat");
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Kind Start Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of(new WorkoutPlanExerciseInput(squatId, 1, 3, 5, null, null, null, 120, null, null))));
+
+        WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+
+        assertEquals(SessionKind.STRENGTH, started.kind());
+    }
+
+    @Test
+    void shouldChangeKindWhenSessionWorkoutTypeIsUpdated() {
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Kind Update Session",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+        assertEquals(SessionKind.STRENGTH, session.kind());
+
+        WorkoutSessionView updated = workoutService.updateSession(currentUser, session.sessionId(), new UpsertWorkoutSessionRequest(
+                null,
+                "Kind Update Session",
+                WorkoutType.YOGA,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+
+        assertEquals(SessionKind.MOBILITY, updated.kind());
+    }
+
+    @Test
+    void shouldReturnFifteenSportActivitiesWithBasketballFirst() {
+        ExerciseMetadataView metadata = exerciseService.getExerciseMetadata();
+
+        assertEquals(15, metadata.sportActivities().size());
+        assertEquals(SportActivity.BASKETBALL, metadata.sportActivities().get(0).code());
+        assertEquals("Basketball", metadata.sportActivities().get(0).label());
     }
 
     @Test
@@ -2483,11 +2659,15 @@ class WorkoutServicePersistenceTests {
     }
 
     private UUID createExercise(String code, String name) {
+        return createExerciseOfType(code, name, ExerciseType.STRENGTH);
+    }
+
+    private UUID createExerciseOfType(String code, String name, ExerciseType exerciseType) {
         ExerciseEntity entity = new ExerciseEntity();
         entity.setExerciseId(UUID.randomUUID());
         entity.setCode(code);
         entity.setName(name);
-        entity.setExerciseType(ExerciseType.STRENGTH);
+        entity.setExerciseType(exerciseType);
         entity.setPrimaryMuscleGroup(MuscleGroup.BACK);
         entity.setEquipment(ExerciseEquipment.BARBELL);
         entity.setDifficulty(WorkoutDifficulty.BEGINNER);

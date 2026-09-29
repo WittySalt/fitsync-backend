@@ -753,12 +753,12 @@ begin
 
         if r.workout_kind = 'STRENGTH' then
             insert into workout.workout_sessions
-                (session_id, user_id, plan_id, name, workout_type, status, source,
+                (session_id, user_id, plan_id, name, workout_type, kind, status, source,
                  started_at, completed_at, duration_minutes, calories_burned,
                  perceived_exertion, notes, date_time_created, date_time_updated,
                  created_by, updated_by, version)
             values
-                (v_session, v_user, v_plan, 'Strength — Full Body', 'STRENGTH', 'COMPLETED', 'PLAN',
+                (v_session, v_user, v_plan, 'Strength — Full Body', 'STRENGTH', 'STRENGTH', 'COMPLETED', 'PLAN',
                  started, started + (r.duration_minutes * interval '1 minute'), r.duration_minutes, 360, 7,
                  'Hit all working sets; progression felt manageable.',
                  started, started + (r.duration_minutes * interval '1 minute'), 'demo-seed', 'demo-seed', 0);
@@ -817,12 +817,12 @@ begin
 
         else  -- CARDIO
             insert into workout.workout_sessions
-                (session_id, user_id, plan_id, name, workout_type, status, source,
+                (session_id, user_id, plan_id, name, workout_type, kind, status, source,
                  started_at, completed_at, duration_minutes, calories_burned,
                  perceived_exertion, notes, date_time_created, date_time_updated,
                  created_by, updated_by, version)
             values
-                (v_session, v_user, null, 'Cardio — Treadmill', 'CARDIO', 'COMPLETED', 'MANUAL',
+                (v_session, v_user, null, 'Cardio — Treadmill', 'CARDIO', 'CARDIO', 'COMPLETED', 'MANUAL',
                  started, started + (r.duration_minutes * interval '1 minute'), r.duration_minutes, 380, 6,
                  'Steady-state run, conversational pace.',
                  started, started + (r.duration_minutes * interval '1 minute'), 'demo-seed', 'demo-seed', 0);
