@@ -45,7 +45,7 @@ public record CompleteOnboardingRequest(
         LocalDate targetDate,
         @NotNull FitnessLevel fitnessLevel,
         @NotNull TrainingLocation trainingLocation,
-        @NotNull @Min(1) @Max(14) Integer weeklyWorkoutDays,
+        @Min(1) @Max(14) Integer weeklyWorkoutDays,
         @NotNull @Min(5) @Max(240) Integer preferredDurationMinutes,
         LocalTime preferredWorkoutTime,
         @NotNull IntensityPreference intensityPreference,
