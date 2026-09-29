@@ -6,6 +6,9 @@ import java.util.UUID;
 
 import com.fitsync.recommendation.coach.entity.CoachThreadEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -17,5 +20,16 @@ public interface CoachThreadRepository extends JpaRepository<CoachThreadEntity, 
     /** Ownership is checked by querying for it rather than by loading and comparing afterwards. */
     Optional<CoachThreadEntity> findByThreadIdAndUserId(UUID threadId, UUID userId);
 
-    void deleteByUserId(UUID userId);
+    /**
+     * Removes every thread a user owns, archived or not, in a single statement rather than loading
+     * and removing each one. {@code coach_turn} and {@code tool_invocation} both cascade from this
+     * table at the database level, but the caller deletes them explicitly first anyway, so that each
+     * table's row count is known for the account-deletion audit log rather than folded into one
+     * cascaded number.
+     *
+     * @return how many threads were removed, for the account-deletion audit log.
+     */
+    @Modifying
+    @Query("delete from CoachThreadEntity t where t.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

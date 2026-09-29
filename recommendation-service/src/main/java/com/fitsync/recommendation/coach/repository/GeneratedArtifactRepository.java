@@ -7,7 +7,9 @@ import java.util.UUID;
 import com.fitsync.recommendation.coach.entity.ArtifactKind;
 import com.fitsync.recommendation.coach.entity.GeneratedArtifactEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface GeneratedArtifactRepository extends JpaRepository<GeneratedArtifactEntity, UUID> {
 
@@ -16,6 +18,18 @@ public interface GeneratedArtifactRepository extends JpaRepository<GeneratedArti
      * indistinguishable from one that does not exist.
      */
     Optional<GeneratedArtifactEntity> findByArtifactIdAndUserId(UUID artifactId, UUID userId);
+
+    /**
+     * Removes every artifact a user generated, in a single statement. An artifact outlives the
+     * thread it came from (its {@code thread_id} foreign key is {@code on delete set null}, not
+     * cascade — see {@code V7__create_generated_artifact_table.sql}), so it is never cleaned up as a
+     * side effect of deleting the user's threads and needs this delete of its own.
+     *
+     * @return how many artifacts were removed, for the account-deletion audit log.
+     */
+    @Modifying
+    @Query("delete from GeneratedArtifactEntity a where a.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 
     List<GeneratedArtifactEntity> findByUserIdAndKindOrderByDateTimeCreatedDesc(UUID userId, ArtifactKind kind);
 
