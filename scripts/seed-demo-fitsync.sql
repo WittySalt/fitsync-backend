@@ -1330,7 +1330,7 @@ begin
         (select string_agg(eq.equipment_code, ',' order by eq.sort_order)
            from user_domain.user_training_preference_equipment eq
           where eq.user_id = c.user_id),
-        wk.week_start, wk.workout_count, wk.workout_minutes, wk.active_days,
+        recap.week_start, recap.workout_count, recap.workout_minutes, recap.active_days,
         (select n.total_calories_consumed from analytics.analytics_user_daily_nutrition n
           where n.user_id = c.user_id and n.activity_date = c.d_today),
         (select n.total_protein_grams from analytics.analytics_user_daily_nutrition n
@@ -1372,30 +1372,39 @@ begin
          limit 1
     ) wg on true
     left join lateral (
-        -- Monday-anchored current week, matching the rules' own week boundary.
-        select (c.d_today - ((extract(isodow from c.d_today)::int) - 1))::date as week_start,
+        -- Monday of the current week, which is where the food-group tally starts.
+        select (c.d_today - ((extract(isodow from c.d_today)::int) - 1))::date as week_start
+    ) wk on true
+    left join lateral (
+        -- The last full week, Monday to Sunday. The live value comes from the weekly recap, which
+        -- analytics-service writes for the week before the current one, so the seed describes the
+        -- same week. The current week would read as missed on any day before its last session.
+        -- A fresh account has no last week, so its fields stay empty and the rule says nothing.
+        select (wk.week_start - 7)                                             as week_start,
                coalesce(sum(w.completed_workout_count), 0)::int                as workout_count,
                coalesce(sum(w.total_workout_minutes), 0)::int                  as workout_minutes,
                count(*) filter (where w.completed_workout_count > 0)::int      as active_days
           from analytics.analytics_user_daily_workout w
          where w.user_id = c.user_id
-           and w.activity_date >= (c.d_today - ((extract(isodow from c.d_today)::int) - 1))::date
-    ) wk on true
+           and w.activity_date >= wk.week_start - 7
+           and w.activity_date < wk.week_start
+        having c.persona <> 'fresh'
+    ) recap on true
     left join lateral (
-        -- Heaviest single set in the window, presented as the most recent personal record so R6
-        -- has something real to celebrate.
+        -- Heaviest single set in the window, dated to the first session that lifted it, which is
+        -- the day the record was set. Later sessions at the same weight repeat it.
         select e.exercise_name_snapshot as exercise_name,
                'MAX_WEIGHT'             as record_type,
-               max(sl.weight_kg)        as record_value,
-               max(s.completed_at)      as achieved_at
+               sl.weight_kg             as record_value,
+               min(s.completed_at)      as achieved_at
           from workout.workout_sessions s
           join workout.workout_exercise_logs e on e.session_id = s.session_id
           join workout.workout_exercise_set_logs sl on sl.exercise_log_id = e.exercise_log_id
          where s.user_id = c.user_id
            and s.completed_at is not null
            and sl.weight_kg is not null
-         group by e.exercise_name_snapshot
-         order by max(sl.weight_kg) desc
+         group by e.exercise_name_snapshot, sl.weight_kg
+         order by sl.weight_kg desc, min(s.completed_at)
          limit 1
     ) pr on true;
 
