@@ -59,6 +59,11 @@ public class WorkoutPlanEntity extends BaseAuditableEntity {
     @OrderBy("sequence asc")
     private List<WorkoutPlanExerciseEntity> exercises = new ArrayList<>();
 
+    /** Empty for a flat plan; one entry per scheduled day of the week otherwise. */
+    @OneToMany(mappedBy = "plan", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("dayOfWeek asc")
+    private List<WorkoutPlanDayEntity> days = new ArrayList<>();
+
     public UUID getPlanId() { return planId; }
     public void setPlanId(UUID planId) { this.planId = planId; }
     public UUID getUserId() { return userId; }
@@ -79,4 +84,6 @@ public class WorkoutPlanEntity extends BaseAuditableEntity {
     public void setStatus(WorkoutPlanStatus status) { this.status = status; }
     public List<WorkoutPlanExerciseEntity> getExercises() { return exercises; }
     public void setExercises(List<WorkoutPlanExerciseEntity> exercises) { this.exercises = exercises; }
+    public List<WorkoutPlanDayEntity> getDays() { return days; }
+    public void setDays(List<WorkoutPlanDayEntity> days) { this.days = days; }
 }
