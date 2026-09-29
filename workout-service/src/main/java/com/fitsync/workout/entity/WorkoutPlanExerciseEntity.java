@@ -29,6 +29,15 @@ public class WorkoutPlanExerciseEntity {
     @JoinColumn(name = "plan_id", nullable = false)
     private WorkoutPlanEntity plan;
 
+    /**
+     * The plan day this exercise belongs to, or null when the plan is flat (has no week). Set once
+     * at creation and never reassigned: an update replaces the whole week rather than moving an
+     * exercise between days.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "plan_day_id")
+    private WorkoutPlanDayEntity planDay;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "exercise_id", nullable = false)
     private ExerciseEntity exercise;
@@ -69,6 +78,8 @@ public class WorkoutPlanExerciseEntity {
     public void setPlanExerciseId(UUID planExerciseId) { this.planExerciseId = planExerciseId; }
     public WorkoutPlanEntity getPlan() { return plan; }
     public void setPlan(WorkoutPlanEntity plan) { this.plan = plan; }
+    public WorkoutPlanDayEntity getPlanDay() { return planDay; }
+    public void setPlanDay(WorkoutPlanDayEntity planDay) { this.planDay = planDay; }
     public ExerciseEntity getExercise() { return exercise; }
     public void setExercise(ExerciseEntity exercise) { this.exercise = exercise; }
     public String getExerciseNameSnapshot() { return exerciseNameSnapshot; }

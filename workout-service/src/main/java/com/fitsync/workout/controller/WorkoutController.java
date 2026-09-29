@@ -250,8 +250,10 @@ public class WorkoutController {
     @PostMapping("/plans/{planId}/start")
     @ResponseStatus(HttpStatus.CREATED)
     public WorkoutSessionView startPlan(Authentication authentication,
-                                        @PathVariable UUID planId) {
-        return workoutService.startPlan(currentPrincipal(authentication), planId);
+                                        @PathVariable UUID planId,
+                                        @RequestParam(required = false) UUID planDayId,
+                                        @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone) {
+        return workoutService.startPlan(currentPrincipal(authentication), planId, planDayId, timezone);
     }
 
     @PostMapping("/sessions")

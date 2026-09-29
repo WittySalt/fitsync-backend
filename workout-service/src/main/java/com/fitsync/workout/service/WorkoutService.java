@@ -56,7 +56,10 @@ public interface WorkoutService {
 
     WorkoutPlanView activatePlan(CurrentUserPrincipal currentUser, UUID planId);
 
+    /** Starts a session from a flat plan; equivalent to {@code startPlan(currentUser, planId, null, "UTC")}. */
     WorkoutSessionView startPlan(CurrentUserPrincipal currentUser, UUID planId);
+
+    WorkoutSessionView startPlan(CurrentUserPrincipal currentUser, UUID planId, UUID planDayId, String timezone);
 
     WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request);
 
