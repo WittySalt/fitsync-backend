@@ -20,11 +20,17 @@ import java.util.UUID;
 
 import com.fitsync.workout.domain.InsightPeriod;
 import com.fitsync.workout.domain.MuscleGroup;
+import com.fitsync.workout.domain.SessionKind;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSetStatus;
+import com.fitsync.workout.dto.CardioInsightView;
 import com.fitsync.workout.dto.ExerciseTopWeightRow;
 import com.fitsync.workout.dto.LiftProgressView;
+import com.fitsync.workout.dto.MobilityInsightView;
 import com.fitsync.workout.dto.MostTrainedView;
+import com.fitsync.workout.dto.SportActivityInsightView;
+import com.fitsync.workout.dto.SportInsightView;
 import com.fitsync.workout.dto.TrainingPageInsightView;
 import com.fitsync.workout.dto.TrainingRecordView;
 import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
@@ -118,7 +124,7 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
         if (period == InsightPeriod.NONE) {
             return new TrainingPageInsightView(
                     zoneId.getId(), referenceDate, InsightPeriod.NONE, null, null,
-                    0, 0, null, null, null, null, null, null, List.of());
+                    0, 0, null, null, null, null, null, null, List.of(), null, null, null);
         }
 
         LocalDate earlierStart = periodStart.minusDays(EARLIER_WINDOW_DAYS);
@@ -143,6 +149,9 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
         TrainingRecordView record = computeRecord(currentUser.userId(), zoneId, periodSessions, periodStart);
         MostTrainedView mostTrained = computeMostTrained(periodSessions);
         List<LiftProgressView> lifts = computeLifts(liftsWindowSessions);
+        CardioInsightView cardio = computeCardio(periodSessions, earlierSessions);
+        MobilityInsightView mobility = computeMobility(periodSessions, earlierSessions);
+        SportInsightView sport = computeSport(periodSessions);
 
         return new TrainingPageInsightView(
                 zoneId.getId(),
@@ -158,7 +167,10 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
                 earlierTotals.minutesPerLiftingSession(),
                 record,
                 mostTrained,
-                lifts);
+                lifts,
+                cardio,
+                mobility,
+                sport);
     }
 
     private List<DatedSession> loadSessions(UUID userId, ZoneId zoneId, LocalDate referenceDate, LocalDate windowStart) {
@@ -352,6 +364,137 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
                 .limit(MAX_LIFTS)
                 .map(c -> new LiftProgressView(c.exerciseName, scale(c.from.weightKg), c.from.date, scale(c.to.weightKg), c.to.date))
                 .toList();
+    }
+
+    /** The cardio group: null when the period has no cardio session, whatever the earlier week
+     * holds. */
+    private CardioInsightView computeCardio(List<DatedSession> periodSessions, List<DatedSession> earlierSessions) {
+        List<WorkoutSessionEntity> periodCardio = sessionsOfKind(periodSessions, SessionKind.CARDIO);
+        if (periodCardio.isEmpty()) {
+            return null;
+        }
+        List<WorkoutSessionEntity> earlierCardio = sessionsOfKind(earlierSessions, SessionKind.CARDIO);
+        CardioTotals periodTotals = computeCardioTotals(periodCardio);
+        CardioTotals earlierTotals = computeCardioTotals(earlierCardio);
+        return new CardioInsightView(
+                periodCardio.size(),
+                earlierCardio.size(),
+                periodTotals.distancePerSession(),
+                earlierTotals.distancePerSession(),
+                periodTotals.paceSecondsPerKm(),
+                earlierTotals.paceSecondsPerKm(),
+                periodTotals.minutesPerSession(),
+                earlierTotals.minutesPerSession());
+    }
+
+    private CardioTotals computeCardioTotals(List<WorkoutSessionEntity> cardioSessions) {
+        CardioTotals totals = new CardioTotals();
+        for (WorkoutSessionEntity session : cardioSessions) {
+            BigDecimal distance = session.getDistanceKm();
+            if (distance != null) {
+                totals.distanceSum = totals.distanceSum.add(distance);
+                totals.distanceCount++;
+                if (distance.compareTo(BigDecimal.ZERO) > 0) {
+                    totals.paceDistanceSum = totals.paceDistanceSum.add(distance);
+                    Integer minutes = session.getDurationMinutes();
+                    totals.paceDurationSeconds += minutes == null ? 0L : minutes * 60L;
+                }
+            }
+            Integer minutes = session.getDurationMinutes();
+            if (minutes != null) {
+                totals.minutesSum += minutes;
+                totals.minutesCount++;
+            }
+        }
+        return totals;
+    }
+
+    /** The mobility group: null when the period has no mobility session. */
+    private MobilityInsightView computeMobility(List<DatedSession> periodSessions, List<DatedSession> earlierSessions) {
+        List<WorkoutSessionEntity> periodMobility = sessionsOfKind(periodSessions, SessionKind.MOBILITY);
+        if (periodMobility.isEmpty()) {
+            return null;
+        }
+        List<WorkoutSessionEntity> earlierMobility = sessionsOfKind(earlierSessions, SessionKind.MOBILITY);
+        return new MobilityInsightView(
+                periodMobility.size(),
+                sumMinutes(periodMobility),
+                earlierMobility.size(),
+                sumMinutes(earlierMobility));
+    }
+
+    /** The sport group: null when the period has no sport session. A sport session without an
+     * activity is reported under {@link SportActivity#OTHER}. Activities are sorted by minutes
+     * descending, then by label, so the busiest activity leads. */
+    private SportInsightView computeSport(List<DatedSession> periodSessions) {
+        List<WorkoutSessionEntity> periodSport = sessionsOfKind(periodSessions, SessionKind.SPORT);
+        if (periodSport.isEmpty()) {
+            return null;
+        }
+        Map<SportActivity, Integer> sessionsByActivity = new EnumMap<>(SportActivity.class);
+        Map<SportActivity, Integer> minutesByActivity = new EnumMap<>(SportActivity.class);
+        for (WorkoutSessionEntity session : periodSport) {
+            SportActivity activity = session.getSportActivity() == null ? SportActivity.OTHER : session.getSportActivity();
+            sessionsByActivity.merge(activity, 1, Integer::sum);
+            Integer minutes = session.getDurationMinutes();
+            int minutesToAdd = minutes == null ? 0 : minutes.intValue();
+            minutesByActivity.merge(activity, minutesToAdd, Integer::sum);
+        }
+        List<SportActivityInsightView> activities = sessionsByActivity.entrySet().stream()
+                .map(entry -> new SportActivityInsightView(
+                        entry.getKey(), entry.getKey().label(), entry.getValue(), minutesByActivity.get(entry.getKey())))
+                .sorted(Comparator.comparing(SportActivityInsightView::minutes).reversed()
+                        .thenComparing(SportActivityInsightView::label))
+                .toList();
+        return new SportInsightView(periodSport.size(), sumMinutes(periodSport), activities);
+    }
+
+    private List<WorkoutSessionEntity> sessionsOfKind(List<DatedSession> sessions, SessionKind kind) {
+        return sessions.stream()
+                .map(DatedSession::session)
+                .filter(session -> session.getKind() == kind)
+                .toList();
+    }
+
+    private int sumMinutes(List<WorkoutSessionEntity> sessions) {
+        int total = 0;
+        for (WorkoutSessionEntity session : sessions) {
+            Integer minutes = session.getDurationMinutes();
+            if (minutes != null) {
+                total += minutes;
+            }
+        }
+        return total;
+    }
+
+    /** A per-window accumulator for cardio distance, pace and duration. Pace only accumulates over
+     * sessions with a strictly positive distance, so a session logged with a distance of zero never
+     * divides by zero. */
+    private static final class CardioTotals {
+        private BigDecimal distanceSum = BigDecimal.ZERO;
+        private int distanceCount;
+        private BigDecimal paceDistanceSum = BigDecimal.ZERO;
+        private long paceDurationSeconds;
+        private int minutesSum;
+        private int minutesCount;
+
+        BigDecimal distancePerSession() {
+            if (distanceCount == 0) {
+                return null;
+            }
+            return distanceSum.divide(BigDecimal.valueOf(distanceCount), 2, RoundingMode.HALF_UP);
+        }
+
+        Integer paceSecondsPerKm() {
+            if (paceDistanceSum.compareTo(BigDecimal.ZERO) <= 0) {
+                return null;
+            }
+            return BigDecimal.valueOf(paceDurationSeconds).divide(paceDistanceSum, 0, RoundingMode.HALF_UP).intValueExact();
+        }
+
+        Integer minutesPerSession() {
+            return TrainingPageInsightServiceImpl.averageMinutes(minutesSum, minutesCount);
+        }
     }
 
     private BigDecimal sumVolume(WorkoutSessionEntity session) {

@@ -1049,6 +1049,123 @@ class WorkoutServicePersistenceTests {
     }
 
     @Test
+    void shouldStoreTheRequestedSessionDistanceAsIs() {
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Sport Session With Distance",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T06:00:00Z"),
+                Instant.parse("2026-06-11T06:30:00Z"),
+                30,
+                null,
+                null,
+                null,
+                List.of(),
+                SportActivity.SWIMMING,
+                new BigDecimal("2.40")));
+
+        assertEquals(new BigDecimal("2.40"), session.distanceKm());
+        WorkoutSessionView fetched = workoutService.getSession(currentUser, session.sessionId());
+        assertEquals(new BigDecimal("2.40"), fetched.distanceKm());
+    }
+
+    @Test
+    void shouldSumExerciseDistancesWhenTheRequestSuppliesNone() {
+        UUID cyclingId = createExerciseOfType("distance-cycling", "Distance Cycling", ExerciseType.CARDIO);
+        UUID runningId = createExerciseOfType("distance-running", "Distance Running", ExerciseType.CARDIO);
+
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Multi Distance Session",
+                WorkoutType.CARDIO,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T06:00:00Z"),
+                Instant.parse("2026-06-11T06:30:00Z"),
+                30,
+                null,
+                null,
+                null,
+                List.of(
+                        new WorkoutExerciseLogInput(cyclingId, 1, null, null, null, new BigDecimal("3.00"), null, null, null, null, List.of()),
+                        new WorkoutExerciseLogInput(runningId, 2, null, null, null, new BigDecimal("2.75"), null, null, null, null, List.of()))));
+
+        assertEquals(new BigDecimal("5.75"), session.distanceKm());
+    }
+
+    @Test
+    void shouldFollowTheExerciseDistancesAsTheyChange() {
+        UUID runningId = createExerciseOfType("distance-follow-run", "Distance Follow Run", ExerciseType.CARDIO);
+
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Run In Progress",
+                WorkoutType.CARDIO,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T06:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(runningId, 1, null, null, null, new BigDecimal("2.00"), null, null, null, null, List.of()))));
+        assertEquals(new BigDecimal("2.00"), session.distanceKm());
+
+        UUID cyclingId = createExerciseOfType("distance-follow-ride", "Distance Follow Ride", ExerciseType.CARDIO);
+        WorkoutSessionView longer = workoutService.appendOrReplaceExercise(currentUser, session.sessionId(),
+                new WorkoutExerciseLogInput(cyclingId, 2, null, null, null, new BigDecimal("3.75"), null, null, null, null, List.of()));
+
+        assertEquals(new BigDecimal("5.75"), longer.distanceKm());
+    }
+
+    @Test
+    void shouldLeaveSessionDistanceNullWhenNoLogHasOne() {
+        UUID exerciseId = createExercise("distance-none", "No Distance Exercise");
+
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "No Distance Session",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T06:00:00Z"),
+                Instant.parse("2026-06-11T06:30:00Z"),
+                30,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(exerciseId, 1, null, null, null, null, null, null, null, null, List.of()))));
+
+        assertNull(session.distanceKm());
+    }
+
+    @Test
+    void shouldStartARepeatedSessionWithNoDistanceEvenWhenTheSourceHadOne() {
+        WorkoutSessionView source = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Sport Session To Repeat",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T06:00:00Z"),
+                Instant.parse("2026-06-11T06:30:00Z"),
+                30,
+                null,
+                null,
+                null,
+                List.of(),
+                SportActivity.SWIMMING,
+                new BigDecimal("2.40")));
+
+        WorkoutSessionView repeated = workoutService.repeatSession(currentUser, source.sessionId());
+
+        assertNull(repeated.distanceKm());
+    }
+
+    @Test
     void shouldRejectFutureSessionStartAndNegativeScalarsInService() {
         UUID rowId = createExercise("invalid-derived-row", "Invalid Derived Row");
 

@@ -1,5 +1,6 @@
 package com.fitsync.workout.dto;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -29,13 +30,15 @@ public record WorkoutSessionView(
         Instant updatedAt,
         SessionKind kind,
         SportActivity sportActivity,
-        String sportLabel) {
+        String sportLabel,
+        BigDecimal distanceKm) {
 
     public WorkoutSessionView {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
     }
 
-    /** A view without a kind, used by fixtures that are not about the kind of a session. */
+    /** A view without a kind, sport activity, sport label or distance, used by fixtures that are
+     * not about those fields of a session. */
     public WorkoutSessionView(UUID sessionId,
             UUID planId,
             String name,
@@ -54,7 +57,7 @@ public record WorkoutSessionView(
             Instant updatedAt) {
         this(sessionId, planId, name, workoutType, status, source, startedAt, completedAt,
                 durationMinutes, caloriesBurned, perceivedExertion, notes, exerciseCount, exercises,
-                createdAt, updatedAt, null, null, null);
+                createdAt, updatedAt, null, null, null, null);
     }
 
     @Override

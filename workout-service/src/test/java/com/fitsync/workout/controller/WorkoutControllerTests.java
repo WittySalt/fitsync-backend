@@ -279,7 +279,8 @@ class WorkoutControllerTests {
                 new TrainingRecordView("Dumbbell Bench Press", new BigDecimal("22.50"), LocalDate.parse("2026-09-21"), new BigDecimal("20.00")),
                 new MostTrainedView(MuscleGroup.CORE, 4, List.of("Plank Hold")),
                 List.of(new LiftProgressView("Dumbbell Bench Press", new BigDecimal("20.00"), LocalDate.parse("2026-09-16"),
-                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))));
+                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))),
+                null, null, null);
 
         when(trainingPageInsightService.getTrainingPageInsight(
                         eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-28"))))
@@ -1013,7 +1014,8 @@ class WorkoutControllerTests {
                 Instant.parse("2026-06-11T10:00:00Z"),
                 SessionKind.SPORT,
                 SportActivity.BASKETBALL,
-                "Basketball");
+                "Basketball",
+                null);
 
         when(workoutService.createSession(any(), any())).thenReturn(response);
 
@@ -1026,6 +1028,62 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.kind").value("SPORT"))
                 .andExpect(jsonPath("$.sportActivity").value("BASKETBALL"))
                 .andExpect(jsonPath("$.sportLabel").value("Basketball"));
+    }
+
+    @Test
+    void shouldRejectSessionDistanceAboveOneThousandKm() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Ultra Swim",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                SportActivity.SWIMMING,
+                new BigDecimal("1000.01"));
+
+        mockMvc.perform(post("/api/v1/workouts/sessions")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Validation failed"));
+    }
+
+    @Test
+    void shouldRejectNegativeSessionDistance() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Negative Distance Swim",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                SportActivity.SWIMMING,
+                new BigDecimal("-1.00"));
+
+        mockMvc.perform(post("/api/v1/workouts/sessions")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Validation failed"));
     }
 
     @Test

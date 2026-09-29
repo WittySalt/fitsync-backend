@@ -1,11 +1,13 @@
 package com.fitsync.workout.dto;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.GoalFocus;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
@@ -68,5 +70,51 @@ class WorkoutRequestValidationTests {
         Set<ConstraintViolation<UpsertWorkoutSessionRequest>> violations = validator.validate(request);
 
         assertTrue(violations.stream().anyMatch(violation -> violation.getPropertyPath().toString().contains("durationSeconds")));
+    }
+
+    @Test
+    void shouldRejectSessionDistanceAboveOneThousandKm() {
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Ultra Swim",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T08:00:00Z"),
+                Instant.parse("2026-06-11T08:30:00Z"),
+                30,
+                250,
+                6,
+                null,
+                List.of(),
+                SportActivity.SWIMMING,
+                new BigDecimal("1000.01"));
+
+        Set<ConstraintViolation<UpsertWorkoutSessionRequest>> violations = validator.validate(request);
+
+        assertTrue(violations.stream().anyMatch(violation -> violation.getPropertyPath().toString().contains("distanceKm")));
+    }
+
+    @Test
+    void shouldRejectNegativeSessionDistance() {
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Negative Distance Swim",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T08:00:00Z"),
+                Instant.parse("2026-06-11T08:30:00Z"),
+                30,
+                250,
+                6,
+                null,
+                List.of(),
+                SportActivity.SWIMMING,
+                new BigDecimal("-1.00"));
+
+        Set<ConstraintViolation<UpsertWorkoutSessionRequest>> violations = validator.validate(request);
+
+        assertTrue(violations.stream().anyMatch(violation -> violation.getPropertyPath().toString().contains("distanceKm")));
     }
 }

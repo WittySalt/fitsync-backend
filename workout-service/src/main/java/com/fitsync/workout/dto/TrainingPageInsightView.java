@@ -33,7 +33,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
           },
           "lifts": [
             { "exerciseName": "Dumbbell Bench Press", "fromKg": 20.00, "fromDate": "2026-09-16", "toKg": 22.50, "toDate": "2026-09-25" }
-          ]
+          ],
+          "cardio": { "sessions": 2, "earlierSessions": 2, "distancePerSessionKm": 5.75, "earlierDistancePerSessionKm": 5.50,
+                      "paceSecondsPerKm": 365, "earlierPaceSecondsPerKm": 370, "minutesPerSession": 35, "earlierMinutesPerSession": 34 },
+          "mobility": { "sessions": 1, "minutes": 20, "earlierSessions": 1, "earlierMinutes": 20 },
+          "sport": { "sessions": 1, "minutes": 60, "activities": [ { "activity": "BADMINTON", "label": "Badminton", "sessions": 1, "minutes": 60 } ] }
         }
         """)
 public record TrainingPageInsightView(
@@ -50,7 +54,10 @@ public record TrainingPageInsightView(
         Integer earlierMinutesPerLiftingSession,
         TrainingRecordView record,
         MostTrainedView mostTrained,
-        List<LiftProgressView> lifts) {
+        List<LiftProgressView> lifts,
+        CardioInsightView cardio,
+        MobilityInsightView mobility,
+        SportInsightView sport) {
 
     public TrainingPageInsightView {
         lifts = lifts == null ? List.of() : List.copyOf(lifts);

@@ -695,7 +695,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                 row.perceivedExertion(),
                 row.notes(),
                 row.exercises(),
-                sportActivity);
+                sportActivity,
+                row.distanceKm());
     }
 
     private WorkoutPlanEntity toDuplicatePlan(UUID userId, WorkoutPlanEntity source) {
@@ -827,6 +828,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setCaloriesBurned(request.caloriesBurned());
         entity.setPerceivedExertion(request.perceivedExertion());
         entity.setNotes(request.notes());
+        entity.setDistanceKm(request.distanceKm());
         replaceSessionExercises(userId, entity, request.exercises());
         applySessionKind(entity);
         deriveSessionMetrics(entity);
@@ -916,6 +918,24 @@ public class WorkoutServiceImpl implements WorkoutService {
             session.setDurationMinutes(Math.toIntExact(minutes));
         }
         session.getExercises().forEach(this::deriveExerciseMetrics);
+        // Distances logged on the exercises are the measurement, so their sum replaces whatever the
+        // session held and follows them as they change. A session without any, such as a sport
+        // session, keeps the distance it was given.
+        BigDecimal distanceFromExercises = sumExerciseDistance(session);
+        if (distanceFromExercises != null) {
+            session.setDistanceKm(distanceFromExercises);
+        }
+    }
+
+    /** The sum of the distances of the session's exercise logs, or null when none has one. */
+    private BigDecimal sumExerciseDistance(WorkoutSessionEntity session) {
+        BigDecimal total = null;
+        for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
+            if (exercise.getDistanceKm() != null) {
+                total = (total == null ? BigDecimal.ZERO : total).add(exercise.getDistanceKm());
+            }
+        }
+        return total;
     }
 
     private void deriveExerciseMetrics(WorkoutExerciseLogEntity exercise) {
@@ -1561,7 +1581,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.getDateTimeUpdated(),
                 entity.getKind(),
                 entity.getSportActivity(),
-                entity.getSportActivity() == null ? null : entity.getSportActivity().label());
+                entity.getSportActivity() == null ? null : entity.getSportActivity().label(),
+                entity.getDistanceKm());
     }
 
     private record PersonalRecordSnapshot(

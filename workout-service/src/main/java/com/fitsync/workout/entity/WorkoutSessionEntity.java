@@ -1,5 +1,6 @@
 package com.fitsync.workout.entity;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -82,6 +83,9 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     @Column(name = "notes", length = 1000)
     private String notes;
 
+    @Column(name = "distance_km", precision = 7, scale = 2)
+    private BigDecimal distanceKm;
+
     @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sequence asc")
     private List<WorkoutExerciseLogEntity> exercises = new ArrayList<>();
@@ -120,6 +124,8 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     public void setPerceivedExertion(Integer perceivedExertion) { this.perceivedExertion = perceivedExertion; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public BigDecimal getDistanceKm() { return distanceKm; }
+    public void setDistanceKm(BigDecimal distanceKm) { this.distanceKm = distanceKm; }
     public List<WorkoutExerciseLogEntity> getExercises() { return exercises; }
     public void setExercises(List<WorkoutExerciseLogEntity> exercises) { this.exercises = exercises; }
 }
