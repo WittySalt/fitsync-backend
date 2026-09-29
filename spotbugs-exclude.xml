@@ -637,4 +637,17 @@
         <Class name="com.fitsync.recommendation.coach.controller.CoachReadingController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
+
+    <!-- The coach quality report for the admin console. SPRING_ENDPOINT flags the controller for
+         being a controller. The path is under /api/v1/internal, which SecurityConfig restricts to
+         the ADMIN role. The service keeps three Spring Data repositories it was given by
+         injection, which is the same noise the thread service above carries. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.controller.CoachQualityController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.service.CoachQualityService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>

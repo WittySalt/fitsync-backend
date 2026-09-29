@@ -1,9 +1,11 @@
 package com.fitsync.recommendation.coach.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.recommendation.coach.entity.CoachTurnEntity;
+import com.fitsync.recommendation.coach.entity.CoachTurnRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -40,4 +42,17 @@ public interface CoachTurnRepository extends JpaRepository<CoachTurnEntity, UUID
     @Query("delete from CoachTurnEntity t where t.threadId in "
             + "(select th.threadId from CoachThreadEntity th where th.userId = :userId)")
     int deleteByUserId(@Param("userId") UUID userId);
+
+    /**
+     * The columns the admin quality report aggregates, for turns of one role inside one window. A
+     * constructor projection rather than the entity, so {@code content} is never loaded — see
+     * {@link CoachTurnQualityRow}.
+     */
+    @Query("select new com.fitsync.recommendation.coach.repository.CoachTurnQualityRow("
+            + "t.tier, t.model, t.latencyMs, t.guardrailVerdict, t.dateTimeCreated) "
+            + "from CoachTurnEntity t "
+            + "where t.role = :role and t.dateTimeCreated >= :start and t.dateTimeCreated < :end")
+    List<CoachTurnQualityRow> findQualityRows(@Param("role") CoachTurnRole role,
+                                              @Param("start") Instant start,
+                                              @Param("end") Instant end);
 }
