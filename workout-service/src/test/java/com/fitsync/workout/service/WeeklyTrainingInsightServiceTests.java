@@ -10,23 +10,30 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.workout.domain.DayKind;
+import com.fitsync.workout.domain.DaySource;
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.domain.MuscleGroup;
+import com.fitsync.workout.domain.SessionKind;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
+import com.fitsync.workout.dto.DayInsightView;
 import com.fitsync.workout.dto.MuscleGroupInsightView;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutPlanDayInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.entity.ExerciseEntity;
+import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.messaging.repository.OutboxEventRepository;
 import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
@@ -44,6 +51,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -215,6 +223,126 @@ class WeeklyTrainingInsightServiceTests {
         WeeklyTrainingInsightView utcResult = weeklyTrainingInsightService.getWeeklyTrainingInsight(
                 currentUser, "UTC", LocalDate.parse("2026-09-27"));
         assertEquals(1, utcResult.completedSessions(), "should count as 2026-09-27 in UTC");
+    }
+
+    @Test
+    void weekByDayReflectsAnActivePlanWeekAndItsFulfilment() {
+        WorkoutPlanView plan = createPlanWithWeek(currentUser, List.of(
+                workoutPlanDayInput(1, SessionKind.STRENGTH, "Full body", null, 50),
+                workoutPlanDayInput(4, SessionKind.CARDIO, "Treadmill run", null, 35)));
+        UUID mondayPlanDayId = plan.days().get(0).planDayId();
+        UUID thursdayPlanDayId = plan.days().get(1).planDayId();
+
+        saveDaySession(currentUser, SessionKind.STRENGTH, WorkoutType.STRENGTH, WorkoutSessionStatus.COMPLETED,
+                LocalDate.parse("2026-09-28"), 50, mondayPlanDayId, null);
+
+        WeeklyTrainingInsightView result = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-29"));
+
+        DayInsightView monday = result.days().get(0);
+        assertEquals(DayKind.STRENGTH, monday.kind());
+        assertEquals(DaySource.DONE, monday.source());
+        assertTrue(monday.planned().fulfilled());
+
+        DayInsightView thursday = result.days().get(3);
+        assertEquals(DayKind.CARDIO, thursday.kind());
+        assertEquals(DaySource.PLAN, thursday.source());
+        assertEquals(thursdayPlanDayId, thursday.planned().planDayId());
+
+        assertEquals(DayKind.REST, result.today().kind());
+        assertEquals("Treadmill run", result.nextTraining().title());
+        assertEquals(LocalDate.parse("2026-10-01"), result.nextTraining().date());
+    }
+
+    @Test
+    void weekByDayIgnoresAnotherUsersPlanAndSessions() {
+        WorkoutPlanView otherPlan = createPlanWithWeek(otherUser, List.of(
+                workoutPlanDayInput(2, SessionKind.CARDIO, "Other user's run", null, 30)));
+        saveDaySession(otherUser, SessionKind.CARDIO, WorkoutType.CARDIO, WorkoutSessionStatus.COMPLETED,
+                LocalDate.parse("2026-09-29"), 30, otherPlan.days().get(0).planDayId(), null);
+
+        WeeklyTrainingInsightView result = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-29"));
+
+        for (DayInsightView day : result.days()) {
+            assertNull(day.planned());
+            assertTrue(day.sessions().isEmpty());
+        }
+        assertEquals(DayKind.OPEN, result.today().kind());
+        assertEquals(DaySource.NONE, result.today().source());
+    }
+
+    @Test
+    void datesADayKindSessionByLocalDayInTheRequestedTimezone() {
+        // Same boundary instant as datesASessionByLocalDayInTheRequestedTimezone above: it is
+        // 2026-09-28 in Asia/Singapore but still 2026-09-27 in UTC.
+        WorkoutSessionEntity entity = new WorkoutSessionEntity();
+        entity.setSessionId(UUID.randomUUID());
+        entity.setUserId(currentUser.userId());
+        entity.setName("Boundary Cardio");
+        entity.setWorkoutType(WorkoutType.CARDIO);
+        entity.setKind(SessionKind.CARDIO);
+        entity.setStatus(WorkoutSessionStatus.COMPLETED);
+        entity.setSource(WorkoutSource.MANUAL);
+        entity.setStartedAt(Instant.parse("2026-09-27T16:00:00Z"));
+        entity.setCompletedAt(Instant.parse("2026-09-27T16:30:00Z"));
+        entity.setDurationMinutes(30);
+        workoutSessionRepository.save(entity);
+
+        WeeklyTrainingInsightView sgtResult = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-28"));
+        assertEquals(DayKind.CARDIO, sgtResult.days().get(0).kind(), "2026-09-28 is a Monday in Asia/Singapore");
+
+        WeeklyTrainingInsightView utcResult = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "UTC", LocalDate.parse("2026-09-27"));
+        assertEquals(DayKind.CARDIO, utcResult.days().get(6).kind(), "2026-09-27 is a Sunday in UTC");
+    }
+
+    private WorkoutPlanView createPlanWithWeek(CurrentUserPrincipal user, List<WorkoutPlanDayInput> days) {
+        WorkoutPlanView plan = workoutService.createPlan(user, new CreateWorkoutPlanRequest(
+                "Week Plan",
+                "Weekly schedule for day-kinds coverage",
+                GoalFocus.GENERAL_FITNESS,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.INTERMEDIATE,
+                60,
+                List.of(),
+                days));
+        return workoutService.activatePlan(user, plan.planId());
+    }
+
+    private WorkoutPlanDayInput workoutPlanDayInput(int dayOfWeek,
+                                                    SessionKind kind,
+                                                    String title,
+                                                    SportActivity sportActivity,
+                                                    Integer estimatedMinutes) {
+        return new WorkoutPlanDayInput(null, dayOfWeek, kind, title, sportActivity, estimatedMinutes, List.of());
+    }
+
+    private void saveDaySession(CurrentUserPrincipal user,
+                                SessionKind kind,
+                                WorkoutType workoutType,
+                                WorkoutSessionStatus status,
+                                LocalDate localDate,
+                                Integer durationMinutes,
+                                UUID planDayId,
+                                SportActivity sportActivity) {
+        Instant startedAt = localDate.atTime(18, 30).atZone(SGT).toInstant();
+        WorkoutSessionEntity entity = new WorkoutSessionEntity();
+        entity.setSessionId(UUID.randomUUID());
+        entity.setUserId(user.userId());
+        entity.setName("Session");
+        entity.setWorkoutType(workoutType);
+        entity.setKind(kind);
+        entity.setSportActivity(sportActivity);
+        entity.setPlanDayId(planDayId);
+        entity.setStatus(status);
+        entity.setSource(WorkoutSource.MANUAL);
+        entity.setStartedAt(startedAt);
+        entity.setCompletedAt(status == WorkoutSessionStatus.COMPLETED
+                ? startedAt.plusSeconds(durationMinutes * 60L) : null);
+        entity.setDurationMinutes(durationMinutes);
+        workoutSessionRepository.save(entity);
     }
 
     private MuscleGroupInsightView groupView(WeeklyTrainingInsightView result, MuscleGroup group) {
