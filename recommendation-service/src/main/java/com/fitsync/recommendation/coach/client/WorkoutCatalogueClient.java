@@ -24,6 +24,7 @@ public class WorkoutCatalogueClient extends CatalogueClient {
     private static final String SESSIONS = "/api/v1/workouts/sessions";
     private static final String PLANS = "/api/v1/workouts/plans";
     private static final String TRAINING_INSIGHT = "/api/v1/workouts/insights/training";
+    private static final String WEEKLY_INSIGHT = "/api/v1/workouts/insights/weekly";
 
     private final ObjectMapper objectMapper;
 
@@ -86,6 +87,16 @@ public class WorkoutCatalogueClient extends CatalogueClient {
     /** Starts a session from a plan, which is the moment a draft becomes something to train from. */
     public String startPlan(String bearerToken, UUID planId) {
         return post(PLANS + "/" + planId + "/start", Map.of(), bearerToken);
+    }
+
+    /**
+     * The current week as workout-service counts it: the sessions completed since Monday and
+     * their minutes. Null when the service could not be reached.
+     */
+    public String weeklyInsight(String bearerToken, String timezone) {
+        Map<String, Object> params = params();
+        params.put("timezone", timezone);
+        return get(WEEKLY_INSIGHT, params, bearerToken);
     }
 
     /**

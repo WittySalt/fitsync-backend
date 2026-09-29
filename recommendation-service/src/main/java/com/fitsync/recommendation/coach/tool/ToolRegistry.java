@@ -30,7 +30,11 @@ public class ToolRegistry {
 
     private static final Logger LOG = LoggerFactory.getLogger(ToolRegistry.class);
 
+    /** How many locks the records of concurrent turns are spread over. */
+    private static final int RECORD_LOCKS = 16;
+
     private final Map<String, CoachTool> byName = new LinkedHashMap<>();
+    private final Object[] recordLocks = new Object[RECORD_LOCKS];
     private final CoachThreadService threadService;
     private final ObjectMapper objectMapper;
 
@@ -40,6 +44,9 @@ public class ToolRegistry {
         }
         this.threadService = threadService;
         this.objectMapper = objectMapper;
+        for (int i = 0; i < RECORD_LOCKS; i++) {
+            recordLocks[i] = new Object();
+        }
     }
 
     public boolean has(String name) {
@@ -68,6 +75,9 @@ public class ToolRegistry {
      * an observation the model can work around, because a turn that dies because a model guessed a
      * tool name is a worse outcome than a turn that is told the guess was wrong. The failure is
      * still recorded, so the trace and the evaluation harness both see it.
+     *
+     * <p>The record is written after the result is known and can never change it. A record that
+     * cannot be written is logged and the tool's result is returned as it was.
      */
     public ToolResult invoke(CoachCallContext context, String toolName, JsonNode args) {
         CoachTool tool = byName.get(toolName);
@@ -80,22 +90,24 @@ public class ToolRegistry {
             return unknown;
         }
 
+        ToolResult result;
+        boolean ok = false;
+        String error = null;
         try {
-            ToolResult result = tool.invoke(context, args == null ? objectMapper.createObjectNode() : args);
-            record(context, toolName, args, result, startedAt, true, null);
-            return result;
+            result = tool.invoke(context, args == null ? objectMapper.createObjectNode() : args);
+            ok = true;
         } catch (IllegalArgumentException ex) {
-            ToolResult bad = ToolResult.of("bad arguments", "That call was rejected: " + ex.getMessage());
-            record(context, toolName, args, bad, startedAt, false, ex.getMessage());
-            return bad;
+            result = ToolResult.of("bad arguments", "That call was rejected: " + ex.getMessage());
+            error = ex.getMessage();
         } catch (RuntimeException ex) {
             // The tool name came from the model, so it is untrusted input on a log line.
             LOG.warn("Tool {} failed", safeForLog(toolName), ex);
-            ToolResult failed = ToolResult.of("tool failed",
+            result = ToolResult.of("tool failed",
                     "The " + toolName + " tool failed. Answer without it, or say so.");
-            record(context, toolName, args, failed, startedAt, false, ex.getClass().getSimpleName());
-            return failed;
+            error = ex.getClass().getSimpleName();
         }
+        record(context, toolName, args, result, startedAt, ok, error);
+        return result;
     }
 
     private void record(CoachCallContext context,
@@ -109,9 +121,19 @@ public class ToolRegistry {
             return;
         }
         int latencyMs = (int) ((System.nanoTime() - startedAt) / 1_000_000L);
-        threadService.recordToolInvocation(
-                context.turnId(), toolName, args == null ? "{}" : args.toString(),
-                result.summary(), latencyMs, ok, error);
+        // A turn runs its planned reads at once, and a record takes the next number in the turn.
+        // Two records written at the same moment would take the same number, so the records of
+        // one turn are written one after another.
+        synchronized (recordLocks[Math.floorMod(context.turnId().hashCode(), RECORD_LOCKS)]) {
+            try {
+                threadService.recordToolInvocation(
+                        context.turnId(), toolName, args == null ? "{}" : args.toString(),
+                        result.summary(), latencyMs, ok, error);
+            } catch (RuntimeException ex) {
+                LOG.warn("The record of tool {} could not be written: {}",
+                        safeForLog(toolName), ex.getClass().getSimpleName());
+            }
+        }
     }
 
     /** Strips anything that could end a log line, for the same reason the shared error handler does. */

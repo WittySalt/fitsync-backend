@@ -417,15 +417,39 @@ public class CoachOrchestrator {
     /** Anything in square brackets, with the space before it. */
     private static final java.util.regex.Pattern BRACKETED = java.util.regex.Pattern.compile("\\s?\\[([^\\[\\]]{0,200})]");
 
+    /** An en dash between two numbers, which stands for "to" in a range such as 21–27. */
+    private static final java.util.regex.Pattern RANGE_DASH = java.util.regex.Pattern.compile("(?<=\\d)\\s?\\u2013\\s?(?=\\d)");
+
+    /** An em dash or an en dash used as punctuation, with the spaces around it. */
+    private static final java.util.regex.Pattern PROSE_DASH = java.util.regex.Pattern.compile("\\s*[\\u2014\\u2013]\\s*");
+
     /**
-     * Removes what the model put in square brackets, except a citation of a pinned fact.
+     * Removes what the model put in square brackets, except a citation of a pinned fact, and writes
+     * a dash as the word or the comma it stands for.
      *
      * <p>A model that has been shown citations tends to invent its own, such as a field name from a
      * tool result. Those mean nothing to a reader, and a citation of a fact that does not exist
-     * would point nowhere. This is a cleanup of form. It does not check that the answer is true.
+     * would point nowhere. The coach's voice has no dashes, and a model uses them whatever it is
+     * told, so they are rewritten here where a rejection would cost a whole answer. This is a
+     * cleanup of form. It does not check that the answer is true.
      */
     static String tidy(String answer, TurnContext turnContext) {
-        if (answer == null || answer.indexOf('[') < 0) {
+        if (answer == null) {
+            return null;
+        }
+        return withoutInventedBrackets(withoutDashes(answer), turnContext);
+    }
+
+    private static String withoutDashes(String answer) {
+        if (answer.indexOf('—') < 0 && answer.indexOf('–') < 0) {
+            return answer;
+        }
+        String ranges = RANGE_DASH.matcher(answer).replaceAll(" to ");
+        return PROSE_DASH.matcher(ranges).replaceAll(", ");
+    }
+
+    private static String withoutInventedBrackets(String answer, TurnContext turnContext) {
+        if (answer.indexOf('[') < 0) {
             return answer;
         }
         int factCount = turnContext == null || turnContext.pinnedReading() == null
@@ -541,6 +565,8 @@ public class CoachOrchestrator {
                         + ", and the fact cited there does not say so.";
                 case "MEASURE_MISMATCH" -> "It stated the per-session figure from fact " + detail
                         + " as though it were a weekly figure.";
+                case "WEEK_NOT_NAMED" -> "It stated " + detail + " without saying that the figure is from the "
+                        + "last full week. The current week so far is in trainingThisWeek.";
                 case "PERIOD_MISMATCH" -> "It placed fact " + detail
                         + " in the current week, and the facts describe the last full week.";
                 case "BANNED_PHRASE" -> "It gave advice or an instruction.";

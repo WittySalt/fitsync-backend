@@ -653,4 +653,15 @@ class CoachOrchestratorTests {
                 .isEqualTo("Nothing to tidy.");
         org.assertj.core.api.Assertions.assertThat(CoachOrchestrator.tidy(null, pinned)).isNull();
     }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("a dash is written as the word or the comma it stands for")
+    void tidyWritesDashesAsWords() {
+        org.assertj.core.api.Assertions.assertThat(CoachOrchestrator.tidy(
+                "The week of September 21–27 had 4 sessions—two of them strength — and 170 minutes.", null))
+                .isEqualTo("The week of September 21 to 27 had 4 sessions, two of them strength, and 170 minutes.");
+        org.assertj.core.api.Assertions.assertThat(CoachOrchestrator.tidy(
+                "Your last session was Strength — Full Body.", null))
+                .isEqualTo("Your last session was Strength, Full Body.");
+    }
 }
