@@ -1,5 +1,6 @@
 package com.fitsync.workout.dto;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -8,6 +9,9 @@ import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutType;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -46,15 +50,16 @@ public record ImportWorkoutSessionRowRequest(
         @Min(1) @Max(10) Integer perceivedExertion,
         @Size(max = 1000) String notes,
         @Valid List<WorkoutExerciseLogInput> exercises,
-        SportActivity sportActivity) {
+        SportActivity sportActivity,
+        @DecimalMin("0.0") @DecimalMax("1000.0") @Digits(integer = 4, fraction = 2) BigDecimal distanceKm) {
 
     public ImportWorkoutSessionRowRequest {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
     }
 
     /**
-     * A row without a sport activity. An imported sport session without one is stored as
-     * {@code OTHER}, because imported history cannot be asked again.
+     * A row without a sport activity or a distance. An imported sport session without a sport
+     * activity is stored as {@code OTHER}, because imported history cannot be asked again.
      */
     public ImportWorkoutSessionRowRequest(String externalId,
             String source,
@@ -70,7 +75,26 @@ public record ImportWorkoutSessionRowRequest(
             String notes,
             List<WorkoutExerciseLogInput> exercises) {
         this(externalId, source, planId, name, workoutType, status, startedAt, completedAt,
-                durationMinutes, caloriesBurned, perceivedExertion, notes, exercises, null);
+                durationMinutes, caloriesBurned, perceivedExertion, notes, exercises, null, null);
+    }
+
+    /** A row without a distance. */
+    public ImportWorkoutSessionRowRequest(String externalId,
+            String source,
+            UUID planId,
+            String name,
+            WorkoutType workoutType,
+            WorkoutSessionStatus status,
+            Instant startedAt,
+            Instant completedAt,
+            Integer durationMinutes,
+            Integer caloriesBurned,
+            Integer perceivedExertion,
+            String notes,
+            List<WorkoutExerciseLogInput> exercises,
+            SportActivity sportActivity) {
+        this(externalId, source, planId, name, workoutType, status, startedAt, completedAt,
+                durationMinutes, caloriesBurned, perceivedExertion, notes, exercises, sportActivity, null);
     }
 
     @Override

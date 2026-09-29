@@ -287,7 +287,8 @@ class WorkoutControllerTests {
                 new TrainingRecordView("Dumbbell Bench Press", new BigDecimal("22.50"), LocalDate.parse("2026-09-21"), new BigDecimal("20.00")),
                 new MostTrainedView(MuscleGroup.CORE, 4, List.of("Plank Hold")),
                 List.of(new LiftProgressView("Dumbbell Bench Press", new BigDecimal("20.00"), LocalDate.parse("2026-09-16"),
-                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))));
+                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))),
+                null, null, null);
 
         when(trainingPageInsightService.getTrainingPageInsight(
                         eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-28"))))
@@ -387,6 +388,56 @@ class WorkoutControllerTests {
     }
 
     @Test
+    void shouldReturnBadRequestWhenAPlanHasEightDays() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        List<com.fitsync.workout.dto.WorkoutPlanDayInput> eightDays = new java.util.ArrayList<>();
+        for (int dayOfWeek = 1; dayOfWeek <= 7; dayOfWeek++) {
+            eightDays.add(new com.fitsync.workout.dto.WorkoutPlanDayInput(
+                    null, dayOfWeek, SessionKind.MOBILITY, "Day " + dayOfWeek, null, 30, List.of()));
+        }
+        eightDays.add(new com.fitsync.workout.dto.WorkoutPlanDayInput(
+                null, 1, SessionKind.MOBILITY, "Extra Day", null, 30, List.of()));
+        CreateWorkoutPlanRequest request = new CreateWorkoutPlanRequest(
+                "Eight Day Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.CUSTOM,
+                WorkoutDifficulty.BEGINNER,
+                null,
+                List.of(),
+                eightDays);
+
+        mockMvc.perform(post("/api/v1/workouts/plans")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenADayOfWeekIsZero() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        CreateWorkoutPlanRequest request = new CreateWorkoutPlanRequest(
+                "Zero Day Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.CUSTOM,
+                WorkoutDifficulty.BEGINNER,
+                null,
+                List.of(),
+                List.of(new com.fitsync.workout.dto.WorkoutPlanDayInput(
+                        null, 0, SessionKind.MOBILITY, "Invalid Day", null, 30, List.of())));
+
+        mockMvc.perform(post("/api/v1/workouts/plans")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void shouldReturnExerciseMetadataForAuthenticatedUser() throws Exception {
         CurrentUserPrincipal principal = principal();
         ExerciseMetadataView response = new ExerciseMetadataView(
@@ -442,7 +493,7 @@ class WorkoutControllerTests {
                 Instant.parse("2026-06-11T12:00:00Z"),
                 Instant.parse("2026-06-11T12:00:00Z"));
 
-        when(workoutService.startPlan(any(), eq(planId))).thenReturn(response);
+        when(workoutService.startPlan(any(), eq(planId), any(), any())).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
                         .with(authentication(authToken(principal)))
@@ -453,7 +504,44 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.source").value("PLAN"));
 
-        verify(workoutService).startPlan(eq(principal), eq(planId));
+        verify(workoutService).startPlan(eq(principal), eq(planId), eq(null), eq("UTC"));
+    }
+
+    @Test
+    void shouldPassPlanDayIdAndTimezoneThroughToStartPlan() throws Exception {
+        UUID planId = UUID.randomUUID();
+        UUID planDayId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        WorkoutSessionView response = sessionView(sessionId, WorkoutSessionStatus.IN_PROGRESS);
+
+        when(workoutService.startPlan(any(), eq(planId), eq(planDayId), eq("Asia/Singapore"))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .param("planDayId", planDayId.toString())
+                        .param("timezone", "Asia/Singapore"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()));
+
+        verify(workoutService).startPlan(eq(principal), eq(planId), eq(planDayId), eq("Asia/Singapore"));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenStartPlanTimezoneIsInvalid() throws Exception {
+        UUID planId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+
+        when(workoutService.startPlan(any(), eq(planId), any(), eq("Not/AZone")))
+                .thenThrow(new IllegalArgumentException("The timezone is not a recognised zone id."));
+
+        mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .param("timezone", "Not/AZone"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The timezone is not a recognised zone id."));
     }
 
     @Test
@@ -577,7 +665,7 @@ class WorkoutControllerTests {
         UUID planId = UUID.randomUUID();
         CurrentUserPrincipal principal = principal();
 
-        when(workoutService.startPlan(any(), eq(planId)))
+        when(workoutService.startPlan(any(), eq(planId), any(), any()))
                 .thenThrow(new IllegalArgumentException("Archived workout plan cannot be used for a session"));
 
         mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
@@ -592,7 +680,7 @@ class WorkoutControllerTests {
         UUID planId = UUID.randomUUID();
         CurrentUserPrincipal principal = principal();
 
-        when(workoutService.startPlan(any(), eq(planId)))
+        when(workoutService.startPlan(any(), eq(planId), any(), any()))
                 .thenThrow(new ResourceNotFoundException("Workout plan not found"));
 
         mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
@@ -1021,7 +1109,8 @@ class WorkoutControllerTests {
                 Instant.parse("2026-06-11T10:00:00Z"),
                 SessionKind.SPORT,
                 SportActivity.BASKETBALL,
-                "Basketball");
+                "Basketball",
+                null);
 
         when(workoutService.createSession(any(), any())).thenReturn(response);
 
@@ -1034,6 +1123,62 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.kind").value("SPORT"))
                 .andExpect(jsonPath("$.sportActivity").value("BASKETBALL"))
                 .andExpect(jsonPath("$.sportLabel").value("Basketball"));
+    }
+
+    @Test
+    void shouldRejectSessionDistanceAboveOneThousandKm() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Ultra Swim",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                SportActivity.SWIMMING,
+                new BigDecimal("1000.01"));
+
+        mockMvc.perform(post("/api/v1/workouts/sessions")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Validation failed"));
+    }
+
+    @Test
+    void shouldRejectNegativeSessionDistance() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null,
+                "Negative Distance Swim",
+                WorkoutType.SPORTS,
+                WorkoutSessionStatus.PLANNED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T10:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                SportActivity.SWIMMING,
+                new BigDecimal("-1.00"));
+
+        mockMvc.perform(post("/api/v1/workouts/sessions")
+                        .with(authentication(authToken(principal)))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Validation failed"));
     }
 
     @Test

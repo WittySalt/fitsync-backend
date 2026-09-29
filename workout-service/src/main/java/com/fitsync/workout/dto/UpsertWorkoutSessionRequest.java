@@ -1,5 +1,6 @@
 package com.fitsync.workout.dto;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -10,6 +11,9 @@ import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -71,13 +75,15 @@ public record UpsertWorkoutSessionRequest(
         @Min(1) @Max(10) Integer perceivedExertion,
         @Size(max = 1000) String notes,
         @Valid List<WorkoutExerciseLogInput> exercises,
-        SportActivity sportActivity) {
+        SportActivity sportActivity,
+        @DecimalMin("0.0") @DecimalMax("1000.0") @Digits(integer = 4, fraction = 2) BigDecimal distanceKm) {
 
     public UpsertWorkoutSessionRequest {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
     }
 
-    /** A request without a sport activity, which is every request that is not a sport session. */
+    /** A request without a sport activity or a distance, which is every request that is not a
+     * sport session logged without an exercise row. */
     public UpsertWorkoutSessionRequest(UUID planId,
             String name,
             WorkoutType workoutType,
@@ -91,7 +97,25 @@ public record UpsertWorkoutSessionRequest(
             String notes,
             List<WorkoutExerciseLogInput> exercises) {
         this(planId, name, workoutType, status, source, startedAt, completedAt, durationMinutes,
-                caloriesBurned, perceivedExertion, notes, exercises, null);
+                caloriesBurned, perceivedExertion, notes, exercises, null, null);
+    }
+
+    /** A request without a distance. */
+    public UpsertWorkoutSessionRequest(UUID planId,
+            String name,
+            WorkoutType workoutType,
+            WorkoutSessionStatus status,
+            WorkoutSource source,
+            Instant startedAt,
+            Instant completedAt,
+            Integer durationMinutes,
+            Integer caloriesBurned,
+            Integer perceivedExertion,
+            String notes,
+            List<WorkoutExerciseLogInput> exercises,
+            SportActivity sportActivity) {
+        this(planId, name, workoutType, status, source, startedAt, completedAt, durationMinutes,
+                caloriesBurned, perceivedExertion, notes, exercises, sportActivity, null);
     }
 
     @Override

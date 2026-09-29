@@ -13,8 +13,14 @@ import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.domain.GoalFocus;
+import com.fitsync.workout.domain.SessionKind;
+import com.fitsync.workout.domain.SportActivity;
+import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.WorkoutPlanDayInput;
+import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -186,6 +192,38 @@ class WorkoutServicePostgresIT {
 
         assertEquals(completed.sessionId(), latest.sessionId());
         assertEquals(WorkoutSessionStatus.COMPLETED, latest.status());
+    }
+
+    @Test
+    void shouldCreateAndReadBackAPlanWithAWeekOnPostgres() {
+        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
+        CurrentUserPrincipal user = new CurrentUserPrincipal(
+                UUID.randomUUID(),
+                "plan-week-postgres@example.com",
+                "Plan Week Postgres",
+                "USER");
+
+        WorkoutPlanView plan = workoutService.createPlan(user, new CreateWorkoutPlanRequest(
+                "Postgres Week Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.CUSTOM,
+                WorkoutDifficulty.BEGINNER,
+                null,
+                List.of(),
+                List.of(
+                        new WorkoutPlanDayInput(null, 1, SessionKind.STRENGTH, "Push", null, 45,
+                                List.of(new WorkoutPlanExerciseInput(GOBLET_SQUAT_ID, 1, 3, 8, null, null, null, 90, null, null))),
+                        new WorkoutPlanDayInput(null, 6, SessionKind.SPORT, "Badminton Night", SportActivity.BADMINTON, 60, List.of()))));
+
+        WorkoutPlanView fetched = workoutService.getPlan(user, plan.planId());
+
+        assertEquals(2, fetched.days().size());
+        assertEquals(2, fetched.sessionsPerWeek());
+        assertTrue(fetched.exercises().isEmpty());
+        assertEquals(1, fetched.days().get(0).exercises().size());
+        assertEquals(SportActivity.BADMINTON, fetched.days().get(1).sportActivity());
+        assertEquals("Badminton", fetched.days().get(1).sportLabel());
     }
 
     private UpsertWorkoutSessionRequest sessionRequest(String name,

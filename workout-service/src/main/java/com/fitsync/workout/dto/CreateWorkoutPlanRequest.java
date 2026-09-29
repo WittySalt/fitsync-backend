@@ -60,14 +60,32 @@ public record CreateWorkoutPlanRequest(
         @NotNull WorkoutType workoutType,
         @NotNull WorkoutDifficulty difficulty,
         @Min(1) Integer estimatedDurationMinutes,
-        @Valid List<WorkoutPlanExerciseInput> exercises) {
+        @Valid List<WorkoutPlanExerciseInput> exercises,
+        @Valid @Size(max = 7) List<WorkoutPlanDayInput> days) {
 
     public CreateWorkoutPlanRequest {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
+        days = days == null ? List.of() : List.copyOf(days);
+    }
+
+    /** A request without a week, which is every request for a flat plan. */
+    public CreateWorkoutPlanRequest(String name,
+            String description,
+            GoalFocus goalFocus,
+            WorkoutType workoutType,
+            WorkoutDifficulty difficulty,
+            Integer estimatedDurationMinutes,
+            List<WorkoutPlanExerciseInput> exercises) {
+        this(name, description, goalFocus, workoutType, difficulty, estimatedDurationMinutes, exercises, List.of());
     }
 
     @Override
     public List<WorkoutPlanExerciseInput> exercises() {
         return List.copyOf(exercises);
+    }
+
+    @Override
+    public List<WorkoutPlanDayInput> days() {
+        return List.copyOf(days);
     }
 }
