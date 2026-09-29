@@ -7,7 +7,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 
 import com.fitsync.gateway.config.GatewayRoutesProperties;
 import com.fitsync.gateway.exception.DownstreamServiceException;
@@ -59,6 +62,28 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
     /** Copied in chunks this size and flushed after each one, so an event is not held back. */
     private static final int STREAM_CHUNK_BYTES = 512;
 
+    private static final String ADMIN_ROUTE_PREFIX = "/api/v1/admin/";
+    private static final String INTERNAL_ROUTE_PREFIX = "/api/v1/internal";
+
+    /**
+     * The fixed set of admin console destinations, keyed by the path segment the console uses.
+     *
+     * <p>The key is never used to build a host name or URL; it only selects one of these six
+     * already-configured base URLs, so a caller cannot steer a request anywhere else by choosing
+     * an unusual segment value.
+     */
+    private static final Map<String, Function<GatewayRoutesProperties, String>> ADMIN_SERVICE_BASE_URLS = Map.of(
+            "auth", GatewayRoutesProperties::authServiceBaseUrl,
+            "users", GatewayRoutesProperties::userServiceBaseUrl,
+            "workouts", GatewayRoutesProperties::workoutServiceBaseUrl,
+            "nutrition", GatewayRoutesProperties::nutritionServiceBaseUrl,
+            "analytics", GatewayRoutesProperties::analyticsServiceBaseUrl,
+            // The coach lives in recommendation-service; it has no admin surface of its own.
+            "coach", GatewayRoutesProperties::recommendationServiceBaseUrl);
+
+    /** Rejects an encoded slash or backslash, a literal backslash, or an embedded scheme. */
+    private static final Pattern SUSPICIOUS_ADMIN_PATH = Pattern.compile("\\\\|%2f|%5c|://", Pattern.CASE_INSENSITIVE);
+
     private final RestTemplate restTemplate;
     private final ClientHttpRequestFactory coachRequestFactory;
     private final GatewayRoutesProperties routesProperties;
@@ -99,6 +124,38 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
     @Override
     public ResponseEntity<byte[]> forwardToRecommendationService(HttpServletRequest request, byte[] body) {
         return forward(routesProperties.recommendationServiceBaseUrl(), request, body);
+    }
+
+    @Override
+    public ResponseEntity<byte[]> forwardToAdminService(String service, HttpServletRequest request, byte[] body) {
+        Function<GatewayRoutesProperties, String> baseUrlLookup = ADMIN_SERVICE_BASE_URLS.get(service);
+        if (baseUrlLookup == null) {
+            throw new IllegalArgumentException("Unknown admin service");
+        }
+
+        String rewrittenPath = rewriteAdminPath(service, request.getRequestURI());
+        return forward(baseUrlLookup.apply(routesProperties), request, body, rewrittenPath);
+    }
+
+    /**
+     * Turns {@code /api/v1/admin/{service}/**} into the {@code /api/v1/internal/**} path the
+     * service itself exposes, after checking the raw (still-encoded) path for the traversal and
+     * obfuscation tricks that a decode-then-check could miss.
+     */
+    private String rewriteAdminPath(String service, String requestUri) {
+        if (SUSPICIOUS_ADMIN_PATH.matcher(requestUri).find() || containsPathTraversalSegment(requestUri)) {
+            throw new IllegalArgumentException(
+                    "Admin route path must not contain traversal segments, encoded separators, or a scheme");
+        }
+
+        String servicePrefix = ADMIN_ROUTE_PREFIX + service;
+        if (!requestUri.startsWith(servicePrefix)
+                || (requestUri.length() > servicePrefix.length() && requestUri.charAt(servicePrefix.length()) != '/')) {
+            throw new IllegalArgumentException("Admin route path did not match the resolved service");
+        }
+
+        String suffix = requestUri.substring(servicePrefix.length());
+        return INTERNAL_ROUTE_PREFIX + suffix;
     }
 
     @Override
@@ -174,11 +231,16 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
     }
 
     private ResponseEntity<byte[]> forward(String baseUrl, HttpServletRequest request, byte[] body) {
+        return forward(baseUrl, request, body, request.getRequestURI());
+    }
+
+    private ResponseEntity<byte[]> forward(String baseUrl, HttpServletRequest request, byte[] body,
+                                           String targetRequestUri) {
         HttpMethod method = HttpMethod.valueOf(request.getMethod());
         HttpHeaders headers = copyHeaders(request);
         addGatewayHeaders(headers);
 
-        URI targetUri = buildTargetUri(baseUrl, request);
+        URI targetUri = buildTargetUri(baseUrl, targetRequestUri, request.getQueryString());
         RequestEntity<byte[]> requestEntity = new RequestEntity<>(
                 body == null ? new byte[0] : body,
                 headers,
@@ -260,10 +322,13 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
     }
 
     private URI buildTargetUri(String baseUrl, HttpServletRequest request) {
+        return buildTargetUri(baseUrl, request.getRequestURI(), request.getQueryString());
+    }
+
+    private URI buildTargetUri(String baseUrl, String requestUri, String queryString) {
         URI baseUri = URI.create(normalizeBaseUrl(baseUrl));
         validateBaseUri(baseUri);
 
-        String requestUri = request.getRequestURI();
         if (!StringUtils.hasText(requestUri) || !requestUri.startsWith("/")) {
             throw new IllegalArgumentException("Proxy request URI must be an absolute path");
         }
@@ -273,7 +338,7 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
 
         return UriComponentsBuilder.fromUri(baseUri)
                 .replacePath(requestUri)
-                .replaceQuery(request.getQueryString())
+                .replaceQuery(queryString)
                 .build(true)
                 .toUri();
     }

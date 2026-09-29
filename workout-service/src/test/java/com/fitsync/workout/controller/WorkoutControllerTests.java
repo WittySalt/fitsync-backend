@@ -62,6 +62,8 @@ import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.workout.security.JwtService;
 import com.fitsync.workout.messaging.OutboxEventRelay;
+import com.fitsync.workout.messaging.repository.OutboxEventRepository;
+import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.service.ExerciseCatalogImportService;
 import com.fitsync.workout.service.ExerciseService;
 import com.fitsync.workout.service.TrainingPageInsightService;
@@ -126,6 +128,12 @@ class WorkoutControllerTests {
 
     @MockBean
     private OutboxEventRelay outboxEventRelay;
+
+    @MockBean
+    private OutboxEventRepository outboxEventRepository;
+
+    @MockBean
+    private ExerciseRepository exerciseRepository;
 
     @Test
     void shouldRequireAuthenticationForProtectedEndpoint() throws Exception {

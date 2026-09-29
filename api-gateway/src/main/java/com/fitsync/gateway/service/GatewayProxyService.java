@@ -19,6 +19,16 @@ public interface GatewayProxyService {
     ResponseEntity<byte[]> forwardToRecommendationService(HttpServletRequest request, byte[] body);
 
     /**
+     * Forwards an admin console request to the named service's {@code /api/v1/internal/**} surface.
+     *
+     * <p>The caller has already matched {@code service} against the fixed set of admin route names
+     * and answered 404 for anything else without reaching this method, so an unrecognised name here
+     * means that fixed set and the caller's own check have drifted apart; it fails the same way
+     * rather than guessing a destination.
+     */
+    ResponseEntity<byte[]> forwardToAdminService(String service, HttpServletRequest request, byte[] body);
+
+    /**
      * Forwards to the coach, which lives in recommendation-service but cannot share its route.
      *
      * <p>Two things make it different. A coach turn waits on a language model, so it takes seconds

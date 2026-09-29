@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -106,5 +107,39 @@ class OutboxEventTests {
                 .singleElement()
                 .extracting(OutboxEventEntity::getStatus)
                 .isEqualTo(OutboxEventStatus.PUBLISHED);
+    }
+
+    @Test
+    void adminSeesPendingOutboxCountAndOldestTimestamp() throws Exception {
+        OutboxEventEntity event = new OutboxEventEntity();
+        event.setEventId(UUID.randomUUID());
+        event.setTopic("workout-events");
+        event.setEventType("WorkoutLogged");
+        event.setAggregateType("WorkoutSession");
+        event.setAggregateId("aggregate-2");
+        event.setEventVersion(1);
+        event.setPayload("{\"eventType\":\"WorkoutLogged\"}");
+        event.setStatus(OutboxEventStatus.PENDING);
+        event.setDateTimeProduced(Instant.now());
+        outboxEventRepository.save(event);
+
+        mockMvc.perform(get("/api/v1/internal/outbox/pending")
+                        .with(authentication(TestJwt.authentication("ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pending").value(1))
+                .andExpect(jsonPath("$.oldestCreatedAt").isNotEmpty());
+    }
+
+    @Test
+    void userCannotSeePendingOutboxCount() throws Exception {
+        mockMvc.perform(get("/api/v1/internal/outbox/pending")
+                        .with(authentication(TestJwt.authentication("USER"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void pendingOutboxCountRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/internal/outbox/pending"))
+                .andExpect(status().isUnauthorized());
     }
 }

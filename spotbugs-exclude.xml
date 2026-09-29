@@ -90,6 +90,12 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <!-- Admin console user-lookup controller, new endpoint: intentional Spring entrypoint. -->
+    <Match>
+        <Class name="com.fitsync.backend.controller.InternalUserLookupController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
     <!-- Spring wiring and controllers in user-service -->
     <Match>
         <Class name="com.fitsync.user.config.SecurityConfig"/>
