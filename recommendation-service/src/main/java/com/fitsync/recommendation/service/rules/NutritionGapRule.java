@@ -117,9 +117,8 @@ public class NutritionGapRule implements Rule {
      * estimate as the last resort.
      */
     private static Integer resolveTargetCalories(RecommendationContextEntity context) {
-        if (GoalTypes.isCalorieGoal(context.getCurrentGoalType())
-                && context.getCurrentGoalTargetValue() != null) {
-            return context.getCurrentGoalTargetValue().intValue();
+        if (hasCalorieGoal(context)) {
+            return context.getCalorieGoalKcal();
         }
         if (context.getEnergyTargetCalories() != null && context.getLatestWeightKg() != null) {
             long target = context.getEnergyTargetCalories().longValue()
@@ -137,9 +136,12 @@ public class NutritionGapRule implements Rule {
         return (int) Math.max(target, MIN_DAILY_CALORIES);
     }
 
+    private static boolean hasCalorieGoal(RecommendationContextEntity context) {
+        return context.getCalorieGoalKcal() != null && context.getCalorieGoalKcal() > 0;
+    }
+
     private static String basis(RecommendationContextEntity context) {
-        if (GoalTypes.isCalorieGoal(context.getCurrentGoalType())
-                && context.getCurrentGoalTargetValue() != null) {
+        if (hasCalorieGoal(context)) {
             return BASIS_CALORIE_GOAL;
         }
         if (context.getEnergyTargetCalories() != null && context.getLatestWeightKg() != null) {

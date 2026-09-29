@@ -16,11 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Projects the user's goals into the context (inputs for R1 nutrition gap, R2 weekly
  * adherence and R3 goal pace). A user can hold several goals at once — WEIGHT, CALORIES,
- * PROTEIN and WORKOUT_FREQUENCY all arrive on this same event type — so PROTEIN and
- * WORKOUT_FREQUENCY goals are projected into their own dedicated fields instead of the
- * single "current goal" slot, which stays reserved for WEIGHT/CALORIES (and any other
- * goal type not handled specially). A goal that is archived/cancelled upstream clears
- * only the field(s) that goal type owns; it never clears a different goal type's data.
+ * PROTEIN and WORKOUT_FREQUENCY all arrive on this same event type — so CALORIES, PROTEIN
+ * and WORKOUT_FREQUENCY goals are projected into their own dedicated fields instead of the
+ * single "current goal" slot, which stays reserved for WEIGHT (and any other goal type
+ * not handled specially). A goal that is archived/cancelled upstream clears only the
+ * field(s) that goal type owns; it never clears a different goal type's data.
  */
 @Service
 public class GoalUpdatedEventHandler implements DomainEventConsumer<GoalUpdatedPayload> {
@@ -54,6 +54,8 @@ public class GoalUpdatedEventHandler implements DomainEventConsumer<GoalUpdatedP
             context.setProteinTargetGrams(removed ? null : payload.targetValue());
         } else if (GoalTypes.isWorkoutFrequencyGoal(payload.goalType())) {
             context.setWeeklyWorkoutGoalDays(removed ? null : weeklyWorkoutGoalDays(payload));
+        } else if (GoalTypes.isCalorieGoal(payload.goalType())) {
+            context.setCalorieGoalKcal(removed ? null : calorieGoalKcal(payload));
         } else if (removed) {
             clearCurrentGoalSlot(payload, context);
         } else {
@@ -85,6 +87,14 @@ public class GoalUpdatedEventHandler implements DomainEventConsumer<GoalUpdatedP
         context.setCurrentGoalTargetDate(null);
         context.setGoalBaselineWeightKg(null);
         context.setGoalBaselineOn(null);
+    }
+
+    /** A missing or non-positive target value means "no goal" rather than a target of nothing. */
+    private static Integer calorieGoalKcal(GoalUpdatedPayload payload) {
+        if (payload.targetValue() == null || payload.targetValue().signum() <= 0) {
+            return null;
+        }
+        return payload.targetValue().intValue();
     }
 
     /**

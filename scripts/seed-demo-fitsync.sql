@@ -536,7 +536,9 @@ select
     md5(c.user_id::text || 'GOAL' || g.goal_type)::uuid,
     c.user_id, g.goal_type, g.target_value::numeric, g.target_unit,
     case
-        when g.goal_type = 'WEIGHT' and c.persona = 'steady'   then (c.d_today + 56)::date
+        -- Ten weeks ahead, which the steady persona's rate of loss reaches, so that the pace rule and
+        -- the goal progress agree that the goal is on track.
+        when g.goal_type = 'WEIGHT' and c.persona = 'steady'   then (c.d_today + 70)::date
         when g.goal_type = 'WEIGHT' and c.persona = 'drifting' then (c.d_today - 10)::date
         else (c.d_today + 60)::date
     end,
@@ -1412,11 +1414,12 @@ begin
 end
 $do$;
 
--- 9b. Two columns Phase-2 added to recommendation_context after this seed was written:
---     weekly_workout_goal_days (from the WORKOUT_FREQUENCY goal) and protein_target_grams (from
+-- 9b. Three columns Phase-2 added to recommendation_context after this seed was written:
+--     weekly_workout_goal_days (from the WORKOUT_FREQUENCY goal), protein_target_grams (from
 --     the PROTEIN goal, overriding the nutrition-target-derived value above with the goal's own
---     number). Backfilled as separate guarded UPDATEs, rather than folded into the INSERT above,
---     so the script still runs unmodified against a database built before that migration (V9).
+--     number) and calorie_goal_kcal (from the CALORIES goal). Backfilled as separate guarded
+--     UPDATEs, rather than folded into the INSERT above, so the script still runs unmodified
+--     against a database built before those migrations (V9 and V12).
 do $$
 begin
     if exists (select 1 from pg_namespace where nspname = 'recommendation')
@@ -1442,6 +1445,19 @@ begin
            set protein_target_grams = g.target_value
           from demo_config c
           join user_domain.user_goals g on g.user_id = c.user_id and g.goal_type = 'PROTEIN'
+         where rc.user_id = c.user_id;
+    end if;
+
+    if exists (select 1 from pg_namespace where nspname = 'recommendation')
+       and exists (
+           select 1 from information_schema.columns
+            where table_schema = 'recommendation' and table_name = 'recommendation_context'
+              and column_name = 'calorie_goal_kcal'
+       ) then
+        update recommendation.recommendation_context rc
+           set calorie_goal_kcal = g.target_value::int
+          from demo_config c
+          join user_domain.user_goals g on g.user_id = c.user_id and g.goal_type = 'CALORIES'
          where rc.user_id = c.user_id;
     end if;
 end $$;
