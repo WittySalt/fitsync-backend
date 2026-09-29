@@ -2,6 +2,7 @@ package com.fitsync.recommendation.coach.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import com.fitsync.recommendation.coach.dto.CoachSurface;
@@ -266,6 +267,52 @@ class AnswerValidatorTests {
                 "Each session moved 1,923 kg [1] this week.", "how is my week going?", List.of(), turnContext);
 
         assertThat(result.valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a fact from the last full week cannot be placed in this week")
+    void rejectsAFactFromTheLastFullWeekPlacedInThisWeek() {
+        TurnContext turnContext = describing(new TurnContext.PinnedPeriod(
+                false, LocalDate.parse("2026-09-21"), LocalDate.parse("2026-09-27")));
+
+        AnswerValidator.Result result = validator.validate(
+                "Core work was part of all 4 of your sessions this week [4].",
+                "Should my core get a day off", List.of(), turnContext);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.violations()).containsExactly("PERIOD_MISMATCH:4");
+    }
+
+    @Test
+    @DisplayName("the same sentence passes when the reading describes the current week")
+    void acceptsThisWeekWhenTheReadingDescribesTheCurrentWeek() {
+        TurnContext turnContext = describing(new TurnContext.PinnedPeriod(
+                true, LocalDate.parse("2026-09-21"), LocalDate.parse("2026-09-25")));
+
+        AnswerValidator.Result result = validator.validate(
+                "Core work was part of all 4 of your sessions this week [4].",
+                "Should my core get a day off", List.of(), turnContext);
+
+        assertThat(result.valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("this week without a citation says nothing about the pinned facts")
+    void acceptsThisWeekInASentenceThatCitesNothing() {
+        TurnContext turnContext = describing(new TurnContext.PinnedPeriod(
+                false, LocalDate.parse("2026-09-21"), LocalDate.parse("2026-09-27")));
+
+        AnswerValidator.Result result = validator.validate(
+                "Your records hold 1 session this week. Core work was part of all 4 sessions [4] the week before.",
+                "Should my core get a day off", List.of("Result of readFacts({}): 1 session"), turnContext);
+
+        assertThat(result.valid()).isTrue();
+    }
+
+    private static TurnContext describing(TurnContext.PinnedPeriod period) {
+        TurnContext.PinnedReading reading = pinnedReadingWithTheWorkedExampleFacts().pinnedReading();
+        return new TurnContext(CoachSurface.WORKOUT, new TurnContext.PinnedReading(
+                reading.headline(), reading.body(), reading.facts(), period));
     }
 
     /** The reading from the worked example {@code ReadingValidatorTests} also uses. */
