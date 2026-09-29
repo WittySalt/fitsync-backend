@@ -1,5 +1,6 @@
 package com.fitsync.recommendation.coach.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,4 +34,15 @@ public interface ToolInvocationRepository extends JpaRepository<ToolInvocationEn
             + "(select t.turnId from CoachTurnEntity t where t.threadId in "
             + "(select th.threadId from CoachThreadEntity th where th.userId = :userId))")
     int deleteByUserId(@Param("userId") UUID userId);
+
+    /**
+     * Tool-call telemetry for the admin quality report, inside one window. A constructor projection
+     * rather than the entity, so {@code argsJson} and {@code resultSummary} are never loaded — see
+     * {@link ToolInvocationQualityRow}.
+     */
+    @Query("select new com.fitsync.recommendation.coach.repository.ToolInvocationQualityRow("
+            + "ti.tool, ti.ok, ti.latencyMs) "
+            + "from ToolInvocationEntity ti "
+            + "where ti.dateTimeCreated >= :start and ti.dateTimeCreated < :end")
+    List<ToolInvocationQualityRow> findQualityRows(@Param("start") Instant start, @Param("end") Instant end);
 }
