@@ -51,6 +51,8 @@ public class AnswerValidator {
     private static final Pattern WEEKLY_MEASURE = Pattern.compile(
             "(?i)\\b(this week|a week|weekly|per week|the week)\\b");
 
+    private static final Pattern CURRENT_WEEK = Pattern.compile("(?i)\\bthis week\\b");
+
     /** @return the checked result: valid with no violations, or invalid with every rule broken */
     public Result validate(String answer, String question, List<String> transcript, TurnContext turnContext) {
         List<String> violations = new ArrayList<>();
@@ -76,6 +78,7 @@ public class AnswerValidator {
             violations.addAll(citationViolations(answer, pinnedReading));
             violations.addAll(directionViolations(answer, pinnedReading));
             violations.addAll(measureMismatchViolations(answer, pinnedReading));
+            violations.addAll(periodMismatchViolations(answer, pinnedReading));
         }
 
         return new Result(violations.isEmpty(), violations);
@@ -209,6 +212,29 @@ public class AnswerValidator {
                 if (label.contains("per session")) {
                     violations.add("MEASURE_MISMATCH:" + fact.number());
                 }
+            }
+        }
+        return violations;
+    }
+
+    /**
+     * A reading describes the last full week until the current one holds enough sessions. A
+     * sentence that cites one of its facts and places it in "this week" is then false, however
+     * right the number is. Only that direction is checked: when the reading describes the current
+     * week, its facts compare against the week before, so "last week" beside a citation is true.
+     */
+    private static List<String> periodMismatchViolations(String answer, TurnContext.PinnedReading pinnedReading) {
+        List<String> violations = new ArrayList<>();
+        TurnContext.PinnedPeriod period = pinnedReading.period();
+        if (period == null || period.currentWeek()) {
+            return violations;
+        }
+        for (String sentence : SENTENCE_END.split(answer.strip())) {
+            if (!CURRENT_WEEK.matcher(sentence).find()) {
+                continue;
+            }
+            for (TurnContext.PinnedFact fact : factsCitedIn(sentence, pinnedReading)) {
+                violations.add("PERIOD_MISMATCH:" + fact.number());
             }
         }
         return violations;

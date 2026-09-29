@@ -170,7 +170,8 @@ public class CoachConversationService {
                         userId, bearerToken, messageContext.timezoneOrDefault(), messageContext.readingId());
                 if (resolved.isPresent()) {
                     CoachReadingService.PinnedReading reading = resolved.get();
-                    pinnedReading = new TurnContext.PinnedReading(reading.headline(), reading.body(), toPinnedFacts(reading));
+                    pinnedReading = new TurnContext.PinnedReading(reading.headline(), reading.body(),
+                            toPinnedFacts(reading), toPinnedPeriod(reading));
                     pinnedReadingId = reading.readingId();
                 }
             } catch (RuntimeException ex) {
@@ -179,6 +180,14 @@ public class CoachConversationService {
             }
         }
         return new ResolvedContext(new TurnContext(messageContext.surface(), pinnedReading), pinnedReadingId);
+    }
+
+    private static TurnContext.PinnedPeriod toPinnedPeriod(CoachReadingService.PinnedReading reading) {
+        if (reading.period() == null || reading.periodStart() == null || reading.periodEnd() == null) {
+            return null;
+        }
+        return new TurnContext.PinnedPeriod(
+                reading.describesCurrentWeek(), reading.periodStart(), reading.periodEnd());
     }
 
     private static List<TurnContext.PinnedFact> toPinnedFacts(CoachReadingService.PinnedReading reading) {

@@ -11,7 +11,7 @@ import com.fitsync.recommendation.service.ai.CoachFacts;
 import org.springframework.stereotype.Component;
 
 /**
- * The user's computed facts: this week's training, today's nutrition, goal pace, logging streak,
+ * The user's computed facts: the last full week's training, today's nutrition, goal pace, logging streak,
  * the last personal record and the weekly food-group split.
  *
  * <p>This is the tool that makes the coach different from a chatbot. Every number in it was worked
@@ -55,7 +55,8 @@ public class ReadFactsTool implements CoachTool {
                   no arguments
                   returns the user's computed facts as JSON: training, nutritionToday, goalPace,
                   loggingStreak, personalRecord, foodGroupWeek, focusAreas. Every number here is
-                  already calculated — quote it, never recompute it.""";
+                  already calculated — quote it, never recompute it. The training group describes
+                  the last full week, Monday to Sunday, and says nothing about the current week.""";
     }
 
     @Override

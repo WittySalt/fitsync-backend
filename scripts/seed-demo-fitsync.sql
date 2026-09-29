@@ -327,9 +327,10 @@ where persona = 'steady';
 -- five weeks"), drops to 3 sessions/week (no Saturday) for m in (2,3), then
 -- to 2 sessions/week (Monday + Thursday only, Monday shortened to 40 min) for
 -- m <= 1 — the most recent three calendar weeks (the still-forming current
--- week and the two completed weeks before it). Lift weight keeps rising
--- through the oldest weeks and then drops once per fortnight closer to now,
--- so the most recent weeks move less weight than the weeks before them.
+-- week and the two completed weeks before it). Lift weight rises through the
+-- oldest weeks, peaks four weeks before the last completed one, and then
+-- falls, so that each of the recent weeks moves no more weight than the week
+-- before it and the last completed week moves less.
 update demo_days
 set is_training_day = case
         when m >= 4      then dow in (1, 4, 5, 6)
@@ -346,11 +347,21 @@ set is_training_day = case
     skip_session = false
 where persona = 'drifting';
 
+alter table demo_days add column fall int;
 update demo_days
-set bench_w = greatest(10, round(22.50 - 2.50 * tier - case when m <= 1 then 5.00 when m in (2, 3) then 2.50 else 0 end, 2)),
-    squat_w = greatest(10, round(18.00 - 2.00 * tier - case when m <= 1 then 4.00 when m in (2, 3) then 2.00 else 0 end, 2)),
-    row_w   = greatest(10, round(20.00 - 2.00 * tier - case when m <= 1 then 4.00 when m in (2, 3) then 2.00 else 0 end, 2)),
-    run_km  = greatest(4.00, round(5.75 - 0.25 * tier - case when m <= 1 then 1.00 when m in (2, 3) then 0.50 else 0 end, 2))
+set fall = case
+        when m >= 4      then ceil((m - 4) / 2.0)::int
+        when m = 3       then 0
+        when m in (1, 2) then 1
+        else                  2
+    end
+where persona = 'drifting';
+
+update demo_days
+set bench_w = greatest(10, round(20.00 - 2.50 * fall, 2)),
+    squat_w = greatest(10, round(16.00 - 2.00 * fall, 2)),
+    row_w   = greatest(10, round(18.00 - 2.00 * fall, 2)),
+    run_km  = greatest(4.00, round(5.25 - 0.25 * fall, 2))
 where persona = 'drifting';
 
 -- Logged every day for the first five weeks (absolute week 0-4 from d_start),
@@ -536,7 +547,9 @@ select
     md5(c.user_id::text || 'GOAL' || g.goal_type)::uuid,
     c.user_id, g.goal_type, g.target_value::numeric, g.target_unit,
     case
-        when g.goal_type = 'WEIGHT' and c.persona = 'steady'   then (c.d_today + 56)::date
+        -- Ten weeks ahead, which the steady persona's rate of loss reaches, so that the pace rule and
+        -- the goal progress agree that the goal is on track.
+        when g.goal_type = 'WEIGHT' and c.persona = 'steady'   then (c.d_today + 70)::date
         when g.goal_type = 'WEIGHT' and c.persona = 'drifting' then (c.d_today - 10)::date
         else (c.d_today + 60)::date
     end,
@@ -1330,7 +1343,7 @@ begin
         (select string_agg(eq.equipment_code, ',' order by eq.sort_order)
            from user_domain.user_training_preference_equipment eq
           where eq.user_id = c.user_id),
-        wk.week_start, wk.workout_count, wk.workout_minutes, wk.active_days,
+        recap.week_start, recap.workout_count, recap.workout_minutes, recap.active_days,
         (select n.total_calories_consumed from analytics.analytics_user_daily_nutrition n
           where n.user_id = c.user_id and n.activity_date = c.d_today),
         (select n.total_protein_grams from analytics.analytics_user_daily_nutrition n
@@ -1372,30 +1385,39 @@ begin
          limit 1
     ) wg on true
     left join lateral (
-        -- Monday-anchored current week, matching the rules' own week boundary.
-        select (c.d_today - ((extract(isodow from c.d_today)::int) - 1))::date as week_start,
+        -- Monday of the current week, which is where the food-group tally starts.
+        select (c.d_today - ((extract(isodow from c.d_today)::int) - 1))::date as week_start
+    ) wk on true
+    left join lateral (
+        -- The last full week, Monday to Sunday. The live value comes from the weekly recap, which
+        -- analytics-service writes for the week before the current one, so the seed describes the
+        -- same week. The current week would read as missed on any day before its last session.
+        -- A fresh account has no last week, so its fields stay empty and the rule says nothing.
+        select (wk.week_start - 7)                                             as week_start,
                coalesce(sum(w.completed_workout_count), 0)::int                as workout_count,
                coalesce(sum(w.total_workout_minutes), 0)::int                  as workout_minutes,
                count(*) filter (where w.completed_workout_count > 0)::int      as active_days
           from analytics.analytics_user_daily_workout w
          where w.user_id = c.user_id
-           and w.activity_date >= (c.d_today - ((extract(isodow from c.d_today)::int) - 1))::date
-    ) wk on true
+           and w.activity_date >= wk.week_start - 7
+           and w.activity_date < wk.week_start
+        having c.persona <> 'fresh'
+    ) recap on true
     left join lateral (
-        -- Heaviest single set in the window, presented as the most recent personal record so R6
-        -- has something real to celebrate.
+        -- Heaviest single set in the window, dated to the first session that lifted it, which is
+        -- the day the record was set. Later sessions at the same weight repeat it.
         select e.exercise_name_snapshot as exercise_name,
                'MAX_WEIGHT'             as record_type,
-               max(sl.weight_kg)        as record_value,
-               max(s.completed_at)      as achieved_at
+               sl.weight_kg             as record_value,
+               min(s.completed_at)      as achieved_at
           from workout.workout_sessions s
           join workout.workout_exercise_logs e on e.session_id = s.session_id
           join workout.workout_exercise_set_logs sl on sl.exercise_log_id = e.exercise_log_id
          where s.user_id = c.user_id
            and s.completed_at is not null
            and sl.weight_kg is not null
-         group by e.exercise_name_snapshot
-         order by max(sl.weight_kg) desc
+         group by e.exercise_name_snapshot, sl.weight_kg
+         order by sl.weight_kg desc, min(s.completed_at)
          limit 1
     ) pr on true;
 
@@ -1403,11 +1425,12 @@ begin
 end
 $do$;
 
--- 9b. Two columns Phase-2 added to recommendation_context after this seed was written:
---     weekly_workout_goal_days (from the WORKOUT_FREQUENCY goal) and protein_target_grams (from
+-- 9b. Three columns Phase-2 added to recommendation_context after this seed was written:
+--     weekly_workout_goal_days (from the WORKOUT_FREQUENCY goal), protein_target_grams (from
 --     the PROTEIN goal, overriding the nutrition-target-derived value above with the goal's own
---     number). Backfilled as separate guarded UPDATEs, rather than folded into the INSERT above,
---     so the script still runs unmodified against a database built before that migration (V9).
+--     number) and calorie_goal_kcal (from the CALORIES goal). Backfilled as separate guarded
+--     UPDATEs, rather than folded into the INSERT above, so the script still runs unmodified
+--     against a database built before those migrations (V9 and V12).
 do $$
 begin
     if exists (select 1 from pg_namespace where nspname = 'recommendation')
@@ -1433,6 +1456,19 @@ begin
            set protein_target_grams = g.target_value
           from demo_config c
           join user_domain.user_goals g on g.user_id = c.user_id and g.goal_type = 'PROTEIN'
+         where rc.user_id = c.user_id;
+    end if;
+
+    if exists (select 1 from pg_namespace where nspname = 'recommendation')
+       and exists (
+           select 1 from information_schema.columns
+            where table_schema = 'recommendation' and table_name = 'recommendation_context'
+              and column_name = 'calorie_goal_kcal'
+       ) then
+        update recommendation.recommendation_context rc
+           set calorie_goal_kcal = g.target_value::int
+          from demo_config c
+          join user_domain.user_goals g on g.user_id = c.user_id and g.goal_type = 'CALORIES'
          where rc.user_id = c.user_id;
     end if;
 end $$;

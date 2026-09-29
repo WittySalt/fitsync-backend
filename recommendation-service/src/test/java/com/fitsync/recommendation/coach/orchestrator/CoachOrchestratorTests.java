@@ -319,6 +319,27 @@ class CoachOrchestratorTests {
     // --- page context and pinned readings, resolved by the conversation service and handed in ----
 
     @Test
+    @DisplayName("the model is told which week a pinned reading describes")
+    void namesTheWeekAPinnedReadingDescribes() {
+        List<String> prompts = new ArrayList<>();
+        CoachOrchestrator orchestrator = orchestratorCapturingUserPrompts(prompts, "{\"answer\":\"ok\"}");
+        List<TurnContext.PinnedFact> facts = List.of(
+                new TurnContext.PinnedFact(1, "Weight moved per session", "1,923", "kg", "Up 12%", null),
+                new TurnContext.PinnedFact(2, "Session length", "50", "min", "Unchanged", null));
+
+        orchestrator.answer(CONTEXT, "Tell me about this.", List.of(), new TurnContext(CoachSurface.WORKOUT,
+                new TurnContext.PinnedReading(null, null, facts, new TurnContext.PinnedPeriod(
+                        false, java.time.LocalDate.parse("2026-09-21"), java.time.LocalDate.parse("2026-09-27")))));
+        orchestrator.answer(CONTEXT, "Tell me about this.", List.of(), new TurnContext(CoachSurface.WORKOUT,
+                new TurnContext.PinnedReading(null, null, facts, new TurnContext.PinnedPeriod(
+                        true, java.time.LocalDate.parse("2026-09-21"), java.time.LocalDate.parse("2026-09-25")))));
+
+        assertThat(prompts.get(0)).contains("These facts describe the last full week, which is the week "
+                + "before the current one, 2026-09-21 to 2026-09-27.");
+        assertThat(prompts.get(1)).contains("These facts describe the current week so far, 2026-09-21 to 2026-09-25.");
+    }
+
+    @Test
     @DisplayName("a pinned reading arrives as a tool result ahead of the model's first turn")
     void includesAPinnedReadingAsTheFirstObservation() {
         List<String> prompts = new ArrayList<>();

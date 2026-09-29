@@ -30,6 +30,9 @@ import jakarta.persistence.UniqueConstraint;
                 columnNames = {"thread_id", "seq"}))
 public class CoachTurnEntity extends BaseAuditableEntity {
 
+    /** Long enough for {@code ANSWER_REJECTED:} followed by the longest rule and its detail. */
+    public static final int GUARDRAIL_VERDICT_LENGTH = 64;
+
     @Id
     @Column(name = "turn_id", nullable = false)
     private UUID turnId;
@@ -65,7 +68,7 @@ public class CoachTurnEntity extends BaseAuditableEntity {
     private Integer latencyMs;
 
     /** {@code PASSED}, {@code REFUSED_UNSAFE}, {@code REFUSED_OUT_OF_SCOPE}, and so on. */
-    @Column(name = "guardrail_verdict", length = 30)
+    @Column(name = "guardrail_verdict", length = GUARDRAIL_VERDICT_LENGTH)
     private String guardrailVerdict;
 
     public UUID getTurnId() {
@@ -152,7 +155,10 @@ public class CoachTurnEntity extends BaseAuditableEntity {
         return guardrailVerdict;
     }
 
+    /** A verdict longer than the column keeps its start, which is the part that names the rule. */
     public void setGuardrailVerdict(String guardrailVerdict) {
-        this.guardrailVerdict = guardrailVerdict;
+        this.guardrailVerdict = guardrailVerdict != null && guardrailVerdict.length() > GUARDRAIL_VERDICT_LENGTH
+                ? guardrailVerdict.substring(0, GUARDRAIL_VERDICT_LENGTH)
+                : guardrailVerdict;
     }
 }

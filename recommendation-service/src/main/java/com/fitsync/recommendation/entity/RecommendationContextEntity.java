@@ -58,6 +58,10 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
     @Column(name = "protein_target_grams", precision = 10, scale = 2)
     private BigDecimal proteinTargetGrams;
 
+    // The user's CALORIES goal. It takes priority over the energy target above.
+    @Column(name = "calorie_goal_kcal")
+    private Integer calorieGoalKcal;
+
     // Latest body metrics (from BodyMetricsRecorded).
     @Column(name = "latest_weight_kg", precision = 6, scale = 2)
     private BigDecimal latestWeightKg;
@@ -235,6 +239,14 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
 
     public void setProteinTargetGrams(BigDecimal proteinTargetGrams) {
         this.proteinTargetGrams = proteinTargetGrams;
+    }
+
+    public Integer getCalorieGoalKcal() {
+        return calorieGoalKcal;
+    }
+
+    public void setCalorieGoalKcal(Integer calorieGoalKcal) {
+        this.calorieGoalKcal = calorieGoalKcal;
     }
 
     public BigDecimal getLatestWeightKg() {

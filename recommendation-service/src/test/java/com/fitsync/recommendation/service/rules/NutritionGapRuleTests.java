@@ -50,8 +50,7 @@ class NutritionGapRuleTests {
         context.setTodayDate(LocalDate.parse("2026-07-06"));
         context.setTodayProteinGrams(new BigDecimal("65.50"));
         context.setProteinTargetGrams(new BigDecimal("140"));
-        context.setCurrentGoalType("CALORIES");
-        context.setCurrentGoalTargetValue(new BigDecimal("2100"));
+        context.setCalorieGoalKcal(2100);
 
         RuleOutcome outcome = rule.evaluate(context).orElseThrow();
 
@@ -65,8 +64,7 @@ class NutritionGapRuleTests {
     void showsProteinFactsFromAGoalEvenWithoutAKnownWeight() {
         RecommendationContextEntity context = baseContext();
         context.setProteinTargetGrams(new BigDecimal("120"));
-        context.setCurrentGoalType("CALORIES");
-        context.setCurrentGoalTargetValue(new BigDecimal("2100"));
+        context.setCalorieGoalKcal(2100);
 
         RuleOutcome outcome = rule.evaluate(context).orElseThrow();
 
@@ -112,10 +110,25 @@ class NutritionGapRuleTests {
     }
 
     @Test
+    void keepsTheCalorieGoalWhileAWeightGoalHoldsTheCurrentGoalSlot() {
+        RecommendationContextEntity context = baseContext();
+        context.setLatestWeightKg(new BigDecimal("82.50"));
+        context.setEnergyTargetCalories(2812);
+        context.setCurrentGoalType("WEIGHT");
+        context.setCurrentGoalTargetValue(new BigDecimal("75"));
+        context.setCalorieGoalKcal(2100);
+
+        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+
+        assertThat(outcome.facts())
+                .containsEntry("basis", "CALORIE_GOAL")
+                .containsEntry("targetCalories", 2100);
+    }
+
+    @Test
     void prefersAnExplicitCalorieGoalOverTheEstimate() {
         RecommendationContextEntity context = baseContext();
-        context.setCurrentGoalType("CALORIES");
-        context.setCurrentGoalTargetValue(new BigDecimal("2100"));
+        context.setCalorieGoalKcal(2100);
 
         RuleOutcome outcome = rule.evaluate(context).orElseThrow();
 

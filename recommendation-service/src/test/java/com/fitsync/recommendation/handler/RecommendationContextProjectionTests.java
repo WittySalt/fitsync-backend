@@ -137,8 +137,8 @@ class RecommendationContextProjectionTests {
     @Test
     void workoutFrequencyGoalProjectsIntoItsOwnFieldAndLeavesTheCurrentGoalSlotAlone() {
         goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
-                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
-                null, "ACTIVE")));
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
 
         goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
                 UUID.randomUUID(), "WORKOUT_FREQUENCY", new BigDecimal("4.000"), "days",
@@ -146,8 +146,43 @@ class RecommendationContextProjectionTests {
 
         RecommendationContextEntity context = context();
         assertThat(context.getWeeklyWorkoutGoalDays()).isEqualTo(4);
-        assertThat(context.getCurrentGoalType()).isEqualTo("CALORIES");
-        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("2100");
+        assertThat(context.getCurrentGoalType()).isEqualTo("WEIGHT");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("75");
+    }
+
+    @Test
+    void calorieGoalProjectsIntoItsOwnFieldAndLeavesTheCurrentGoalSlotAlone() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
+                null, "ACTIVE")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getCalorieGoalKcal()).isEqualTo(2100);
+        assertThat(context.getCurrentGoalType()).isEqualTo("WEIGHT");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("75");
+        assertThat(context.isStale()).isTrue();
+    }
+
+    @Test
+    void archivedCalorieGoalClearsOnlyTheCalorieGoal() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
+                null, "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
+                null, "ARCHIVED")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getCalorieGoalKcal()).isNull();
+        assertThat(context.getCurrentGoalType()).isEqualTo("WEIGHT");
     }
 
     @Test
@@ -171,16 +206,16 @@ class RecommendationContextProjectionTests {
     @Test
     void archivedGoalForADifferentTypeThanTheSlotLeavesTheSlotAlone() {
         goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
-                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
-                null, "ACTIVE")));
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
 
         goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
-                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                UUID.randomUUID(), "BODY_FAT", new BigDecimal("15.000"), "%",
                 LocalDate.parse("2026-10-01"), "ARCHIVED")));
 
         RecommendationContextEntity context = context();
-        assertThat(context.getCurrentGoalType()).isEqualTo("CALORIES");
-        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("2100");
+        assertThat(context.getCurrentGoalType()).isEqualTo("WEIGHT");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("75");
     }
 
     @Test

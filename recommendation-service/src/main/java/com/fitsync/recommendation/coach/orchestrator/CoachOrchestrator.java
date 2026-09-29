@@ -541,6 +541,8 @@ public class CoachOrchestrator {
                         + ", and the fact cited there does not say so.";
                 case "MEASURE_MISMATCH" -> "It stated the per-session figure from fact " + detail
                         + " as though it were a weekly figure.";
+                case "PERIOD_MISMATCH" -> "It placed fact " + detail
+                        + " in the current week, and the facts describe the last full week.";
                 case "BANNED_PHRASE" -> "It gave advice or an instruction.";
                 case "QUESTION_MARK" -> "It asked a question.";
                 case "EXCLAMATION_MARK" -> "It used an exclamation mark.";
@@ -581,6 +583,13 @@ public class CoachOrchestrator {
         if (!headline.isEmpty() || !text.isEmpty()) {
             body.append(System.lineSeparator()).append("Reading: ")
                     .append((headline + " " + text).strip());
+        }
+        TurnContext.PinnedPeriod period = pinned.period();
+        if (period != null && period.start() != null && period.end() != null) {
+            body.append(System.lineSeparator()).append(period.currentWeek()
+                    ? "These facts describe the current week so far, "
+                    : "These facts describe the last full week, which is the week before the current one, ");
+            body.append(period.start()).append(" to ").append(period.end()).append('.');
         }
         body.append(System.lineSeparator()).append("Facts:");
         for (TurnContext.PinnedFact fact : pinned.facts()) {

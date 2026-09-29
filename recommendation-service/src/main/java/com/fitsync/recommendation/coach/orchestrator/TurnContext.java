@@ -1,5 +1,6 @@
 package com.fitsync.recommendation.coach.orchestrator;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import com.fitsync.recommendation.coach.dto.CoachSurface;
@@ -34,17 +35,33 @@ public record TurnContext(CoachSurface surface, PinnedReading pinnedReading) {
      * @param facts    the measured facts the reading was built from; never empty when this record
      *                 exists at all, because {@code CoachReadingService} only ever returns a pinned
      *                 reading for at least two facts
+     * @param period   the week the facts describe, or null when it is not known
      */
-    public record PinnedReading(String headline, String body, List<PinnedFact> facts) {
+    public record PinnedReading(String headline, String body, List<PinnedFact> facts, PinnedPeriod period) {
 
         public PinnedReading {
             facts = facts == null ? List.of() : List.copyOf(facts);
+        }
+
+        public PinnedReading(String headline, String body, List<PinnedFact> facts) {
+            this(headline, body, facts, null);
         }
 
         @Override
         public List<PinnedFact> facts() {
             return List.copyOf(facts);
         }
+    }
+
+    /**
+     * The week a pinned reading describes. A reading describes the current week once it holds
+     * enough sessions and the last full week before that, so the model has to be told which.
+     *
+     * @param currentWeek true for the current week so far, false for the last full week
+     * @param start       the first day described
+     * @param end         the last day described
+     */
+    public record PinnedPeriod(boolean currentWeek, LocalDate start, LocalDate end) {
     }
 
     /** One measured fact behind a pinned reading, numbered exactly as the reading cites it. */

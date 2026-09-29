@@ -13,9 +13,7 @@ import java.util.regex.Pattern;
  * chat answer. Both packages already import this one — {@code reading} through
  * {@link CoachGuardrail} and {@code orchestrator} the same way — so the phrase list, the direction
  * word lists and the punctuation rules live here once instead of drifting apart the next time either
- * checker is touched. Moving this code changes nothing about what either checker accepts: every
- * pattern and every violation code below is copied byte for byte from where it used to live in
- * {@code ReadingValidator}.
+ * checker is touched. The violation codes are the ones {@code ReadingValidator} has always used.
  */
 public final class CoachVoice {
 
@@ -40,8 +38,16 @@ public final class CoachVoice {
 
     private static final List<String> BANNED_PHRASES = List.of(
             "you should", "you must", "you need to", "you ought", "make sure", "be sure to",
-            "try to", "consider ", "aim to", "aim for", "remember to", "don't ", "do not ",
+            "try to", "consider ", "aim to", "aim for", "remember to",
             "let's", "it's time to", "time to ");
+
+    /**
+     * "Do not" as an instruction: at the start of a sentence or a clause, or after "please". "I do
+     * not have your meals from yesterday" and "your records do not show it" are the coach saying
+     * what it cannot see, which is the answer it is meant to give, and they pass.
+     */
+    private static final Pattern DO_NOT_AS_INSTRUCTION = Pattern.compile(
+            "(?i)(?:^|[.;:,]\\s+|\\b(?:please|and|but|so|then)\\s+)(?:do not|don't)\\s");
 
     private CoachVoice() {
     }
@@ -62,6 +68,9 @@ public final class CoachVoice {
             if (lower.contains(phrase)) {
                 violations.add("BANNED_PHRASE:" + phrase.strip());
             }
+        }
+        if (DO_NOT_AS_INSTRUCTION.matcher(text).find()) {
+            violations.add("BANNED_PHRASE:do not");
         }
         if (TRY_AT_SENTENCE_START.matcher(text).find()) {
             violations.add("BANNED_PHRASE:try-at-sentence-start");

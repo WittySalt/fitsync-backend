@@ -6,6 +6,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -197,7 +198,8 @@ public class CoachReadingService {
             CoachPageReadingEntity row = existing.get();
             boolean expired = row.getExpiresAt() != null && now.isAfter(row.getExpiresAt());
             if (!expired && row.getOutcome() == ReadingOutcome.ACCEPTED) {
-                return Optional.of(new PinnedReading(computedId, row.getHeadline(), row.getBody(), row.getSource(), facts));
+                return Optional.of(new PinnedReading(computedId, row.getHeadline(), row.getBody(), row.getSource(),
+                        facts, insight.period(), insight.periodStart(), insight.periodEnd()));
             }
         }
 
@@ -205,9 +207,11 @@ public class CoachReadingService {
         Optional<RuleReadingWriter.RuleReading> ruleReading = ruleReadingWriter.write(insight, facts);
         if (ruleReading.isPresent()) {
             RuleReadingWriter.RuleReading rule = ruleReading.get();
-            return Optional.of(new PinnedReading(computedId, rule.headline(), rule.body(), "RULES", facts));
+            return Optional.of(new PinnedReading(computedId, rule.headline(), rule.body(), "RULES",
+                    facts, insight.period(), insight.periodStart(), insight.periodEnd()));
         }
-        return Optional.of(new PinnedReading(computedId, null, null, null, facts));
+        return Optional.of(new PinnedReading(computedId, null, null, null,
+                facts, insight.period(), insight.periodStart(), insight.periodEnd()));
     }
 
     /**
@@ -219,7 +223,13 @@ public class CoachReadingService {
      * agent loop directly, which keeps the two packages decoupled from each other's internals the
      * same way {@link CoachReadingResponse} is already decoupled from the orchestrator.
      */
-    public record PinnedReading(String readingId, String headline, String body, String source, List<ReadingFact> facts) {
+    public record PinnedReading(String readingId, String headline, String body, String source, List<ReadingFact> facts,
+                                String period, LocalDate periodStart, LocalDate periodEnd) {
+
+        /** True when the facts describe the current week so far, false for the last full week. */
+        public boolean describesCurrentWeek() {
+            return "THIS_WEEK".equals(period);
+        }
 
         public PinnedReading {
             facts = facts == null ? List.of() : List.copyOf(facts);

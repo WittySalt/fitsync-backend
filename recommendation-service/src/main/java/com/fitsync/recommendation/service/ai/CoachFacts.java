@@ -33,6 +33,8 @@ public class CoachFacts {
         this.objectMapper = objectMapper;
     }
 
+    static final String TRAINING_PERIOD = "LAST_FULL_WEEK";
+
     /** @param previousNarrative last narrative for week-over-week continuity; nullable */
     public Map<String, Object> assemble(RecommendationContextEntity context, String previousNarrative) {
         Map<String, RuleOutcome> outcomes = ruleEngine.evaluateAll(context).stream()
@@ -66,6 +68,9 @@ public class CoachFacts {
 
     private static Map<String, Object> trainingFacts(RecommendationContextEntity context, RuleOutcome adherence) {
         Map<String, Object> training = new LinkedHashMap<>();
+        // The recent week is the one the weekly recap covered, which is the week before the current
+        // one. Named here because a model given only counts takes them for the current week.
+        training.put("period", TRAINING_PERIOD);
         if (adherence != null) {
             training.putAll(adherence.facts());
             training.remove("weekStart");
