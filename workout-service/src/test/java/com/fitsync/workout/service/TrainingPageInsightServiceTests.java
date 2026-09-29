@@ -166,17 +166,35 @@ class TrainingPageInsightServiceTests {
     }
 
     @Test
-    void computesPartialCurrentWeekForMidWeekReferenceDate() {
+    void describesTheLastFullWeekWhileTheCurrentOneHasFewSessions() {
         seedFourWeekScenario(currentUser);
 
+        // Tuesday 22 September: the current week holds one session, which says little about a week.
         TrainingPageInsightView result = trainingPageInsightService.getTrainingPageInsight(
                 currentUser, "Asia/Singapore", LocalDate.parse("2026-09-22"));
 
+        assertEquals(InsightPeriod.PREVIOUS_WEEK, result.period());
+        assertEquals(LocalDate.parse("2026-09-14"), result.periodStart());
+        assertEquals(LocalDate.parse("2026-09-20"), result.periodEnd());
+        assertEquals(3, result.sessions());
+        assertEquals(1, result.liftingSessions());
+        assertEquals(0, new BigDecimal("1716.00").compareTo(result.volumePerSessionKg()));
+        assertEquals(0, new BigDecimal("1716.00").compareTo(result.earlierVolumePerSessionKg()));
+    }
+
+    @Test
+    void describesTheCurrentWeekOnceItHasThreeSessions() {
+        seedFourWeekScenario(currentUser);
+
+        // Friday 25 September: Monday, Thursday and Friday have been trained.
+        TrainingPageInsightView result = trainingPageInsightService.getTrainingPageInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-25"));
+
         assertEquals(InsightPeriod.THIS_WEEK, result.period());
         assertEquals(LocalDate.parse("2026-09-21"), result.periodStart());
-        assertEquals(LocalDate.parse("2026-09-22"), result.periodEnd());
-        assertEquals(1, result.sessions());
-        assertEquals(1, result.liftingSessions());
+        assertEquals(LocalDate.parse("2026-09-25"), result.periodEnd());
+        assertEquals(3, result.sessions());
+        assertEquals(2, result.liftingSessions());
         assertEquals(0, new BigDecimal("1923.00").compareTo(result.volumePerSessionKg()));
         assertEquals(0, new BigDecimal("1716.00").compareTo(result.earlierVolumePerSessionKg()));
     }

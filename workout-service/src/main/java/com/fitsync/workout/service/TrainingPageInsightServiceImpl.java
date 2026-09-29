@@ -45,6 +45,9 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
     /** The "earlier window" used for the previous-period comparison is 7 days before periodStart. */
     static final int EARLIER_WINDOW_DAYS = 7;
 
+    /** How many completed sessions the current week needs before it is the week described. */
+    static final int MIN_SESSIONS_FOR_CURRENT_WEEK = 3;
+
     /** mostTrained.exerciseNames is capped so the payload cannot grow unbounded. */
     private static final int MAX_MOST_TRAINED_NAMES = 3;
 
@@ -85,28 +88,31 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
         LocalDate windowStart = referenceDate.minusDays(LIFTS_LOOKBACK_DAYS - 1L);
         List<DatedSession> sessions = loadSessions(currentUser.userId(), zoneId, referenceDate, windowStart);
 
-        boolean hasThisWeekSession = sessions.stream()
-                .anyMatch(dated -> !dated.date().isBefore(weekStart) && !dated.date().isAfter(referenceDate));
+        long thisWeekSessions = sessions.stream()
+                .filter(dated -> !dated.date().isBefore(weekStart) && !dated.date().isAfter(referenceDate))
+                .count();
+        boolean hasPreviousWeekSession = sessions.stream()
+                .anyMatch(dated -> !dated.date().isBefore(previousWeekStart) && !dated.date().isAfter(previousWeekEnd));
 
+        // A week is described once most of it has happened. On a Tuesday with one session the
+        // current week says almost nothing, so the last full week is described until the current
+        // one has enough sessions. A user whose first week this is has no last week to fall back
+        // on, and the current week is described however little it holds.
         InsightPeriod period;
         LocalDate periodStart;
         LocalDate periodEnd;
-        if (hasThisWeekSession) {
+        if (thisWeekSessions >= MIN_SESSIONS_FOR_CURRENT_WEEK || (thisWeekSessions > 0 && !hasPreviousWeekSession)) {
             period = InsightPeriod.THIS_WEEK;
             periodStart = weekStart;
             periodEnd = referenceDate;
+        } else if (hasPreviousWeekSession) {
+            period = InsightPeriod.PREVIOUS_WEEK;
+            periodStart = previousWeekStart;
+            periodEnd = previousWeekEnd;
         } else {
-            boolean hasPreviousWeekSession = sessions.stream()
-                    .anyMatch(dated -> !dated.date().isBefore(previousWeekStart) && !dated.date().isAfter(previousWeekEnd));
-            if (hasPreviousWeekSession) {
-                period = InsightPeriod.PREVIOUS_WEEK;
-                periodStart = previousWeekStart;
-                periodEnd = previousWeekEnd;
-            } else {
-                period = InsightPeriod.NONE;
-                periodStart = null;
-                periodEnd = null;
-            }
+            period = InsightPeriod.NONE;
+            periodStart = null;
+            periodEnd = null;
         }
 
         if (period == InsightPeriod.NONE) {
