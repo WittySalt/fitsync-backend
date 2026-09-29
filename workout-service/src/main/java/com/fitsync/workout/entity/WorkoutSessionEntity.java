@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseAuditableEntity;
+import com.fitsync.workout.domain.SessionKind;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
@@ -39,6 +41,17 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "workout_type", nullable = false, length = 30)
     private WorkoutType workoutType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "kind", nullable = false, length = 20)
+    private SessionKind kind;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sport_activity", length = 40)
+    private SportActivity sportActivity;
+
+    @Column(name = "plan_day_id")
+    private UUID planDayId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
@@ -83,6 +96,12 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     public void setName(String name) { this.name = name; }
     public WorkoutType getWorkoutType() { return workoutType; }
     public void setWorkoutType(WorkoutType workoutType) { this.workoutType = workoutType; }
+    public SessionKind getKind() { return kind; }
+    public void setKind(SessionKind kind) { this.kind = kind; }
+    public SportActivity getSportActivity() { return sportActivity; }
+    public void setSportActivity(SportActivity sportActivity) { this.sportActivity = sportActivity; }
+    public UUID getPlanDayId() { return planDayId; }
+    public void setPlanDayId(UUID planDayId) { this.planDayId = planDayId; }
     public WorkoutSessionStatus getStatus() { return status; }
     public void setStatus(WorkoutSessionStatus status) { this.status = status; }
     public WorkoutSource getSource() { return source; }

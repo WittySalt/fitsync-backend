@@ -18,6 +18,8 @@ import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
 import com.fitsync.workout.domain.ExerciseStatus;
+import com.fitsync.workout.domain.ExerciseType;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
@@ -100,6 +102,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     private final WorkoutPlanRepository workoutPlanRepository;
     private final WorkoutSessionRepository workoutSessionRepository;
     private final Validator validator;
+    private final SessionKindResolver sessionKindResolver;
     private final TransactionTemplate importRowTransactionTemplate;
 
     public WorkoutServiceImpl(@Value("${fitsync.kafka.topics.workout-events:workout-events}") String workoutEventsTopic,
@@ -111,6 +114,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                               WorkoutPlanRepository workoutPlanRepository,
                               WorkoutSessionRepository workoutSessionRepository,
                               Validator validator,
+                              SessionKindResolver sessionKindResolver,
                               PlatformTransactionManager transactionManager) {
         this.workoutEventsTopic = workoutEventsTopic;
         this.exerciseHistoryMaxRangeDays = exerciseHistoryMaxRangeDays;
@@ -121,6 +125,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         this.workoutPlanRepository = workoutPlanRepository;
         this.workoutSessionRepository = workoutSessionRepository;
         this.validator = validator;
+        this.sessionKindResolver = sessionKindResolver;
         this.importRowTransactionTemplate = new TransactionTemplate(transactionManager);
         this.importRowTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -285,6 +290,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         for (WorkoutPlanExerciseEntity planExercise : plan.getExercises()) {
             session.getExercises().add(toSeededExerciseLog(session, planExercise));
         }
+        applySessionKind(session);
 
         return toSessionView(workoutSessionRepository.save(session));
     }
@@ -466,6 +472,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.getStatus(),
                 entity.getDurationMinutes(),
                 entity.getCaloriesBurned());
+        applySessionKind(entity);
         deriveSessionMetrics(entity);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         publishWorkoutLoggedAndPersonalRecords(saved);
@@ -493,6 +500,8 @@ public class WorkoutServiceImpl implements WorkoutService {
         session.getExercises().add(toSessionExerciseLog(currentUser.userId(), session, request, true));
         validateSessionExerciseSequences(session);
         deriveSessionMetrics(session);
+        // A free session starts without exercises. Its kind follows the exercises as they are added.
+        applySessionKind(session);
         return toSessionView(workoutSessionRepository.save(session));
     }
 
@@ -668,6 +677,11 @@ public class WorkoutServiceImpl implements WorkoutService {
 
     private UpsertWorkoutSessionRequest toUpsertWorkoutSessionRequest(ImportWorkoutSessionRowRequest row,
                                                                       WorkoutSource source) {
+        // Imported history cannot be asked again, so a SPORTS row that arrives without a sport
+        // activity is stored as OTHER instead of being rejected.
+        SportActivity sportActivity = row.workoutType() == WorkoutType.SPORTS && row.sportActivity() == null
+                ? SportActivity.OTHER
+                : row.sportActivity();
         return new UpsertWorkoutSessionRequest(
                 row.planId(),
                 row.name(),
@@ -680,7 +694,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                 row.caloriesBurned(),
                 row.perceivedExertion(),
                 row.notes(),
-                row.exercises());
+                row.exercises(),
+                sportActivity);
     }
 
     private WorkoutPlanEntity toDuplicatePlan(UUID userId, WorkoutPlanEntity source) {
@@ -751,6 +766,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setStatus(WorkoutSessionStatus.IN_PROGRESS);
         repeated.setSource(WorkoutSource.MANUAL);
         repeated.setStartedAt(Instant.now());
+        repeated.setSportActivity(source.getSportActivity());
         for (WorkoutExerciseLogEntity sourceExercise : source.getExercises()) {
             List<WorkoutExerciseSetLogEntity> loggedSets = sourceExercise.getSets().stream()
                     .filter(this::isDoneSet)
@@ -759,6 +775,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 repeated.getExercises().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets));
             }
         }
+        applySessionKind(repeated);
         return repeated;
     }
 
@@ -801,6 +818,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setPlanId(request.planId());
         entity.setName(request.name());
         entity.setWorkoutType(request.workoutType());
+        entity.setSportActivity(request.workoutType() == WorkoutType.SPORTS ? request.sportActivity() : null);
         entity.setStatus(request.status());
         entity.setSource(request.source());
         entity.setStartedAt(request.startedAt());
@@ -810,7 +828,21 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setPerceivedExertion(request.perceivedExertion());
         entity.setNotes(request.notes());
         replaceSessionExercises(userId, entity, request.exercises());
+        applySessionKind(entity);
         deriveSessionMetrics(entity);
+    }
+
+    /**
+     * Resolves and stores the session's kind from its workout type and the exercise types of
+     * its exercise logs, in sequence order. Must run after the session's exercises are in their
+     * final state and before the entity is first saved, since the kind column is not null.
+     */
+    private void applySessionKind(WorkoutSessionEntity session) {
+        List<ExerciseType> exerciseTypesInOrder = session.getExercises().stream()
+                .sorted(Comparator.comparing(WorkoutExerciseLogEntity::getSequence))
+                .map(exercise -> exercise.getExercise() == null ? null : exercise.getExercise().getExerciseType())
+                .toList();
+        session.setKind(sessionKindResolver.resolve(session.getWorkoutType(), exerciseTypesInOrder));
     }
 
     private void replacePlanExercises(UUID userId, WorkoutPlanEntity plan, List<WorkoutPlanExerciseInput> inputs) {
@@ -1526,7 +1558,10 @@ public class WorkoutServiceImpl implements WorkoutService {
                 exercises.size(),
                 exercises,
                 entity.getDateTimeCreated(),
-                entity.getDateTimeUpdated());
+                entity.getDateTimeUpdated(),
+                entity.getKind(),
+                entity.getSportActivity(),
+                entity.getSportActivity() == null ? null : entity.getSportActivity().label());
     }
 
     private record PersonalRecordSnapshot(
