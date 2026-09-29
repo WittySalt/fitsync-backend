@@ -114,7 +114,8 @@ public class CoachThreadController {
         // reads with exactly the caller's authority. Taken from the header rather than the security
         // context because the orchestrator runs tools off the request thread.
         return conversationService.send(
-                CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization), request.message());
+                CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization),
+                request.message(), request.context());
     }
 
     @PostMapping(path = "/{threadId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -137,7 +138,8 @@ public class CoachThreadController {
                              @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
                              @Valid @RequestBody SendCoachMessageRequest request) {
         return conversationService.stream(
-                CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization), request.message());
+                CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization),
+                request.message(), request.context());
     }
 
     @DeleteMapping("/{threadId}")

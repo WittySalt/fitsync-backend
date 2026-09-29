@@ -1,5 +1,6 @@
 package com.fitsync.workout.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,4 +36,13 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
             """)
     List<WorkoutSessionEntity> findHistoryPageByIds(@Param("userId") UUID userId,
                                                     @Param("sessionIds") List<UUID> sessionIds);
+
+    // Single-query load for the weekly training insight window. All four parameters are always
+    // supplied (never null): a query built with optional/nullable bind parameters hid a production
+    // bug on PostgreSQL where Hibernate sends an untyped null parameter, which H2 does not reproduce.
+    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    List<WorkoutSessionEntity> findByUserIdAndStatusAndStartedAtBetween(UUID userId,
+                                                                        WorkoutSessionStatus status,
+                                                                        Instant from,
+                                                                        Instant to);
 }

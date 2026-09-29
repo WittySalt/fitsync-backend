@@ -22,6 +22,10 @@ import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import com.fitsync.contracts.events.workout.PersonalRecordAchievedPayload;
+import com.fitsync.recommendation.coach.reading.CoachPageReadingEntity;
+import com.fitsync.recommendation.coach.reading.CoachPageReadingRepository;
+import com.fitsync.recommendation.coach.reading.ReadingOutcome;
+import com.fitsync.recommendation.coach.reading.ReadingSurface;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.entity.RecommendationResultEntity;
 import com.fitsync.recommendation.entity.RecommendationSource;
@@ -82,6 +86,9 @@ class RecommendationContextProjectionTests {
     private RecommendationResultRepository resultRepository;
 
     @Autowired
+    private CoachPageReadingRepository readingRepository;
+
+    @Autowired
     private RecommendationProcessedEventRepository processedEventRepository;
 
     private final UUID userId = UUID.randomUUID();
@@ -106,6 +113,94 @@ class RecommendationContextProjectionTests {
         assertThat(context.getCurrentGoalType()).isNull();
         assertThat(context.getCurrentGoalTargetValue()).isNull();
         assertThat(context.getCurrentGoalTargetDate()).isNull();
+    }
+
+    @Test
+    void proteinGoalProjectsIntoItsOwnFieldAndLeavesTheCurrentGoalSlotAlone() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("90.00"), null, null,
+                Instant.parse("2026-07-01T08:00:00Z"))));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "PROTEIN", new BigDecimal("140.000"), "g",
+                null, "ACTIVE")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getProteinTargetGrams()).isEqualByComparingTo("140.000");
+        assertThat(context.getCurrentGoalType()).isEqualTo("WEIGHT");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("75");
+    }
+
+    @Test
+    void workoutFrequencyGoalProjectsIntoItsOwnFieldAndLeavesTheCurrentGoalSlotAlone() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
+                null, "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WORKOUT_FREQUENCY", new BigDecimal("4.000"), "days",
+                null, "ACTIVE")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getWeeklyWorkoutGoalDays()).isEqualTo(4);
+        assertThat(context.getCurrentGoalType()).isEqualTo("CALORIES");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("2100");
+    }
+
+    @Test
+    void archivedProteinGoalClearsOnlyTheProteinTarget() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "PROTEIN", new BigDecimal("140.000"), "g",
+                null, "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "PROTEIN", new BigDecimal("140.000"), "g",
+                null, "ARCHIVED")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getProteinTargetGrams()).isNull();
+        assertThat(context.getCurrentGoalType()).isEqualTo("WEIGHT");
+    }
+
+    @Test
+    void archivedGoalForADifferentTypeThanTheSlotLeavesTheSlotAlone() {
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "CALORIES", new BigDecimal("2100.000"), "kcal",
+                null, "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ARCHIVED")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getCurrentGoalType()).isEqualTo("CALORIES");
+        assertThat(context.getCurrentGoalTargetValue()).isEqualByComparingTo("2100");
+    }
+
+    @Test
+    void archivedGoalMatchingTheSlotClearsTheSlotAndBaseline() {
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("90.00"), null, null,
+                Instant.parse("2026-07-01T08:00:00Z"))));
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("75.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ARCHIVED")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getCurrentGoalType()).isNull();
+        assertThat(context.getCurrentGoalTargetValue()).isNull();
+        assertThat(context.getGoalBaselineWeightKg()).isNull();
+        assertThat(context.getGoalBaselineOn()).isNull();
     }
 
     @Test
@@ -341,12 +436,22 @@ class RecommendationContextProjectionTests {
         result.setGeneratedAt(Instant.parse("2026-07-06T09:00:00Z"));
         resultRepository.saveAndFlush(result);
 
+        CoachPageReadingEntity reading = new CoachPageReadingEntity();
+        reading.setId(UUID.randomUUID());
+        reading.setUserId(userId);
+        reading.setSurface(ReadingSurface.WORKOUT);
+        reading.setFactsHash("hash");
+        reading.setOutcome(ReadingOutcome.ACCEPTED);
+        reading.setStartedAt(Instant.parse("2026-07-06T09:00:00Z"));
+        readingRepository.saveAndFlush(reading);
+
         FitSyncDomainEvent<AccountDeletedPayload> deletion = event("AccountDeleted",
                 new AccountDeletedPayload(Instant.parse("2026-07-06T10:00:00Z"), "USER_REQUEST"));
         accountDeletedEventHandler.consume(deletion);
 
         assertThat(contextRepository.findById(userId)).isEmpty();
         assertThat(resultRepository.findByUserId(userId)).isEmpty();
+        assertThat(readingRepository.findByUserIdAndSurface(userId, ReadingSurface.WORKOUT)).isEmpty();
         assertThat(processedEventRepository.findAll())
                 .singleElement()
                 .satisfies(processed -> assertThat(processed.getEventId()).isEqualTo(deletion.eventId()));

@@ -19,8 +19,10 @@ import org.springframework.stereotype.Service;
  * the user's explicit CALORIES goal when set; otherwise a local TDEE estimate
  * (Mifflin–St Jeor from height + latest weight + activity level, with a neutral
  * age/sex assumption since the events carry neither — README §2 fact 3), adjusted by
- * the direction of a WEIGHT goal. Consumed numbers come from the context's running
- * today-totals and count only if they are for today in the user's timezone.
+ * the direction of a WEIGHT goal. The protein target is the user's explicit PROTEIN
+ * goal when set, otherwise the body-weight estimate (weight × 1.6). Consumed numbers
+ * come from the context's running today-totals and count only if they are for today in
+ * the user's timezone.
  */
 @Service
 public class NutritionGapRule implements Rule {
@@ -37,6 +39,9 @@ public class NutritionGapRule implements Rule {
     static final String BASIS_CALORIE_GOAL = "CALORIE_GOAL";
     static final String BASIS_ENERGY_PROFILE = "ENERGY_PROFILE";
     static final String BASIS_TDEE_ESTIMATE = "TDEE_ESTIMATE";
+
+    static final String BASIS_PROTEIN_GOAL = "PROTEIN_GOAL";
+    static final String BASIS_BODY_WEIGHT = "BODY_WEIGHT";
 
     private static final double DEFAULT_ACTIVITY_FACTOR = 1.4;
     private static final Map<String, Double> ACTIVITY_FACTORS = activityFactors();
@@ -71,18 +76,39 @@ public class NutritionGapRule implements Rule {
         facts.put("consumedCalories", consumedCalories);
         facts.put("remainingCalories", targetCalories - consumedCalories);
 
-        if (context.getLatestWeightKg() != null) {
-            BigDecimal proteinTarget = context.getLatestWeightKg()
-                    .multiply(PROTEIN_GRAMS_PER_KG)
-                    .setScale(1, RoundingMode.HALF_UP);
+        resolveProteinTarget(context).ifPresent(proteinTargetWithBasis -> {
+            BigDecimal proteinTarget = proteinTargetWithBasis.targetGrams();
             BigDecimal proteinConsumed = totalsAreForToday && context.getTodayProteinGrams() != null
                     ? context.getTodayProteinGrams()
                     : BigDecimal.ZERO;
+            facts.put("proteinBasis", proteinTargetWithBasis.basis());
             facts.put("proteinTargetGrams", proteinTarget);
             facts.put("proteinConsumedGrams", proteinConsumed);
             facts.put("proteinRemainingGrams", proteinTarget.subtract(proteinConsumed));
-        }
+        });
         return Optional.of(new RuleOutcome(type(), facts));
+    }
+
+    /**
+     * Protein target preference: the user's explicit PROTEIN goal when set, otherwise the
+     * body-weight estimate (weight × 1.6). With a protein goal in place, protein facts
+     * can appear even when {@code latestWeightKg} is null.
+     */
+    private static Optional<ProteinTarget> resolveProteinTarget(RecommendationContextEntity context) {
+        if (context.getProteinTargetGrams() != null && context.getProteinTargetGrams().signum() > 0) {
+            BigDecimal target = context.getProteinTargetGrams().setScale(1, RoundingMode.HALF_UP);
+            return Optional.of(new ProteinTarget(target, BASIS_PROTEIN_GOAL));
+        }
+        if (context.getLatestWeightKg() != null) {
+            BigDecimal target = context.getLatestWeightKg()
+                    .multiply(PROTEIN_GRAMS_PER_KG)
+                    .setScale(1, RoundingMode.HALF_UP);
+            return Optional.of(new ProteinTarget(target, BASIS_BODY_WEIGHT));
+        }
+        return Optional.empty();
+    }
+
+    private record ProteinTarget(BigDecimal targetGrams, String basis) {
     }
 
     /**

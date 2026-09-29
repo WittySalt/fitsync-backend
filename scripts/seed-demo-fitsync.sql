@@ -1,72 +1,123 @@
 -- ============================================================================
--- FitSync demo seed — 14 days of meal + workout + body + analytics data
+-- FitSync demo seed — 60 days of meal + workout + body + analytics data,
+-- across three personas, for weekly/monthly views, trends, records and badges.
 -- ----------------------------------------------------------------------------
 -- This is NOT a Flyway migration. It is a one-button RESET + seed you run
 -- manually against the shared `fitsync` database (local docker-compose OR RDS).
 --
--- !!! DESTRUCTIVE !!! For the account matched by the email below, it FIRST
--- DELETES ALL of that account's data (meals, workouts, body metrics, goals,
--- custom foods, plans, preferences, health readiness, analytics, ...), then
--- re-imports the 14-day demo. It KEEPS only the account itself
--- (auth.app_users) and the user_profiles main record. This is irreversible —
--- back up first if running against a database you care about.
+-- !!! DESTRUCTIVE !!! For the account matched by the `email` parameter below,
+-- it FIRST DELETES ALL of that account's data (meals, workouts, body metrics,
+-- goals, custom foods, plans, preferences, health readiness, analytics, coach
+-- conversations, ...), then re-imports the demo. It KEEPS only the account
+-- itself (auth.app_users) and the user_profiles main record. This is
+-- irreversible — back up first if running against a database you care about.
 --
 -- Why not a Flyway db/migration file:
 --   * Each service's Flyway only owns its own schema; this script writes across
---     auth / user_domain / nutrition / workout / analytics in one transaction.
+--     auth / user_domain / nutrition / workout / analytics / recommendation in
+--     one transaction.
 --   * It is tied to a real account that only exists in your deployed DB, and
 --     Flyway runs in CI / H2 / every environment.
+--
+-- PARAMETERS (psql -v):
+--   email    the account to target. Defaults to 2579706652@qq.com.
+--   persona  which situation to generate. One of: steady, drifting, fresh.
+--            Defaults to steady. An unknown persona, or an email that matches
+--            no account, stops the script before anything is changed.
 --
 -- HOW TO RUN  (must connect as a role that can see ALL schemas — the RDS master
 -- user, or the local Postgres superuser; a per-service user like nutrition_svc
 -- can only see its own schema and will fail):
 --
---   Local docker-compose stack:
+--   Reset the default account back to the steady persona:
 --     docker exec -i fitsync-postgres \
---       psql -U <master_user> -d fitsync < backend/scripts/seed-demo-fitsync.sql
---   (If Postgres is RDS-managed even locally, use the psql form below.)
+--       psql -U fitsync -d fitsync -v ON_ERROR_STOP=1 \
+--       < backend/scripts/seed-demo-fitsync.sql
 --
---   RDS (or any reachable host):
---     psql "host=<rds-endpoint> port=5432 dbname=fitsync user=<master_user>" \
---       -f backend/scripts/seed-demo-fitsync.sql
+--   Seed a different account as someone whose habits are slipping:
+--     docker exec -i fitsync-postgres \
+--       psql -U fitsync -d fitsync -v ON_ERROR_STOP=1 \
+--       -v email=someone@example.com -v persona=drifting \
+--       < backend/scripts/seed-demo-fitsync.sql
 --
--- The script resolves the user automatically from the email below, so it works
--- against whichever database actually holds the account. Re-running is safe:
--- it resets the account back to its initial (just-registered) state every time,
--- then re-imports the demo — so you always get the same clean dataset.
+--   Seed a freshly onboarded account with no history yet:
+--     docker exec -i fitsync-postgres \
+--       psql -U fitsync -d fitsync -v ON_ERROR_STOP=1 \
+--       -v email=new@example.com -v persona=fresh \
+--       < backend/scripts/seed-demo-fitsync.sql
+--
+--   (If Postgres is RDS-managed even locally, use `psql "host=... ..." -f ...`
+--   instead of `docker exec -i ... < ...`, with the same -v arguments.)
+--
+-- The script resolves the user automatically from the email parameter, so it
+-- works against whichever database actually holds the account. Re-running is
+-- safe: it resets the account back to its initial (just-registered) state
+-- every time, then re-imports the demo — so you always get the same dataset
+-- for a given persona.
 --
 -- Recommended: run while the backend services are idle (or stopped) so no
 -- in-flight Kafka/outbox event re-projects analytics rows after the reset.
 --
--- To target a different account, change the single email literal in the
--- `demo_config` CTE below.
+-- The three personas:
+--   steady    Someone for whom things are going well: four sessions a week,
+--             progressive overload, a calorie/protein window inside target,
+--             and a steady downward weight trend.
+--   drifting  Someone who started well and is slipping: sessions and weights
+--             fall away over the most recent weeks, logging gets patchy, and
+--             the WEIGHT goal's target date has already passed.
+--   fresh     Someone who has just finished onboarding: a profile and
+--             preferences, one goal, and otherwise empty history, so the
+--             empty states can be checked.
 --
--- Demo window: a ROLLING 14-day window that always ends on "today" (the current
---              date in Asia/Singapore) so the Dashboard "Today"/streak panels are
---              never stale. d_start = today - 13, d_today = today. Re-run any time.
+-- Demo window: a ROLLING 60-day window that always ends on "today" (the
+--              current date in Asia/Singapore) so the Dashboard "Today"/streak
+--              panels are never stale. d_start = today - 59, d_today = today.
+--              Every date, week number and weight/weight-lifted number below
+--              is generated relative to those two dates, so the script never
+--              goes stale and can be re-run on any date.
 -- Timezone:    Asia/Singapore (all wall-clock times below are local to it).
 -- ============================================================================
+
+\if :{?email}
+\else
+  \set email 2579706652@qq.com
+\endif
+\if :{?persona}
+\else
+  \set persona steady
+\endif
 
 begin;
 
 -- ----------------------------------------------------------------------------
--- 0. Resolve the target account ONCE. Everything downstream joins demo_config.
---    >>> EDIT THE EMAIL HERE to target a different account. <<<
+-- 0. Resolve the target account and the run parameters ONCE. Everything
+--    downstream joins demo_config / demo_days. The email reaches SQL only
+--    through psql's quoted-literal substitution (:'email'), never by string
+--    building, so it cannot be used to inject SQL.
 -- ----------------------------------------------------------------------------
 create temporary table demo_config on commit drop as
 select
-    u.id                       as user_id,
-    'Asia/Singapore'::text                                        as tz,
-    ((now() at time zone 'Asia/Singapore')::date - 13)            as d_start,
-    (now() at time zone 'Asia/Singapore')::date                   as d_today
+    u.id                                                           as user_id,
+    'Asia/Singapore'::text                                         as tz,
+    ((now() at time zone 'Asia/Singapore')::date - 59)             as d_start,
+    (now() at time zone 'Asia/Singapore')::date                    as d_today,
+    lower(:'persona')                                              as persona
 from auth.app_users u
-where u.email = '2579706652@qq.com';
+where u.email = :'email';
 
 do $$
+declare
+    v_persona text;
 begin
     if not exists (select 1 from demo_config) then
         raise exception
-            'No FitSync account found for the configured email. Edit the email in demo_config (top of seed-demo-fitsync.sql).';
+            'No FitSync account found for the given email. Pass -v email="''<address>''" to target an existing account.';
+    end if;
+
+    select persona into v_persona from demo_config;
+    if v_persona not in ('steady', 'drifting', 'fresh') then
+        raise exception
+            'Unknown persona "%". Must be one of: steady, drifting, fresh.', v_persona;
     end if;
 end $$;
 
@@ -76,16 +127,18 @@ end $$;
 --    the user_profiles main record. Delete order respects FKs; rows with an
 --    ON DELETE CASCADE parent (meal_items, set logs, plan exercises, training
 --    preference equipment/focus, health-readiness injury areas, food servings/
---    barcodes/nutrient rows, ...) are removed automatically with their parent.
+--    barcodes/nutrient rows, coach turns/tool invocations, ...) are removed
+--    automatically with their parent.
 --
 --    !!! This removes the user's REAL data, not just demo rows. Irreversible.
 -- ----------------------------------------------------------------------------
 do $$
 declare
     v_user uuid;
+    v_persona text;
 begin
-    select user_id into v_user from demo_config;
-    raise notice 'RESET: deleting all existing data for user_id=% (keeping account + profile)', v_user;
+    select user_id, persona into v_user, v_persona from demo_config;
+    raise notice 'RESET: deleting all existing data for user_id=% (persona=%, keeping account + profile)', v_user, v_persona;
 end $$;
 
 -- 1a. Nutrition
@@ -123,10 +176,20 @@ delete from analytics.analytics_user_daily_body         where user_id in (select
 delete from analytics.analytics_user_goal_progress      where user_id in (select user_id from demo_config);
 delete from analytics.analytics_user_dashboard_snapshot where user_id in (select user_id from demo_config);
 delete from analytics.analytics_processed_events        where user_id in (select user_id from demo_config);
+do $$
+begin
+    if exists (select 1 from information_schema.tables where table_schema = 'analytics' and table_name = 'analytics_user_workout_records') then
+        delete from analytics.analytics_user_workout_records where user_id in (select user_id from demo_config);
+    end if;
+end $$;
 
--- 1e. recommendation-service projection, when that service's schema is present.
---     recommendation-service lives on a feature branch, so a database built from `main` has no
---     `recommendation` schema at all. Guarded so this script stays runnable either way.
+-- 1e. recommendation-service projection + coach conversation history, when that
+--     service's schema is present. recommendation-service lives on a feature
+--     branch, so a database built from `main` has no `recommendation` schema
+--     at all. Guarded so this script stays runnable either way, and each coach
+--     table is additionally guarded because it postdates the rest of the
+--     schema (a database built from an older branch has recommendation_context
+--     but not the coach tables yet).
 do $$
 begin
     if exists (select 1 from pg_namespace where nspname = 'recommendation') then
@@ -136,6 +199,32 @@ begin
          where user_id in (select user_id from demo_config);
         delete from recommendation.recommendation_context
          where user_id in (select user_id from demo_config);
+
+        if exists (select 1 from pg_tables where schemaname = 'recommendation' and tablename = 'tool_invocation') then
+            delete from recommendation.tool_invocation ti
+             using recommendation.coach_turn t
+             join recommendation.coach_thread th on th.thread_id = t.thread_id
+             where ti.turn_id = t.turn_id
+               and th.user_id in (select user_id from demo_config);
+        end if;
+        if exists (select 1 from pg_tables where schemaname = 'recommendation' and tablename = 'coach_turn') then
+            delete from recommendation.coach_turn t
+             using recommendation.coach_thread th
+             where t.thread_id = th.thread_id
+               and th.user_id in (select user_id from demo_config);
+        end if;
+        if exists (select 1 from pg_tables where schemaname = 'recommendation' and tablename = 'coach_generated_artifact') then
+            delete from recommendation.coach_generated_artifact
+             where user_id in (select user_id from demo_config);
+        end if;
+        if exists (select 1 from pg_tables where schemaname = 'recommendation' and tablename = 'coach_page_reading') then
+            delete from recommendation.coach_page_reading
+             where user_id in (select user_id from demo_config);
+        end if;
+        if exists (select 1 from pg_tables where schemaname = 'recommendation' and tablename = 'coach_thread') then
+            delete from recommendation.coach_thread
+             where user_id in (select user_id from demo_config);
+        end if;
     end if;
 end $$;
 
@@ -143,8 +232,9 @@ end $$;
 -- touched. Run while services are idle so no stale event re-projects.
 
 -- ----------------------------------------------------------------------------
--- 2. Make sure the profile has a height + timezone so BMI / dashboard render.
---    Only fills when currently NULL; never overwrites real data.
+-- 2. Profile — make sure height + timezone + onboarding are set so BMI /
+--    dashboard render, for every persona (fresh included: the product owner
+--    wants a profile that looks like it just finished onboarding).
 -- ----------------------------------------------------------------------------
 update user_domain.user_profiles p
 set height_cm = 170.00
@@ -156,22 +246,144 @@ set timezone = c.tz
 from demo_config c
 where p.user_id = c.user_id and (p.timezone is null or p.timezone = '');
 
+update user_domain.user_profiles p
+set onboarding_completed = true
+from demo_config c
+where p.user_id = c.user_id and p.onboarding_completed = false;
+
+-- ----------------------------------------------------------------------------
+-- 2b. demo_days — one row per calendar day in [d_start, d_today], carrying
+--     every value the rest of the script needs: the ISO weekday, an
+--     ISO-week index counted from the Monday on/before d_start (w), how many
+--     weeks that is from the most recently FULLY completed week (m, clamped
+--     to >= 0 so the still-forming current week shares its tier with the last
+--     completed one), whether it is a scheduled training day, the lift
+--     weights / run distance for that day, and whether meals are logged that
+--     day. Populated once per persona so the workout, meal and water sections
+--     below are plain, auditable SQL instead of three copies of the same
+--     week/weekday arithmetic.
+-- ----------------------------------------------------------------------------
+create temporary table demo_days on commit drop as
+select
+    c.user_id, c.tz, c.persona,
+    g::date                                                   as d,
+    (g::date - c.d_start)::int                                as idx,
+    extract(isodow from g::date)::int                         as dow,
+    ((g::date - mo.monday_of_start))::int / 7                 as w,
+    (((c.d_today - mo.monday_of_start))::int / 7 - 1)         as w_last,
+    greatest(
+        (((c.d_today - mo.monday_of_start))::int / 7 - 1)
+        - ((g::date - mo.monday_of_start))::int / 7,
+        0
+    )                                                          as m
+from demo_config c
+cross join lateral (
+    select (c.d_start - (extract(isodow from c.d_start)::int - 1))::date as monday_of_start
+) mo
+cross join generate_series(c.d_start, c.d_today, interval '1 day') as g;
+
+alter table demo_days add column tier int;
+update demo_days set tier = ceil(m / 2.0)::int;
+
+alter table demo_days add column is_training_day boolean not null default false;
+alter table demo_days add column skip_session    boolean not null default false;
+alter table demo_days add column workout_kind    text;
+alter table demo_days add column duration_minutes int;
+alter table demo_days add column bench_w         numeric(6,2);
+alter table demo_days add column squat_w         numeric(6,2);
+alter table demo_days add column row_w           numeric(6,2);
+alter table demo_days add column run_km          numeric(6,2);
+alter table demo_days add column meal_day        boolean not null default false;
+alter table demo_days add column meal_mult       numeric(5,3) not null default 1.0;
+alter table demo_days add column shake_day       boolean not null default false;
+
+-- STEADY: Monday/Friday strength, Thursday/Saturday cardio, every week; one
+-- Thursday (week 0) and one Saturday (week 1) dropped inside the first three
+-- weeks so the record is not a wall of perfect weeks. Weight rises every two
+-- weeks going forward in time (equivalently: falls every two weeks the
+-- further back from "now" you look), floored at 10 kg.
+update demo_days
+set is_training_day = dow in (1, 4, 5, 6),
+    workout_kind = case dow when 1 then 'STRENGTH' when 5 then 'STRENGTH'
+                             when 4 then 'CARDIO'   when 6 then 'CARDIO' end,
+    duration_minutes = case when dow in (1, 5) then 50 when dow in (4, 6) then 35 end,
+    skip_session = (w = 0 and dow = 4) or (w = 1 and dow = 6)
+where persona = 'steady';
+
+update demo_days
+set bench_w = greatest(10, round(22.50 - 2.50 * tier, 2)),
+    squat_w = greatest(10, round(18.00 - 2.00 * tier, 2)),
+    row_w   = greatest(10, round(20.00 - 2.00 * tier, 2)),
+    run_km  = greatest(4.00, round(5.75 - 0.25 * tier, 2))
+where persona = 'steady';
+
+update demo_days
+set meal_day  = true,
+    meal_mult = case idx % 3 when 0 then 1.03 when 1 then 1.10 else 1.17 end,
+    shake_day = is_training_day and not skip_session
+where persona = 'steady';
+
+-- DRIFTING: same shape as steady for the oldest weeks (m >= 4, "the first
+-- five weeks"), drops to 3 sessions/week (no Saturday) for m in (2,3), then
+-- to 2 sessions/week (Monday + Thursday only, Monday shortened to 40 min) for
+-- m <= 1 — the most recent three calendar weeks (the still-forming current
+-- week and the two completed weeks before it). Lift weight keeps rising
+-- through the oldest weeks and then drops once per fortnight closer to now,
+-- so the most recent weeks move less weight than the weeks before them.
+update demo_days
+set is_training_day = case
+        when m >= 4      then dow in (1, 4, 5, 6)
+        when m in (2, 3) then dow in (1, 4, 5)
+        else                  dow in (1, 4)
+    end,
+    workout_kind = case dow when 1 then 'STRENGTH' when 5 then 'STRENGTH'
+                             when 4 then 'CARDIO'   when 6 then 'CARDIO' end,
+    duration_minutes = case
+        when dow = 1 and m <= 1 then 40
+        when dow in (1, 5)      then 50
+        when dow in (4, 6)      then 35
+    end,
+    skip_session = false
+where persona = 'drifting';
+
+update demo_days
+set bench_w = greatest(10, round(22.50 - 2.50 * tier - case when m <= 1 then 5.00 when m in (2, 3) then 2.50 else 0 end, 2)),
+    squat_w = greatest(10, round(18.00 - 2.00 * tier - case when m <= 1 then 4.00 when m in (2, 3) then 2.00 else 0 end, 2)),
+    row_w   = greatest(10, round(20.00 - 2.00 * tier - case when m <= 1 then 4.00 when m in (2, 3) then 2.00 else 0 end, 2)),
+    run_km  = greatest(4.00, round(5.75 - 0.25 * tier - case when m <= 1 then 1.00 when m in (2, 3) then 0.50 else 0 end, 2))
+where persona = 'drifting';
+
+-- Logged every day for the first five weeks (absolute week 0-4 from d_start),
+-- about four days a week after that (Mon/Tue/Thu/Sat). Calories climb to the
+-- 2,300-2,500 range on logged days in the last three weeks (absolute week
+-- 6-8) as the deficit slips.
+update demo_days
+set meal_day  = case when w <= 4 then true else dow in (1, 2, 4, 6) end,
+    meal_mult = case
+        when w >= 6 then 1.25 + (idx % 3) * 0.03
+        else case idx % 3 when 0 then 1.03 when 1 then 1.10 else 1.17 end
+    end,
+    shake_day = is_training_day and not skip_session
+where persona = 'drifting';
+
+-- FRESH: no training days, no meal days — demo_days keeps its all-false /
+-- 1.0 defaults, so the sections below naturally seed nothing for this
+-- account beyond the profile/preferences/goal handled explicitly.
+
 -- ============================================================================
--- 3. NUTRITION — meals + items, every day; an extra post-workout shake on
---    training days. meal_id / meal_item_id are deterministic (md5) so re-runs
---    and the contribution roll-ups line up.
+-- 3. NUTRITION — meals + items on meal_day rows (never on d_today, which is
+--    excluded from demo_days' iteration window below); an extra post-workout
+--    shake on shake_day rows. meal_id / meal_item_id are deterministic (md5)
+--    so re-runs and the contribution roll-ups line up. Foods are the ones the
+--    script already uses; meal_mult (from demo_days) rotates quantities to
+--    vary daily calories/protein instead of inventing new foods.
 -- ============================================================================
 
 -- 3a. meal_logs
 insert into nutrition.meal_logs
     (meal_id, user_id, meal_type, name, source, consumed_at, timezone, note,
      date_time_created, date_time_updated, created_by, updated_by, version)
-with days as (
-    select g::date as d, (g::date - c.d_start) as idx, c.user_id, c.tz
-    from demo_config c, generate_series(c.d_start, c.d_today, interval '1 day') as g
-),
-workout_days(idx) as (values (0),(1),(3),(5),(8),(11),(12),(13)),
-meals(code, meal_type, at_t, name, note, workout_only) as (values
+with meals(code, meal_type, at_t, name, note, workout_only) as (values
     ('BFAST'::text,  'BREAKFAST'::text, time '07:30', 'Breakfast'::text,          'Morning fuel before the day.'::text,        false),
     ('LUNCH',        'LUNCH',           time '12:30', 'Lunch',                     'Balanced midday meal.',                     false),
     ('SNACK',        'SNACK',           time '16:00', 'Afternoon snack',           'Light pick-me-up.',                         false),
@@ -179,35 +391,32 @@ meals(code, meal_type, at_t, name, note, workout_only) as (values
     ('POSTWO',       'SNACK',           time '20:30', 'Post-workout shake',        'Recovery shake after training.',            true)
 )
 select
-    md5(dy.user_id::text || dy.d::text || m.code)::uuid,
-    dy.user_id,
+    md5(dd.user_id::text || dd.d::text || m.code)::uuid,
+    dd.user_id,
     m.meal_type,
     m.name,
     'MANUAL',
-    (dy.d + m.at_t) at time zone dy.tz,
-    dy.tz,
+    (dd.d + m.at_t) at time zone dd.tz,
+    dd.tz,
     m.note,
-    (dy.d + m.at_t) at time zone dy.tz,
-    (dy.d + m.at_t) at time zone dy.tz,
+    (dd.d + m.at_t) at time zone dd.tz,
+    (dd.d + m.at_t) at time zone dd.tz,
     'demo-seed', 'demo-seed', 0
-from days dy
+from demo_days dd
 cross join meals m
-where m.workout_only = false
-   or dy.idx in (select idx from workout_days);
+where dd.persona <> 'fresh'
+  and dd.d < (select d_today from demo_config)
+  and dd.meal_day
+  and (m.workout_only = false or dd.shake_day);
 
--- 3b. meal_items
+-- 3b. meal_items — quantities/macros scaled by demo_days.meal_mult.
 insert into nutrition.meal_items
     (meal_item_id, meal_id, custom_food_id, external_food_ref, food_name, brand_name,
      quantity, unit, serving_size, serving_unit, calories, protein_grams, carbs_grams,
      fat_grams, fiber_grams, sugar_grams, sodium_mg, date_time_created, date_time_updated,
      created_by, updated_by, version, food_catalog_item_id, food_serving_id, barcode,
      snapshot_serving_label)
-with days as (
-    select g::date as d, (g::date - c.d_start) as idx, c.user_id, c.tz
-    from demo_config c, generate_series(c.d_start, c.d_today, interval '1 day') as g
-),
-workout_days(idx) as (values (0),(1),(3),(5),(8),(11),(12),(13)),
-meals(code, at_t, workout_only) as (values
+with meals(code, at_t, workout_only) as (values
     ('BFAST'::text, time '07:30', false),
     ('LUNCH',       time '12:30', false),
     ('SNACK',       time '16:00', false),
@@ -236,90 +445,114 @@ items(code, slot, food_name, brand_name, quantity, unit, serving_size, serving_u
     ('POSTWO',2, 'Mixed Berries',             null,           100.00,'g',     100.00,'g',     57,  0.70,  14.00, 0.30,  2.40, 10.00, 1.00,  '100 g')
 )
 select
-    md5(dy.user_id::text || dy.d::text || it.code || it.slot::text)::uuid,
-    md5(dy.user_id::text || dy.d::text || it.code)::uuid,
+    md5(dd.user_id::text || dd.d::text || it.code || it.slot::text)::uuid,
+    md5(dd.user_id::text || dd.d::text || it.code)::uuid,
     null, null, it.food_name, it.brand_name,
-    it.quantity, it.unit, it.serving_size, it.serving_unit, it.calories,
-    it.protein, it.carbs, it.fat, it.fiber, it.sugar, it.sodium,
-    (dy.d + m.at_t) at time zone dy.tz,
-    (dy.d + m.at_t) at time zone dy.tz,
+    round(it.quantity * dd.meal_mult, 2), it.unit, it.serving_size, it.serving_unit,
+    round(it.calories * dd.meal_mult)::int,
+    round(it.protein * dd.meal_mult, 2), round(it.carbs * dd.meal_mult, 2), round(it.fat * dd.meal_mult, 2),
+    round(it.fiber * dd.meal_mult, 2), round(it.sugar * dd.meal_mult, 2), round(it.sodium * dd.meal_mult, 2),
+    (dd.d + m.at_t) at time zone dd.tz,
+    (dd.d + m.at_t) at time zone dd.tz,
     'demo-seed', 'demo-seed', 0, null, null, null, it.snap_label
-from days dy
+from demo_days dd
 join items it on true
 join meals m on m.code = it.code
-where m.workout_only = false
-   or dy.idx in (select idx from workout_days);
+where dd.persona <> 'fresh'
+  and dd.d < (select d_today from demo_config)
+  and dd.meal_day
+  and (m.workout_only = false or dd.shake_day);
 
--- 3c. water_logs — four sips per day, ~2.3 L total.
+-- 3c. water_logs — four sips per day, ~2.3 L total, for the whole window.
 insert into nutrition.water_logs
     (water_id, user_id, amount_ml, logged_at, timezone,
      date_time_created, date_time_updated, created_by, updated_by, version)
-with days as (
-    select g::date as d, c.user_id, c.tz
-    from demo_config c, generate_series(c.d_start, c.d_today, interval '1 day') as g
-),
-sips(slot, at_t, amount_ml) as (values
+with sips(slot, at_t, amount_ml) as (values
     (1, time '08:00', 500),
     (2, time '12:30', 750),
     (3, time '17:00', 600),
     (4, time '21:00', 450)
 )
 select
-    md5(dy.user_id::text || dy.d::text || 'water' || s.slot::text)::uuid,
-    dy.user_id, s.amount_ml,
-    (dy.d + s.at_t) at time zone dy.tz, dy.tz,
-    (dy.d + s.at_t) at time zone dy.tz,
-    (dy.d + s.at_t) at time zone dy.tz,
+    md5(dd.user_id::text || dd.d::text || 'water' || s.slot::text)::uuid,
+    dd.user_id, s.amount_ml,
+    (dd.d + s.at_t) at time zone dd.tz, dd.tz,
+    (dd.d + s.at_t) at time zone dd.tz,
+    (dd.d + s.at_t) at time zone dd.tz,
     'demo-seed', 'demo-seed', 0
-from days dy cross join sips s;
+from demo_days dd cross join sips s
+where dd.persona <> 'fresh';
 
 -- ============================================================================
--- 4. USER profile data — body metrics (downward trend) + goals.
+-- 4. USER profile data — body metrics + goals.
 -- ============================================================================
 
--- 4a. body_metric_entries (weigh-ins ~07:00 local).
+-- 4a. body_metric_entries — Monday/Thursday mornings, skipped entirely for
+--     "fresh". steady falls from 74.20 kg to 71.10 kg, faster in the first
+--     three weeks (a sqrt curve front-loads the decline) than later. drifting
+--     falls from 74.20 kg to ~72.00 kg by day 35 (week 5) and climbs back to
+--     ~72.90 kg by d_today. Small deterministic noise keeps the line from
+--     being perfectly straight. Body fat and waist trend down with weight.
 insert into user_domain.body_metric_entries
     (metric_id, user_id, weight_kg, body_fat_rate, waist_cm, hip_cm, chest_cm,
      arm_cm, thigh_cm, calf_cm, measured_at, source, note,
      date_time_created, date_time_updated, created_by, updated_by, version)
-with m(idx, weight, bf, waist, note) as (values
-    (0,  72.50, 22.50, 82.0, 'Baseline weigh-in at start of the block.'),
-    (3,  72.20, 22.30, 81.6, 'Steady start, hydration improving.'),
-    (6,  71.90, 22.00, 81.2, 'End of week one — on track.'),
-    (10, 71.50, 21.70, 80.7, 'Mid week two, energy good.'),
-    (13, 71.10, 21.40, 80.3, 'Latest check-in, trend holding.')
+with calc as (
+    select
+        dd.user_id, dd.tz, dd.d, dd.idx,
+        case dd.persona
+            when 'steady'   then round(74.20 - 3.10 * sqrt(dd.idx::numeric / 59.0), 2)
+            when 'drifting' then case
+                when dd.idx <= 35 then round(74.20 - 2.20 * (dd.idx::numeric / 35.0), 2)
+                else                   round(72.00 + 0.90 * ((dd.idx - 35)::numeric / 24.0), 2)
+            end
+        end as base_w,
+        round((((dd.idx * 37) % 7) - 3) * 0.03, 2) as noise
+    from demo_days dd
+    where dd.dow in (1, 4) and dd.persona in ('steady', 'drifting')
 )
 select
-    md5(c.user_id::text || 'body' || m.idx::text)::uuid,
-    c.user_id, m.weight, m.bf, m.waist, null, null, null, null, null,
-    ((c.d_start + m.idx) + time '07:00') at time zone c.tz,
-    'MANUAL', m.note,
-    ((c.d_start + m.idx) + time '07:05') at time zone c.tz,
-    ((c.d_start + m.idx) + time '07:05') at time zone c.tz,
+    md5(c.user_id::text || 'body' || c.idx::text)::uuid,
+    c.user_id,
+    (c.base_w + c.noise)::numeric(6,2),
+    round(22.50 - (74.20 - (c.base_w + c.noise)) * 0.90, 2),
+    round(82.00 - (74.20 - (c.base_w + c.noise)) * 1.20, 2),
+    null, null, null, null, null,
+    (c.d + time '07:00') at time zone c.tz,
+    'MANUAL', 'Demo check-in.',
+    (c.d + time '07:05') at time zone c.tz,
+    (c.d + time '07:05') at time zone c.tz,
     'demo-seed', 'demo-seed', 0
-from demo_config c cross join m;
+from calc c;
 
 -- 4b. user_goals (deterministic ids; feed the analytics targets below).
+--     fresh gets only WORKOUT_FREQUENCY (the empty-state persona). steady's
+--     WEIGHT target date is 8 weeks after today; drifting's is 10 days
+--     before today, so it reads as overdue.
 insert into user_domain.user_goals
     (goal_id, user_id, goal_type, target_value, target_unit, target_date, status, notes,
      date_time_created, date_time_updated, created_by, updated_by, version)
-with g(goal_type, target_value, target_unit, notes) as (values
-    ('WEIGHT'::text,            68.00,   'kg'::text,            'Reach a lean target weight while keeping strength.'::text),
-    ('CALORIES',                2100.00, 'kcal',                'Maintain a slight daily calorie deficit.'),
-    ('PROTEIN',                 140.00,  'g',                   'Hit daily protein for recomposition.'),
-    ('WORKOUT_FREQUENCY',       4.00,    'sessions/week',       'Complete four structured sessions every week.')
-)
 select
     md5(c.user_id::text || 'GOAL' || g.goal_type)::uuid,
-    c.user_id, g.goal_type, g.target_value, g.target_unit,
-    -- Rolls with the window. A literal date makes every goal expire as soon as it passes, and the
-    -- analytics read path now marks a goal past its target date as overdue and not on track, so a
-    -- fixed date turns the whole Active-targets card into a wall of "Overdue".
-    (c.d_today + 60)::date, 'ACTIVE', g.notes,
+    c.user_id, g.goal_type, g.target_value::numeric, g.target_unit,
+    case
+        when g.goal_type = 'WEIGHT' and c.persona = 'steady'   then (c.d_today + 56)::date
+        when g.goal_type = 'WEIGHT' and c.persona = 'drifting' then (c.d_today - 10)::date
+        else (c.d_today + 60)::date
+    end,
+    'ACTIVE', g.notes,
     (c.d_start + time '08:00') at time zone c.tz,
     (c.d_today + time '08:00') at time zone c.tz,
     'demo-seed', 'demo-seed', 0
-from demo_config c cross join g;
+from demo_config c
+cross join (values
+    ('WEIGHT'::text,            '68.00'::text,   'kg'::text,      'Reach a lean target weight while keeping strength.'::text),
+    ('CALORIES',                '2100.00',       'kcal',          'Maintain a slight daily calorie deficit.'),
+    ('PROTEIN',                 '140.00',        'g',             'Hit daily protein for recomposition.'),
+    ('WORKOUT_FREQUENCY',       '4.00',          'sessions/week', 'Complete four structured sessions every week.')
+) as g(goal_type, target_value, target_unit, notes)
+where c.persona in ('steady', 'drifting')
+   or (c.persona = 'fresh' and g.goal_type = 'WORKOUT_FREQUENCY');
 
 -- Direct SQL bypasses user-service, so explicitly enqueue the same GoalUpdated
 -- events that UserServiceImpl.upsertGoal() would publish. Re-running the seed
@@ -367,14 +600,21 @@ on conflict (event_id) do update set
     error_message = null;
 
 -- ============================================================================
--- 5. WORKOUT — exercises, a plan, and 8 completed sessions (≈4/week) with
---    alternating strength / cardio and light week-over-week progression.
+-- 5. WORKOUT — exercises, a plan, and one session per demo_days row where
+--    is_training_day is true and skip_session is false, for the 60-day
+--    window (never on or after d_today). Entirely skipped for "fresh" (no
+--    plan, no sessions). Every set of a completed session is stored as
+--    performed (logged = true AND status = 'DONE'); the application's
+--    personal-record query requires DONE, and the seed used to leave status
+--    at its PENDING default, so that query found nothing — this is a bug fix.
 -- ============================================================================
 do $$
 declare
     v_user   uuid;
     v_tz     text;
+    v_persona text;
     v_start  date;
+    v_today  date;
     v_plan   uuid := gen_random_uuid();
     ex_bench uuid;
     ex_squat uuid;
@@ -382,22 +622,16 @@ declare
     ex_plank uuid;
     ex_run   uuid := gen_random_uuid();
 
-    wdays  int[]  := array[0,1,3,5,8,11,12,13];
-    kinds  text[] := array['STRENGTH','CARDIO','STRENGTH','CARDIO','STRENGTH','CARDIO','STRENGTH','CARDIO'];
-
-    i        int;
-    idx      int;
-    kind     text;
-    wk       int;
-    d        date;
+    r        record;
     started  timestamptz;
     v_session uuid;
     v_log    uuid;
-
-    bench_w numeric; squat_w numeric; row_w numeric;
-    run_km  numeric;
 begin
-    select user_id, tz, d_start into v_user, v_tz, v_start from demo_config;
+    select user_id, tz, persona, d_start, d_today into v_user, v_tz, v_persona, v_start, v_today from demo_config;
+
+    if v_persona = 'fresh' then
+        return;
+    end if;
 
     -- 5a. Plan movements.
     --     Prefer the imported free-exercise-db catalog entry (custom=false) so the
@@ -495,20 +729,16 @@ begin
     cross join (values (1),(2),(3)) as s(set_number)
     where pe.plan_id = v_plan;
 
-    -- 5d. one completed session per training day
-    for i in 1 .. array_length(wdays, 1) loop
-        idx       := wdays[i];
-        kind      := kinds[i];
-        d         := v_start + idx;
-        wk        := case when idx < 7 then 0 else 1 end;   -- week 1 vs week 2
-        started   := (d + time '18:30') at time zone v_tz;
+    -- 5d. one completed session per scheduled, non-skipped training day.
+    for r in
+        select * from demo_days
+        where user_id = v_user and is_training_day and not skip_session and d < v_today
+        order by d
+    loop
+        started   := (r.d + time '18:30') at time zone v_tz;
         v_session := gen_random_uuid();
 
-        if kind = 'STRENGTH' then
-            bench_w := 20.00 + wk * 2.50;
-            squat_w := 16.00 + wk * 2.00;
-            row_w   := 18.00 + wk * 2.00;
-
+        if r.workout_kind = 'STRENGTH' then
             insert into workout.workout_sessions
                 (session_id, user_id, plan_id, name, workout_type, status, source,
                  started_at, completed_at, duration_minutes, calories_burned,
@@ -516,9 +746,9 @@ begin
                  created_by, updated_by, version)
             values
                 (v_session, v_user, v_plan, 'Strength — Full Body', 'STRENGTH', 'COMPLETED', 'PLAN',
-                 started, started + interval '50 min', 50, 360, 7,
+                 started, started + (r.duration_minutes * interval '1 minute'), r.duration_minutes, 360, 7,
                  'Hit all working sets; progression felt manageable.',
-                 started, started + interval '50 min', 'demo-seed', 'demo-seed', 0);
+                 started, started + (r.duration_minutes * interval '1 minute'), 'demo-seed', 'demo-seed', 0);
 
             -- bench
             v_log := gen_random_uuid();
@@ -526,11 +756,11 @@ begin
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_bench, 'Dumbbell Bench Press', 1, 3, 30, 3 * 10 * bench_w, null, 360, 128, 145, null);
+            values (v_log, v_session, ex_bench, 'Dumbbell Bench Press', 1, 3, 30, 3 * 10 * r.bench_w, null, 360, 128, 145, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
-                 distance_km, rest_seconds, perceived_exertion, notes, logged)
-            select gen_random_uuid(), v_log, s.n, 10, bench_w, null, null, 75, 6 + s.n - 1, null, true
+                 distance_km, rest_seconds, perceived_exertion, notes, logged, status)
+            select gen_random_uuid(), v_log, s.n, 10, r.bench_w, null, null, 75, 6 + s.n - 1, null, true, 'DONE'
             from (values (1),(2),(3)) as s(n);
 
             -- squat
@@ -539,11 +769,11 @@ begin
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_squat, 'Goblet Squat', 2, 3, 36, 3 * 12 * squat_w, null, 420, 132, 150, null);
+            values (v_log, v_session, ex_squat, 'Goblet Squat', 2, 3, 36, 3 * 12 * r.squat_w, null, 420, 132, 150, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
-                 distance_km, rest_seconds, perceived_exertion, notes, logged)
-            select gen_random_uuid(), v_log, s.n, 12, squat_w, null, null, 75, 6 + s.n - 1, null, true
+                 distance_km, rest_seconds, perceived_exertion, notes, logged, status)
+            select gen_random_uuid(), v_log, s.n, 12, r.squat_w, null, null, 75, 6 + s.n - 1, null, true, 'DONE'
             from (values (1),(2),(3)) as s(n);
 
             -- row
@@ -552,11 +782,11 @@ begin
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_row, 'Bent-Over Row', 3, 3, 30, 3 * 10 * row_w, null, 360, 130, 147, null);
+            values (v_log, v_session, ex_row, 'Bent-Over Row', 3, 3, 30, 3 * 10 * r.row_w, null, 360, 130, 147, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
-                 distance_km, rest_seconds, perceived_exertion, notes, logged)
-            select gen_random_uuid(), v_log, s.n, 10, row_w, null, null, 75, 6 + s.n - 1, null, true
+                 distance_km, rest_seconds, perceived_exertion, notes, logged, status)
+            select gen_random_uuid(), v_log, s.n, 10, r.row_w, null, null, 75, 6 + s.n - 1, null, true, 'DONE'
             from (values (1),(2),(3)) as s(n);
 
             -- plank
@@ -568,13 +798,11 @@ begin
             values (v_log, v_session, ex_plank, 'Plank Hold', 4, 3, null, null, null, 135, 118, 128, 'Held all prescribed durations.');
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
-                 distance_km, rest_seconds, perceived_exertion, notes, logged)
-            select gen_random_uuid(), v_log, s.n, null, null, 45, null, 45, 6 + s.n - 1, null, true
+                 distance_km, rest_seconds, perceived_exertion, notes, logged, status)
+            select gen_random_uuid(), v_log, s.n, null, null, 45, null, 45, 6 + s.n - 1, null, true, 'DONE'
             from (values (1),(2),(3)) as s(n);
 
         else  -- CARDIO
-            run_km := 5.00 + wk * 0.50;
-
             insert into workout.workout_sessions
                 (session_id, user_id, plan_id, name, workout_type, status, source,
                  started_at, completed_at, duration_minutes, calories_burned,
@@ -582,9 +810,9 @@ begin
                  created_by, updated_by, version)
             values
                 (v_session, v_user, null, 'Cardio — Treadmill', 'CARDIO', 'COMPLETED', 'MANUAL',
-                 started, started + interval '35 min', 35, 380, 6,
+                 started, started + (r.duration_minutes * interval '1 minute'), r.duration_minutes, 380, 6,
                  'Steady-state run, conversational pace.',
-                 started, started + interval '35 min', 'demo-seed', 'demo-seed', 0);
+                 started, started + (r.duration_minutes * interval '1 minute'), 'demo-seed', 'demo-seed', 0);
 
             -- treadmill run
             v_log := gen_random_uuid();
@@ -592,11 +820,11 @@ begin
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_run, 'Treadmill Run', 1, 1, null, null, run_km, 1800, 150, 168, null);
+            values (v_log, v_session, ex_run, 'Treadmill Run', 1, 1, null, null, r.run_km, 1800, 150, 168, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
-                 distance_km, rest_seconds, perceived_exertion, notes, logged)
-            values (gen_random_uuid(), v_log, 1, null, null, 1800, run_km, 0, 6, null, true);
+                 distance_km, rest_seconds, perceived_exertion, notes, logged, status)
+            values (gen_random_uuid(), v_log, 1, null, null, 1800, r.run_km, 0, 6, null, true, 'DONE');
 
             -- plank finisher
             v_log := gen_random_uuid();
@@ -607,8 +835,8 @@ begin
             values (v_log, v_session, ex_plank, 'Plank Hold', 2, 3, null, null, null, 135, 120, 130, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
-                 distance_km, rest_seconds, perceived_exertion, notes, logged)
-            select gen_random_uuid(), v_log, s.n, null, null, 45, null, 45, 6 + s.n - 1, null, true
+                 distance_km, rest_seconds, perceived_exertion, notes, logged, status)
+            select gen_random_uuid(), v_log, s.n, null, null, 45, null, 45, 6 + s.n - 1, null, true, 'DONE'
             from (values (1),(2),(3)) as s(n);
         end if;
     end loop;
@@ -617,7 +845,10 @@ end $$;
 -- ============================================================================
 -- 6. ANALYTICS read-models — computed by aggregating the rows seeded above so
 --    they stay self-consistent (the real service builds these from Kafka
---    events, which direct SQL inserts bypass).
+--    events, which direct SQL inserts bypass). Every query here is scoped to
+--    the seeded rows for this account, so a "fresh" account (no meals, no
+--    sessions, no body metrics) naturally produces zero rows in every table
+--    below — that IS its empty state, nothing further to guard.
 -- ============================================================================
 
 -- 6a. per-meal contributions
@@ -864,12 +1095,69 @@ join lateral (
     limit 1
 ) bd on true;
 
+-- 6h. personal-record tally — the table the achievements endpoint reads
+--     (analytics.analytics_user_workout_records: one row per user, a running
+--     personal_record_count + first/last timestamps; see
+--     WorkoutRecordsProjectionService / AnalyticsAchievementsResponse). A
+--     record here is a session where a lift's weight beat every one of that
+--     lift's earlier sessions — exactly what workout-service's
+--     PersonalRecordAchieved event marks live. Guarded on the table existing,
+--     and naturally empty for "fresh" (no sessions to rank).
+do $$
+declare
+    v_user uuid;
+    v_persona text;
+begin
+    select user_id, persona into v_user, v_persona from demo_config;
+    if v_persona = 'fresh' then
+        return;
+    end if;
+    if not exists (select 1 from information_schema.tables where table_schema = 'analytics' and table_name = 'analytics_user_workout_records') then
+        return;
+    end if;
+
+    insert into analytics.analytics_user_workout_records
+        (user_id, personal_record_count, first_record_at, last_record_at,
+         date_time_created, date_time_updated, created_by, updated_by, version)
+    select v_user, pr.cnt, pr.first_at, pr.last_at, now(), now(), 'demo-seed', 'demo-seed', 0
+    from (
+        select count(*) as cnt, min(achieved_at) as first_at, max(achieved_at) as last_at
+        from (
+            select achieved_at, exercise_name, weight_kg,
+                   max(weight_kg) over (
+                       partition by exercise_name order by achieved_at
+                       rows between unbounded preceding and 1 preceding
+                   ) as prior_max
+            from (
+                select s.completed_at as achieved_at, e.exercise_name_snapshot as exercise_name,
+                       max(sl.weight_kg) as weight_kg
+                from workout.workout_sessions s
+                join workout.workout_exercise_logs e on e.session_id = s.session_id
+                join workout.workout_exercise_set_logs sl on sl.exercise_log_id = e.exercise_log_id
+                where s.user_id = v_user and s.created_by = 'demo-seed' and sl.weight_kg is not null
+                group by s.completed_at, e.exercise_name_snapshot
+            ) sess
+        ) ranked
+        where prior_max is null or weight_kg > prior_max
+    ) pr
+    where pr.cnt > 0
+    on conflict (user_id) do update set
+        personal_record_count = excluded.personal_record_count,
+        first_record_at = excluded.first_record_at,
+        last_record_at = excluded.last_record_at,
+        date_time_updated = now(),
+        updated_by = 'demo-seed';
+end $$;
+
 -- ----------------------------------------------------------------------------
 -- 8b. Fields the Phase 2 work added after this seed was written.
 --
 --     The script predates three things and so left them empty, which meant the features built on
 --     them had nothing to show: the rules engine could not judge weekly adherence without a target,
 --     and the food-group breakdown, the payoff of the whole open-data thread, was blank.
+--
+--     Applied for every persona, "fresh" included — the product owner wants a fresh account's
+--     profile and preferences filled in exactly like the others, just with no activity yet.
 -- ----------------------------------------------------------------------------
 
 -- Training preferences. R2 compares active days against weekly_workout_days, so without this the
@@ -989,7 +1277,10 @@ update analytics.analytics_user_daily_nutrition n
 --    Documents/architecture/projection-bootstrap-design.md; this is its Layer 1. Once the rebuild
 --    endpoint in Layer 2 exists, most of this section can be replaced by a call to it.
 --
---    Guarded on the schema existing, because recommendation-service is branch-only.
+--    Guarded on the schema existing, because recommendation-service is branch-only. For a
+--    "fresh" account the goal/body/workout lookups all come back null via the LEFT/lateral joins
+--    below, so the row still gets created with just the WORKOUT_FREQUENCY goal and preferences —
+--    "the recommendation context row exists with the goal and preferences and nothing else."
 -- ----------------------------------------------------------------------------
 do $do$
 begin
@@ -1111,6 +1402,40 @@ begin
     raise notice 'coach context seeded';
 end
 $do$;
+
+-- 9b. Two columns Phase-2 added to recommendation_context after this seed was written:
+--     weekly_workout_goal_days (from the WORKOUT_FREQUENCY goal) and protein_target_grams (from
+--     the PROTEIN goal, overriding the nutrition-target-derived value above with the goal's own
+--     number). Backfilled as separate guarded UPDATEs, rather than folded into the INSERT above,
+--     so the script still runs unmodified against a database built before that migration (V9).
+do $$
+begin
+    if exists (select 1 from pg_namespace where nspname = 'recommendation')
+       and exists (
+           select 1 from information_schema.columns
+            where table_schema = 'recommendation' and table_name = 'recommendation_context'
+              and column_name = 'weekly_workout_goal_days'
+       ) then
+        update recommendation.recommendation_context rc
+           set weekly_workout_goal_days = g.target_value::int
+          from demo_config c
+          join user_domain.user_goals g on g.user_id = c.user_id and g.goal_type = 'WORKOUT_FREQUENCY'
+         where rc.user_id = c.user_id;
+    end if;
+
+    if exists (select 1 from pg_namespace where nspname = 'recommendation')
+       and exists (
+           select 1 from information_schema.columns
+            where table_schema = 'recommendation' and table_name = 'recommendation_context'
+              and column_name = 'protein_target_grams'
+       ) then
+        update recommendation.recommendation_context rc
+           set protein_target_grams = g.target_value
+          from demo_config c
+          join user_domain.user_goals g on g.user_id = c.user_id and g.goal_type = 'PROTEIN'
+         where rc.user_id = c.user_id;
+    end if;
+end $$;
 
 commit;
 

@@ -13,6 +13,7 @@ import java.util.concurrent.ExecutorService;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.config.CoachProperties;
+import com.fitsync.recommendation.coach.dto.CoachSurface;
 import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
 import com.fitsync.recommendation.coach.tool.ToolRegistry;
 import com.fitsync.recommendation.coach.tool.ToolResult;
@@ -62,6 +63,22 @@ public class CoachOrchestrator {
      */
     private static final int STEPS_FOR_CORRECTIONS = 3;
 
+    /**
+     * The name a pinned reading's observation is recorded under in the trace. Deliberately not a
+     * registered {@link com.fitsync.recommendation.coach.tool.CoachTool}: it never appears in the
+     * tool catalogue the model is shown, so the model cannot ask for it — it is placed in the
+     * transcript directly, the same way a planned tool's result is, because the security rule behind
+     * this feature is that a client can only ever point at a reading the server already computed, not
+     * hand the server facts to relay unchecked.
+     */
+    static final String PINNED_READING_TOOL_NAME = "readPinnedReading";
+
+    /** A citation marker such as {@code [2]}, with any leading space, stripped from reading text. */
+    private static final java.util.regex.Pattern CITATION_MARKER = java.util.regex.Pattern.compile("\\s?\\[\\d+\\]");
+
+    /** How much of any one fact part (label, value, unit, note, detail) reaches the transcript. */
+    private static final int MAX_FACT_PART_LENGTH = 120;
+
     private static final String SYSTEM_PROMPT_HEAD = """
             You are the FitSync coach. You help one user with their training and nutrition.
 
@@ -83,6 +100,14 @@ public class CoachOrchestrator {
             When you answer: two or three sentences, plain and specific, addressed to the user.
             If the facts do not cover the question, say what you can see and that the rest is
             outside what you know. Never guess.
+
+            How you speak: you describe what the records show and leave every decision to the
+            user. When the user asks whether to do something, say what the records show on each
+            side and that the choice is theirs. No instruction, no "you should", no "consider",
+            no "try", no "keep it up". No exclamation mark and no dash used as punctuation.
+            Say exactly what a number measures, in the words its label uses. A figure for one
+            session is not a figure for the week.
+            Write nothing in square brackets, except the number of a fact from a pinned reading.
             """;
 
     private final ObjectProvider<ClaudeClient> claudeClient;
@@ -92,6 +117,7 @@ public class CoachOrchestrator {
     private final CoachProperties properties;
     private final ObjectMapper objectMapper;
     private final ExecutorService toolExecutor;
+    private final AnswerValidator answerValidator;
 
     public CoachOrchestrator(ObjectProvider<ClaudeClient> claudeClient,
                              CoachGuardrail guardrail,
@@ -99,7 +125,8 @@ public class CoachOrchestrator {
                              CoachActionParser actionParser,
                              CoachProperties properties,
                              ObjectMapper objectMapper,
-                             @Qualifier("coachToolExecutor") ExecutorService toolExecutor) {
+                             @Qualifier("coachToolExecutor") ExecutorService toolExecutor,
+                             AnswerValidator answerValidator) {
         this.claudeClient = claudeClient;
         this.guardrail = guardrail;
         this.toolRegistry = toolRegistry;
@@ -107,6 +134,7 @@ public class CoachOrchestrator {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.toolExecutor = toolExecutor;
+        this.answerValidator = answerValidator;
     }
 
     /**
@@ -115,7 +143,7 @@ public class CoachOrchestrator {
      * @param history prior turns, oldest first, already trimmed to the context window
      */
     public CoachOutcome answer(CoachCallContext context, String question, List<String> history) {
-        return answer(context, question, history, CoachProgressListener.NONE);
+        return answer(context, question, history, null, CoachProgressListener.NONE);
     }
 
     /**
@@ -127,6 +155,35 @@ public class CoachOrchestrator {
     public CoachOutcome answer(CoachCallContext context,
                                String question,
                                List<String> history,
+                               CoachProgressListener listener) {
+        return answer(context, question, history, null, listener);
+    }
+
+    /**
+     * Answers one question with the page and reading the user was looking at when they asked it.
+     *
+     * @param turnContext the surface and any pinned reading, already resolved by the caller, or null
+     *                    when the request carried no context at all
+     */
+    public CoachOutcome answer(CoachCallContext context,
+                               String question,
+                               List<String> history,
+                               TurnContext turnContext) {
+        return answer(context, question, history, turnContext, CoachProgressListener.NONE);
+    }
+
+    /**
+     * Answers one question, with page context and reporting each step to a listener as it happens.
+     *
+     * @param turnContext the surface and any pinned reading, already resolved by the caller, or null
+     *                    when the request carried no context at all
+     * @param listener    called from the tool pool as well as this thread, and never allowed to fail
+     *                    the turn
+     */
+    public CoachOutcome answer(CoachCallContext context,
+                               String question,
+                               List<String> history,
+                               TurnContext turnContext,
                                CoachProgressListener listener) {
         long startedAt = System.nanoTime();
 
@@ -148,6 +205,17 @@ public class CoachOrchestrator {
         List<String> transcript = new ArrayList<>(history);
         List<String> toolsUsed = new ArrayList<>();
         Set<String> alreadyCalled = new LinkedHashSet<>();
+
+        // The page and the pinned reading go in ahead of anything the loop itself gathers, so a
+        // model that answers on its very first reply still opens from the same context a human
+        // helper would already have.
+        if (turnContext != null && turnContext.surface() != null) {
+            transcript.add(surfaceLine(turnContext.surface()));
+        }
+        if (turnContext != null && turnContext.pinnedReading() != null) {
+            transcript.add(pinnedReadingObservation(turnContext.pinnedReading()));
+            toolsUsed.add(PINNED_READING_TOOL_NAME);
+        }
 
         for (Map.Entry<String, ToolResult> planned : runPlannedTools(context, question, listener).entrySet()) {
             transcript.add(observationOf(planned.getKey(), "{}", planned.getValue()));
@@ -171,7 +239,8 @@ public class CoachOrchestrator {
             CoachAction action = actionParser.parse(reply);
             switch (action.kind()) {
                 case ANSWER -> {
-                    return CoachOutcome.answered(action.answer(), toolsUsed, elapsedMs(startedAt));
+                    return finalizeAnswer(client, system, question, transcript, turnContext,
+                            toolsUsed, startedAt, action.answer(), listener);
                 }
                 case TOOL -> {
                     String args = action.args() == null ? "{}" : action.args().toString();
@@ -211,7 +280,8 @@ public class CoachOrchestrator {
             CoachAction last = actionParser.parse(client.complete(
                     ANSWER_ONLY_PROMPT, userPrompt(question, transcript)));
             if (last.kind() == CoachAction.Kind.ANSWER) {
-                return CoachOutcome.answered(last.answer(), toolsUsed, elapsedMs(startedAt));
+                return finalizeAnswer(client, ANSWER_ONLY_PROMPT, question, transcript, turnContext,
+                        toolsUsed, startedAt, last.answer(), listener);
             }
         } catch (RuntimeException ex) {
             LOG.warn("Model call failed on the final answer-only attempt", ex);
@@ -229,6 +299,14 @@ public class CoachOrchestrator {
             below. Answer the user's question now from those results, in two or three plain
             sentences. Every number must come from a result shown below. If the results do not
             cover the question, say what you can see and that the rest is outside what you know.
+
+            How you speak: you describe what the records show and leave every decision to the
+            user. When the user asks whether to do something, say what the records show on each
+            side and that the choice is theirs. No instruction, no "you should", no "consider",
+            no "try", no "keep it up". No exclamation mark and no dash used as punctuation.
+            Say exactly what a number measures, in the words its label uses. A figure for one
+            session is not a figure for the week.
+            Write nothing in square brackets, except the number of a fact from a pinned reading.
 
             Reply with ONE JSON object and nothing else: {"answer":"<text>"}
             """;
@@ -334,6 +412,228 @@ public class CoachOrchestrator {
         }
         prompt.append("User question: ").append(question);
         return prompt.toString();
+    }
+
+    /** Anything in square brackets, with the space before it. */
+    private static final java.util.regex.Pattern BRACKETED = java.util.regex.Pattern.compile("\\s?\\[([^\\[\\]]{0,200})]");
+
+    /**
+     * Removes what the model put in square brackets, except a citation of a pinned fact.
+     *
+     * <p>A model that has been shown citations tends to invent its own, such as a field name from a
+     * tool result. Those mean nothing to a reader, and a citation of a fact that does not exist
+     * would point nowhere. This is a cleanup of form. It does not check that the answer is true.
+     */
+    static String tidy(String answer, TurnContext turnContext) {
+        if (answer == null || answer.indexOf('[') < 0) {
+            return answer;
+        }
+        int factCount = turnContext == null || turnContext.pinnedReading() == null
+                ? 0
+                : turnContext.pinnedReading().facts().size();
+        java.util.regex.Matcher matcher = BRACKETED.matcher(answer);
+        StringBuilder tidied = new StringBuilder();
+        while (matcher.find()) {
+            String inside = matcher.group(1).strip();
+            boolean citation = inside.matches("\\d{1,2}") && Integer.parseInt(inside) >= 1
+                    && Integer.parseInt(inside) <= factCount;
+            matcher.appendReplacement(tidied, citation
+                    ? java.util.regex.Matcher.quoteReplacement(" [" + inside + "]")
+                    : "");
+        }
+        matcher.appendTail(tidied);
+        return tidied.toString().replaceAll(" {2,}", " ").strip();
+    }
+
+    /**
+     * Checks a model's answer before the turn returns it, and gives the model exactly one chance to
+     * fix a failing one.
+     *
+     * <p>Every answer the loop is about to return goes through here, whether it came from the main
+     * loop or from the answer-only attempt made once the tool budget is spent, so the check cannot be
+     * skipped by a model that stalls on tools until the very end. When {@link AnswerValidator} passes
+     * the answer, or when {@code fitsync.coach.answer-validation-enabled} is off, this behaves exactly
+     * as returning the tidied answer always did. When it fails, one correction is appended to the
+     * transcript and the model is asked again with the same system prompt this attempt used; if that
+     * second answer also fails — or the model does not answer at all, or the check itself throws —
+     * the turn ends with a fixed sentence rather than anything the model wrote, so a citation attached
+     * to the wrong fact or a per-session figure called weekly is never what the user is shown.
+     */
+    private CoachOutcome finalizeAnswer(ClaudeClient client,
+                                        String system,
+                                        String question,
+                                        List<String> transcript,
+                                        TurnContext turnContext,
+                                        List<String> toolsUsed,
+                                        long startedAt,
+                                        String rawAnswer,
+                                        CoachProgressListener listener) {
+        String candidate = tidy(rawAnswer, turnContext);
+        if (!properties.answerValidationEnabled()) {
+            return CoachOutcome.answered(candidate, toolsUsed, elapsedMs(startedAt));
+        }
+
+        AnswerValidator.Result firstResult = validateSafely(candidate, question, transcript, turnContext);
+        if (firstResult.valid()) {
+            return CoachOutcome.answered(candidate, toolsUsed, elapsedMs(startedAt));
+        }
+
+        List<String> correctedTranscript = new ArrayList<>(transcript);
+        correctedTranscript.add(explainAnswerViolations(firstResult.violations()));
+
+        String secondReply;
+        try {
+            emit(listener, CoachProgressEvent.thinking());
+            secondReply = client.complete(system, userPrompt(question, correctedTranscript));
+        } catch (RuntimeException ex) {
+            LOG.warn("Model call failed on the answer-validation correction attempt", ex);
+            return CoachOutcome.answerRejected(firstResult.violations().get(0), toolsUsed, elapsedMs(startedAt));
+        }
+
+        CoachAction correctedAction = actionParser.parse(secondReply);
+        if (correctedAction.kind() != CoachAction.Kind.ANSWER) {
+            return CoachOutcome.answerRejected(firstResult.violations().get(0), toolsUsed, elapsedMs(startedAt));
+        }
+
+        String secondCandidate = tidy(correctedAction.answer(), turnContext);
+        AnswerValidator.Result secondResult = validateSafely(secondCandidate, question, correctedTranscript, turnContext);
+        if (secondResult.valid()) {
+            return CoachOutcome.answered(secondCandidate, toolsUsed, elapsedMs(startedAt));
+        }
+        return CoachOutcome.answerRejected(secondResult.violations().get(0), toolsUsed, elapsedMs(startedAt));
+    }
+
+    /**
+     * Runs {@link AnswerValidator} with the one guarantee the rest of this class depends on: it
+     * never throws. A validator bug must degrade the single answer it was checking, not the turn,
+     * so any exception is caught, only its class name is logged, and the answer is treated the same
+     * as a validator that ran cleanly and rejected it.
+     */
+    private AnswerValidator.Result validateSafely(String answer, String question, List<String> transcript,
+                                                  TurnContext turnContext) {
+        try {
+            return answerValidator.validate(answer, question, transcript, turnContext);
+        } catch (RuntimeException ex) {
+            LOG.warn("Answer validation failed with {}", ex.getClass().getSimpleName());
+            return new AnswerValidator.Result(false, List.of("VALIDATION_ERROR"));
+        }
+    }
+
+    /**
+     * Turns the validator's codes into sentences the model can act on, the same purpose
+     * {@code CoachReadingService.explain} serves for a rejected reading. A separate copy rather than
+     * a shared one: the two validators use different codes for the same idea
+     * ({@code NUMBER_NOT_IN_RECORDS} here against {@code NUMBER_NOT_IN_FACTS} there) and
+     * {@code orchestrator} does not depend on {@code reading}, the same direction
+     * {@code TurnContext}'s own Javadoc already documents.
+     */
+    private static String explainAnswerViolations(List<String> violations) {
+        StringBuilder text = new StringBuilder();
+        for (String violation : violations) {
+            String code = violation.contains(":") ? violation.substring(0, violation.indexOf(':')) : violation;
+            String detail = violation.contains(":") ? violation.substring(violation.indexOf(':') + 1) : "";
+            String sentence = switch (code) {
+                case "ANSWER_BLANK" -> "The answer was empty.";
+                case "ANSWER_TOO_LONG" -> "The answer was longer than 700 characters.";
+                case "NUMBER_NOT_IN_RECORDS" -> "The number " + detail + " is not in anything you were given.";
+                case "INVALID_CITATION" -> "There is no fact numbered " + detail + ".";
+                case "DIRECTION_NOT_IN_FACTS" -> "It described something as " + detail
+                        + ", and the fact cited there does not say so.";
+                case "MEASURE_MISMATCH" -> "It stated the per-session figure from fact " + detail
+                        + " as though it were a weekly figure.";
+                case "BANNED_PHRASE" -> "It gave advice or an instruction.";
+                case "QUESTION_MARK" -> "It asked a question.";
+                case "EXCLAMATION_MARK" -> "It used an exclamation mark.";
+                case "DASH_AS_PUNCTUATION" -> "It used a dash as punctuation.";
+                default -> "It broke the rule " + code + ".";
+            };
+            if (text.indexOf(sentence) < 0) {
+                text.append(text.length() == 0 ? "" : " ").append(sentence);
+            }
+        }
+        return "Your previous answer was not accepted. " + text
+                + " Answer again from what you were already given, using only numbers and directions "
+                + "that appear there, and correct the mistake.";
+    }
+
+    /** The one line that opens the transcript when the client says which page the user is on. */
+    private static String surfaceLine(CoachSurface surface) {
+        String pageName = switch (surface) {
+            case HOME -> "Home";
+            case WORKOUT -> "Workout";
+            case NUTRITION -> "Nutrition";
+            case PROGRESS -> "Progress";
+            case PROFILE -> "Me";
+        };
+        return "The user is on the " + pageName + " page.";
+    }
+
+    /**
+     * The pinned reading, shaped as a tool result so the system prompt's rule that every number must
+     * come from a tool result covers it too, and recorded as though {@link #PINNED_READING_TOOL_NAME}
+     * had actually been called so the trace shows what grounded the answer.
+     */
+    private static String pinnedReadingObservation(TurnContext.PinnedReading pinned) {
+        StringBuilder body = new StringBuilder();
+        body.append("The user is asking about this reading on their Workout page.");
+        String headline = sanitizeFactPart(pinned.headline());
+        String text = stripCitations(sanitizeFactPart(pinned.body()));
+        if (!headline.isEmpty() || !text.isEmpty()) {
+            body.append(System.lineSeparator()).append("Reading: ")
+                    .append((headline + " " + text).strip());
+        }
+        body.append(System.lineSeparator()).append("Facts:");
+        for (TurnContext.PinnedFact fact : pinned.facts()) {
+            body.append(System.lineSeparator()).append(factLine(fact));
+        }
+        body.append(System.lineSeparator()).append("When you state a number from these facts, write "
+                + "the fact's number in square brackets after it, like [2].");
+        return "Result of " + PINNED_READING_TOOL_NAME + "({}):" + System.lineSeparator() + body;
+    }
+
+    /** One fact line: {@code [n] label: value unit. note. detail.}, with empty parts left out. */
+    private static String factLine(TurnContext.PinnedFact fact) {
+        StringBuilder line = new StringBuilder();
+        line.append('[').append(fact.number()).append("] ");
+        line.append(sanitizeFactPart(fact.label())).append(':').append(' ')
+                .append(sanitizeFactPart(fact.value()));
+        String unit = sanitizeFactPart(fact.unit());
+        if (!unit.isEmpty()) {
+            line.append(' ').append(unit);
+        }
+        line.append('.');
+        String note = sanitizeFactPart(fact.note());
+        if (!note.isEmpty()) {
+            line.append(' ').append(note).append('.');
+        }
+        String detail = sanitizeFactPart(fact.detail());
+        if (!detail.isEmpty()) {
+            line.append(' ').append(detail).append('.');
+        }
+        return line.toString();
+    }
+
+    /**
+     * A citation marker such as {@code [2]} removed from reading text before it is quoted back in a
+     * tool observation, so the fact numbers a model sees always come from the facts list below it
+     * rather than from a citation written for a different rendering of the same reading.
+     */
+    private static String stripCitations(String text) {
+        return CITATION_MARKER.matcher(text).replaceAll("");
+    }
+
+    /**
+     * Facts partly originate from user-named exercises, so every part is stripped of control
+     * characters and newlines and cut to a bounded length before it can reach the transcript — a
+     * label with an embedded newline and an instruction on the next line must still arrive as one
+     * line the model reads as data, not as a second line of the prompt.
+     */
+    private static String sanitizeFactPart(String value) {
+        if (value == null) {
+            return "";
+        }
+        String cleaned = value.replaceAll("[\\p{Cntrl}]+", " ").strip();
+        return cleaned.length() > MAX_FACT_PART_LENGTH ? cleaned.substring(0, MAX_FACT_PART_LENGTH) : cleaned;
     }
 
     private static boolean containsAny(String haystack, String... needles) {

@@ -8,6 +8,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * <p>{@code tier} is 2 when a model answered and -1 when the AI tier is switched off, in which case
  * {@code answer} explains that rather than failing. Rule and template tiers are recorded on the
  * turn by the paths that take them.
+ *
+ * <p>{@code pinnedReadingId} is set only when the request carried a reading id that the server
+ * actually resolved and handed to the model; the client draws citation badges on the answer only
+ * when this is set, never merely because the request asked for one.
  */
 @Schema(description = "One coach answer with its turn reference and tier.")
 public record CoachMessageResponse(
@@ -16,7 +20,8 @@ public record CoachMessageResponse(
         String answer,
         int tier,
         java.util.List<String> toolsUsed,
-        int latencyMs) {
+        int latencyMs,
+        String pinnedReadingId) {
 
     public CoachMessageResponse {
         toolsUsed = toolsUsed == null ? java.util.List.of() : java.util.List.copyOf(toolsUsed);

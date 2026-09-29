@@ -72,6 +72,11 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
     @Column(name = "workout_days_per_week")
     private Integer workoutDaysPerWeek;
 
+    // The user's WORKOUT_FREQUENCY goal. It takes priority over the onboarding preference
+    // above when both are present.
+    @Column(name = "weekly_workout_goal_days")
+    private Integer weeklyWorkoutGoalDays;
+
     @Column(name = "dietary_preference", length = 40)
     private String dietaryPreference;
 
@@ -262,6 +267,14 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
 
     public void setWorkoutDaysPerWeek(Integer workoutDaysPerWeek) {
         this.workoutDaysPerWeek = workoutDaysPerWeek;
+    }
+
+    public Integer getWeeklyWorkoutGoalDays() {
+        return weeklyWorkoutGoalDays;
+    }
+
+    public void setWeeklyWorkoutGoalDays(Integer weeklyWorkoutGoalDays) {
+        this.weeklyWorkoutGoalDays = weeklyWorkoutGoalDays;
     }
 
     public String getDietaryPreference() {

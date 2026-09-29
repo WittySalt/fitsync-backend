@@ -38,8 +38,41 @@ class NutritionGapRuleTests {
                 .containsEntry("targetCalories", 2184)
                 .containsEntry("consumedCalories", 1050)
                 .containsEntry("remainingCalories", 1134)
+                .containsEntry("proteinBasis", NutritionGapRule.BASIS_BODY_WEIGHT)
                 .containsEntry("proteinTargetGrams", new BigDecimal("132.0"))
                 .containsEntry("proteinRemainingGrams", new BigDecimal("66.50"));
+    }
+
+    @Test
+    void prefersAnExplicitProteinGoalOverTheBodyWeightEstimate() {
+        RecommendationContextEntity context = baseContext();
+        context.setLatestWeightKg(new BigDecimal("82.50"));
+        context.setTodayDate(LocalDate.parse("2026-07-06"));
+        context.setTodayProteinGrams(new BigDecimal("65.50"));
+        context.setProteinTargetGrams(new BigDecimal("140"));
+        context.setCurrentGoalType("CALORIES");
+        context.setCurrentGoalTargetValue(new BigDecimal("2100"));
+
+        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+
+        assertThat(outcome.facts())
+                .containsEntry("proteinBasis", NutritionGapRule.BASIS_PROTEIN_GOAL)
+                .containsEntry("proteinTargetGrams", new BigDecimal("140.0"))
+                .containsEntry("proteinRemainingGrams", new BigDecimal("74.50"));
+    }
+
+    @Test
+    void showsProteinFactsFromAGoalEvenWithoutAKnownWeight() {
+        RecommendationContextEntity context = baseContext();
+        context.setProteinTargetGrams(new BigDecimal("120"));
+        context.setCurrentGoalType("CALORIES");
+        context.setCurrentGoalTargetValue(new BigDecimal("2100"));
+
+        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+
+        assertThat(outcome.facts())
+                .containsEntry("proteinBasis", NutritionGapRule.BASIS_PROTEIN_GOAL)
+                .containsEntry("proteinTargetGrams", new BigDecimal("120.0"));
     }
 
     @Test
