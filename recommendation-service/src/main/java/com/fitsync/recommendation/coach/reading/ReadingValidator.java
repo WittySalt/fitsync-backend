@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -12,6 +11,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
+import com.fitsync.recommendation.coach.guardrail.CoachVoice;
 import org.springframework.stereotype.Component;
 
 /**
@@ -37,9 +37,6 @@ public class ReadingValidator {
      */
     private static final Pattern CITATION = Pattern.compile("\\[(\\d{1,2})]");
 
-    /** A hyphen with a space on each side, or two in a row, stands in for a dash. */
-    private static final Pattern DASH_AS_PUNCTUATION = Pattern.compile("\\s-\\s|--");
-
     /**
      * A number token: either comma-grouped ({@code 1,923}) or a plain digit run ({@code 1923}),
      * with an optional decimal tail. A trailing {@code %} is not part of the match, so {@code 12%}
@@ -47,8 +44,6 @@ public class ReadingValidator {
      */
     private static final Pattern NUMBER_TOKEN =
             Pattern.compile("(\\d{1,3}(?:,\\d{3})+|\\d+)(\\.\\d+)?");
-
-    private static final Pattern TRY_AT_SENTENCE_START = Pattern.compile("(?i)(?:^|[.]\\s+)try\\s");
 
     /**
      * A claim that something did not happen. No fact can confirm it, because the facts only record
@@ -59,24 +54,8 @@ public class ReadingValidator {
     private static final Pattern NEGATION = Pattern.compile(
             "(?i)\\b(no|not|never|none|nothing|nobody|without|neither|nor|cannot)\\b|n['\u2019]t\\b");
 
-    private static final Pattern RISING = Pattern.compile(
-            "(?i)\\b(up|rose|risen|rising|grew|grown|growing|increas(?:e|es|ed|ing)|more|higher|heavier|"
-                    + "longer|gain(?:s|ed|ing)?|climb(?:s|ed|ing)?|improv(?:e|es|ed|ing))\\b");
-
-    private static final Pattern FALLING = Pattern.compile(
-            "(?i)\\b(down|fell|fallen|falling|drop(?:s|ped|ping)?|decreas(?:e|es|ed|ing)|less|lower|"
-                    + "lighter|shorter|fewer|declin(?:e|es|ed|ing)|slipp(?:ed|ing))\\b");
-
-    private static final Pattern STEADY = Pattern.compile(
-            "(?i)\\b(unchanged|same|remain(?:s|ed|ing)?|stay(?:s|ed|ing)?|steady|held|flat|constant)\\b");
-
     /** A sentence ends at a full stop that is followed by a space, so 22.5 stays whole. */
     private static final Pattern SENTENCE_END = Pattern.compile("(?<=[.])\\s+");
-
-    private static final List<String> BANNED_PHRASES = List.of(
-            "you should", "you must", "you need to", "you ought", "make sure", "be sure to",
-            "try to", "consider ", "aim to", "aim for", "remember to", "don't ", "do not ",
-            "let's", "it's time to", "time to ");
 
     private final CoachGuardrail guardrail;
 
@@ -139,7 +118,7 @@ public class ReadingValidator {
         }
 
         String combined = headline + " " + body;
-        for (String violation : toneViolations(combined)) {
+        for (String violation : CoachVoice.toneViolations(combined)) {
             violations.add(violation);
         }
 
@@ -214,29 +193,6 @@ public class ReadingValidator {
         return new BigDecimal(token.replace(",", ""));
     }
 
-    private static List<String> toneViolations(String text) {
-        List<String> violations = new ArrayList<>();
-        String lower = text.toLowerCase(Locale.ROOT);
-        for (String phrase : BANNED_PHRASES) {
-            if (lower.contains(phrase)) {
-                violations.add("BANNED_PHRASE:" + phrase.strip());
-            }
-        }
-        if (TRY_AT_SENTENCE_START.matcher(text).find()) {
-            violations.add("BANNED_PHRASE:try-at-sentence-start");
-        }
-        if (text.contains("?")) {
-            violations.add("QUESTION_MARK");
-        }
-        if (text.contains("!")) {
-            violations.add("EXCLAMATION_MARK");
-        }
-        if (DASH_AS_PUNCTUATION.matcher(text).find()) {
-            violations.add("DASH_AS_PUNCTUATION");
-        }
-        return violations;
-    }
-
     /**
      * Checks the body one sentence at a time against the facts that sentence cites.
      *
@@ -284,13 +240,13 @@ public class ReadingValidator {
             steady = steady || note.startsWith("Unchanged");
         }
         List<String> violations = new ArrayList<>();
-        if (!rose && RISING.matcher(text).find()) {
+        if (!rose && CoachVoice.RISING.matcher(text).find()) {
             violations.add("DIRECTION_NOT_IN_FACTS:rising in the " + where);
         }
-        if (!fell && FALLING.matcher(text).find()) {
+        if (!fell && CoachVoice.FALLING.matcher(text).find()) {
             violations.add("DIRECTION_NOT_IN_FACTS:falling in the " + where);
         }
-        if (!steady && STEADY.matcher(text).find()) {
+        if (!steady && CoachVoice.STEADY.matcher(text).find()) {
             violations.add("DIRECTION_NOT_IN_FACTS:unchanged in the " + where);
         }
         return violations;

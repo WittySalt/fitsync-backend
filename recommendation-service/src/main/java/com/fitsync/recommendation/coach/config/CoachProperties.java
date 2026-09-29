@@ -24,6 +24,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                        in seconds, because the cost of cutting a slow answer off is a user who
  *                        sees nothing, while the cost of holding a dead connection is one idle
  *                        socket that the container reaps anyway.
+ * @param answerValidationEnabled whether every chat answer is checked by {@code AnswerValidator}
+ *                        before it is returned. Defaults to on; a separate switch from the feature
+ *                        itself exists so an environment can turn the check off without a code
+ *                        change, the same reason every other coach behaviour here is a property
+ *                        rather than a constant.
  */
 @ConfigurationProperties(prefix = "fitsync.coach")
 public record CoachProperties(
@@ -32,7 +37,8 @@ public record CoachProperties(
         String workoutBaseUrl,
         String nutritionBaseUrl,
         String userBaseUrl,
-        Duration streamTimeout) {
+        Duration streamTimeout,
+        Boolean answerValidationEnabled) {
 
     private static final int DEFAULT_MAX_TOOL_CALLS = 4;
     private static final Duration DEFAULT_CATALOGUE_TIMEOUT = Duration.ofSeconds(5);
@@ -47,6 +53,7 @@ public record CoachProperties(
         nutritionBaseUrl = nutritionBaseUrl == null ? "http://localhost:8083" : stripTrailingSlash(nutritionBaseUrl);
         userBaseUrl = userBaseUrl == null ? "http://localhost:8081" : stripTrailingSlash(userBaseUrl);
         streamTimeout = streamTimeout == null ? DEFAULT_STREAM_TIMEOUT : streamTimeout;
+        answerValidationEnabled = answerValidationEnabled == null ? Boolean.TRUE : answerValidationEnabled;
     }
 
     private static String stripTrailingSlash(String url) {

@@ -51,12 +51,12 @@ class CoachOrchestratorTests {
     void callsAToolThenAnswers() {
         CoachOrchestrator orchestrator = orchestrator(
                 "{\"tool\":\"echo\",\"args\":{\"say\":\"chest day\"}}",
-                "{\"answer\":\"You trained 4 of 5 planned days.\"}");
+                "{\"answer\":\"You trained on chest day.\"}");
 
         CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
 
         assertThat(calls).containsExactly("echo");
-        assertThat(outcome.answer()).isEqualTo("You trained 4 of 5 planned days.");
+        assertThat(outcome.answer()).isEqualTo("You trained on chest day.");
         assertThat(outcome.toolsUsed()).containsExactly("echo");
         assertThat(outcome.tier()).isEqualTo(CoachOrchestrator.TIER_LOCAL_MODEL);
         assertThat(outcome.modelAvailable()).isTrue();
@@ -113,7 +113,7 @@ class CoachOrchestratorTests {
     void degradesWhenTheModelIsOff() {
         CoachOrchestrator orchestrator = new CoachOrchestrator(
                 emptyProvider(), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
-                java.util.concurrent.Executors.newSingleThreadExecutor());
+                java.util.concurrent.Executors.newSingleThreadExecutor(), new AnswerValidator());
 
         CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
 
@@ -130,7 +130,7 @@ class CoachOrchestratorTests {
         };
         CoachOrchestrator orchestrator = new CoachOrchestrator(
                 providerOf(throwing), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
-                java.util.concurrent.Executors.newSingleThreadExecutor());
+                java.util.concurrent.Executors.newSingleThreadExecutor(), new AnswerValidator());
 
         CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
 
@@ -269,7 +269,7 @@ class CoachOrchestratorTests {
         };
         CoachOrchestrator orchestrator = new CoachOrchestrator(
                 providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
-                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor());
+                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor(), new AnswerValidator());
 
         CoachOutcome outcome = orchestrator.answer(CONTEXT, "Should I cut to 800 kcal a day?", List.of());
 
@@ -407,7 +407,7 @@ class CoachOrchestratorTests {
         };
         CoachOrchestrator orchestrator = new CoachOrchestrator(
                 providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
-                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor());
+                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor(), new AnswerValidator());
 
         TurnContext.PinnedReading pinnedReading = new TurnContext.PinnedReading("h", "b",
                 List.of(new TurnContext.PinnedFact(1, "l", "v", "u", "n", "d")));
@@ -415,6 +415,104 @@ class CoachOrchestratorTests {
                 new TurnContext(CoachSurface.WORKOUT, pinnedReading));
 
         assertThat(systemPrompts.get(0)).doesNotContain("readPinnedReading");
+    }
+
+    // --- answer validation, which now runs on every chat answer, not only on the pinned reading ---
+
+    @Test
+    @DisplayName("a valid first answer is returned with no correction call to the model")
+    void validFirstAnswerNeedsNoCorrection() {
+        List<String> prompts = new ArrayList<>();
+        ClaudeClient scripted = (system, user) -> {
+            prompts.add(user);
+            return "{\"answer\":\"Rest today.\"}";
+        };
+        CoachOrchestrator orchestrator = new CoachOrchestrator(
+                providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
+                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor(),
+                new AnswerValidator());
+
+        CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
+
+        assertThat(outcome.answer()).isEqualTo("Rest today.");
+        assertThat(prompts)
+                .withFailMessage("a passing answer must not cost a second model call")
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("an invalid first answer is corrected, and the valid second answer is returned")
+    void correctsAnInvalidFirstAnswer() {
+        List<String> prompts = new ArrayList<>();
+        Deque<String> script = new ArrayDeque<>(List.of(
+                "{\"answer\":\"You gained 42 kg this month.\"}",
+                "{\"answer\":\"Rest today.\"}"));
+        ClaudeClient scripted = (system, user) -> {
+            prompts.add(user);
+            return script.poll();
+        };
+        CoachOrchestrator orchestrator = new CoachOrchestrator(
+                providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
+                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor(),
+                new AnswerValidator());
+
+        CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
+
+        assertThat(outcome.answer()).isEqualTo("Rest today.");
+        assertThat(prompts).hasSize(2);
+        assertThat(prompts.get(1))
+                .withFailMessage("the second prompt must carry the correction")
+                .contains("Your previous answer was not accepted.");
+    }
+
+    @Test
+    @DisplayName("two invalid answers end the turn in the fixed sentence with an ANSWER_REJECTED verdict")
+    void rejectsAfterTwoInvalidAnswers() {
+        CoachOrchestrator orchestrator = orchestrator(List.of(
+                "{\"answer\":\"You gained 42 kg this month.\"}",
+                "{\"answer\":\"You also gained 99 kg overall.\"}"));
+
+        CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
+
+        assertThat(outcome.answer()).isEqualTo(
+                "I could not put together an answer that matches your records, so I have left it out. "
+                        + "Your measured facts are on the page.");
+        assertThat(outcome.guardrailVerdict())
+                .withFailMessage("the verdict must name the rule that was broken, never the model's text")
+                .startsWith("ANSWER_REJECTED:");
+        assertThat(outcome.tier()).isEqualTo(CoachOrchestrator.TIER_LOCAL_MODEL);
+    }
+
+    @Test
+    @DisplayName("with the property off, an invalid answer is returned exactly as the model wrote it")
+    void returnsAnInvalidAnswerWhenValidationIsDisabled() {
+        CoachOrchestrator orchestrator = orchestrator(
+                List.of("{\"answer\":\"You gained 42 kg this month.\"}"), properties(false), new AnswerValidator());
+
+        CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
+
+        assertThat(outcome.answer()).isEqualTo("You gained 42 kg this month.");
+        assertThat(outcome.guardrailVerdict()).isEqualTo("PASSED");
+    }
+
+    @Test
+    @DisplayName("a validator that throws ends the turn in the fixed sentence instead of failing it")
+    void degradesWhenTheAnswerValidatorThrows() {
+        AnswerValidator throwing = new AnswerValidator() {
+            @Override
+            public Result validate(String answer, String question, List<String> transcript, TurnContext turnContext) {
+                throw new IllegalStateException("boom");
+            }
+        };
+        CoachOrchestrator orchestrator = orchestrator(
+                List.of("{\"answer\":\"Rest today.\"}"), properties(), throwing);
+
+        CoachOutcome outcome = orchestrator.answer(CONTEXT, "anything at all", List.of());
+
+        assertThat(outcome.answer()).isEqualTo(
+                "I could not put together an answer that matches your records, so I have left it out. "
+                        + "Your measured facts are on the page.");
+        assertThat(outcome.guardrailVerdict()).startsWith("ANSWER_REJECTED:");
     }
 
     // -------------------------------------------------------------------------------------------
@@ -427,7 +525,7 @@ class CoachOrchestratorTests {
         };
         return new CoachOrchestrator(
                 providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
-                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor());
+                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor(), new AnswerValidator());
     }
 
     private CoachOrchestrator orchestrator(String... scriptedReplies) {
@@ -440,7 +538,19 @@ class CoachOrchestratorTests {
                 script.isEmpty() ? "{\"answer\":\"script exhausted\"}" : script.poll();
         return new CoachOrchestrator(
                 providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper), properties(), objectMapper,
-                java.util.concurrent.Executors.newSingleThreadExecutor());
+                java.util.concurrent.Executors.newSingleThreadExecutor(), new AnswerValidator());
+    }
+
+    /** Builds an orchestrator with a fixed script and an explicit properties/validator pair. */
+    private CoachOrchestrator orchestrator(List<String> scriptedReplies, CoachProperties customProperties,
+                                           AnswerValidator customValidator) {
+        Deque<String> script = new ArrayDeque<>(scriptedReplies);
+        ClaudeClient scripted = (system, user) ->
+                script.isEmpty() ? "{\"answer\":\"script exhausted\"}" : script.poll();
+        return new CoachOrchestrator(
+                providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
+                customProperties, objectMapper,
+                java.util.concurrent.Executors.newSingleThreadExecutor(), customValidator);
     }
 
     /** A registry holding one tool that records that it ran. */
@@ -473,7 +583,12 @@ class CoachOrchestratorTests {
 
     /** Two tool calls, so the budget is reachable inside a test without a long script. */
     private CoachProperties properties() {
-        return new CoachProperties(2, null, null, null, null, null);
+        return new CoachProperties(2, null, null, null, null, null, null);
+    }
+
+    /** Same as {@link #properties()}, with answer validation explicitly toggled. */
+    private CoachProperties properties(boolean answerValidationEnabled) {
+        return new CoachProperties(2, null, null, null, null, null, answerValidationEnabled);
     }
 
     private static List<String> repeat(String value, int times) {

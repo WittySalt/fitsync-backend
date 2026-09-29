@@ -23,6 +23,17 @@ public record CoachOutcome(String answer,
     public static final String VERDICT_MODEL_OFF = "MODEL_OFF";
     /** Prefix for a refusal, followed by the rule that fired, so the harness can count each rule. */
     public static final String VERDICT_REFUSED_PREFIX = "REFUSED_";
+    /**
+     * Prefix for a chat answer that failed {@link AnswerValidator} on both attempts, followed by
+     * the first violation code only — never the model's own text, which is exactly what the check
+     * exists to keep out of what the user is shown.
+     */
+    public static final String VERDICT_ANSWER_REJECTED_PREFIX = "ANSWER_REJECTED:";
+
+    /** What the user sees when neither of the model's two attempts passed {@link AnswerValidator}. */
+    static final String ANSWER_REJECTED_MESSAGE =
+            "I could not put together an answer that matches your records, so I have left it out. "
+                    + "Your measured facts are on the page.";
 
     public CoachOutcome {
         toolsUsed = toolsUsed == null ? List.of() : List.copyOf(toolsUsed);
@@ -52,5 +63,16 @@ public record CoachOutcome(String answer,
 
     public boolean refused() {
         return guardrailVerdict != null && guardrailVerdict.startsWith(VERDICT_REFUSED_PREFIX);
+    }
+
+    /**
+     * Two attempts at an answer both failed {@link AnswerValidator}. The tier is still
+     * {@link CoachOrchestrator#TIER_LOCAL_MODEL}, because a model was consulted and answered — it
+     * simply did not pass the check that now runs on every chat answer — and {@code toolsUsed} and
+     * {@code latencyMs} are whatever the turn had actually done by that point.
+     */
+    static CoachOutcome answerRejected(String firstViolationCode, List<String> toolsUsed, int latencyMs) {
+        return new CoachOutcome(ANSWER_REJECTED_MESSAGE, CoachOrchestrator.TIER_LOCAL_MODEL, toolsUsed, latencyMs,
+                true, VERDICT_ANSWER_REJECTED_PREFIX + firstViolationCode);
     }
 }

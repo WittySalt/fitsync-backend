@@ -117,6 +117,7 @@ public class CoachOrchestrator {
     private final CoachProperties properties;
     private final ObjectMapper objectMapper;
     private final ExecutorService toolExecutor;
+    private final AnswerValidator answerValidator;
 
     public CoachOrchestrator(ObjectProvider<ClaudeClient> claudeClient,
                              CoachGuardrail guardrail,
@@ -124,7 +125,8 @@ public class CoachOrchestrator {
                              CoachActionParser actionParser,
                              CoachProperties properties,
                              ObjectMapper objectMapper,
-                             @Qualifier("coachToolExecutor") ExecutorService toolExecutor) {
+                             @Qualifier("coachToolExecutor") ExecutorService toolExecutor,
+                             AnswerValidator answerValidator) {
         this.claudeClient = claudeClient;
         this.guardrail = guardrail;
         this.toolRegistry = toolRegistry;
@@ -132,6 +134,7 @@ public class CoachOrchestrator {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.toolExecutor = toolExecutor;
+        this.answerValidator = answerValidator;
     }
 
     /**
@@ -236,7 +239,8 @@ public class CoachOrchestrator {
             CoachAction action = actionParser.parse(reply);
             switch (action.kind()) {
                 case ANSWER -> {
-                    return CoachOutcome.answered(tidy(action.answer(), turnContext), toolsUsed, elapsedMs(startedAt));
+                    return finalizeAnswer(client, system, question, transcript, turnContext,
+                            toolsUsed, startedAt, action.answer(), listener);
                 }
                 case TOOL -> {
                     String args = action.args() == null ? "{}" : action.args().toString();
@@ -276,7 +280,8 @@ public class CoachOrchestrator {
             CoachAction last = actionParser.parse(client.complete(
                     ANSWER_ONLY_PROMPT, userPrompt(question, transcript)));
             if (last.kind() == CoachAction.Kind.ANSWER) {
-                return CoachOutcome.answered(tidy(last.answer(), turnContext), toolsUsed, elapsedMs(startedAt));
+                return finalizeAnswer(client, ANSWER_ONLY_PROMPT, question, transcript, turnContext,
+                        toolsUsed, startedAt, last.answer(), listener);
             }
         } catch (RuntimeException ex) {
             LOG.warn("Model call failed on the final answer-only attempt", ex);
@@ -438,6 +443,117 @@ public class CoachOrchestrator {
         }
         matcher.appendTail(tidied);
         return tidied.toString().replaceAll(" {2,}", " ").strip();
+    }
+
+    /**
+     * Checks a model's answer before the turn returns it, and gives the model exactly one chance to
+     * fix a failing one.
+     *
+     * <p>Every answer the loop is about to return goes through here, whether it came from the main
+     * loop or from the answer-only attempt made once the tool budget is spent, so the check cannot be
+     * skipped by a model that stalls on tools until the very end. When {@link AnswerValidator} passes
+     * the answer, or when {@code fitsync.coach.answer-validation-enabled} is off, this behaves exactly
+     * as returning the tidied answer always did. When it fails, one correction is appended to the
+     * transcript and the model is asked again with the same system prompt this attempt used; if that
+     * second answer also fails — or the model does not answer at all, or the check itself throws —
+     * the turn ends with a fixed sentence rather than anything the model wrote, so a citation attached
+     * to the wrong fact or a per-session figure called weekly is never what the user is shown.
+     */
+    private CoachOutcome finalizeAnswer(ClaudeClient client,
+                                        String system,
+                                        String question,
+                                        List<String> transcript,
+                                        TurnContext turnContext,
+                                        List<String> toolsUsed,
+                                        long startedAt,
+                                        String rawAnswer,
+                                        CoachProgressListener listener) {
+        String candidate = tidy(rawAnswer, turnContext);
+        if (!properties.answerValidationEnabled()) {
+            return CoachOutcome.answered(candidate, toolsUsed, elapsedMs(startedAt));
+        }
+
+        AnswerValidator.Result firstResult = validateSafely(candidate, question, transcript, turnContext);
+        if (firstResult.valid()) {
+            return CoachOutcome.answered(candidate, toolsUsed, elapsedMs(startedAt));
+        }
+
+        List<String> correctedTranscript = new ArrayList<>(transcript);
+        correctedTranscript.add(explainAnswerViolations(firstResult.violations()));
+
+        String secondReply;
+        try {
+            emit(listener, CoachProgressEvent.thinking());
+            secondReply = client.complete(system, userPrompt(question, correctedTranscript));
+        } catch (RuntimeException ex) {
+            LOG.warn("Model call failed on the answer-validation correction attempt", ex);
+            return CoachOutcome.answerRejected(firstResult.violations().get(0), toolsUsed, elapsedMs(startedAt));
+        }
+
+        CoachAction correctedAction = actionParser.parse(secondReply);
+        if (correctedAction.kind() != CoachAction.Kind.ANSWER) {
+            return CoachOutcome.answerRejected(firstResult.violations().get(0), toolsUsed, elapsedMs(startedAt));
+        }
+
+        String secondCandidate = tidy(correctedAction.answer(), turnContext);
+        AnswerValidator.Result secondResult = validateSafely(secondCandidate, question, correctedTranscript, turnContext);
+        if (secondResult.valid()) {
+            return CoachOutcome.answered(secondCandidate, toolsUsed, elapsedMs(startedAt));
+        }
+        return CoachOutcome.answerRejected(secondResult.violations().get(0), toolsUsed, elapsedMs(startedAt));
+    }
+
+    /**
+     * Runs {@link AnswerValidator} with the one guarantee the rest of this class depends on: it
+     * never throws. A validator bug must degrade the single answer it was checking, not the turn,
+     * so any exception is caught, only its class name is logged, and the answer is treated the same
+     * as a validator that ran cleanly and rejected it.
+     */
+    private AnswerValidator.Result validateSafely(String answer, String question, List<String> transcript,
+                                                  TurnContext turnContext) {
+        try {
+            return answerValidator.validate(answer, question, transcript, turnContext);
+        } catch (RuntimeException ex) {
+            LOG.warn("Answer validation failed with {}", ex.getClass().getSimpleName());
+            return new AnswerValidator.Result(false, List.of("VALIDATION_ERROR"));
+        }
+    }
+
+    /**
+     * Turns the validator's codes into sentences the model can act on, the same purpose
+     * {@code CoachReadingService.explain} serves for a rejected reading. A separate copy rather than
+     * a shared one: the two validators use different codes for the same idea
+     * ({@code NUMBER_NOT_IN_RECORDS} here against {@code NUMBER_NOT_IN_FACTS} there) and
+     * {@code orchestrator} does not depend on {@code reading}, the same direction
+     * {@code TurnContext}'s own Javadoc already documents.
+     */
+    private static String explainAnswerViolations(List<String> violations) {
+        StringBuilder text = new StringBuilder();
+        for (String violation : violations) {
+            String code = violation.contains(":") ? violation.substring(0, violation.indexOf(':')) : violation;
+            String detail = violation.contains(":") ? violation.substring(violation.indexOf(':') + 1) : "";
+            String sentence = switch (code) {
+                case "ANSWER_BLANK" -> "The answer was empty.";
+                case "ANSWER_TOO_LONG" -> "The answer was longer than 700 characters.";
+                case "NUMBER_NOT_IN_RECORDS" -> "The number " + detail + " is not in anything you were given.";
+                case "INVALID_CITATION" -> "There is no fact numbered " + detail + ".";
+                case "DIRECTION_NOT_IN_FACTS" -> "It described something as " + detail
+                        + ", and the fact cited there does not say so.";
+                case "MEASURE_MISMATCH" -> "It stated the per-session figure from fact " + detail
+                        + " as though it were a weekly figure.";
+                case "BANNED_PHRASE" -> "It gave advice or an instruction.";
+                case "QUESTION_MARK" -> "It asked a question.";
+                case "EXCLAMATION_MARK" -> "It used an exclamation mark.";
+                case "DASH_AS_PUNCTUATION" -> "It used a dash as punctuation.";
+                default -> "It broke the rule " + code + ".";
+            };
+            if (text.indexOf(sentence) < 0) {
+                text.append(text.length() == 0 ? "" : " ").append(sentence);
+            }
+        }
+        return "Your previous answer was not accepted. " + text
+                + " Answer again from what you were already given, using only numbers and directions "
+                + "that appear there, and correct the mistake.";
     }
 
     /** The one line that opens the transcript when the client says which page the user is on. */
