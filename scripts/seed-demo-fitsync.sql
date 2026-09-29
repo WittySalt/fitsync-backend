@@ -327,9 +327,10 @@ where persona = 'steady';
 -- five weeks"), drops to 3 sessions/week (no Saturday) for m in (2,3), then
 -- to 2 sessions/week (Monday + Thursday only, Monday shortened to 40 min) for
 -- m <= 1 — the most recent three calendar weeks (the still-forming current
--- week and the two completed weeks before it). Lift weight keeps rising
--- through the oldest weeks and then drops once per fortnight closer to now,
--- so the most recent weeks move less weight than the weeks before them.
+-- week and the two completed weeks before it). Lift weight rises through the
+-- oldest weeks, peaks four weeks before the last completed one, and then
+-- falls, so that each of the recent weeks moves no more weight than the week
+-- before it and the last completed week moves less.
 update demo_days
 set is_training_day = case
         when m >= 4      then dow in (1, 4, 5, 6)
@@ -346,11 +347,21 @@ set is_training_day = case
     skip_session = false
 where persona = 'drifting';
 
+alter table demo_days add column fall int;
 update demo_days
-set bench_w = greatest(10, round(22.50 - 2.50 * tier - case when m <= 1 then 5.00 when m in (2, 3) then 2.50 else 0 end, 2)),
-    squat_w = greatest(10, round(18.00 - 2.00 * tier - case when m <= 1 then 4.00 when m in (2, 3) then 2.00 else 0 end, 2)),
-    row_w   = greatest(10, round(20.00 - 2.00 * tier - case when m <= 1 then 4.00 when m in (2, 3) then 2.00 else 0 end, 2)),
-    run_km  = greatest(4.00, round(5.75 - 0.25 * tier - case when m <= 1 then 1.00 when m in (2, 3) then 0.50 else 0 end, 2))
+set fall = case
+        when m >= 4      then ceil((m - 4) / 2.0)::int
+        when m = 3       then 0
+        when m in (1, 2) then 1
+        else                  2
+    end
+where persona = 'drifting';
+
+update demo_days
+set bench_w = greatest(10, round(20.00 - 2.50 * fall, 2)),
+    squat_w = greatest(10, round(16.00 - 2.00 * fall, 2)),
+    row_w   = greatest(10, round(18.00 - 2.00 * fall, 2)),
+    run_km  = greatest(4.00, round(5.25 - 0.25 * fall, 2))
 where persona = 'drifting';
 
 -- Logged every day for the first five weeks (absolute week 0-4 from d_start),
