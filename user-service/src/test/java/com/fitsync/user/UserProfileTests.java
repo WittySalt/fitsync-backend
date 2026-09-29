@@ -1,5 +1,7 @@
 package com.fitsync.user;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -362,6 +364,185 @@ class UserProfileTests {
                 .andExpect(jsonPath("$", hasSize(6)))
                 .andExpect(jsonPath("$[*].goalType", containsInAnyOrder(
                         "WEIGHT", "WORKOUT_FREQUENCY", "CALORIES", "PROTEIN", "CARBS", "FAT")));
+    }
+
+    @Test
+    void canCompleteOnboardingWithoutDecidingWeeklyWorkoutDays() throws Exception {
+        String token = tokenFor("undecided-frequency@example.com", "Undecided User");
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Undecided User",
+                                  "birthDate": "1996-04-12",
+                                  "gender": "FEMALE",
+                                  "heightCm": 168.0,
+                                  "activityLevel": "MODERATELY_ACTIVE",
+                                  "timezone": "Asia/Singapore",
+                                  "preferredUnits": "100001",
+                                  "currentWeightKg": 72.0,
+                                  "targetWeightKg": 68.0,
+                                  "bodyFatRate": 22.5,
+                                  "targetDate": "2026-09-30",
+                                  "fitnessLevel": "200001",
+                                  "trainingLocation": "210004",
+                                  "preferredDurationMinutes": 45,
+                                  "preferredWorkoutTime": "19:30:00",
+                                  "intensityPreference": "220002",
+                                  "dietaryPattern": "300001",
+                                  "mealFrequency": 4,
+                                  "calorieTrackingMode": "310002",
+                                  "macroPreference": "320002",
+                                  "waterGoalMl": 2500,
+                                  "workoutReminderEnabled": true,
+                                  "mealReminderEnabled": true,
+                                  "weighInReminderEnabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile.onboardingCompleted").value(true))
+                .andExpect(jsonPath("$.preferences.training.weeklyWorkoutDays").value(nullValue()))
+                .andExpect(jsonPath("$.activeGoals", hasSize(5)))
+                .andExpect(jsonPath("$.activeGoals[*].goalType", containsInAnyOrder(
+                        "WEIGHT", "CALORIES", "PROTEIN", "CARBS", "FAT")));
+
+        mockMvc.perform(get("/api/v1/users/me/preferences")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.training.weeklyWorkoutDays").value(nullValue()));
+    }
+
+    @Test
+    void secondOnboardingWithoutWeeklyWorkoutDaysKeepsTheEarlierGoal() throws Exception {
+        String token = tokenFor("decides-later@example.com", "Decides Later");
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Decides Later",
+                                  "birthDate": "1996-04-12",
+                                  "gender": "FEMALE",
+                                  "heightCm": 168.0,
+                                  "activityLevel": "MODERATELY_ACTIVE",
+                                  "timezone": "Asia/Singapore",
+                                  "preferredUnits": "100001",
+                                  "currentWeightKg": 72.0,
+                                  "targetWeightKg": 68.0,
+                                  "bodyFatRate": 22.5,
+                                  "targetDate": "2026-09-30",
+                                  "fitnessLevel": "200001",
+                                  "trainingLocation": "210004",
+                                  "weeklyWorkoutDays": 4,
+                                  "preferredDurationMinutes": 45,
+                                  "preferredWorkoutTime": "19:30:00",
+                                  "intensityPreference": "220002",
+                                  "dietaryPattern": "300001",
+                                  "mealFrequency": 4,
+                                  "calorieTrackingMode": "310002",
+                                  "macroPreference": "320002",
+                                  "waterGoalMl": 2500,
+                                  "workoutReminderEnabled": true,
+                                  "mealReminderEnabled": true,
+                                  "weighInReminderEnabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeGoals", hasSize(6)));
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Decides Later",
+                                  "birthDate": "1996-04-12",
+                                  "gender": "FEMALE",
+                                  "heightCm": 168.0,
+                                  "activityLevel": "MODERATELY_ACTIVE",
+                                  "timezone": "Asia/Singapore",
+                                  "preferredUnits": "100001",
+                                  "currentWeightKg": 70.0,
+                                  "targetWeightKg": 66.0,
+                                  "bodyFatRate": 21.0,
+                                  "targetDate": "2026-10-31",
+                                  "fitnessLevel": "200002",
+                                  "trainingLocation": "210002",
+                                  "preferredDurationMinutes": 50,
+                                  "preferredWorkoutTime": "20:00:00",
+                                  "intensityPreference": "220003",
+                                  "dietaryPattern": "300002",
+                                  "mealFrequency": 3,
+                                  "calorieTrackingMode": "310003",
+                                  "macroPreference": "320002",
+                                  "waterGoalMl": 2600,
+                                  "workoutReminderEnabled": true,
+                                  "mealReminderEnabled": true,
+                                  "weighInReminderEnabled": false
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.preferences.training.weeklyWorkoutDays").value(nullValue()))
+                .andExpect(jsonPath("$.activeGoals", hasSize(6)))
+                .andExpect(jsonPath("$.activeGoals[*].goalType", containsInAnyOrder(
+                        "WEIGHT", "WORKOUT_FREQUENCY", "CALORIES", "PROTEIN", "CARBS", "FAT")));
+
+        MvcResult goalsResult = mockMvc.perform(get("/api/v1/users/me/goals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .param("status", "ACTIVE"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode goals = objectMapper.readTree(goalsResult.getResponse().getContentAsString());
+        JsonNode workoutFrequencyGoal = null;
+        for (JsonNode goal : goals) {
+            if ("WORKOUT_FREQUENCY".equals(goal.get("goalType").asText())) {
+                workoutFrequencyGoal = goal;
+            }
+        }
+        assertNotNull(workoutFrequencyGoal,
+                "the workout frequency goal set by the first onboarding must still be present");
+        assertEquals(4.0, workoutFrequencyGoal.get("targetValue").asDouble());
+    }
+
+    @Test
+    void onboardingRejectsWeeklyWorkoutDaysOutsideAllowedRangeButAcceptsMissingValue() throws Exception {
+        String token = tokenFor("range-check@example.com", "Range Check");
+        String bodyTemplate = """
+                {
+                  "displayName": "Range Check",
+                  "heightCm": 168.0,
+                  "activityLevel": "MODERATELY_ACTIVE",
+                  "preferredUnits": "100001",
+                  "currentWeightKg": 72.0,
+                  "targetWeightKg": 68.0,
+                  "fitnessLevel": "200001",
+                  "trainingLocation": "210004",
+                  "weeklyWorkoutDays": %s,
+                  "preferredDurationMinutes": 45,
+                  "intensityPreference": "220002",
+                  "dietaryPattern": "300001",
+                  "mealFrequency": 4,
+                  "calorieTrackingMode": "310002",
+                  "macroPreference": "320002"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(bodyTemplate.formatted(0)))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(bodyTemplate.formatted(15)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

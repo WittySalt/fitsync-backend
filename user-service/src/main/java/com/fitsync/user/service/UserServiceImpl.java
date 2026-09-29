@@ -249,12 +249,16 @@ public class UserServiceImpl implements UserService {
                 targetDate,
                 GoalStatus.ACTIVE,
                 "Initial target from onboarding"));
-        upsertGoal(principal, GoalType.WORKOUT_FREQUENCY, new UpsertUserGoalRequest(
-                BigDecimal.valueOf(request.weeklyWorkoutDays()),
-                "sessions/week",
-                targetDate,
-                GoalStatus.ACTIVE,
-                "Initial training frequency from onboarding"));
+        // A weekly session count is optional at onboarding, since the user may decide it later
+        // when activating a plan, so no WORKOUT_FREQUENCY goal is created until they give one.
+        if (request.weeklyWorkoutDays() != null) {
+            upsertGoal(principal, GoalType.WORKOUT_FREQUENCY, new UpsertUserGoalRequest(
+                    BigDecimal.valueOf(request.weeklyWorkoutDays()),
+                    "sessions/week",
+                    targetDate,
+                    GoalStatus.ACTIVE,
+                    "Initial training frequency from onboarding"));
+        }
         upsertGoal(principal, GoalType.CALORIES, new UpsertUserGoalRequest(
                 BigDecimal.valueOf(calorieTarget),
                 "kcal",
