@@ -15,11 +15,16 @@ import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.InsightPeriod;
 import com.fitsync.workout.domain.MuscleGroup;
+import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.dto.CardioInsightView;
 import com.fitsync.workout.dto.LiftProgressView;
+import com.fitsync.workout.dto.MobilityInsightView;
+import com.fitsync.workout.dto.SportActivityInsightView;
+import com.fitsync.workout.dto.SportInsightView;
 import com.fitsync.workout.dto.TrainingPageInsightView;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
@@ -41,6 +46,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -218,6 +224,9 @@ class TrainingPageInsightServiceTests {
         assertNull(result.record());
         assertNull(result.mostTrained());
         assertTrue(result.lifts().isEmpty());
+        assertNull(result.cardio());
+        assertNull(result.mobility());
+        assertNull(result.sport());
     }
 
     @Test
@@ -237,6 +246,9 @@ class TrainingPageInsightServiceTests {
         assertNull(result.record());
         assertNull(result.mostTrained());
         assertTrue(result.lifts().isEmpty());
+        assertNull(result.cardio());
+        assertNull(result.mobility());
+        assertNull(result.sport());
     }
 
     @Test
@@ -270,6 +282,100 @@ class TrainingPageInsightServiceTests {
         TrainingPageInsightView utcResult = trainingPageInsightService.getTrainingPageInsight(
                 currentUser, "UTC", LocalDate.parse("2026-09-27"));
         assertEquals(1, utcResult.sessions(), "should count as 2026-09-27 in UTC");
+    }
+
+    @Test
+    void computesCardioMobilityAndSportGroups() {
+        // Period week (Monday to Thursday): two runs, one mobility session and three sport
+        // sessions across two named activities plus one without an activity.
+        createCardioSessionWithDistance(currentUser, "2026-09-21T06:00:00", 34, new BigDecimal("5.50"));
+        createCardioSessionWithDistance(currentUser, "2026-09-21T18:00:00", 36, new BigDecimal("6.00"));
+        createMobilitySession(currentUser, "2026-09-22T18:00:00", 20);
+        createSportSession(currentUser, "2026-09-23T18:00:00", 60, SportActivity.BADMINTON);
+        createSportSession(currentUser, "2026-09-23T19:30:00", 45, SportActivity.TENNIS);
+        createSportSession(currentUser, "2026-09-24T18:00:00", 15, null);
+
+        // Earlier week: one run and no mobility or sport session.
+        createCardioSessionWithDistance(currentUser, "2026-09-16T18:00:00", 30, new BigDecimal("4.00"));
+
+        TrainingPageInsightView result = trainingPageInsightService.getTrainingPageInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-24"));
+
+        assertEquals(InsightPeriod.THIS_WEEK, result.period());
+
+        CardioInsightView cardio = result.cardio();
+        assertEquals(2, cardio.sessions());
+        assertEquals(1, cardio.earlierSessions());
+        assertEquals(0, new BigDecimal("5.75").compareTo(cardio.distancePerSessionKm()));
+        assertEquals(0, new BigDecimal("4.00").compareTo(cardio.earlierDistancePerSessionKm()));
+        assertEquals(365, cardio.paceSecondsPerKm());
+        assertEquals(450, cardio.earlierPaceSecondsPerKm());
+        assertEquals(35, cardio.minutesPerSession());
+        assertEquals(30, cardio.earlierMinutesPerSession());
+
+        MobilityInsightView mobility = result.mobility();
+        assertEquals(1, mobility.sessions());
+        assertEquals(20, mobility.minutes());
+        assertEquals(0, mobility.earlierSessions());
+        assertEquals(0, mobility.earlierMinutes());
+
+        SportInsightView sport = result.sport();
+        assertEquals(3, sport.sessions());
+        assertEquals(120, sport.minutes());
+        assertEquals(3, sport.activities().size());
+        SportActivityInsightView first = sport.activities().get(0);
+        assertEquals(SportActivity.BADMINTON, first.activity());
+        assertEquals("Badminton", first.label());
+        assertEquals(60, first.minutes());
+        SportActivityInsightView second = sport.activities().get(1);
+        assertEquals(SportActivity.TENNIS, second.activity());
+        assertEquals(45, second.minutes());
+        SportActivityInsightView third = sport.activities().get(2);
+        assertEquals(SportActivity.OTHER, third.activity());
+        assertEquals(15, third.minutes());
+    }
+
+    @Test
+    void cardioIsNullWhenThePeriodHasNoCardioSession() {
+        createMobilitySession(currentUser, "2026-09-21T18:00:00", 20);
+        createMobilitySession(currentUser, "2026-09-22T18:00:00", 20);
+        createMobilitySession(currentUser, "2026-09-23T18:00:00", 20);
+
+        TrainingPageInsightView result = trainingPageInsightService.getTrainingPageInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-23"));
+
+        assertEquals(InsightPeriod.THIS_WEEK, result.period());
+        assertNull(result.cardio());
+        assertNotNull(result.mobility());
+    }
+
+    @Test
+    void cardioRunWithZeroDistanceDoesNotDivideByZero() {
+        createCardioSessionWithDistance(currentUser, "2026-09-21T18:00:00", 20, BigDecimal.ZERO);
+
+        TrainingPageInsightView result = trainingPageInsightService.getTrainingPageInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-21"));
+
+        CardioInsightView cardio = result.cardio();
+        assertEquals(1, cardio.sessions());
+        assertEquals(0, BigDecimal.ZERO.compareTo(cardio.distancePerSessionKm()));
+        assertNull(cardio.paceSecondsPerKm());
+        assertEquals(20, cardio.minutesPerSession());
+    }
+
+    @Test
+    void cardioRunsWithoutADistanceGiveNullDistanceAndPaceButAMinutesValue() {
+        createCardioSessionWithDistance(currentUser, "2026-09-21T18:00:00", 30, null);
+        createCardioSessionWithDistance(currentUser, "2026-09-22T18:00:00", 40, null);
+
+        TrainingPageInsightView result = trainingPageInsightService.getTrainingPageInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-22"));
+
+        CardioInsightView cardio = result.cardio();
+        assertEquals(2, cardio.sessions());
+        assertNull(cardio.distancePerSessionKm());
+        assertNull(cardio.paceSecondsPerKm());
+        assertEquals(35, cardio.minutesPerSession());
     }
 
     /** Builds the shared 8-session, 4-week fixture described in the endpoint's acceptance scenario. */
@@ -344,6 +450,36 @@ class TrainingPageInsightServiceTests {
                 bodyweightExerciseLog(coreId, 2));
         createCompletedSession(user, "Cardio Day", WorkoutType.CARDIO,
                 LocalDateTime.parse(localDate + "T18:30:00"), 35, exercises);
+    }
+
+    /** A cardio session logged with its own distance directly on the session (K4), rather than
+     * through an exercise log, at the given local date-time. A null distance leaves it unset. */
+    private void createCardioSessionWithDistance(CurrentUserPrincipal user, String localDateTime, int durationMinutes, BigDecimal distanceKm) {
+        Instant startedAt = LocalDateTime.parse(localDateTime).atZone(SGT).toInstant();
+        Instant completedAt = startedAt.plusSeconds(durationMinutes * 60L);
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null, "Cardio Run", WorkoutType.CARDIO, WorkoutSessionStatus.COMPLETED, WorkoutSource.MANUAL,
+                startedAt, completedAt, null, null, null, null, List.of(), null, distanceKm);
+        workoutService.createSession(user, request);
+    }
+
+    private void createMobilitySession(CurrentUserPrincipal user, String localDateTime, int durationMinutes) {
+        Instant startedAt = LocalDateTime.parse(localDateTime).atZone(SGT).toInstant();
+        Instant completedAt = startedAt.plusSeconds(durationMinutes * 60L);
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null, "Mobility Session", WorkoutType.MOBILITY, WorkoutSessionStatus.COMPLETED, WorkoutSource.MANUAL,
+                startedAt, completedAt, null, null, null, null, List.of());
+        workoutService.createSession(user, request);
+    }
+
+    /** A sport session for the given activity, or without one (stored under OTHER) when null. */
+    private void createSportSession(CurrentUserPrincipal user, String localDateTime, int durationMinutes, SportActivity sportActivity) {
+        Instant startedAt = LocalDateTime.parse(localDateTime).atZone(SGT).toInstant();
+        Instant completedAt = startedAt.plusSeconds(durationMinutes * 60L);
+        UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
+                null, "Sport Session", WorkoutType.SPORTS, WorkoutSessionStatus.COMPLETED, WorkoutSource.MANUAL,
+                startedAt, completedAt, null, null, null, null, List.of(), sportActivity);
+        workoutService.createSession(user, request);
     }
 
     private void createInProgressSession(CurrentUserPrincipal user, String localDate, UUID armsId) {
