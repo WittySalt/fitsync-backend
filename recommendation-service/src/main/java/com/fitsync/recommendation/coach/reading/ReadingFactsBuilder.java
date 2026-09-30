@@ -247,7 +247,8 @@ public class ReadingFactsBuilder {
                 mostTrained.sessions() == null ? null : BigDecimal.valueOf(mostTrained.sessions()), note, detail));
     }
 
-    private static String percentChangeNote(BigDecimal current, BigDecimal earlier) {
+    /** The change against the earlier value as a whole percent, shared with the other pages' builders. */
+    static String percentChangeNote(BigDecimal current, BigDecimal earlier) {
         if (earlier.compareTo(BigDecimal.ZERO) == 0) {
             return "";
         }
@@ -313,5 +314,16 @@ public class ReadingFactsBuilder {
             scaled = scaled.setScale(0);
         }
         return scaled.toPlainString();
+    }
+
+    /** The chosen facts numbered from one in order, the numbering every page's facts share. */
+    static List<ReadingFact> numbered(List<ReadingFact> chosen) {
+        List<ReadingFact> numbered = new ArrayList<>();
+        for (int i = 0; i < chosen.size(); i++) {
+            ReadingFact fact = chosen.get(i);
+            numbered.add(new ReadingFact(i + 1, fact.key(), fact.label(), fact.value(), fact.unit(),
+                    fact.numericValue(), fact.note(), fact.detail()));
+        }
+        return List.copyOf(numbered);
     }
 }

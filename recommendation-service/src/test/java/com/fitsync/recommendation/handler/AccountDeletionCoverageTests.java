@@ -2,12 +2,20 @@ package com.fitsync.recommendation.handler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
@@ -35,6 +43,7 @@ import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.repository.RecommendationProcessedEventRepository;
 import com.fitsync.recommendation.repository.RecommendationResultRepository;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Table;
 import jakarta.persistence.metamodel.EntityType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -126,6 +135,37 @@ class AccountDeletionCoverageTests {
                 .isEmpty();
     }
 
+    /**
+     * The entity check above cannot see a table that a migration creates without an entity in
+     * front of it, and such a table would hold user rows that nothing purges. Comparing the tables
+     * the migrations create with the tables the entities map closes that gap.
+     */
+    @Test
+    void everyMigratedTableIsMappedByAnEntityWithADecidedFate() throws IOException {
+        Pattern createTable = Pattern.compile("(?im)^\\s*create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?(\\w+)");
+        Set<String> migratedTables = new TreeSet<>();
+        Path migrations = Paths.get("src/main/resources/db/migration");
+        try (Stream<Path> files = Files.list(migrations)) {
+            for (Path file : files.filter(path -> path.toString().endsWith(".sql")).toList()) {
+                Matcher matcher = createTable.matcher(Files.readString(file));
+                while (matcher.find()) {
+                    migratedTables.add(matcher.group(1).toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+
+        Set<String> decidedTables = new TreeSet<>();
+        for (Class<?> covered : COVERED_ENTITIES) {
+            decidedTables.add(covered.getAnnotation(Table.class).name().toLowerCase(java.util.Locale.ROOT));
+        }
+
+        assertThat(migratedTables)
+                .withFailMessage("a migration creates a table with no covered entity; decide its fate on"
+                        + " account deletion and add its entity to COVERED_ENTITIES")
+                .isNotEmpty()
+                .isEqualTo(decidedTables);
+    }
+
     @Test
     void deletingAnAccountRemovesEveryUserOwnedRowAndLeavesAnotherUsersRowsAlone() {
         UUID userA = UUID.randomUUID();
@@ -166,7 +206,11 @@ class AccountDeletionCoverageTests {
         // Every entity user A appears in, directly or through a thread or turn, is now empty for A.
         assertThat(contextRepository.findById(userA)).isEmpty();
         assertThat(resultRepository.findByUserId(userA)).isEmpty();
-        assertThat(readingRepository.findByUserIdAndSurface(userA, ReadingSurface.WORKOUT)).isEmpty();
+        for (ReadingSurface surface : ReadingSurface.values()) {
+            assertThat(readingRepository.findByUserIdAndSurface(userA, surface))
+                    .withFailMessage("account deletion must remove the %s reading", surface)
+                    .isEmpty();
+        }
         assertThat(threadRepository.findByThreadIdAndUserId(activeThreadA, userA)).isEmpty();
         assertThat(threadRepository.findByThreadIdAndUserId(archivedThreadA, userA))
                 .withFailMessage("account deletion must remove archived threads too, not just live ones")
@@ -190,7 +234,9 @@ class AccountDeletionCoverageTests {
         // User B's rows, in every one of the same entities, are untouched.
         assertThat(contextRepository.findById(userB)).isPresent();
         assertThat(resultRepository.findByUserId(userB)).hasSize(1);
-        assertThat(readingRepository.findByUserIdAndSurface(userB, ReadingSurface.WORKOUT)).isPresent();
+        for (ReadingSurface surface : ReadingSurface.values()) {
+            assertThat(readingRepository.findByUserIdAndSurface(userB, surface)).isPresent();
+        }
         assertThat(threadRepository.findByThreadIdAndUserId(threadB, userB)).isPresent();
         assertThat(turnRepository.findByThreadIdOrderBySeqAsc(threadB)).hasSize(1);
         assertThat(toolInvocationRepository.findByTurnIdOrderBySeqAsc(turnB)).hasSize(1);
@@ -241,14 +287,16 @@ class AccountDeletionCoverageTests {
     }
 
     private void createReading(UUID userId) {
-        CoachPageReadingEntity reading = new CoachPageReadingEntity();
-        reading.setId(UUID.randomUUID());
-        reading.setUserId(userId);
-        reading.setSurface(ReadingSurface.WORKOUT);
-        reading.setFactsHash("hash");
-        reading.setOutcome(ReadingOutcome.ACCEPTED);
-        reading.setStartedAt(Instant.parse("2026-07-06T09:00:00Z"));
-        readingRepository.save(reading);
+        for (ReadingSurface surface : ReadingSurface.values()) {
+            CoachPageReadingEntity reading = new CoachPageReadingEntity();
+            reading.setId(UUID.randomUUID());
+            reading.setUserId(userId);
+            reading.setSurface(surface);
+            reading.setFactsHash("hash");
+            reading.setOutcome(ReadingOutcome.ACCEPTED);
+            reading.setStartedAt(Instant.parse("2026-07-06T09:00:00Z"));
+            readingRepository.save(reading);
+        }
     }
 
     private UUID createThread(UUID userId, boolean archived) {

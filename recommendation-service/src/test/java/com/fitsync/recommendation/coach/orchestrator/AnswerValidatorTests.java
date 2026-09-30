@@ -396,4 +396,79 @@ class AnswerValidatorTests {
                                 "Every one", "Plank Hold")));
         return new TurnContext(CoachSurface.WORKOUT, pinnedReading);
     }
+
+    // --- numbers written as words --------------------------------------------------------------
+
+    private static final List<String> FOUR_SESSIONS = List.of(
+            "Result of readFacts({}):\nYou trained 4 sessions for 170 minutes over 21 days.");
+
+    @Test
+    @DisplayName("a count in words that matches the records passes")
+    void aCorrectCountInWordsPasses() {
+        assertThat(validator.validate("You logged four sessions.", "q", FOUR_SESSIONS, null).valid()).isTrue();
+        assertThat(validator.validate("That was twenty-one days.", "q", FOUR_SESSIONS, null).valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a wrong count in words fails with the same code and form as digits")
+    void aWrongCountInWordsFails() {
+        AnswerValidator.Result result = validator.validate(
+                "You logged five sessions.", "q", FOUR_SESSIONS, null);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.violations()).containsExactly("NUMBER_NOT_IN_RECORDS:five");
+        assertThat(validator.validate("You logged 5 sessions.", "q", FOUR_SESSIONS, null).violations())
+                .containsExactly("NUMBER_NOT_IN_RECORDS:5");
+    }
+
+    @Test
+    @DisplayName("a hyphenated number is read whole, and a wrong one is reported whole")
+    void hyphenatedNumbersAreReadWhole() {
+        AnswerValidator.Result result = validator.validate(
+                "That was twenty-two days.", "q", FOUR_SESSIONS, null);
+
+        assertThat(result.violations()).containsExactly("NUMBER_NOT_IN_RECORDS:twenty-two");
+    }
+
+    @Test
+    @DisplayName("one as a pronoun, a second, and an idiom are not counts")
+    void wordsThatAreNotCountsAreLeftAlone() {
+        List<String> records = List.of("Result of readFacts({}):\nYou trained 4 sessions.");
+
+        assertThat(validator.validate("The one you asked about is logged.", "q", records, null).valid()).isTrue();
+        assertThat(validator.validate("One of them was a long session.", "q", records, null).valid()).isTrue();
+        assertThat(validator.validate("Give me a second to look.", "q", records, null).valid()).isTrue();
+        assertThat(validator.validate("Your first session was short, and a day off followed.", "q", records, null)
+                .valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a word number opening a sentence is read, whatever its case")
+    void aWordNumberAtTheStartOfASentenceIsRead() {
+        AnswerValidator.Result result = validator.validate(
+                "Six sessions are on record. Four sessions were strength.", "q", FOUR_SESSIONS, null);
+
+        assertThat(result.violations()).containsExactly("NUMBER_NOT_IN_RECORDS:Six");
+    }
+
+    @Test
+    @DisplayName("digits and words in one answer are each checked")
+    void digitsAndWordsAreCheckedTogether() {
+        assertThat(validator.validate("Four sessions in 21 days.", "q", FOUR_SESSIONS, null).valid()).isTrue();
+
+        AnswerValidator.Result result = validator.validate(
+                "Four sessions in 22 days, and seven workouts.", "q", FOUR_SESSIONS, null);
+        assertThat(result.violations()).containsExactly("NUMBER_NOT_IN_RECORDS:22", "NUMBER_NOT_IN_RECORDS:seven");
+    }
+
+    @Test
+    @DisplayName("a count written in words before a unit is checked too, and a for-a-week count must be named")
+    void wordCountsFollowTheWeekRule() {
+        AnswerValidator.Result result = validator.validate(
+                "Your week is on track. You completed four workouts.", "How is my week going", TWO_WEEKS, null);
+
+        assertThat(result.violations()).containsExactly("WEEK_NOT_NAMED:four workouts");
+        assertThat(validator.validate("Last week you completed four workouts.", "q", TWO_WEEKS, null).valid())
+                .isTrue();
+    }
 }

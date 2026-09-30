@@ -51,12 +51,12 @@ public class NarrativeTemplates {
         return "You have %d kcal left of today's %d kcal target.".formatted(remaining, target);
     }
 
-    // T4-T5 — weekly adherence.
+    // T4-T5 — weekly adherence. The counts come from the last full week, so the text says so.
     private static String weeklyAdherence(Map<String, Object> facts) {
         int targetDays = intFact(facts, "targetDaysPerWeek");
         int activeDays = intFact(facts, "activeDays");
         if (WeeklyAdherenceRule.STATUS_MET.equals(facts.get("status"))) {
-            return "Weekly goal met: %d of %d training days done — great consistency."
+            return "Last week's goal met: %d of %d training days done — great consistency."
                     .formatted(activeDays, targetDays);
         }
         return "You trained %d of %d planned days last week — %d more gets you to target this week."

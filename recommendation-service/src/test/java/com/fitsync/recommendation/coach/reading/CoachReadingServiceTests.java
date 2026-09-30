@@ -128,6 +128,20 @@ class CoachReadingServiceTests {
         assertThat(response.readingId()).isEqualTo(CoachReadingService.hash(insight, pinned).substring(0, 16));
     }
 
+    @Test
+    @DisplayName("the workout reading of a fixed week is exactly what it was before other pages existed")
+    void workoutReadingIsPinnedByteForByte() {
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
+
+        CoachReadingResponse response = service.workoutReading(USER_ID, TOKEN, "UTC");
+
+        assertThat(response.surface()).isEqualTo(ReadingSurface.WORKOUT);
+        assertThat(response.readingId()).isEqualTo("535bb3e30d09c6e5");
+        assertThat(response.period()).isEqualTo("PREVIOUS_WEEK");
+        assertThat(response.reading().headline()).isEqualTo("Your lifts grew while your sessions stayed the same length.");
+        assertThat(response.reading().body()).isEqualTo("You moved 1,923 kg a session [1], up from 1,716 kg, in 50 min [2]. Monday brought a Dumbbell Bench Press of 22.5 kg [3], up from 20 kg. Core work was part of 4 of 4 sessions [4].");
+    }
+
     private static TrainingInsight withRuns(BigDecimal distance) {
         return ReadingFactsBuilderTests.withGroups(fullInsight(),
                 new TrainingInsight.CardioInfo(2, 2, distance, new BigDecimal("5.50"),

@@ -20,7 +20,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
 import com.fitsync.recommendation.service.ai.ClaudeClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,14 +28,19 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
- * Serves the workout page's insight panel: four measured facts, built in pure code, and one short
- * reading over them.
+ * Serves the insight panel of the workout, nutrition and progress pages: a few measured facts, built
+ * in pure code, and one short reading over them.
  *
- * <p>The reading is written by {@link RuleReadingWriter} from fixed templates by default. A model
- * reading only ever replaces it when one exists for exactly these facts and has already passed
+ * <p>The reading is written by a rule writer from fixed templates by default. A model reading only
+ * ever replaces it when one exists for exactly these facts and has already passed
  * {@link ReadingValidator} — the model is never trusted to be the only source of the reading, because
  * a small model has previously written a reading that passed every check and was still false. The
  * rule writer cannot make that mistake, because it has no free text to make it in.
+ *
+ * <p>Everything a page has in common lives here and everything that differs lives in a
+ * {@link ReadingPage}: where its facts come from, how they are built, how its default reading is
+ * written and what the model is told about it. The stored row is keyed by user and surface, so each
+ * page has its own reading and its own generation.
  *
  * <p>The GET this backs is cheap by design, because a client is expected to poll it while a model
  * reading is being written in the background. It never runs the model itself; it reads the current
@@ -49,7 +53,7 @@ import org.springframework.stereotype.Service;
  * <p>Two rules matter more than anything the model was told, and both are enforced here rather than
  * trusted to the prompt: a reading never tells the user what to do, and every number in it is one of
  * the measured facts. {@link ReadingValidator} is where both are actually checked, for the model's
- * answer and for the rule writer's own candidates alike.
+ * answer and for the rule writers' own candidates alike.
  */
 @Service
 public class CoachReadingService {
@@ -59,66 +63,8 @@ public class CoachReadingService {
     /** How long a PENDING row is trusted to mean "a generation is genuinely still running". */
     private static final long PENDING_ABANDON_SECONDS = 60L;
 
-    private static final String SYSTEM_PROMPT = """
-            You are FitSync's coach, noticing patterns in one page of pre-computed facts. You never \
-            give advice, an instruction, a suggestion or a question - you only observe what the facts \
-            show together, which the numbers alone do not.
-
-            Answer with exactly one JSON object and nothing else: {"headline": "...", "body": "..."}
-
-            Rules for the headline:
-            - One sentence, at most 80 characters.
-            - It does not need to contain a number.
-
-            Rules for the body:
-            - One or two sentences, at most 320 characters, on a single line.
-            - It connects at least two of the facts and says what they show together.
-            - Every number you write must be copied exactly from the facts you were given - do not \
-            calculate a percentage, ratio or difference yourself.
-            - Immediately after each number or claim taken from a fact, write that fact's number in \
-            square brackets, like [2].
-
-            Style:
-            - Second person, plain English.
-            - No advice, no instruction, no suggestion, no question, no exclamation mark, no emoji, \
-            no medical statement.
-            - No dash used as punctuation.
-            - Say only what happened. Never write that something did not happen, and do not use \
-            the words no, not, never or without.
-            - A fact whose label ends in "record" means that a record was set.
-            - Say that something went up, went down or stayed the same only when the note of a \
-            fact you cite in that sentence says Up, Down or Unchanged, or that fact is a record.
-            - Every sentence of the body cites at least one fact.
-
-            Facts are given as a JSON array, each with a number, a label, a value, a unit, a short \
-            note and a longer detail. The period label tells you whether this covers the current or \
-            the previous week. A fact labelled Pace gives minutes and seconds for one kilometre, \
-            so a lower pace is a faster one; its note says how many seconds faster or slower it was.
-
-            The example below shows the form only. Its numbers belong to someone else, so none \
-            of them may appear in your answer.
-
-            Example input:
-            period: THIS_WEEK
-            facts: [
-              {"number":1,"label":"Weight moved per session","value":"2,480","unit":"kg","note":"Down 6%","detail":"2,640 kg the week before"},
-              {"number":2,"label":"Session length","value":"45","unit":"min","note":"Down 10 min","detail":"55 min the week before"},
-              {"number":3,"label":"Barbell Deadlift record","value":"80","unit":"kg","note":"Thursday","detail":"75 kg before"},
-              {"number":4,"label":"Sessions with leg work","value":"3","unit":"of 5","note":"","detail":"Back Squat"}
-            ]
-
-            Example output:
-            {"headline": "Shorter sessions moved less weight and still set a record.", "body": "Each session moved 2,480 kg [1] in 45 min [2], both lower than the week before. Thursday still brought a deadlift of 80 kg [3], up from 75 kg [3]."}""";
-
-    private final WorkoutCatalogueClient workoutClient;
-    // The builder is pure and holds no state, so the service keeps its own.
-    private final ReadingFactsBuilder factsBuilder = new ReadingFactsBuilder();
+    private final Map<ReadingSurface, ReadingPage> pages;
     private final ReadingValidator validator;
-    // Resolved through ObjectProvider rather than stored directly, the same fix
-    // SpringKafkaEventProducer uses elsewhere in this codebase, because SpotBugs' EI_EXPOSE_REP2
-    // flags a constructor-injected singleton bean stored as a plain field regardless of whether the
-    // bean itself is stateless.
-    private final ObjectProvider<RuleReadingWriter> ruleReadingWriterProvider;
     private final CoachPageReadingStore store;
     private final ObjectProvider<ClaudeClient> claudeClientProvider;
     // A reader and a writer are immutable, which a shared ObjectMapper is not.
@@ -127,17 +73,20 @@ public class CoachReadingService {
     private final Clock clock;
     private final ExecutorService executor;
 
-    public CoachReadingService(WorkoutCatalogueClient workoutClient,
+    public CoachReadingService(WorkoutReadingPage workoutPage,
+                               NutritionReadingPage nutritionPage,
+                               ProgressReadingPage progressPage,
                                ReadingValidator validator,
-                               ObjectProvider<RuleReadingWriter> ruleReadingWriterProvider,
                                CoachPageReadingStore store,
                                ObjectProvider<ClaudeClient> claudeClientProvider,
                                ObjectMapper objectMapper,
                                Clock clock,
                                @Qualifier("coachReadingExecutor") ExecutorService executor) {
-        this.workoutClient = workoutClient;
+        this.pages = Map.of(
+                ReadingSurface.WORKOUT, workoutPage,
+                ReadingSurface.NUTRITION, nutritionPage,
+                ReadingSurface.PROGRESS, progressPage);
         this.validator = validator;
-        this.ruleReadingWriterProvider = ruleReadingWriterProvider;
         this.store = store;
         this.claudeClientProvider = claudeClientProvider;
         this.answerReader = objectMapper.readerFor(ModelAnswer.class);
@@ -146,73 +95,79 @@ public class CoachReadingService {
         this.executor = executor;
     }
 
+    /** {@link #pinnedReading} for the workout page. */
+    public Optional<PinnedReading> pinnedWorkoutReading(UUID userId, String bearerToken, String timezone,
+                                                         String readingId) {
+        return pinnedReading(ReadingSurface.WORKOUT, userId, bearerToken, timezone, readingId);
+    }
+
     /**
      * The reading a coach turn may cite, resolved fresh and matched against the id the client sent.
      *
      * <p>This is the read side of the security rule the coach message context is built on: a client
      * sends only a page name and this opaque id, never facts or reading text, so the server is the
      * only party that ever decides what a citation refers to. The facts are worked out exactly as
-     * {@link #workoutReading} works them out; the difference is what happens once they exist.
+     * {@link #reading} works them out; the difference is what happens once they exist.
      *
-     * <p>Unlike {@link #workoutReading}, this method has no side effect: it never claims a
+     * <p>Unlike {@link #reading}, this method has no side effect: it never claims a
      * {@code PENDING} row and never enqueues a generation. A coach turn needs an answer regardless of
      * whether a model reading exists yet, so there is nothing here worth starting a generation over —
      * the page itself is what does that, the next time its own GET runs.
      *
-     * @return the matched reading, or empty when the id does not match, there are fewer than two
-     *         facts, the period is {@link TrainingInsight#PERIOD_NONE}, or the upstream could not be
-     *         read at all. Never throws for an unavailable upstream — a coach turn must still be
-     *         answered without the reading rather than fail because a dependency is down.
+     * @return the matched reading, or empty when the id does not match, there are too few facts, the
+     *         period has nothing to read, or the upstream could not be read at all. Never throws for
+     *         an unavailable upstream — a coach turn must still be answered without the reading
+     *         rather than fail because a dependency is down.
      */
-    public Optional<PinnedReading> pinnedWorkoutReading(UUID userId, String bearerToken, String timezone,
-                                                         String readingId) {
+    public Optional<PinnedReading> pinnedReading(ReadingSurface surface, UUID userId, String bearerToken,
+                                                  String timezone, String readingId) {
         if (readingId == null) {
             return Optional.empty();
         }
 
-        TrainingInsight insight;
+        ReadingPage page = pages.get(surface);
+        ReadingPage.PageSnapshot snapshot;
         try {
-            insight = workoutClient.trainingInsight(bearerToken, timezone);
+            snapshot = page.snapshot(bearerToken, timezone);
         } catch (RuntimeException ex) {
             LOG.warn("event=coach_pinned_reading_upstream_failed reason={}",
                     String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));
             return Optional.empty();
         }
-        if (insight == null || TrainingInsight.PERIOD_NONE.equals(insight.period())) {
+        if (snapshot == null || snapshot.nothingToRead()) {
             return Optional.empty();
         }
 
-        List<ReadingFact> facts = factsBuilder.build(insight);
-        if (facts.size() < 2) {
+        List<ReadingFact> facts = snapshot.facts();
+        if (facts.size() < page.minimumFacts()) {
             return Optional.empty();
         }
 
-        String hash = hash(insight, facts);
+        String hash = hash(snapshot);
         String computedId = hash.substring(0, 16);
         if (!CoachPageReadingStore.hashesMatch(computedId, readingId)) {
             return Optional.empty();
         }
 
-        Optional<CoachPageReadingEntity> existing = store.find(userId, ReadingSurface.WORKOUT);
+        Optional<CoachPageReadingEntity> existing = store.find(userId, surface);
         Instant now = Instant.now(clock);
         if (existing.isPresent() && CoachPageReadingStore.hashesMatch(hash, existing.get().getFactsHash())) {
             CoachPageReadingEntity row = existing.get();
             boolean expired = row.getExpiresAt() != null && now.isAfter(row.getExpiresAt());
             if (!expired && row.getOutcome() == ReadingOutcome.ACCEPTED) {
                 return Optional.of(new PinnedReading(computedId, row.getHeadline(), row.getBody(), row.getSource(),
-                        facts, insight.period(), insight.periodStart(), insight.periodEnd()));
+                        facts, snapshot.period(), snapshot.periodStart(), snapshot.periodEnd()));
             }
         }
 
-        RuleReadingWriter ruleReadingWriter = ruleReadingWriterProvider.getObject();
-        Optional<RuleReadingWriter.RuleReading> ruleReading = ruleReadingWriter.write(insight, facts);
+        Optional<RuleReadingWriter.RuleReading> ruleReading = snapshot.ruleReading().get();
         if (ruleReading.isPresent()) {
             RuleReadingWriter.RuleReading rule = ruleReading.get();
             return Optional.of(new PinnedReading(computedId, rule.headline(), rule.body(), "RULES",
-                    facts, insight.period(), insight.periodStart(), insight.periodEnd()));
+                    facts, snapshot.period(), snapshot.periodStart(), snapshot.periodEnd()));
         }
         return Optional.of(new PinnedReading(computedId, null, null, null,
-                facts, insight.period(), insight.periodStart(), insight.periodEnd()));
+                facts, snapshot.period(), snapshot.periodStart(), snapshot.periodEnd()));
     }
 
     /**
@@ -227,9 +182,14 @@ public class CoachReadingService {
     public record PinnedReading(String readingId, String headline, String body, String source, List<ReadingFact> facts,
                                 String period, LocalDate periodStart, LocalDate periodEnd) {
 
-        /** True when the facts describe the current week so far, false for the last full week. */
+        /** True when the facts describe the current week so far, false for any other period. */
         public boolean describesCurrentWeek() {
             return "THIS_WEEK".equals(period);
+        }
+
+        /** True when the period is a calendar week, the current one or the last full one. */
+        public boolean describesAWeek() {
+            return "THIS_WEEK".equals(period) || "PREVIOUS_WEEK".equals(period);
         }
 
         public PinnedReading {
@@ -243,57 +203,71 @@ public class CoachReadingService {
     }
 
     public CoachReadingResponse workoutReading(UUID userId, String bearerToken, String timezone) {
-        TrainingInsight insight = workoutClient.trainingInsight(bearerToken, timezone);
-        if (insight == null) {
-            throw new ReadingUnavailableException(
-                    "The workout service could not be read, so there is nothing to build today's reading from.");
+        return reading(ReadingSurface.WORKOUT, userId, bearerToken, timezone);
+    }
+
+    public CoachReadingResponse nutritionReading(UUID userId, String bearerToken, String timezone) {
+        return reading(ReadingSurface.NUTRITION, userId, bearerToken, timezone);
+    }
+
+    public CoachReadingResponse progressReading(UUID userId, String bearerToken, String timezone) {
+        return reading(ReadingSurface.PROGRESS, userId, bearerToken, timezone);
+    }
+
+    /** The reading of one page, the same steps for every surface. */
+    public CoachReadingResponse reading(ReadingSurface surface, UUID userId, String bearerToken, String timezone) {
+        ReadingPage page = pages.get(surface);
+        ReadingPage.PageSnapshot snapshot = page.snapshot(bearerToken, timezone);
+        if (snapshot == null) {
+            throw new ReadingUnavailableException(page.unavailableMessage());
         }
 
-        List<ReadingFact> facts = factsBuilder.build(insight);
-        if (TrainingInsight.PERIOD_NONE.equals(insight.period()) || facts.size() < 2) {
-            return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.EMPTY, null,
-                    insight.period(), insight.periodStart(), insight.periodEnd(), facts, null, insight.lifts());
+        List<ReadingFact> facts = snapshot.facts();
+        if (snapshot.nothingToRead() || facts.size() < page.minimumFacts()) {
+            return response(surface, ReadingStatus.EMPTY, null, snapshot, null);
         }
 
-        String hash = hash(insight, facts);
+        String hash = hash(snapshot);
         String readingId = hash.substring(0, 16);
         Instant now = Instant.now(clock);
 
-        Optional<CoachPageReadingEntity> existing = store.find(userId, ReadingSurface.WORKOUT);
+        Optional<CoachPageReadingEntity> existing = store.find(userId, surface);
         if (existing.isPresent() && CoachPageReadingStore.hashesMatch(hash, existing.get().getFactsHash())) {
             CoachPageReadingEntity row = existing.get();
             boolean expired = row.getExpiresAt() != null && now.isAfter(row.getExpiresAt());
             if (!expired && row.getOutcome() == ReadingOutcome.ACCEPTED) {
-                return ready(insight, facts, readingId, row);
+                return ready(surface, snapshot, readingId, row);
             }
         }
 
         // Deciding whether a model generation is owed never changes what this call returns; it only
         // decides whether the client should be told WRITING or RESTING on the rare turn the rule
         // writer itself has nothing to say.
-        boolean modelGenerationInFlight = decideModelGeneration(userId, hash, facts, insight, existing, now);
+        boolean modelGenerationInFlight = decideModelGeneration(userId, hash, page, snapshot, existing, now);
 
-        RuleReadingWriter ruleReadingWriter = ruleReadingWriterProvider.getObject();
-        Optional<RuleReadingWriter.RuleReading> ruleReading = ruleReadingWriter.write(insight, facts);
+        Optional<RuleReadingWriter.RuleReading> ruleReading = snapshot.ruleReading().get();
         if (ruleReading.isPresent()) {
-            return readyWithRules(insight, facts, readingId, ruleReading.get(), now);
+            RuleReadingWriter.RuleReading rule = ruleReading.get();
+            ModelReadingView reading = new ModelReadingView(rule.headline(), rule.body(), rule.citations(), "RULES", now);
+            return response(surface, ReadingStatus.READY, readingId, snapshot, reading);
         }
-        return modelGenerationInFlight ? writing(insight, facts, readingId) : resting(insight, facts, readingId);
+        return response(surface, modelGenerationInFlight ? ReadingStatus.WRITING : ReadingStatus.RESTING,
+                readingId, snapshot, null);
     }
 
     /**
-     * The unchanged claim-and-enqueue decision from before rule-written readings existed: a fresh
-     * rejection or a fresh generation already in flight means there is nothing to do, an abandoned or
-     * missing row means a fresh attempt is claimed and enqueued, and no configured {@link ClaudeClient}
-     * means there is nothing that could be enqueued at all.
+     * The claim-and-enqueue decision: a fresh rejection or a fresh generation already in flight
+     * means there is nothing to do, an abandoned or missing row means a fresh attempt is claimed and
+     * enqueued, and no configured {@link ClaudeClient} means there is nothing that could be enqueued
+     * at all.
      *
      * @return whether a model generation is now in flight for these facts (already running, or just
      *         started here) — the only thing about this decision the caller still needs to know, now
      *         that the response itself is decided by the rule writer instead
      */
-    private boolean decideModelGeneration(UUID userId, String hash, List<ReadingFact> facts,
-                                          TrainingInsight insight, Optional<CoachPageReadingEntity> existing,
-                                          Instant now) {
+    private boolean decideModelGeneration(UUID userId, String hash, ReadingPage page,
+                                          ReadingPage.PageSnapshot snapshot,
+                                          Optional<CoachPageReadingEntity> existing, Instant now) {
         if (existing.isPresent() && CoachPageReadingStore.hashesMatch(hash, existing.get().getFactsHash())) {
             CoachPageReadingEntity row = existing.get();
             boolean expired = row.getExpiresAt() != null && now.isAfter(row.getExpiresAt());
@@ -316,8 +290,10 @@ public class CoachReadingService {
             return false;
         }
 
-        store.claimPending(userId, ReadingSurface.WORKOUT, hash, now);
-        executor.execute(() -> generate(userId, hash, facts, insight.period()));
+        List<ReadingFact> facts = snapshot.facts();
+        String period = snapshot.period();
+        store.claimPending(userId, page.surface(), hash, now);
+        executor.execute(() -> generate(userId, page, hash, facts, period));
         return true;
     }
 
@@ -325,20 +301,21 @@ public class CoachReadingService {
      * The generation itself: one attempt, and on a failed validation, one repair attempt that is
      * told exactly what was wrong. Runs entirely off the request thread.
      */
-    private void generate(UUID userId, String factsHash, List<ReadingFact> facts, String period) {
+    private void generate(UUID userId, ReadingPage page, String factsHash, List<ReadingFact> facts, String period) {
         try {
-            generateOrReject(userId, factsHash, facts, period);
+            generateOrReject(userId, page, factsHash, facts, period);
         } catch (RuntimeException ex) {
             // Anything unexpected ends as a rejection. Without this the row would stay pending,
             // and every visit after the sixty seconds would start the same failing work again.
             LOG.warn("event=coach_reading_generation_failed reason={}",
                     String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));
-            store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock),
+            store.persistRejected(userId, page.surface(), factsHash, Instant.now(clock),
                     CoachPageReadingStore.REJECTED_TTL);
         }
     }
 
-    private void generateOrReject(UUID userId, String factsHash, List<ReadingFact> facts, String period) {
+    private void generateOrReject(UUID userId, ReadingPage page, String factsHash, List<ReadingFact> facts,
+                                  String period) {
         ClaudeClient client = claudeClientProvider.getIfAvailable();
         if (client == null) {
             // The AI tier was switched off between the GET and this running; nothing to do, and the
@@ -346,35 +323,37 @@ public class CoachReadingService {
             return;
         }
 
+        ReadingSurface surface = page.surface();
+        String systemPrompt = page.systemPrompt();
         String prompt = promptFor(facts, period);
-        Attempt first = tryGenerate(client, prompt);
+        Attempt first = tryGenerate(client, systemPrompt, prompt);
         if (!first.reached()) {
             // A model that cannot be reached has not failed any check. It is asked again after a
             // short wait, so the reading returns soon after the model does.
-            store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock),
+            store.persistRejected(userId, surface, factsHash, Instant.now(clock),
                     CoachPageReadingStore.UNREACHABLE_TTL);
-            logOutcome(userId, "UNREACHABLE");
+            logOutcome(userId, surface, "UNREACHABLE");
             return;
         }
         ReadingValidator.Result firstResult = validate(first, facts);
         if (firstResult != null && firstResult.valid()) {
-            accept(userId, factsHash, first.answer(), firstResult);
+            accept(userId, surface, factsHash, first.answer(), firstResult);
             return;
         }
 
         List<String> violations = firstResult != null ? firstResult.violations() : List.of("ANSWER_NOT_JSON");
         String repairPrompt = prompt + "\n\nYour previous answer was not accepted. "
                 + explain(violations) + " Answer again in the same JSON shape.";
-        Attempt second = tryGenerate(client, repairPrompt);
+        Attempt second = tryGenerate(client, systemPrompt, repairPrompt);
         ReadingValidator.Result secondResult = validate(second, facts);
         if (secondResult != null && secondResult.valid()) {
-            accept(userId, factsHash, second.answer(), secondResult);
+            accept(userId, surface, factsHash, second.answer(), secondResult);
             return;
         }
 
-        store.persistRejected(userId, ReadingSurface.WORKOUT, factsHash, Instant.now(clock),
+        store.persistRejected(userId, surface, factsHash, Instant.now(clock),
                 second.reached() ? CoachPageReadingStore.REJECTED_TTL : CoachPageReadingStore.UNREACHABLE_TTL);
-        logOutcome(userId, second.reached() ? "REJECTED" : "UNREACHABLE");
+        logOutcome(userId, surface, second.reached() ? "REJECTED" : "UNREACHABLE");
     }
 
     /**
@@ -422,16 +401,17 @@ public class CoachReadingService {
     private record Attempt(ModelAnswer answer, boolean reached) {
     }
 
-    private void accept(UUID userId, String factsHash, ModelAnswer answer, ReadingValidator.Result result) {
-        store.persistAccepted(userId, ReadingSurface.WORKOUT, factsHash,
+    private void accept(UUID userId, ReadingSurface surface, String factsHash, ModelAnswer answer,
+                        ReadingValidator.Result result) {
+        store.persistAccepted(userId, surface, factsHash,
                 answer.headline(), answer.body(), result.citations(), Instant.now(clock));
-        logOutcome(userId, "ACCEPTED");
+        logOutcome(userId, surface, "ACCEPTED");
     }
 
-    private Attempt tryGenerate(ClaudeClient client, String userPrompt) {
+    private Attempt tryGenerate(ClaudeClient client, String systemPrompt, String userPrompt) {
         String raw;
         try {
-            raw = client.complete(SYSTEM_PROMPT, userPrompt);
+            raw = client.complete(systemPrompt, userPrompt);
         } catch (RuntimeException ex) {
             LOG.warn("event=coach_reading_model_call_failed reason={}",
                     String.valueOf(ex.getMessage()).replace("\r", "_").replace("\n", "_"));
@@ -483,29 +463,17 @@ public class CoachReadingService {
         }
     }
 
-    private CoachReadingResponse ready(TrainingInsight insight, List<ReadingFact> facts, String readingId,
+    private CoachReadingResponse ready(ReadingSurface surface, ReadingPage.PageSnapshot snapshot, String readingId,
                                        CoachPageReadingEntity row) {
         ModelReadingView reading = new ModelReadingView(
                 row.getHeadline(), row.getBody(), parseCitations(row.getCitations()), row.getSource(), row.getGeneratedAt());
-        return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.READY, readingId,
-                insight.period(), insight.periodStart(), insight.periodEnd(), facts, reading, insight.lifts());
+        return response(surface, ReadingStatus.READY, readingId, snapshot, reading);
     }
 
-    private CoachReadingResponse readyWithRules(TrainingInsight insight, List<ReadingFact> facts, String readingId,
-                                                RuleReadingWriter.RuleReading rule, Instant now) {
-        ModelReadingView reading = new ModelReadingView(rule.headline(), rule.body(), rule.citations(), "RULES", now);
-        return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.READY, readingId,
-                insight.period(), insight.periodStart(), insight.periodEnd(), facts, reading, insight.lifts());
-    }
-
-    private CoachReadingResponse writing(TrainingInsight insight, List<ReadingFact> facts, String readingId) {
-        return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.WRITING, readingId,
-                insight.period(), insight.periodStart(), insight.periodEnd(), facts, null, insight.lifts());
-    }
-
-    private CoachReadingResponse resting(TrainingInsight insight, List<ReadingFact> facts, String readingId) {
-        return new CoachReadingResponse(ReadingSurface.WORKOUT, ReadingStatus.RESTING, readingId,
-                insight.period(), insight.periodStart(), insight.periodEnd(), facts, null, insight.lifts());
+    private static CoachReadingResponse response(ReadingSurface surface, ReadingStatus status, String readingId,
+                                                 ReadingPage.PageSnapshot snapshot, ModelReadingView reading) {
+        return new CoachReadingResponse(surface, status, readingId, snapshot.period(), snapshot.periodStart(),
+                snapshot.periodEnd(), snapshot.facts(), reading, snapshot.lifts());
     }
 
     private static List<Integer> parseCitations(String csv) {
@@ -515,14 +483,15 @@ public class CoachReadingService {
         return Arrays.stream(csv.split(",")).map(Integer::valueOf).toList();
     }
 
-    private void logOutcome(UUID userId, String outcome) {
-        // Both values are sanitised inline against CRLF injection (CWE-117), the same way
+    private void logOutcome(UUID userId, ReadingSurface surface, String outcome) {
+        // Every value is sanitised inline against CRLF injection (CWE-117), the same way
         // WeeklyNarrativeService does it: findsecbugs only accepts replace() directly in the
         // dataflow to the log sink, not through a helper method. userId is a real identifier and
-        // outcome is always one of this class's own literals, but the detector flags any
-        // non-constant argument regardless, so both are cleaned the same way.
-        LOG.info("event=coach_reading_outcome userId={} surface=WORKOUT outcome={}",
+        // surface and outcome are always this class's own values, but the detector flags any
+        // non-constant argument regardless, so all three are cleaned the same way.
+        LOG.info("event=coach_reading_outcome userId={} surface={} outcome={}",
                 String.valueOf(userId).replace("\r", "_").replace("\n", "_"),
+                String.valueOf(surface).replace("\r", "_").replace("\n", "_"),
                 String.valueOf(outcome).replace("\r", "_").replace("\n", "_"));
     }
 
@@ -537,11 +506,19 @@ public class CoachReadingService {
      * the "abandoned PENDING row" scenario without a background thread actually going stale.
      */
     static String hash(TrainingInsight insight, List<ReadingFact> facts) {
+        return hash(insight.period(), insight.periodStart(), insight.periodEnd(), facts);
+    }
+
+    private static String hash(ReadingPage.PageSnapshot snapshot) {
+        return hash(snapshot.period(), snapshot.periodStart(), snapshot.periodEnd(), snapshot.facts());
+    }
+
+    static String hash(String period, LocalDate periodStart, LocalDate periodEnd, List<ReadingFact> facts) {
         StringBuilder canonical = new StringBuilder();
         char separator = '\u001F';
-        canonical.append(insight.period()).append(separator);
-        canonical.append(insight.periodStart()).append(separator);
-        canonical.append(insight.periodEnd()).append(separator);
+        canonical.append(period).append(separator);
+        canonical.append(periodStart).append(separator);
+        canonical.append(periodEnd).append(separator);
         for (ReadingFact fact : facts) {
             canonical.append(fact.key()).append(separator)
                     .append(fact.value()).append(separator)

@@ -7,6 +7,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -51,6 +53,7 @@ import com.fitsync.user.dto.CurrentUserResponse;
 import com.fitsync.user.dto.HealthReadinessView;
 import com.fitsync.user.dto.NotificationPreferencesView;
 import com.fitsync.user.dto.NutritionPreferencesView;
+import com.fitsync.user.dto.ProgressInsightResponse;
 import com.fitsync.user.dto.TrainingPreferencesView;
 import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
@@ -516,6 +519,37 @@ public class UserServiceImpl implements UserService {
     public void deleteBodyMetric(CurrentUserPrincipal principal, UUID metricId) {
         BodyMetricEntryEntity entity = getOwnedBodyMetric(principal.userId(), metricId);
         bodyMetricEntryRepository.delete(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProgressInsightResponse getProgressInsight(CurrentUserPrincipal principal, ZoneId zone) {
+        UUID userId = principal.userId();
+        LocalDate referenceDate = LocalDate.now(Clock.system(zone));
+        Instant windowStart = referenceDate.minusDays(ProgressInsightCalculator.SERIES_DAYS)
+                .atStartOfDay(zone).toInstant();
+        Instant windowEnd = referenceDate.plusDays(1).atStartOfDay(zone).toInstant();
+
+        List<ProgressInsightCalculator.WeightSample> samples = new ArrayList<>();
+        bodyMetricEntryRepository.findTrendSource(userId, windowStart, windowEnd.minusNanos(1)).stream()
+                .filter(entry -> entry.getWeightKg() != null)
+                .forEach(entry -> samples.add(
+                        new ProgressInsightCalculator.WeightSample(entry.getMeasuredAt(), entry.getWeightKg())));
+        // The latest weigh-in may be older than the window; it still answers "what do I weigh now".
+        bodyMetricEntryRepository
+                .findTopByUserIdAndWeightKgIsNotNullAndMeasuredAtLessThanOrderByMeasuredAtDesc(userId, windowEnd)
+                .ifPresent(entry -> samples.add(
+                        new ProgressInsightCalculator.WeightSample(entry.getMeasuredAt(), entry.getWeightKg())));
+
+        // A user holds few goals, so the newest active weight goal is picked in memory.
+        ProgressInsightCalculator.GoalTarget goal = userGoalRepository.findByUserIdOrderByGoalTypeAsc(userId).stream()
+                .filter(entity -> entity.getGoalType() == GoalType.WEIGHT && entity.getStatus() == GoalStatus.ACTIVE)
+                .max(Comparator.comparing(UserGoalEntity::getDateTimeUpdated,
+                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .map(entity -> new ProgressInsightCalculator.GoalTarget(entity.getTargetValue(), entity.getTargetDate()))
+                .orElse(null);
+
+        return ProgressInsightCalculator.calculate(zone, referenceDate, samples, goal);
     }
 
     @Override
