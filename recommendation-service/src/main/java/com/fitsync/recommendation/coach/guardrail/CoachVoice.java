@@ -39,6 +39,9 @@ public final class CoachVoice {
     /** A word that says a pace got quicker. A lower number of seconds a kilometre is a faster pace. */
     public static final Pattern FASTER = Pattern.compile("(?i)\\b(faster|quicker)\\b");
 
+    /** The word for how fast a kilometre was covered. */
+    public static final Pattern PACE = Pattern.compile("(?i)\\bpace\\b");
+
     /** A word that says a pace got slower. */
     public static final Pattern SLOWER = Pattern.compile("(?i)\\b(slower)\\b");
 

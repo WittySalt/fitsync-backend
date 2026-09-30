@@ -236,6 +236,7 @@ public class ReadingValidator {
         boolean steady = false;
         boolean quicker = false;
         boolean slower = false;
+        boolean paceSteady = false;
         for (ReadingFact fact : facts) {
             String note = fact.note() == null ? "" : fact.note();
             rose = rose || note.startsWith("Up") || "RECORD".equals(fact.key());
@@ -243,6 +244,7 @@ public class ReadingValidator {
             steady = steady || note.startsWith("Unchanged");
             quicker = quicker || note.endsWith(" faster");
             slower = slower || note.endsWith(" slower");
+            paceSteady = paceSteady || ("CARDIO_PACE".equals(fact.key()) && note.startsWith("Unchanged"));
         }
         List<String> violations = new ArrayList<>();
         if (!rose && CoachVoice.RISING.matcher(text).find()) {
@@ -259,6 +261,11 @@ public class ReadingValidator {
         }
         if (!slower && CoachVoice.SLOWER.matcher(text).find()) {
             violations.add("DIRECTION_NOT_IN_FACTS:slower in the " + where);
+        }
+        // "The same pace" borrows its word from another fact that stayed the same, a session length
+        // for example. A text that names the pace may only call it steady when the pace itself was.
+        if (!paceSteady && CoachVoice.PACE.matcher(text).find() && CoachVoice.STEADY.matcher(text).find()) {
+            violations.add("DIRECTION_NOT_IN_FACTS:pace unchanged in the " + where);
         }
         return violations;
     }
