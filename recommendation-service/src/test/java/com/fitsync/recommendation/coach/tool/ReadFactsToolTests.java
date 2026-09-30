@@ -97,6 +97,7 @@ class ReadFactsToolTests {
         assertThat(today.path("estimatedMinutes").asInt()).isEqualTo(35);
         assertThat(today.path("next").path("date").asText()).isEqualTo("2026-10-02");
         assertThat(today.path("next").path("label").asText()).isEqualTo("Badminton");
+        assertThat(today.path("next").path("day").asText()).isEqualTo("Friday 2 October");
         assertThat(facts.path("trainingThisWeek").path("sessions").asInt()).isEqualTo(1);
     }
 
