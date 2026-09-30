@@ -1,8 +1,11 @@
 package com.fitsync.workout.dto;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
+import com.fitsync.workout.domain.DayKind;
+import com.fitsync.workout.domain.DaySource;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(example = """
@@ -22,7 +25,21 @@ import io.swagger.v3.oas.annotations.media.Schema;
             "weekBeforePreviousKg": 0.00,
             "thisWeekSessionsWithVolume": 2,
             "previousWeekSessionsWithVolume": 1
-          }
+          },
+          "days": [],
+          "today": {
+            "date": "2026-09-27",
+            "kind": "OPEN",
+            "label": "Open",
+            "source": "NONE",
+            "planDayId": null,
+            "title": null,
+            "estimatedMinutes": null,
+            "moves": null,
+            "lastOfKind": null,
+            "carriedOver": []
+          },
+          "nextTraining": null
         }
         """)
 public record WeeklyTrainingInsightView(
@@ -35,14 +52,57 @@ public record WeeklyTrainingInsightView(
         int previousWeekCompletedSessions,
         int previousWeekTotalMinutes,
         List<MuscleGroupInsightView> muscleGroups,
-        WeeklyVolumeView volume) {
+        WeeklyVolumeView volume,
+        List<DayInsightView> days,
+        TodayInsightView today,
+        NextTrainingView nextTraining) {
 
     public WeeklyTrainingInsightView {
         muscleGroups = muscleGroups == null ? List.of() : List.copyOf(muscleGroups);
+        days = days == null ? List.of() : List.copyOf(days);
+    }
+
+    /** A view without a day-by-day breakdown, today's detail or the next training day, used by
+     * fixtures that predate the day-kinds feature and are not about those fields. Today defaults
+     * to the unresolved "open" state so the invariant that today is never null still holds. */
+    public WeeklyTrainingInsightView(
+            String timezone,
+            LocalDate referenceDate,
+            LocalDate weekStart,
+            LocalDate weekEnd,
+            int completedSessions,
+            int totalMinutes,
+            int previousWeekCompletedSessions,
+            int previousWeekTotalMinutes,
+            List<MuscleGroupInsightView> muscleGroups,
+            WeeklyVolumeView volume) {
+        this(timezone, referenceDate, weekStart, weekEnd, completedSessions, totalMinutes,
+                previousWeekCompletedSessions, previousWeekTotalMinutes, muscleGroups, volume,
+                defaultDays(weekStart, referenceDate),
+                new TodayInsightView(referenceDate, DayKind.OPEN, "Open", DaySource.NONE,
+                        null, null, null, null, null, List.of()),
+                null);
+    }
+
+    private static List<DayInsightView> defaultDays(LocalDate weekStart, LocalDate referenceDate) {
+        List<DayInsightView> defaultDays = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            LocalDate date = weekStart.plusDays(i);
+            boolean past = date.isBefore(referenceDate);
+            DayKind kind = past ? DayKind.REST : DayKind.OPEN;
+            String label = past ? "Rest" : "Open";
+            defaultDays.add(new DayInsightView(date, i + 1, kind, label, DaySource.NONE, null, List.of(), null));
+        }
+        return defaultDays;
     }
 
     @Override
     public List<MuscleGroupInsightView> muscleGroups() {
         return List.copyOf(muscleGroups);
+    }
+
+    @Override
+    public List<DayInsightView> days() {
+        return List.copyOf(days);
     }
 }

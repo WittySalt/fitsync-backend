@@ -47,8 +47,14 @@ import com.fitsync.workout.dto.TrainingPageInsightView;
 import com.fitsync.workout.dto.TrainingRecordView;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.domain.DayKind;
+import com.fitsync.workout.domain.DaySource;
+import com.fitsync.workout.dto.DayInsightView;
 import com.fitsync.workout.dto.MuscleGroupInsightView;
+import com.fitsync.workout.dto.NextTrainingView;
+import com.fitsync.workout.dto.PlannedDayView;
 import com.fitsync.workout.dto.SportActivityView;
+import com.fitsync.workout.dto.TodayInsightView;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WeeklyVolumeView;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
@@ -229,6 +235,56 @@ class WorkoutControllerTests {
 
         verify(weeklyTrainingInsightService).getWeeklyTrainingInsight(
                 eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-27")));
+    }
+
+    @Test
+    void shouldReturnDayByDayTodayAndNextTrainingOnWeeklyTrainingInsight() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UUID planDayId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        DayInsightView monday = new DayInsightView(
+                LocalDate.parse("2026-09-28"), 1, DayKind.STRENGTH, "Strength", DaySource.DONE, 50,
+                List.of(), new PlannedDayView(planDayId, SessionKind.STRENGTH, "Full body", null, 50, 4, true));
+        DayInsightView tuesday = new DayInsightView(
+                LocalDate.parse("2026-09-29"), 2, DayKind.REST, "Rest", DaySource.NONE, null, List.of(), null);
+        TodayInsightView today = new TodayInsightView(
+                LocalDate.parse("2026-09-29"), DayKind.REST, "Rest", DaySource.NONE, null, null, null, null, null,
+                List.of());
+        NextTrainingView nextTraining = new NextTrainingView(
+                LocalDate.parse("2026-10-01"), DayKind.CARDIO, "Cardio", "Treadmill run", 35);
+
+        WeeklyTrainingInsightView response = new WeeklyTrainingInsightView(
+                "Asia/Singapore",
+                LocalDate.parse("2026-09-29"),
+                LocalDate.parse("2026-09-28"),
+                LocalDate.parse("2026-10-04"),
+                1,
+                50,
+                0,
+                0,
+                List.of(),
+                new WeeklyVolumeView(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0, 0),
+                List.of(monday, tuesday),
+                today,
+                nextTraining);
+
+        when(weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                        eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-29"))))
+                .thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/insights/weekly")
+                        .with(authentication(authToken(principal)))
+                        .param("timezone", "Asia/Singapore")
+                        .param("date", "2026-09-29"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].kind").value("STRENGTH"))
+                .andExpect(jsonPath("$.days[0].source").value("DONE"))
+                .andExpect(jsonPath("$.days[0].planned.fulfilled").value(true))
+                .andExpect(jsonPath("$.days[1].kind").value("REST"))
+                .andExpect(jsonPath("$.today.kind").value("REST"))
+                .andExpect(jsonPath("$.today.source").value("NONE"))
+                .andExpect(jsonPath("$.nextTraining.date").value("2026-10-01"))
+                .andExpect(jsonPath("$.nextTraining.kind").value("CARDIO"))
+                .andExpect(jsonPath("$.nextTraining.title").value("Treadmill run"));
     }
 
     @Test

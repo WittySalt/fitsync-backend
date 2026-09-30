@@ -21,7 +21,9 @@ import com.fitsync.workout.dto.MuscleGroupInsightView;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WeeklyVolumeView;
 import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.WorkoutPlanDayEntity;
 import com.fitsync.workout.entity.WorkoutPlanEntity;
+import com.fitsync.workout.entity.WorkoutPlanExerciseEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
@@ -37,6 +39,15 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
 
     /** exerciseNames is capped so the payload cannot grow unbounded for a heavily varied week. */
     private static final int MAX_EXERCISE_NAMES = 5;
+
+    /** The habit rule looks four full weeks back from the start of the reference week. */
+    private static final int HABIT_LOOKBACK_WEEKS = 4;
+
+    /** lastOfKind looks back at most this many days for a prior session of the same kind. */
+    private static final int LAST_OF_KIND_LOOKBACK_DAYS = 90;
+
+    private static final List<WorkoutSessionStatus> DAY_KIND_STATUSES =
+            List.of(WorkoutSessionStatus.COMPLETED, WorkoutSessionStatus.IN_PROGRESS);
 
     private final Clock clock;
     private final WorkoutSessionRepository workoutSessionRepository;
@@ -95,8 +106,12 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 thisWeek.sessionsWithVolume,
                 previousWeek.sessionsWithVolume);
 
+        WorkoutPlanEntity activePlan = findActivePlan(currentUser.userId());
         List<MuscleGroupInsightView> muscleGroups = buildMuscleGroupInsights(
-                currentUser.userId(), sessions, referenceDate, weekStart);
+                activePlan, sessions, referenceDate, weekStart);
+
+        WeekByDayCalculator.Result weekByDay = computeWeekByDay(currentUser.userId(), zoneId, referenceDate,
+                weekStart, activePlan);
 
         return new WeeklyTrainingInsightView(
                 zoneId.getId(),
@@ -108,7 +123,106 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 previousWeek.sessions,
                 previousWeek.minutes,
                 muscleGroups,
-                volume);
+                volume,
+                weekByDay.days(),
+                weekByDay.today(),
+                weekByDay.nextTraining());
+    }
+
+    /** Resolves the day-by-day breakdown, today's detail and the next training day. Loads its own,
+     * wider window of sessions (both completed and in-progress) in a single query, separate from
+     * the completed-only window {@link #loadSessions} uses for volume and muscle groups, since
+     * neither window is wide enough to cover the other's need. */
+    private WeekByDayCalculator.Result computeWeekByDay(UUID userId,
+                                                         ZoneId zoneId,
+                                                         LocalDate referenceDate,
+                                                         LocalDate weekStart,
+                                                         WorkoutPlanEntity activePlan) {
+        LocalDate habitLookbackStart = weekStart.minusWeeks(HABIT_LOOKBACK_WEEKS);
+        LocalDate lastOfKindLookbackStart = referenceDate.minusDays(LAST_OF_KIND_LOOKBACK_DAYS);
+        LocalDate windowStart = habitLookbackStart.isBefore(lastOfKindLookbackStart)
+                ? habitLookbackStart : lastOfKindLookbackStart;
+
+        List<WeekByDayCalculator.SessionSnapshot> sessions =
+                loadDayKindSessions(userId, zoneId, referenceDate, windowStart);
+        List<WeekByDayCalculator.PlanDaySnapshot> planDays = buildPlanDaySnapshots(activePlan);
+
+        return WeekByDayCalculator.compute(sessions, planDays, referenceDate);
+    }
+
+    private List<WeekByDayCalculator.SessionSnapshot> loadDayKindSessions(UUID userId,
+                                                                           ZoneId zoneId,
+                                                                           LocalDate referenceDate,
+                                                                           LocalDate windowStart) {
+        Instant queryFrom = windowStart.minusDays(1).atStartOfDay(zoneId).toInstant();
+        Instant queryTo = referenceDate.plusDays(1).atStartOfDay(zoneId).toInstant();
+
+        List<WorkoutSessionEntity> rawSessions = workoutSessionRepository
+                .findByUserIdAndStatusInAndStartedAtBetween(userId, DAY_KIND_STATUSES, queryFrom, queryTo);
+
+        List<WeekByDayCalculator.SessionSnapshot> sessions = new ArrayList<>();
+        for (WorkoutSessionEntity session : rawSessions) {
+            Instant datingInstant = session.getStatus() == WorkoutSessionStatus.COMPLETED
+                    ? session.getCompletedAt() : session.getStartedAt();
+            if (datingInstant == null) {
+                // Defensive: a COMPLETED session always has completedAt in this domain, but a
+                // session lacking any dating instant cannot be placed on a day and is skipped.
+                continue;
+            }
+            LocalDate sessionDate = datingInstant.atZone(zoneId).toLocalDate();
+            if (sessionDate.isAfter(referenceDate) || sessionDate.isBefore(windowStart)) {
+                continue;
+            }
+            sessions.add(new WeekByDayCalculator.SessionSnapshot(
+                    session.getSessionId(),
+                    session.getName(),
+                    session.getKind(),
+                    session.getSportActivity(),
+                    session.getStatus(),
+                    session.getDurationMinutes(),
+                    session.getDistanceKm(),
+                    session.getPlanDayId(),
+                    session.getStartedAt(),
+                    sessionDate));
+        }
+        return sessions;
+    }
+
+    private List<WeekByDayCalculator.PlanDaySnapshot> buildPlanDaySnapshots(WorkoutPlanEntity activePlan) {
+        if (activePlan == null || activePlan.getDays().isEmpty()) {
+            return List.of();
+        }
+        List<WeekByDayCalculator.PlanDaySnapshot> planDays = new ArrayList<>();
+        for (WorkoutPlanDayEntity day : activePlan.getDays()) {
+            int moves = 0;
+            for (WorkoutPlanExerciseEntity planExercise : activePlan.getExercises()) {
+                if (day.getPlanDayId().equals(planDayIdOf(planExercise))) {
+                    moves++;
+                }
+            }
+            planDays.add(new WeekByDayCalculator.PlanDaySnapshot(
+                    day.getPlanDayId(),
+                    day.getDayOfWeek(),
+                    day.getKind(),
+                    day.getTitle(),
+                    day.getSportActivity(),
+                    day.getEstimatedDurationMinutes(),
+                    moves));
+        }
+        return planDays;
+    }
+
+    private UUID planDayIdOf(WorkoutPlanExerciseEntity planExercise) {
+        return planExercise.getPlanDay() == null ? null : planExercise.getPlanDay().getPlanDayId();
+    }
+
+    /** The most recently updated ACTIVE plan for this user, or null when there is none. Several
+     * ACTIVE plans should not normally exist, but if they do, this is the same one
+     * getActivePlan() would return. */
+    private WorkoutPlanEntity findActivePlan(UUID userId) {
+        List<WorkoutPlanEntity> activePlans = workoutPlanRepository
+                .findByUserIdAndStatusOrderByDateTimeUpdatedDesc(userId, WorkoutPlanStatus.ACTIVE);
+        return activePlans.isEmpty() ? null : activePlans.get(0);
     }
 
     private List<DatedSession> loadSessions(UUID userId, ZoneId zoneId, LocalDate referenceDate, LocalDate windowStart) {
@@ -139,7 +253,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         return sessions;
     }
 
-    private List<MuscleGroupInsightView> buildMuscleGroupInsights(UUID userId,
+    private List<MuscleGroupInsightView> buildMuscleGroupInsights(WorkoutPlanEntity activePlan,
                                                                    List<DatedSession> sessions,
                                                                    LocalDate referenceDate,
                                                                    LocalDate weekStart) {
@@ -152,7 +266,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 .filter(dated -> !dated.date().isBefore(lookbackStart))
                 .toList();
 
-        Set<MuscleGroup> activePlanGroups = activePlanMuscleGroups(userId);
+        Set<MuscleGroup> activePlanGroups = activePlanMuscleGroups(activePlan);
         Set<MuscleGroup> trainedGroups = EnumSet.noneOf(MuscleGroup.class);
         for (DatedSession dated : lookbackSessions) {
             trainedGroups.addAll(trainedMuscleGroups(dated.session()));
@@ -232,16 +346,11 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 List.copyOf(exerciseNames));
     }
 
-    private Set<MuscleGroup> activePlanMuscleGroups(UUID userId) {
+    private Set<MuscleGroup> activePlanMuscleGroups(WorkoutPlanEntity activePlan) {
         Set<MuscleGroup> groups = EnumSet.noneOf(MuscleGroup.class);
-        List<WorkoutPlanEntity> activePlans = workoutPlanRepository
-                .findByUserIdAndStatusOrderByDateTimeUpdatedDesc(userId, WorkoutPlanStatus.ACTIVE);
-        if (activePlans.isEmpty()) {
+        if (activePlan == null) {
             return groups;
         }
-        // Several ACTIVE plans should not normally exist, but if they do, use the same one
-        // getActivePlan() would return: the most recently updated.
-        WorkoutPlanEntity activePlan = activePlans.get(0);
         activePlan.getExercises().forEach(planExercise ->
                 groups.add(planExercise.getExercise().getPrimaryMuscleGroup()));
         return groups;

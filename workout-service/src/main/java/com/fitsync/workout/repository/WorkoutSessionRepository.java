@@ -45,4 +45,18 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
                                                                         WorkoutSessionStatus status,
                                                                         Instant from,
                                                                         Instant to);
+
+    // Single-query load for the day-by-day, today and next-training window. No exercise-log fetch
+    // here: that data is never used for this calculation, so it is left out to keep the query cheap
+    // over the wider (up to 90-day) window it runs against.
+    @Query("""
+            select session from WorkoutSessionEntity session
+            where session.userId = :userId
+              and session.status in :statuses
+              and session.startedAt between :from and :to
+            """)
+    List<WorkoutSessionEntity> findByUserIdAndStatusInAndStartedAtBetween(@Param("userId") UUID userId,
+                                                                          @Param("statuses") List<WorkoutSessionStatus> statuses,
+                                                                          @Param("from") Instant from,
+                                                                          @Param("to") Instant to);
 }
