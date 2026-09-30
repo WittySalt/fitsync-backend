@@ -16,6 +16,7 @@ import com.fitsync.recommendation.coach.config.CoachProperties;
 import com.fitsync.recommendation.coach.dto.CoachSurface;
 import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
 import com.fitsync.recommendation.coach.tool.ToolRegistry;
+import com.fitsync.recommendation.coach.tool.UserCalendar;
 import com.fitsync.recommendation.coach.tool.ToolResult;
 import com.fitsync.recommendation.service.ai.ClaudeClient;
 import org.slf4j.Logger;
@@ -120,6 +121,7 @@ public class CoachOrchestrator {
     private final ObjectMapper objectMapper;
     private final ExecutorService toolExecutor;
     private final AnswerValidator answerValidator;
+    private final UserCalendar userCalendar;
 
     public CoachOrchestrator(ObjectProvider<ClaudeClient> claudeClient,
                              CoachGuardrail guardrail,
@@ -128,7 +130,8 @@ public class CoachOrchestrator {
                              CoachProperties properties,
                              ObjectMapper objectMapper,
                              @Qualifier("coachToolExecutor") ExecutorService toolExecutor,
-                             AnswerValidator answerValidator) {
+                             AnswerValidator answerValidator,
+                             UserCalendar userCalendar) {
         this.claudeClient = claudeClient;
         this.guardrail = guardrail;
         this.toolRegistry = toolRegistry;
@@ -137,6 +140,7 @@ public class CoachOrchestrator {
         this.objectMapper = objectMapper;
         this.toolExecutor = toolExecutor;
         this.answerValidator = answerValidator;
+        this.userCalendar = userCalendar;
     }
 
     /**
@@ -203,7 +207,8 @@ public class CoachOrchestrator {
                             + "computed from your data. Those are on your dashboard.");
         }
 
-        String system = SYSTEM_PROMPT_HEAD + toolRegistry.promptBlock() + SYSTEM_PROMPT_TAIL;
+        String system = SYSTEM_PROMPT_HEAD + toolRegistry.promptBlock() + SYSTEM_PROMPT_TAIL
+                + todayLine(context);
         List<String> transcript = new ArrayList<>(history);
         List<String> toolsUsed = new ArrayList<>();
         Set<String> alreadyCalled = new LinkedHashSet<>();
@@ -405,6 +410,17 @@ public class CoachOrchestrator {
             planned.add("readRecentTraining");
         }
         return planned;
+    }
+
+    /**
+     * Today's date in the user's own timezone, so that "yesterday" or "on Monday" can be turned into
+     * a date for a tool. It is the only line of the prompt that depends on the user, and it holds a
+     * date and a weekday, never anything the user typed.
+     */
+    private String todayLine(CoachCallContext context) {
+        java.time.LocalDate today = userCalendar.today(userCalendar.zone(context.userId()));
+        return "\nToday is " + today.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, Locale.ENGLISH)
+                + " " + today + " in the user's timezone.\n";
     }
 
     private String userPrompt(String question, List<String> transcript) {

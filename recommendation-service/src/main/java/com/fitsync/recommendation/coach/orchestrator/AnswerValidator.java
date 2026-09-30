@@ -2,10 +2,13 @@ package com.fitsync.recommendation.coach.orchestrator;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,6 +47,32 @@ public class AnswerValidator {
      * two-numbers-for-a-time behaviour this checker needs, with no special case required for either.
      */
     private static final Pattern NUMBER_TOKEN = Pattern.compile("(\\d{1,3}(?:,\\d{3})+|\\d+)(\\.\\d+)?");
+
+    private static final Map<String, Integer> UNIT_WORDS = caseInsensitive(Map.ofEntries(
+            Map.entry("zero", 0), Map.entry("one", 1), Map.entry("two", 2), Map.entry("three", 3),
+            Map.entry("four", 4), Map.entry("five", 5), Map.entry("six", 6), Map.entry("seven", 7),
+            Map.entry("eight", 8), Map.entry("nine", 9), Map.entry("ten", 10), Map.entry("eleven", 11),
+            Map.entry("twelve", 12), Map.entry("thirteen", 13), Map.entry("fourteen", 14),
+            Map.entry("fifteen", 15), Map.entry("sixteen", 16), Map.entry("seventeen", 17),
+            Map.entry("eighteen", 18), Map.entry("nineteen", 19), Map.entry("twenty", 20)));
+
+    private static final Map<String, Integer> TENS_WORDS = caseInsensitive(Map.of(
+            "twenty", 20, "thirty", 30, "forty", 40, "fifty", 50,
+            "sixty", 60, "seventy", 70, "eighty", 80, "ninety", 90));
+
+    /**
+     * A number written in English, from zero to ninety-nine, only where it stands directly before a
+     * noun that is being counted. The noun is what separates "four sessions" from "the one you asked
+     * about", "one of them" or "a second", none of which is a count, so a word with no such noun
+     * after it is never read as a number. "A" and "an" are not in the list at all.
+     */
+    private static final Pattern WORD_COUNT = Pattern.compile(
+            "(?i)\\b((?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+                    + "(?:-(?:one|two|three|four|five|six|seven|eight|nine))?"
+                    + "|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen"
+                    + "|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
+                    + "\\s+(?:completed\\s+|total\\s+)?"
+                    + "(sessions?|workouts?|days?|weeks?|times?|meals?|kg|km|min(?:ute)?s?|reps?|sets?)\\b");
 
     /** A sentence ends at a full stop that is followed by a space, so 22.5 stays whole. */
     private static final Pattern SENTENCE_END = Pattern.compile("(?<=[.])\\s+");
@@ -131,6 +160,10 @@ public class AnswerValidator {
         while (matcher.find()) {
             into.add(parseNumber(matcher.group()).stripTrailingZeros());
         }
+        Matcher words = WORD_COUNT.matcher(text);
+        while (words.find()) {
+            into.add(BigDecimal.valueOf(wordValue(words.group(1))));
+        }
     }
 
     private static List<String> numbersNotIn(String text, Set<BigDecimal> givenNumbers) {
@@ -144,7 +177,33 @@ public class AnswerValidator {
                 offending.add(token);
             }
         }
+        // A count written in words is held to the same rule and reported the same way, under the
+        // words the answer used.
+        Matcher words = WORD_COUNT.matcher(text);
+        while (words.find()) {
+            BigDecimal parsed = BigDecimal.valueOf(wordValue(words.group(1)));
+            boolean given = givenNumbers.stream().anyMatch(candidate -> candidate.compareTo(parsed) == 0);
+            if (!given) {
+                offending.add(words.group(1));
+            }
+        }
         return offending;
+    }
+
+    /** The value of a word matched by {@link #WORD_COUNT}, such as "four" or "twenty-one". */
+    private static int wordValue(String word) {
+        int hyphen = word.indexOf('-');
+        if (hyphen < 0) {
+            return UNIT_WORDS.get(word);
+        }
+        return TENS_WORDS.get(word.substring(0, hyphen)) + UNIT_WORDS.get(word.substring(hyphen + 1));
+    }
+
+    /** Number words are matched whatever their case, without changing the case of anything. */
+    private static Map<String, Integer> caseInsensitive(Map<String, Integer> words) {
+        Map<String, Integer> sorted = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        sorted.putAll(words);
+        return Collections.unmodifiableMap(sorted);
     }
 
     private static BigDecimal parseNumber(String token) {
@@ -256,16 +315,28 @@ public class AnswerValidator {
             }
             Matcher matcher = COUNTED.matcher(sentence);
             while (matcher.find()) {
-                int stated = parseNumber(matcher.group(1)).intValue();
-                boolean minutes = matcher.group(2).toLowerCase(Locale.ROOT).startsWith("min");
-                Integer lastWeek = minutes ? weeks.lastWeekMinutes() : weeks.lastWeekSessions();
-                Integer currentWeek = minutes ? weeks.currentWeekMinutes() : weeks.currentWeekSessions();
-                if (lastWeek != null && stated == lastWeek && stated != currentWeek) {
-                    violations.add("WEEK_NOT_NAMED:" + matcher.group(1) + " " + matcher.group(2));
+                weekNotNamed(weeks, parseNumber(matcher.group(1)).intValue(), matcher.group(1), matcher.group(2),
+                        violations);
+            }
+            Matcher words = WORD_COUNT.matcher(sentence);
+            while (words.find()) {
+                String noun = words.group(2).toLowerCase(Locale.ROOT);
+                if (noun.startsWith("session") || noun.startsWith("workout") || noun.startsWith("min")) {
+                    weekNotNamed(weeks, wordValue(words.group(1)), words.group(1), words.group(2), violations);
                 }
             }
         }
         return violations;
+    }
+
+    private static void weekNotNamed(WeekFigures weeks, int stated, String token, String noun,
+                                     List<String> violations) {
+        boolean minutes = noun.toLowerCase(Locale.ROOT).startsWith("min");
+        Integer lastWeek = minutes ? weeks.lastWeekMinutes() : weeks.lastWeekSessions();
+        Integer currentWeek = minutes ? weeks.currentWeekMinutes() : weeks.currentWeekSessions();
+        if (lastWeek != null && stated == lastWeek && stated != currentWeek) {
+            violations.add("WEEK_NOT_NAMED:" + token + " " + noun);
+        }
     }
 
     /**

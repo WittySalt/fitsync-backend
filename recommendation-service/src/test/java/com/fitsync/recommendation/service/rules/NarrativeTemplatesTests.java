@@ -59,7 +59,7 @@ class NarrativeTemplatesTests {
     void weeklyAdherenceVariants() {
         assertThat(render(RecommendationTypes.WEEKLY_ADHERENCE, Map.of(
                 "targetDaysPerWeek", 3, "activeDays", 5, "shortfallDays", 0, "status", "MET")))
-                .isEqualTo("Weekly goal met: 5 of 3 training days done — great consistency.");
+                .isEqualTo("Last week's goal met: 5 of 3 training days done — great consistency.");
 
         assertThat(render(RecommendationTypes.WEEKLY_ADHERENCE, Map.of(
                 "targetDaysPerWeek", 4, "activeDays", 2, "shortfallDays", 2, "status", "MISSED")))

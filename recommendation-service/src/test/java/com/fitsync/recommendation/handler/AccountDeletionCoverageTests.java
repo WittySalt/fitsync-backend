@@ -2,12 +2,20 @@ package com.fitsync.recommendation.handler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
@@ -35,6 +43,7 @@ import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.repository.RecommendationProcessedEventRepository;
 import com.fitsync.recommendation.repository.RecommendationResultRepository;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Table;
 import jakarta.persistence.metamodel.EntityType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -124,6 +133,37 @@ class AccountDeletionCoverageTests {
                         + ". Add it to AccountDeletionCoverageTests.COVERED_ENTITIES together with"
                         + " either a purger and a factory here, or a documented reason it needs none.")
                 .isEmpty();
+    }
+
+    /**
+     * The entity check above cannot see a table that a migration creates without an entity in
+     * front of it, and such a table would hold user rows that nothing purges. Comparing the tables
+     * the migrations create with the tables the entities map closes that gap.
+     */
+    @Test
+    void everyMigratedTableIsMappedByAnEntityWithADecidedFate() throws IOException {
+        Pattern createTable = Pattern.compile("(?im)^\\s*create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?(\\w+)");
+        Set<String> migratedTables = new TreeSet<>();
+        Path migrations = Paths.get("src/main/resources/db/migration");
+        try (Stream<Path> files = Files.list(migrations)) {
+            for (Path file : files.filter(path -> path.toString().endsWith(".sql")).toList()) {
+                Matcher matcher = createTable.matcher(Files.readString(file));
+                while (matcher.find()) {
+                    migratedTables.add(matcher.group(1).toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+
+        Set<String> decidedTables = new TreeSet<>();
+        for (Class<?> covered : COVERED_ENTITIES) {
+            decidedTables.add(covered.getAnnotation(Table.class).name().toLowerCase(java.util.Locale.ROOT));
+        }
+
+        assertThat(migratedTables)
+                .withFailMessage("a migration creates a table with no covered entity; decide its fate on"
+                        + " account deletion and add its entity to COVERED_ENTITIES")
+                .isNotEmpty()
+                .isEqualTo(decidedTables);
     }
 
     @Test

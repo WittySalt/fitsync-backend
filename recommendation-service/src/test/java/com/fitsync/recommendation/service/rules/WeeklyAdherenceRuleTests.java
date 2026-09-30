@@ -78,6 +78,27 @@ class WeeklyAdherenceRuleTests {
                 .containsEntry("targetBasis", WeeklyAdherenceRule.TARGET_BASIS_PREFERENCE);
     }
 
+    @Test
+    void usesTheGoalWhenThereIsNoPreferenceAtAll() {
+        RecommendationContextEntity context = context(null, 2);
+        context.setWeeklyWorkoutGoalDays(3);
+
+        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+
+        assertThat(outcome.facts())
+                .containsEntry("targetDaysPerWeek", 3)
+                .containsEntry("targetBasis", WeeklyAdherenceRule.TARGET_BASIS_GOAL)
+                .containsEntry("shortfallDays", 1);
+    }
+
+    @Test
+    void staysQuietWhenNeitherAGoalNorAPreferenceExists() {
+        RecommendationContextEntity context = context(null, 4);
+        context.setWeeklyWorkoutGoalDays(null);
+
+        assertThat(rule.evaluate(context)).isEmpty();
+    }
+
     private static RecommendationContextEntity context(Integer targetDays, Integer activeDays) {
         RecommendationContextEntity context = new RecommendationContextEntity();
         context.setUserId(UUID.randomUUID());
