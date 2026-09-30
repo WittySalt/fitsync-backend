@@ -1,6 +1,8 @@
 package com.fitsync.user.controller;
 
+import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,6 +16,7 @@ import com.fitsync.user.dto.CompleteOnboardingRequest;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
 import com.fitsync.user.dto.HealthReadinessView;
+import com.fitsync.user.dto.ProgressInsightResponse;
 import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
@@ -23,6 +26,7 @@ import com.fitsync.user.dto.UserPreferencesView;
 import com.fitsync.user.dto.UserProfileView;
 import com.fitsync.user.security.CurrentUserPrincipal;
 import com.fitsync.user.service.UserService;
+import com.fitsync.web.error.BadRequestException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -179,6 +183,12 @@ public class UserController {
         userService.deleteGoal(currentPrincipal(authentication), goalType);
     }
 
+    @GetMapping("/me/insights/progress")
+    public ProgressInsightResponse progressInsight(Authentication authentication,
+                                                   @RequestParam(required = false) String timezone) {
+        return userService.getProgressInsight(currentPrincipal(authentication), parseTimezone(timezone));
+    }
+
     @PostMapping("/me/data-export/requests")
     @ResponseStatus(HttpStatus.CREATED)
     public AccountDataExportRequestView requestDataExport(Authentication authentication) {
@@ -199,6 +209,17 @@ public class UserController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"fitsync-account-export.json\"")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(payload);
+    }
+
+    private static ZoneId parseTimezone(String timezone) {
+        if (timezone == null || timezone.isBlank()) {
+            return ZoneId.of("UTC");
+        }
+        try {
+            return ZoneId.of(timezone.trim());
+        } catch (DateTimeException ex) {
+            throw new BadRequestException("timezone must be an IANA zone id such as Asia/Singapore");
+        }
     }
 
     private CurrentUserPrincipal currentPrincipal(Authentication authentication) {

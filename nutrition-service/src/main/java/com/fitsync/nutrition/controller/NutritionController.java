@@ -17,6 +17,7 @@ import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
 import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
+import com.fitsync.nutrition.dto.NutritionPageInsightView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchCriteria;
@@ -30,6 +31,7 @@ import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import com.fitsync.nutrition.service.NutritionPageInsightService;
 import com.fitsync.nutrition.service.NutritionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -58,9 +60,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class NutritionController {
 
     private final NutritionService nutritionService;
+    private final NutritionPageInsightService nutritionPageInsightService;
 
-    public NutritionController(NutritionService nutritionService) {
+    public NutritionController(NutritionService nutritionService,
+                               NutritionPageInsightService nutritionPageInsightService) {
         this.nutritionService = nutritionService;
+        this.nutritionPageInsightService = nutritionPageInsightService;
     }
 
     @PostMapping("/meals")
@@ -159,6 +164,12 @@ public class NutritionController {
                                                   @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
                                                   @RequestParam(required = false) String timezone) {
         return nutritionService.getDailySummary(currentPrincipal(authentication), date, timezone);
+    }
+
+    @GetMapping("/insights/page")
+    public NutritionPageInsightView nutritionPageInsight(Authentication authentication,
+                                                         @RequestParam(required = false) String timezone) {
+        return nutritionPageInsightService.getNutritionPageInsight(currentPrincipal(authentication), timezone);
     }
 
     @GetMapping("/foods/search")

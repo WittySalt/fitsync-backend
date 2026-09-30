@@ -1,6 +1,7 @@
 package com.fitsync.user;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -9,6 +10,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,6 +35,7 @@ import com.fitsync.user.domain.UnitSystem;
 import com.fitsync.user.domain.GoalStatus;
 import com.fitsync.user.domain.GoalType;
 import com.fitsync.user.dto.HealthReadinessView;
+import com.fitsync.user.dto.ProgressInsightResponse;
 import com.fitsync.user.dto.UpsertAppPreferencesRequest;
 import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertNotificationPreferencesRequest;
@@ -38,6 +43,7 @@ import com.fitsync.user.dto.UpsertNutritionPreferencesRequest;
 import com.fitsync.user.dto.UpsertTrainingPreferencesRequest;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
+import com.fitsync.user.entity.BodyMetricEntryEntity;
 import com.fitsync.user.entity.UserAppPreferencesEntity;
 import com.fitsync.user.entity.UserGoalEntity;
 import com.fitsync.user.entity.UserHealthReadinessEntity;
@@ -227,6 +233,87 @@ class UserServiceImplTests {
         AccountDeletedPayload payload = (AccountDeletedPayload) event.payload();
         assertEquals("USER_REQUESTED", payload.reason());
         assertEquals(event.occurredAt(), payload.deletedAt());
+    }
+
+    @Test
+    void progressInsightWithoutMeasurementsOrGoalIsEmpty() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "none@test.dev", "None", "USER");
+        when(fixtures.bodyMetricEntryRepository.findTrendSource(any(), any(), any())).thenReturn(List.of());
+        when(fixtures.bodyMetricEntryRepository
+                .findTopByUserIdAndWeightKgIsNotNullAndMeasuredAtLessThanOrderByMeasuredAtDesc(any(), any()))
+                .thenReturn(Optional.empty());
+        when(fixtures.userGoalRepository.findByUserIdOrderByGoalTypeAsc(userId)).thenReturn(List.of());
+
+        ProgressInsightResponse response = fixtures.service.getProgressInsight(principal, ZoneId.of("UTC"));
+
+        assertEquals("UTC", response.timezone());
+        assertNull(response.weightKg());
+        assertEquals(0, response.entries());
+        assertNull(response.goalWeightKg());
+        assertNull(response.goalDate());
+        assertNull(response.projectedDate());
+        assertEquals(List.of(), response.series());
+    }
+
+    @Test
+    void progressInsightIgnoresArchivedWeightGoalAndTakesTheNewestActiveOne() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "goal@test.dev", "Goal", "USER");
+        UserGoalEntity archived = goal(userId, GoalType.WEIGHT, GoalStatus.ARCHIVED, "60.00", "kg");
+        UserGoalEntity older = goal(userId, GoalType.WEIGHT, GoalStatus.ACTIVE, "68.00", "kg");
+        UserGoalEntity newer = goal(userId, GoalType.WEIGHT, GoalStatus.ACTIVE, "66.50", "kg");
+        UserGoalEntity calories = goal(userId, GoalType.CALORIES, GoalStatus.ACTIVE, "2000.00", "kcal");
+        ReflectionTestUtils.setField(archived, "dateTimeUpdated", Instant.parse("2026-09-29T00:00:00Z"));
+        ReflectionTestUtils.setField(older, "dateTimeUpdated", Instant.parse("2026-09-01T00:00:00Z"));
+        ReflectionTestUtils.setField(newer, "dateTimeUpdated", Instant.parse("2026-09-20T00:00:00Z"));
+        ReflectionTestUtils.setField(calories, "dateTimeUpdated", Instant.parse("2026-09-28T00:00:00Z"));
+        when(fixtures.userGoalRepository.findByUserIdOrderByGoalTypeAsc(userId))
+                .thenReturn(List.of(archived, older, newer, calories));
+        when(fixtures.bodyMetricEntryRepository.findTrendSource(any(), any(), any())).thenReturn(List.of());
+        when(fixtures.bodyMetricEntryRepository
+                .findTopByUserIdAndWeightKgIsNotNullAndMeasuredAtLessThanOrderByMeasuredAtDesc(any(), any()))
+                .thenReturn(Optional.empty());
+
+        ProgressInsightResponse response = fixtures.service.getProgressInsight(principal, ZoneId.of("UTC"));
+
+        assertEquals(new java.math.BigDecimal("66.50"), response.goalWeightKg());
+        assertEquals(java.time.LocalDate.parse("2026-08-31"), response.goalDate());
+    }
+
+    @Test
+    void progressInsightMapsMeasurementsAndProjectsTowardTheGoal() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "series@test.dev", "Series", "USER");
+        Instant now = Instant.now();
+        BodyMetricEntryEntity first = weight(userId, now.minus(15, ChronoUnit.DAYS), "74.0");
+        BodyMetricEntryEntity noWeight = weight(userId, now.minus(10, ChronoUnit.DAYS), null);
+        BodyMetricEntryEntity last = weight(userId, now.minus(1, ChronoUnit.DAYS), "72.0");
+        when(fixtures.bodyMetricEntryRepository.findTrendSource(any(), any(), any()))
+                .thenReturn(List.of(first, noWeight, last));
+        when(fixtures.bodyMetricEntryRepository
+                .findTopByUserIdAndWeightKgIsNotNullAndMeasuredAtLessThanOrderByMeasuredAtDesc(any(), any()))
+                .thenReturn(Optional.of(last));
+        UserGoalEntity goal = goal(userId, GoalType.WEIGHT, GoalStatus.ACTIVE, "70.00", "kg");
+        when(fixtures.userGoalRepository.findByUserIdOrderByGoalTypeAsc(userId)).thenReturn(List.of(goal));
+
+        ProgressInsightResponse response = fixtures.service.getProgressInsight(principal, ZoneId.of("UTC"));
+
+        assertEquals(2, response.entries());
+        assertEquals(new java.math.BigDecimal("72.0"), response.weightKg());
+        assertEquals(new java.math.BigDecimal("-1.00"), response.weeklyRateKg());
+        assertEquals(response.measuredOn().plusDays(14), response.projectedDate());
+    }
+
+    private static BodyMetricEntryEntity weight(UUID userId, Instant measuredAt, String weightKg) {
+        BodyMetricEntryEntity entity = new BodyMetricEntryEntity();
+        entity.setUserId(userId);
+        entity.setMeasuredAt(measuredAt);
+        entity.setWeightKg(weightKg == null ? null : new java.math.BigDecimal(weightKg));
+        return entity;
     }
 
     private static UserGoalEntity goal(UUID userId,
