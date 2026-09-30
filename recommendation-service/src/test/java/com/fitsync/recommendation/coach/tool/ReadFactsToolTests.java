@@ -77,6 +77,68 @@ class ReadFactsToolTests {
     }
 
     @Test
+    @DisplayName("today is handed over with its kind, its source and the next training day")
+    void addsToday() throws Exception {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(CALL.bearerToken(), "Asia/Singapore")).thenReturn(
+                "{\"completedSessions\":1,\"totalMinutes\":50,\"today\":{\"date\":\"2026-09-30\","
+                        + "\"kind\":\"CARDIO\",\"label\":\"Cardio\",\"source\":\"PLAN\","
+                        + "\"title\":\"Treadmill run\",\"estimatedMinutes\":35,\"moves\":null},"
+                        + "\"nextTraining\":{\"date\":\"2026-10-02\",\"kind\":\"SPORT\","
+                        + "\"label\":\"Badminton\",\"title\":null,\"estimatedMinutes\":60}}");
+
+        JsonNode facts = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+
+        JsonNode today = facts.path("today");
+        assertThat(today.path("kind").asText()).isEqualTo("CARDIO");
+        assertThat(today.path("label").asText()).isEqualTo("Cardio");
+        assertThat(today.path("source").asText()).isEqualTo("PLAN");
+        assertThat(today.path("title").asText()).isEqualTo("Treadmill run");
+        assertThat(today.path("estimatedMinutes").asInt()).isEqualTo(35);
+        assertThat(today.path("next").path("date").asText()).isEqualTo("2026-10-02");
+        assertThat(today.path("next").path("label").asText()).isEqualTo("Badminton");
+        assertThat(facts.path("trainingThisWeek").path("sessions").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a rest day without a next training day has no title, minutes or next")
+    void addsTodayWithoutNext() throws Exception {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(CALL.bearerToken(), "Asia/Singapore")).thenReturn(
+                "{\"today\":{\"kind\":\"REST\",\"label\":\"Rest\",\"source\":\"HABIT\","
+                        + "\"title\":null,\"estimatedMinutes\":null},\"nextTraining\":null}");
+
+        JsonNode today = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation())
+                .path("today");
+
+        assertThat(today.path("kind").asText()).isEqualTo("REST");
+        assertThat(today.path("source").asText()).isEqualTo("HABIT");
+        assertThat(today.has("title")).isFalse();
+        assertThat(today.has("estimatedMinutes")).isFalse();
+        assertThat(today.has("next")).isFalse();
+    }
+
+    @Test
+    @DisplayName("today is left out when the weekly insight has none, cannot be read, or fails")
+    void leavesTodayOut() throws Exception {
+        userWithFacts(null);
+        when(workoutClient.weeklyInsight(CALL.bearerToken(), "UTC")).thenReturn(
+                "{\"completedSessions\":1,\"totalMinutes\":50}");
+        JsonNode without = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+
+        when(workoutClient.weeklyInsight(CALL.bearerToken(), "UTC")).thenReturn("not json");
+        JsonNode unreadable = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+
+        when(workoutClient.weeklyInsight(CALL.bearerToken(), "UTC")).thenThrow(new IllegalStateException("down"));
+        JsonNode failing = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+
+        assertThat(without.has("today")).isFalse();
+        assertThat(without.has("trainingThisWeek")).isTrue();
+        assertThat(unreadable.has("today")).isFalse();
+        assertThat(failing.has("today")).isFalse();
+    }
+
+    @Test
     @DisplayName("a user without computed facts is told so, and workout-service is not asked")
     void saysThereAreNoFactsYet() {
         when(repository.findById(USER)).thenReturn(Optional.empty());

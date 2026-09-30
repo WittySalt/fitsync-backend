@@ -92,7 +92,8 @@ public class CoachReadingService {
 
             Facts are given as a JSON array, each with a number, a label, a value, a unit, a short \
             note and a longer detail. The period label tells you whether this covers the current or \
-            the previous week.
+            the previous week. A fact labelled Pace gives minutes and seconds for one kilometre, \
+            so a lower pace is a faster one; its note says how many seconds faster or slower it was.
 
             The example below shows the form only. Its numbers belong to someone else, so none \
             of them may appear in your answer.

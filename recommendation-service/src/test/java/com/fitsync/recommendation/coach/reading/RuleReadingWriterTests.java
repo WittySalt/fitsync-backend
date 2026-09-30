@@ -275,6 +275,124 @@ class RuleReadingWriterTests {
                 previousBest == null ? null : new BigDecimal(previousBest));
     }
 
+    @Test
+    @DisplayName("lifting with runs: the lifting sentences come first, then distance and pace")
+    void liftingAndRuns() {
+        RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(
+                ReadingFactsBuilderTests.fullInsight(), runs("5.75", "5.50", 365, 370), null, null));
+
+        assertThat(reading.headline()).isEqualTo("Your lifts grew while your sessions stayed the same length.");
+        assertThat(reading.body()).isEqualTo(
+                "You moved 1,923 kg a session [1], up from 1,716 kg, in 50 min [2]. "
+                        + "Your cardio sessions averaged 5.75 km [3], up from 5.5 km. "
+                        + "The pace was 6:05 per km [4], 5 s faster than the week before.");
+    }
+
+    @Test
+    @DisplayName("only runs: the headline follows the distance and the pace names its direction")
+    void onlyRuns() {
+        RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(
+                null, runs("5.75", "5.50", 365, 370), null, null));
+
+        assertThat(reading.headline()).isEqualTo("Your cardio went further.");
+        assertThat(reading.body()).isEqualTo(
+                "Your cardio sessions averaged 5.75 km [1], up from 5.5 km. "
+                        + "The pace was 6:05 per km [2], 5 s faster than the week before.");
+        assertThat(reading.citations()).containsExactly(1, 2);
+    }
+
+    @Test
+    @DisplayName("shorter runs and a slower pace")
+    void shorterAndSlower() {
+        RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(
+                null, runs("5.00", "5.50", 370, 365), null, null));
+
+        assertThat(reading.headline()).isEqualTo("Your cardio covered less distance.");
+        assertThat(reading.body()).isEqualTo(
+                "Your cardio sessions averaged 5 km [1], down from 5.5 km. "
+                        + "The pace was 6:10 per km [2], 5 s slower than the week before.");
+    }
+
+    @Test
+    @DisplayName("runs at the same distance and pace as the week before")
+    void unchangedRuns() {
+        RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(
+                null, runs("5.50", "5.50", 365, 365), null, null));
+
+        assertThat(reading.headline()).isEqualTo("Your cardio held its distance.");
+        assertThat(reading.body()).isEqualTo(
+                "Your cardio sessions averaged 5.5 km [1], the same as the week before. "
+                        + "The pace was 6:05 per km [2], the same as the week before.");
+    }
+
+    @Test
+    @DisplayName("runs with no earlier week get the plain headline, because held would be a claim no fact makes")
+    void runsWithoutAnEarlierWeek() {
+        RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(
+                null, runs("5.75", null, 365, null), null, null));
+
+        assertThat(reading.headline()).isEqualTo("Your training in two numbers.");
+        assertThat(reading.body()).isEqualTo(
+                "Your cardio sessions averaged 5.75 km [1]. The pace was 6:05 per km [2].");
+    }
+
+    @Test
+    @DisplayName("cardio without a distance, with mobility and a sport")
+    void cardioLengthMobilityAndSport() {
+        RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(
+                null, ReadingFactsBuilderTests.cardio(null, null, null, null, 35, null),
+                new TrainingInsight.MobilityInfo(1, 20, null, null),
+                new TrainingInsight.SportInfo(1, 60, List.of(
+                        new TrainingInsight.SportActivity("BADMINTON", "Badminton", 1, 60)))));
+
+        assertThat(reading.headline()).isEqualTo("Your training in three numbers.");
+        assertThat(reading.body()).isEqualTo(
+                "Your cardio sessions took 35 min [1]. Mobility took 20 min [2]. Badminton took 60 min [3].");
+    }
+
+    @Test
+    @DisplayName("cardio length that did not change headlines that it held its length")
+    void unchangedCardioLength() {
+        RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(
+                null, ReadingFactsBuilderTests.cardio(null, null, null, null, 35, 35),
+                new TrainingInsight.MobilityInfo(1, 20, null, null), null));
+
+        assertThat(reading.headline()).isEqualTo("Your cardio held its length.");
+        assertThat(reading.body()).isEqualTo("Your cardio sessions took 35 min [1]. Mobility took 20 min [2].");
+    }
+
+    @Test
+    @DisplayName("every reading written for the cardio cases passes the validator")
+    void everyCardioReadingIsValid() {
+        List<TrainingInsight> insights = List.of(
+                ReadingFactsBuilderTests.withGroups(ReadingFactsBuilderTests.fullInsight(),
+                        runs("5.75", "5.50", 365, 370), null, null),
+                ReadingFactsBuilderTests.withGroups(ReadingFactsBuilderTests.fullInsight(),
+                        ReadingFactsBuilderTests.cardio(null, null, null, null, 35, 40), null, null),
+                ReadingFactsBuilderTests.withGroups(null, runs("5.00", "5.50", 370, 365), null, null),
+                ReadingFactsBuilderTests.withGroups(null, runs("5.50", "5.50", 365, 365), null, null),
+                ReadingFactsBuilderTests.withGroups(null, runs("5.75", null, 365, null), null, null));
+
+        for (TrainingInsight insight : insights) {
+            List<ReadingFact> facts = factsBuilder.build(insight);
+            RuleReadingWriter.RuleReading reading = writer.write(insight, facts).orElseThrow();
+
+            assertThat(validator.validate(reading.headline(), reading.body(), facts).valid())
+                    .as(reading.headline() + " " + reading.body()).isTrue();
+        }
+    }
+
+    private RuleReadingWriter.RuleReading writeFor(TrainingInsight insight) {
+        return writer.write(insight, factsBuilder.build(insight)).orElseThrow();
+    }
+
+    private static TrainingInsight.CardioInfo runs(String distance, String earlierDistance, int pace,
+                                                   Integer earlierPace) {
+        return new TrainingInsight.CardioInfo(2, 2, new BigDecimal(distance),
+                earlierDistance == null ? null : new BigDecimal(earlierDistance),
+                BigDecimal.valueOf(pace), earlierPace == null ? null : BigDecimal.valueOf(earlierPace), 35, null);
+    }
+
     private static TrainingInsight.MostTrainedInfo mostTrained(String muscleGroup, int sessions) {
         return new TrainingInsight.MostTrainedInfo(muscleGroup, sessions, List.of("Plank Hold"));
     }

@@ -185,12 +185,16 @@ public class AnswerValidator {
             boolean rose = false;
             boolean fell = false;
             boolean steady = false;
+            boolean quicker = false;
+            boolean slower = false;
             for (TurnContext.PinnedFact fact : cited) {
                 String note = fact.note() == null ? "" : fact.note();
                 String label = fact.label() == null ? "" : fact.label();
                 rose = rose || note.startsWith("Up") || label.endsWith(" record");
                 fell = fell || note.startsWith("Down");
                 steady = steady || "Unchanged".equals(note);
+                quicker = quicker || note.endsWith(" faster");
+                slower = slower || note.endsWith(" slower");
             }
             int sentenceNumber = i + 1;
             if (!rose && CoachVoice.RISING.matcher(sentenceText).find()) {
@@ -201,6 +205,12 @@ public class AnswerValidator {
             }
             if (!steady && CoachVoice.STEADY.matcher(sentenceText).find()) {
                 violations.add("DIRECTION_NOT_IN_FACTS:unchanged in sentence " + sentenceNumber);
+            }
+            if (!quicker && CoachVoice.FASTER.matcher(sentenceText).find()) {
+                violations.add("DIRECTION_NOT_IN_FACTS:faster in sentence " + sentenceNumber);
+            }
+            if (!slower && CoachVoice.SLOWER.matcher(sentenceText).find()) {
+                violations.add("DIRECTION_NOT_IN_FACTS:slower in sentence " + sentenceNumber);
             }
         }
         return violations;

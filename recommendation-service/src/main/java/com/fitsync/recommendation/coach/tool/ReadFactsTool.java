@@ -51,6 +51,9 @@ public class ReadFactsTool implements CoachTool {
     /** The name of the group that holds the current week so far. */
     public static final String CURRENT_WEEK_GROUP = "trainingThisWeek";
 
+    /** The name of the group that holds what kind of day today is. */
+    public static final String TODAY_GROUP = "today";
+
     static final String CURRENT_WEEK_PERIOD = "CURRENT_WEEK_SO_FAR";
 
     private static final String DEFAULT_TIMEZONE = "UTC";
@@ -60,29 +63,61 @@ public class ReadFactsTool implements CoachTool {
         return "readFacts";
     }
 
-    private Optional<Map<String, Object>> currentWeek(CoachCallContext context, String timezone) {
+    /**
+     * The current week as workout-service reports it, or nothing when it cannot be reached or read.
+     * Both the week's totals and today's kind of day come out of this one response.
+     */
+    private Optional<JsonNode> weeklyInsight(CoachCallContext context, String timezone) {
         String zone = timezone == null || timezone.isBlank() ? DEFAULT_TIMEZONE : timezone;
         try {
             String body = workoutClient.weeklyInsight(context.bearerToken(), zone);
-            if (body == null) {
-                return Optional.empty();
-            }
-            JsonNode week = objectMapper.readTree(body);
-            if (!week.path("completedSessions").isInt() || !week.path("totalMinutes").isInt()) {
-                return Optional.empty();
-            }
-            Map<String, Object> group = new LinkedHashMap<>();
-            group.put("period", CURRENT_WEEK_PERIOD);
-            if (week.path("weekStart").isTextual()) {
-                group.put("weekStart", week.path("weekStart").asText());
-            }
-            group.put("sessions", week.path("completedSessions").asInt());
-            group.put("totalMinutes", week.path("totalMinutes").asInt());
-            return Optional.of(group);
+            return body == null ? Optional.empty() : Optional.of(objectMapper.readTree(body));
         } catch (JsonProcessingException | RuntimeException ex) {
             // The current week is an addition. A turn is still answered from the rest of the facts.
             return Optional.empty();
         }
+    }
+
+    private static Optional<Map<String, Object>> currentWeek(JsonNode week) {
+        if (!week.path("completedSessions").isInt() || !week.path("totalMinutes").isInt()) {
+            return Optional.empty();
+        }
+        Map<String, Object> group = new LinkedHashMap<>();
+        group.put("period", CURRENT_WEEK_PERIOD);
+        if (week.path("weekStart").isTextual()) {
+            group.put("weekStart", week.path("weekStart").asText());
+        }
+        group.put("sessions", week.path("completedSessions").asInt());
+        group.put("totalMinutes", week.path("totalMinutes").asInt());
+        return Optional.of(group);
+    }
+
+    /** What kind of day today is, where that comes from, and the next training day when there is one. */
+    private static Optional<Map<String, Object>> today(JsonNode week) {
+        JsonNode today = week.path("today");
+        if (!today.path("kind").isTextual() || !today.path("label").isTextual()) {
+            return Optional.empty();
+        }
+        Map<String, Object> group = new LinkedHashMap<>();
+        group.put("kind", today.path("kind").asText());
+        group.put("label", today.path("label").asText());
+        if (today.path("source").isTextual()) {
+            group.put("source", today.path("source").asText());
+        }
+        if (today.path("title").isTextual()) {
+            group.put("title", today.path("title").asText());
+        }
+        if (today.path("estimatedMinutes").isInt()) {
+            group.put("estimatedMinutes", today.path("estimatedMinutes").asInt());
+        }
+        JsonNode next = week.path("nextTraining");
+        if (next.path("date").isTextual() && next.path("label").isTextual()) {
+            Map<String, Object> nextGroup = new LinkedHashMap<>();
+            nextGroup.put("date", next.path("date").asText());
+            nextGroup.put("label", next.path("label").asText());
+            group.put("next", nextGroup);
+        }
+        return Optional.of(group);
     }
 
     @Override
@@ -96,10 +131,13 @@ public class ReadFactsTool implements CoachTool {
                 readFacts()
                   no arguments
                   returns the user's computed facts as JSON: training, nutritionToday, goalPace,
-                  loggingStreak, personalRecord, foodGroupWeek, focusAreas. Every number here is
+                  loggingStreak, personalRecord, foodGroupWeek, focusAreas, today. Every number here is
                   already calculated — quote it, never recompute it. The training group describes
                   the last full week, Monday to Sunday. The trainingThisWeek group describes the
-                  current week so far. Say which of the two weeks a count belongs to.""";
+                  current week so far. Say which of the two weeks a count belongs to. The today group
+                  says what kind of day today is (strength, cardio, mobility, a sport by name, rest, or
+                  open) and where that comes from (done, in progress, the plan, or a habit of the last
+                  four weeks).""";
     }
 
     @Override
@@ -116,8 +154,10 @@ public class ReadFactsTool implements CoachTool {
                             + "inventing numbers.");
         }
 
-        currentWeek(context, entity.map(RecommendationContextEntity::getTimezone).orElse(null))
-                .ifPresent(week -> facts.put(CURRENT_WEEK_GROUP, week));
+        weeklyInsight(context, entity.map(RecommendationContextEntity::getTimezone).orElse(null)).ifPresent(week -> {
+            currentWeek(week).ifPresent(group -> facts.put(CURRENT_WEEK_GROUP, group));
+            today(week).ifPresent(group -> facts.put(TODAY_GROUP, group));
+        });
 
         try {
             return ToolResult.of(facts.size() + " fact groups",

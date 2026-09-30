@@ -36,6 +36,12 @@ public final class CoachVoice {
     public static final Pattern STEADY = Pattern.compile(
             "(?i)\\b(unchanged|same|remain(?:s|ed|ing)?|stay(?:s|ed|ing)?|steady|held|flat|constant)\\b");
 
+    /** A word that says a pace got quicker. A lower number of seconds a kilometre is a faster pace. */
+    public static final Pattern FASTER = Pattern.compile("(?i)\\b(faster|quicker)\\b");
+
+    /** A word that says a pace got slower. */
+    public static final Pattern SLOWER = Pattern.compile("(?i)\\b(slower)\\b");
+
     private static final List<String> BANNED_PHRASES = List.of(
             "you should", "you must", "you need to", "you ought", "make sure", "be sure to",
             "try to", "consider ", "aim to", "aim for", "remember to",

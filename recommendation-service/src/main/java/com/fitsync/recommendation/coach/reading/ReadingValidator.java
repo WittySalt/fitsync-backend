@@ -227,17 +227,22 @@ public class ReadingValidator {
     /**
      * A fact went up when its note begins with "Up" or when it is a record. It went down when its
      * note begins with "Down", and it stayed the same when its note is "Unchanged". A text may use
-     * a word for one of these only when one of the given facts did so.
+     * a word for one of these only when one of the given facts did so. A pace fact says faster or
+     * slower in its note, and "faster" and "slower" are held to it the same way.
      */
     private static List<String> directionViolations(String text, List<ReadingFact> facts, String where) {
         boolean rose = false;
         boolean fell = false;
         boolean steady = false;
+        boolean quicker = false;
+        boolean slower = false;
         for (ReadingFact fact : facts) {
             String note = fact.note() == null ? "" : fact.note();
             rose = rose || note.startsWith("Up") || "RECORD".equals(fact.key());
             fell = fell || note.startsWith("Down");
             steady = steady || note.startsWith("Unchanged");
+            quicker = quicker || note.endsWith(" faster");
+            slower = slower || note.endsWith(" slower");
         }
         List<String> violations = new ArrayList<>();
         if (!rose && CoachVoice.RISING.matcher(text).find()) {
@@ -248,6 +253,12 @@ public class ReadingValidator {
         }
         if (!steady && CoachVoice.STEADY.matcher(text).find()) {
             violations.add("DIRECTION_NOT_IN_FACTS:unchanged in the " + where);
+        }
+        if (!quicker && CoachVoice.FASTER.matcher(text).find()) {
+            violations.add("DIRECTION_NOT_IN_FACTS:faster in the " + where);
+        }
+        if (!slower && CoachVoice.SLOWER.matcher(text).find()) {
+            violations.add("DIRECTION_NOT_IN_FACTS:slower in the " + where);
         }
         return violations;
     }

@@ -1,5 +1,7 @@
 package com.fitsync.recommendation.coach.reading;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,11 +62,31 @@ public class RuleReadingWriter {
         ReadingFact recordFact = findFact(facts, "RECORD");
         ReadingFact mostTrainedFact = findFact(facts, "MOST_TRAINED");
 
+        ReadingFact distanceFact = findFact(facts, "CARDIO_DISTANCE");
+        ReadingFact paceFact = findFact(facts, "CARDIO_PACE");
+        ReadingFact cardioLengthFact = findFact(facts, "CARDIO_LENGTH");
+        ReadingFact mobilityFact = findFact(facts, "MOBILITY_TIME");
+        ReadingFact sportFact = findFact(facts, "SPORT_TIME");
+        boolean hasLifting = volumeFact != null || lengthFact != null || recordFact != null
+                || mostTrainedFact != null;
+
+        // The sentences for everything but lifting, in fact order. They follow the lifting sentences
+        // in every candidate, so a period with only lifting behaves exactly as it did before.
+        List<String> otherSentences = new ArrayList<>();
+        addIfPresent(otherSentences, distanceSentence(distanceFact, insight));
+        addIfPresent(otherSentences, paceSentence(paceFact));
+        addIfPresent(otherSentences, cardioLengthSentence(cardioLengthFact));
+        addIfPresent(otherSentences, mobilitySentence(mobilityFact));
+        addIfPresent(otherSentences, sportSentence(sportFact));
+        String cardioHeadline = cardioHeadline(distanceFact, cardioLengthFact);
+
         String sentenceOne = sentenceOne(volumeFact, lengthFact, insight);
         String sentenceTwo = sentenceTwo(recordFact, insight);
         String sentenceThree = sentenceThree(mostTrainedFact, insight);
 
-        String baseHeadline = baseHeadline(volumeFact, lengthFact, recordFact, facts.size());
+        String baseHeadline = !hasLifting && cardioHeadline != null
+                ? cardioHeadline
+                : baseHeadline(volumeFact, lengthFact, recordFact, facts.size());
 
         for (Candidate candidate : Candidate.IN_ORDER) {
             StringBuilder body = new StringBuilder();
@@ -76,6 +98,9 @@ public class RuleReadingWriter {
             }
             if (candidate.includeThree() && sentenceThree != null) {
                 appendSentence(body, sentenceThree);
+            }
+            for (String other : otherSentences) {
+                appendSentence(body, other);
             }
             if (body.length() == 0) {
                 continue;
@@ -92,7 +117,84 @@ public class RuleReadingWriter {
                 return Optional.of(new RuleReading(headline, body.toString(), result.citations()));
             }
         }
+
+        // When every lifting sentence failed validation, what is left is the rest of the week on its own.
+        if (hasLifting && !otherSentences.isEmpty()) {
+            String body = String.join(" ", otherSentences);
+            String headline = cardioHeadline != null ? cardioHeadline : otherwiseHeadline(facts.size());
+            ReadingValidator.Result result = validator.validate(headline, body, facts);
+            if (result.valid()) {
+                return Optional.of(new RuleReading(headline, body, result.citations()));
+            }
+        }
         return Optional.empty();
+    }
+
+    private static void addIfPresent(List<String> sentences, String sentence) {
+        if (sentence != null) {
+            sentences.add(sentence);
+        }
+    }
+
+    /**
+     * The cardio headline, or nothing when the facts give no direction to name. A headline that says
+     * the distance "held" would be rejected without an earlier week that did the same, so
+     * a week with nothing to compare against gets the plain headline instead.
+     */
+    private static String cardioHeadline(ReadingFact distanceFact, ReadingFact cardioLengthFact) {
+        if (distanceFact != null) {
+            return switch (directionOf(distanceFact)) {
+                case UP -> "Your cardio went further.";
+                case DOWN -> "Your cardio covered less distance.";
+                case UNCHANGED -> "Your cardio held its distance.";
+                case NONE -> null;
+            };
+        }
+        if (cardioLengthFact != null && directionOf(cardioLengthFact) == Direction.UNCHANGED) {
+            return "Your cardio held its length.";
+        }
+        return null;
+    }
+
+    private static String distanceSentence(ReadingFact fact, TrainingInsight insight) {
+        if (fact == null) {
+            return null;
+        }
+        String lead = "Your cardio sessions averaged " + fact.value() + " km " + cite(fact);
+        BigDecimal earlier = insight.cardio() == null ? null : insight.cardio().earlierDistancePerSessionKm();
+        return switch (directionOf(fact)) {
+            case UP -> lead + ", up from " + ReadingFactsBuilder.upToTwoDecimals(earlier) + " km.";
+            case DOWN -> lead + ", down from " + ReadingFactsBuilder.upToTwoDecimals(earlier) + " km.";
+            case UNCHANGED -> lead + ", the same as the week before.";
+            case NONE -> lead + ".";
+        };
+    }
+
+    private static String paceSentence(ReadingFact fact) {
+        if (fact == null) {
+            return null;
+        }
+        String lead = "The pace was " + fact.value() + " per km " + cite(fact);
+        String note = fact.note() == null ? "" : fact.note();
+        if ("Unchanged".equals(note)) {
+            return lead + ", the same as the week before.";
+        }
+        if (note.endsWith(" faster") || note.endsWith(" slower")) {
+            return lead + ", " + note + " than the week before.";
+        }
+        return lead + ".";
+    }
+
+    private static String cardioLengthSentence(ReadingFact fact) {
+        return fact == null ? null : "Your cardio sessions took " + fact.value() + " min " + cite(fact) + ".";
+    }
+
+    private static String mobilitySentence(ReadingFact fact) {
+        return fact == null ? null : "Mobility took " + fact.value() + " min " + cite(fact) + ".";
+    }
+
+    private static String sportSentence(ReadingFact fact) {
+        return fact == null ? null : fact.label() + " took " + fact.value() + " min " + cite(fact) + ".";
     }
 
     private static void appendSentence(StringBuilder body, String sentence) {

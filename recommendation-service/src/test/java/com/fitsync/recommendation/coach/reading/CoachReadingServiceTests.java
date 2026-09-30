@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -87,6 +88,51 @@ class CoachReadingServiceTests {
         assertThat(response.reading().headline()).isNotBlank();
         assertThat(response.reading().body()).isNotBlank();
         assertThat(response.facts()).hasSize(4);
+    }
+
+    @Test
+    @DisplayName("lifting and cardio give four facts and a rule-written reading, and a changed cardio figure changes the id")
+    void cardioFiguresAreInTheReadingAndItsId() {
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(withRuns(new BigDecimal("5.75")));
+        CoachReadingResponse first = service.workoutReading(USER_ID, TOKEN, "UTC");
+
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(withRuns(new BigDecimal("6.00")));
+        CoachReadingResponse second = service.workoutReading(USER_ID, TOKEN, "UTC");
+
+        assertThat(first.status()).isEqualTo(ReadingStatus.READY);
+        assertThat(first.facts()).extracting(ReadingFact::key).containsExactly(
+                "VOLUME_PER_SESSION", "SESSION_LENGTH", "CARDIO_DISTANCE", "CARDIO_PACE");
+        assertThat(first.reading().source()).isEqualTo("RULES");
+        assertThat(first.reading().body()).contains("Your cardio sessions averaged 5.75 km [3]");
+        assertThat(second.readingId()).isNotEqualTo(first.readingId());
+    }
+
+    @Test
+    @DisplayName("the id of a lifting-only period is the hash of exactly the four facts it always had")
+    void liftingOnlyIdIsPinned() {
+        TrainingInsight insight = fullInsight();
+        List<ReadingFact> pinned = List.of(
+                new ReadingFact(1, "VOLUME_PER_SESSION", "Weight moved per session", "1,923", "kg",
+                        new BigDecimal("1923.00"), "Up 12%", "1,716 kg the week before"),
+                new ReadingFact(2, "SESSION_LENGTH", "Session length", "50", "min",
+                        BigDecimal.valueOf(50), "Unchanged", "50 min the week before"),
+                new ReadingFact(3, "RECORD", "Dumbbell Bench Press record", "22.5", "kg",
+                        new BigDecimal("22.50"), "Monday", "20 kg before"),
+                new ReadingFact(4, "MOST_TRAINED", "Sessions with core work", "4", "of 4",
+                        BigDecimal.valueOf(4), "Every one", "Plank Hold"));
+        when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(insight);
+
+        CoachReadingResponse response = service.workoutReading(USER_ID, TOKEN, "UTC");
+
+        assertThat(response.facts()).isEqualTo(pinned);
+        assertThat(response.readingId()).isEqualTo(CoachReadingService.hash(insight, pinned).substring(0, 16));
+    }
+
+    private static TrainingInsight withRuns(BigDecimal distance) {
+        return ReadingFactsBuilderTests.withGroups(fullInsight(),
+                new TrainingInsight.CardioInfo(2, 2, distance, new BigDecimal("5.50"),
+                        new BigDecimal("365"), new BigDecimal("370"), 35, 35),
+                null, null);
     }
 
     private static TrainingInsight insightWithPeriod(String period) {
