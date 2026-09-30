@@ -9,7 +9,9 @@ import java.util.Date;
 import java.util.Map;
 import java.util.UUID;
 import javax.crypto.SecretKey;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatcher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -23,8 +25,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -243,14 +247,122 @@ class ApiGatewayApplicationTests {
         verifyNoInteractions(gatewayProxyService);
     }
 
+    @Test
+    void adminRouteRejectsMissingToken() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/auth/outbox/pending"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        verifyNoInteractions(gatewayProxyService);
+    }
+
+    @Test
+    void adminRouteRejectsOrdinaryUserRole() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/auth/outbox/pending")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken()))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(gatewayProxyService);
+    }
+
+    @Test
+    void adminRouteForwardsToAuthServiceForAdminCaller() throws Exception {
+        when(gatewayProxyService.forwardToAdminService(eq("auth"), any(), any()))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"pending\":0,\"oldestCreatedAt\":null}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/v1/admin/auth/outbox/pending")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pending").value(0));
+
+        verify(gatewayProxyService).forwardToAdminService(eq("auth"), any(), argThat(emptyBody()));
+    }
+
+    @Test
+    void adminRouteForwardsRequestBodyOnPost() throws Exception {
+        when(gatewayProxyService.forwardToAdminService(eq("workouts"), any(), any()))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":\"queued\"}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(post("/api/v1/admin/workouts/outbox/publish")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"batchSize\":5}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("queued"));
+
+        verify(gatewayProxyService).forwardToAdminService(
+                eq("workouts"), any(), argThat(matchesBody("{\"batchSize\":5}")));
+    }
+
+    @Test
+    void adminRouteForwardsAuthorizationHeaderDownstream() throws Exception {
+        String token = adminToken();
+        when(gatewayProxyService.forwardToAdminService(eq("coach"), any(), any()))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":\"ok\"}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/v1/admin/coach/coach/quality")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<HttpServletRequest> requestCaptor = ArgumentCaptor.forClass(HttpServletRequest.class);
+        verify(gatewayProxyService).forwardToAdminService(eq("coach"), requestCaptor.capture(), any());
+        assertThat(requestCaptor.getValue().getHeader(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer " + token);
+    }
+
+    @Test
+    void adminRouteRejectsUnknownServiceWithoutProxying() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/payments/anything")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+
+        verifyNoInteractions(gatewayProxyService);
+    }
+
+    @Test
+    void adminRouteRejectsPathTraversalAttempt() throws Exception {
+        // Built from a java.net.URI, not the string-template overload, so the %2e%2e segment
+        // reaches the servlet exactly as written instead of being decoded while the request is built.
+        // Spring Security's own StrictHttpFirewall already rejects an encoded ".." before the
+        // request reaches this controller, so only the 400 is asserted here; the controller's own
+        // rewriteAdminPath check is exercised directly by the service-layer tests instead.
+        mockMvc.perform(get(new java.net.URI("/api/v1/admin/auth/%2e%2e/secrets"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void internalRouteIsNotReachableThroughTheGateway() throws Exception {
+        mockMvc.perform(get("/api/v1/internal/outbox/pending")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+
+        verifyNoInteractions(gatewayProxyService);
+    }
+
     private String validToken() {
+        return signedToken("USER");
+    }
+
+    private String adminToken() {
+        return signedToken("ADMIN");
+    }
+
+    private String signedToken(String role) {
         Instant now = Instant.now();
         SecretKey secretKey = Keys.hmacShaKeyFor("change-me-change-me-change-me-change-me".getBytes(StandardCharsets.UTF_8));
         return Jwts.builder()
                 .claims(Map.of(
                         "userId", UUID.randomUUID().toString(),
                         "displayName", "Test User",
-                        "role", "USER"))
+                        "role", role))
                 .subject("test@example.com")
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(3600)))

@@ -1,6 +1,7 @@
 package com.fitsync.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -77,5 +78,38 @@ class OutboxEventTests {
                 .singleElement()
                 .extracting(OutboxEventEntity::getStatus)
                 .isEqualTo(OutboxEventStatus.PUBLISHED);
+    }
+
+    @Test
+    void pendingCountReportsOutstandingEventsToAnAdmin() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "pending@example.com",
+                                  "displayName": "Pending User",
+                                  "password": "supersecret"
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/internal/outbox/pending")
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pending").value(1))
+                .andExpect(jsonPath("$.oldestCreatedAt").isNotEmpty());
+    }
+
+    @Test
+    void pendingCountRejectsOrdinaryUserRole() throws Exception {
+        mockMvc.perform(get("/api/v1/internal/outbox/pending")
+                        .with(user("someone").roles("USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void pendingCountRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/internal/outbox/pending"))
+                .andExpect(status().isUnauthorized());
     }
 }

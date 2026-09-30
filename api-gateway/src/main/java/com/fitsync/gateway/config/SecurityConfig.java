@@ -67,6 +67,10 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
                         .permitAll()
+                        // The admin console proxy; every downstream service still enforces its own
+                        // ADMIN check, this only stops a non-admin caller from reaching the gateway
+                        // route at all.
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

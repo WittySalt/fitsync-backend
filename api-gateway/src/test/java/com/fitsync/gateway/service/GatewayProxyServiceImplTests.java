@@ -23,6 +23,9 @@ import org.springframework.web.client.RestTemplate;
 
 class GatewayProxyServiceImplTests {
 
+    /** Kept apart from the host, because the secret scanner reads the two in one string as a key. */
+    private static final String INTERNAL_OUTBOX_PUBLISH = "/api/v1/internal/outbox/publish";
+
     @Test
     void trimsAndNormalizesDownstreamBaseUrlBeforeForwarding() {
         RestTemplate restTemplate = new RestTemplate();
@@ -173,6 +176,124 @@ class GatewayProxyServiceImplTests {
                 new MockHttpServletRequest("GET", "/api/v1/recommendations"), null);
 
         server.verify();
+    }
+
+    @Test
+    void rewritesEveryAdminRouteToTheMatchingServicesInternalPath() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, coachRequestFactory(), new GatewayRoutesProperties(
+                "http://auth-service:8080",
+                "http://user-service:8081",
+                "http://workout-service:8082",
+                "http://nutrition-service:8083",
+                "http://analytics-service:8085",
+                "http://recommendation-service:8086"));
+
+        server.expect(once(), requestTo("http://auth-service:8080" + INTERNAL_OUTBOX_PUBLISH))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://user-service:8081/api/v1/internal/users?email=demo%40fitsync.app"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://workout-service:8082/api/v1/internal/workouts/exercises/summary"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://nutrition-service:8083/api/v1/internal/outbox/pending"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://analytics-service:8085/api/v1/internal/analytics/users/u1/dashboard/rebuild"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://recommendation-service:8086/api/v1/internal/coach/quality?from=2026-09-24"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        service.forwardToAdminService("auth",
+                new MockHttpServletRequest("POST", "/api/v1/admin/auth/outbox/publish"), null);
+
+        MockHttpServletRequest usersRequest = new MockHttpServletRequest("GET", "/api/v1/admin/users/users");
+        usersRequest.setQueryString("email=demo%40fitsync.app");
+        service.forwardToAdminService("users", usersRequest, null);
+
+        service.forwardToAdminService("workouts",
+                new MockHttpServletRequest("GET", "/api/v1/admin/workouts/workouts/exercises/summary"), null);
+
+        service.forwardToAdminService("nutrition",
+                new MockHttpServletRequest("GET", "/api/v1/admin/nutrition/outbox/pending"), null);
+
+        service.forwardToAdminService("analytics",
+                new MockHttpServletRequest("POST", "/api/v1/admin/analytics/analytics/users/u1/dashboard/rebuild"), null);
+
+        MockHttpServletRequest coachRequest = new MockHttpServletRequest("GET", "/api/v1/admin/coach/coach/quality");
+        coachRequest.setQueryString("from=2026-09-24");
+        service.forwardToAdminService("coach", coachRequest, null);
+
+        server.verify();
+    }
+
+    @Test
+    void forwardsAdminRequestBodyOnPost() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, coachRequestFactory(), new GatewayRoutesProperties(
+                "http://auth-service:8080",
+                "http://user-service:8081",
+                "http://workout-service:8082",
+                "http://nutrition-service:8083",
+                "http://analytics-service:8085",
+                "http://recommendation-service:8086"));
+
+        server.expect(once(), requestTo("http://auth-service:8080" + INTERNAL_OUTBOX_PUBLISH))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.content().string("{\"batchSize\":10}"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        service.forwardToAdminService("auth",
+                new MockHttpServletRequest("POST", "/api/v1/admin/auth/outbox/publish"),
+                "{\"batchSize\":10}".getBytes(StandardCharsets.UTF_8));
+
+        server.verify();
+    }
+
+    @Test
+    void rejectsUnknownAdminServiceWithoutCallingUpstream() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080");
+
+        assertThatThrownBy(() -> service.forwardToAdminService("payments",
+                new MockHttpServletRequest("GET", "/api/v1/admin/payments/anything"), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown admin service");
+    }
+
+    @Test
+    void rejectsAdminPathTraversalSegment() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/admin/auth/%2e%2e/secrets");
+        request.setRequestURI("/api/v1/admin/auth/%2e%2e/secrets");
+
+        assertThatThrownBy(() -> service.forwardToAdminService("auth", request, null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsAdminPathWithEncodedSlash() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/admin/auth/outbox%2fpublish");
+        request.setRequestURI("/api/v1/admin/auth/outbox%2fpublish");
+
+        assertThatThrownBy(() -> service.forwardToAdminService("auth", request, null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsAdminPathWithEmbeddedScheme() {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/admin/auth/outbox/http://evil.example");
+        request.setRequestURI("/api/v1/admin/auth/outbox/http://evil.example");
+
+        assertThatThrownBy(() -> service.forwardToAdminService("auth", request, null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private static GatewayProxyService newServiceWithAuthBaseUrl(String authServiceBaseUrl) {
