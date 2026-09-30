@@ -455,22 +455,22 @@ items(code, slot, food_name, brand_name, quantity, unit, serving_size, serving_u
       calories, protein, carbs, fat, fiber, sugar, sodium, snap_label) as (values
     -- breakfast
     ('BFAST'::text, 1, 'Rolled Oats'::text,           'Quaker'::text, 60.00, 'g'::text,     60.00, 'g'::text,     228, 8.00,  40.00, 4.00,  6.00, 1.00,  3.00,  '60 g'::text),
-    ('BFAST', 2, 'Banana',                    null,           1.00,  'piece', 1.00,  'piece', 105, 1.30,  27.00, 0.40,  3.10, 14.40, 1.00,  '1 medium'),
-    ('BFAST', 3, 'Greek Yogurt',              'FAGE',         170.00,'g',     170.00,'g',     120, 18.00, 6.00,  0.00,  0.00, 5.00,  65.00, '1 cup'),
+    ('BFAST', 2, 'Banana',                    null,           1.00,  'piece', 1.00,  'piece', 105, 1.30,  27.00, 0.40,  3.10, 10.00, 1.00,  '1 medium'),
+    ('BFAST', 3, 'Greek Yogurt',              'FAGE',         170.00,'g',     170.00,'g',     120, 18.00, 6.00,  0.00,  0.00, 4.00,  65.00, '1 cup'),
     -- lunch
     ('LUNCH', 1, 'Grilled Chicken Breast',    null,           150.00,'g',     150.00,'g',     248, 46.00, 0.00,  5.40,  0.00, 0.00,  92.00, '150 g'),
     ('LUNCH', 2, 'Steamed White Rice',        null,           200.00,'g',     200.00,'g',     260, 5.00,  56.00, 0.60,  0.80, 0.10,  2.00,  '1 bowl'),
-    ('LUNCH', 3, 'Stir-fried Vegetables',     null,           150.00,'g',     150.00,'g',     90,  3.00,  12.00, 3.50,  5.00, 6.00,  35.00, '150 g'),
+    ('LUNCH', 3, 'Stir-fried Vegetables',     null,           150.00,'g',     150.00,'g',     90,  3.00,  12.00, 3.50,  5.00, 3.00,  35.00, '150 g'),
     -- afternoon snack
     ('SNACK', 1, 'Almonds',                   null,           30.00, 'g',     30.00, 'g',     174, 6.00,  6.00,  15.00, 3.50, 1.00,  0.00,  '30 g'),
-    ('SNACK', 2, 'Apple',                     null,           1.00,  'piece', 1.00,  'piece', 95,  0.50,  25.00, 0.30,  4.00, 19.00, 2.00,  '1 medium'),
+    ('SNACK', 2, 'Apple',                     null,           1.00,  'piece', 1.00,  'piece', 95,  0.50,  25.00, 0.30,  4.00, 8.00,  2.00,  '1 medium'),
     -- dinner
     ('DINNER',1, 'Baked Salmon',              null,           150.00,'g',     150.00,'g',     280, 39.00, 0.00,  13.00, 0.00, 0.00,  90.00, '150 g'),
-    ('DINNER',2, 'Sweet Potato',              null,           200.00,'g',     200.00,'g',     180, 4.00,  41.00, 0.30,  6.00, 13.00, 72.00, '200 g'),
-    ('DINNER',3, 'Garden Salad',              null,           120.00,'g',     120.00,'g',     70,  2.00,  8.00,  4.00,  3.00, 4.00,  25.00, '120 g'),
+    ('DINNER',2, 'Sweet Potato',              null,           200.00,'g',     200.00,'g',     180, 4.00,  41.00, 0.30,  6.00, 6.00,  72.00, '200 g'),
+    ('DINNER',3, 'Garden Salad',              null,           120.00,'g',     120.00,'g',     70,  2.00,  8.00,  4.00,  3.00, 2.00,  25.00, '120 g'),
     -- post-workout shake (training days only)
-    ('POSTWO',1, 'Whey Protein Shake',        null,           35.00, 'g',     35.00, 'g',     130, 25.00, 4.00,  1.50,  1.00, 2.00,  80.00, '1 scoop'),
-    ('POSTWO',2, 'Mixed Berries',             null,           100.00,'g',     100.00,'g',     57,  0.70,  14.00, 0.30,  2.40, 10.00, 1.00,  '100 g')
+    ('POSTWO',1, 'Whey Protein Shake',        null,           35.00, 'g',     35.00, 'g',     130, 25.00, 4.00,  1.50,  1.00, 1.00,  80.00, '1 scoop'),
+    ('POSTWO',2, 'Mixed Berries',             null,           100.00,'g',     100.00,'g',     57,  0.70,  14.00, 0.30,  2.40, 5.00,  1.00,  '100 g')
 )
 select
     md5(dd.user_id::text || dd.d::text || it.code || it.slot::text)::uuid,
@@ -516,8 +516,9 @@ where dd.persona <> 'fresh';
 -- ============================================================================
 
 -- 4a. body_metric_entries — Monday/Thursday mornings, skipped entirely for
---     "fresh". steady falls from 74.20 kg to 71.10 kg, faster in the first
---     three weeks (a sqrt curve front-loads the decline) than later. drifting
+--     "fresh". steady falls from 74.20 kg to 71.10 kg at a pace that picks up
+--     slightly, about 0.4 kg a week over the last four weeks, so that the rate
+--     of the last 28 days reaches the 68 kg goal before its date. drifting
 --     falls from 74.20 kg to ~72.00 kg by day 35 (week 5) and climbs back to
 --     ~72.90 kg by d_today. Small deterministic noise keeps the line from
 --     being perfectly straight. Body fat and waist trend down with weight.
@@ -529,7 +530,7 @@ with calc as (
     select
         dd.user_id, dd.tz, dd.d, dd.idx,
         case dd.persona
-            when 'steady'   then round(74.20 - 3.10 * sqrt(dd.idx::numeric / 59.0), 2)
+            when 'steady'   then round(74.20 - 3.10 * power(dd.idx::numeric / 59.0, 1.15), 2)
             when 'drifting' then case
                 when dd.idx <= 35 then round(74.20 - 2.20 * (dd.idx::numeric / 35.0), 2)
                 else                   round(72.00 + 0.90 * ((dd.idx - 35)::numeric / 24.0), 2)

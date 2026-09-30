@@ -111,12 +111,12 @@ public class NutritionPageInsightServiceImpl implements NutritionPageInsightServ
         return BigDecimal.valueOf(total).divide(BigDecimal.valueOf(days), 0, RoundingMode.HALF_UP).intValueExact();
     }
 
-    private static String labelOf(MealType type) {
+    static String labelOf(MealType type) {
         String lower = type.name().replace('_', ' ').toLowerCase(Locale.ROOT);
         return lower.substring(0, 1).toUpperCase(Locale.ROOT) + lower.substring(1);
     }
 
-    private static ZoneId resolveZone(String timezone) {
+    static ZoneId resolveZone(String timezone) {
         if (timezone == null || timezone.isBlank()) {
             return UTC;
         }

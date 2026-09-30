@@ -27,12 +27,14 @@ import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.LogWaterRequest;
 import com.fitsync.nutrition.dto.MealView;
 import com.fitsync.nutrition.dto.QuickAddMealRequest;
+import com.fitsync.nutrition.dto.UsualMealsView;
 import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionPageInsightService;
 import com.fitsync.nutrition.service.NutritionService;
+import com.fitsync.nutrition.service.UsualMealsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -61,11 +63,14 @@ public class NutritionController {
 
     private final NutritionService nutritionService;
     private final NutritionPageInsightService nutritionPageInsightService;
+    private final UsualMealsService usualMealsService;
 
     public NutritionController(NutritionService nutritionService,
-                               NutritionPageInsightService nutritionPageInsightService) {
+                               NutritionPageInsightService nutritionPageInsightService,
+                               UsualMealsService usualMealsService) {
         this.nutritionService = nutritionService;
         this.nutritionPageInsightService = nutritionPageInsightService;
+        this.usualMealsService = usualMealsService;
     }
 
     @PostMapping("/meals")
@@ -111,6 +116,12 @@ public class NutritionController {
     @GetMapping("/meals/latest")
     public MealView latestMeal(Authentication authentication) {
         return nutritionService.getLatestMeal(currentPrincipal(authentication));
+    }
+
+    @GetMapping("/meals/usual")
+    public UsualMealsView usualMeals(Authentication authentication,
+                                     @RequestParam(required = false) String timezone) {
+        return usualMealsService.getUsualMeals(currentPrincipal(authentication), timezone);
     }
 
     @PostMapping("/meals/{mealId}/copy")
