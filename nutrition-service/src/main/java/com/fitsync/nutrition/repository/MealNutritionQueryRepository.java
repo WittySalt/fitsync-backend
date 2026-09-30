@@ -24,6 +24,30 @@ public interface MealNutritionQueryRepository extends Repository<MealLogEntity, 
         BigDecimal getProteinGrams();
     }
 
+    interface MealItemRow {
+        UUID getMealId();
+
+        MealType getMealType();
+
+        Instant getConsumedAt();
+
+        UUID getFoodCatalogItemId();
+
+        UUID getCustomFoodId();
+
+        String getFoodName();
+
+        String getCategoryCode();
+
+        Integer getCalories();
+
+        BigDecimal getProteinGrams();
+
+        BigDecimal getCarbsGrams();
+
+        BigDecimal getFatGrams();
+    }
+
     /**
      * One row per meal item of the caller's meals consumed in {@code [from, to)}, with the meal's type
      * and time. A meal without items still yields one row with null nutrition, so that it counts as a
@@ -41,4 +65,26 @@ public interface MealNutritionQueryRepository extends Repository<MealLogEntity, 
     List<MealNutritionRow> findMealNutritionRows(@Param("userId") UUID userId,
                                                  @Param("from") Instant from,
                                                  @Param("to") Instant to);
+
+    /**
+     * One row per meal item of the caller's meals consumed in {@code [from, to)}, newest meal first, with
+     * what identifies and describes each food. A meal without items still yields one row with null food
+     * columns, so that it counts as a meal eaten at that time.
+     */
+    @Query("""
+            select m.mealId as mealId, m.mealType as mealType, m.consumedAt as consumedAt,
+                   i.foodCatalogItemId as foodCatalogItemId, i.customFoodId as customFoodId,
+                   i.foodName as foodName, i.categoryCode as categoryCode,
+                   i.nutritionFacts.calories as calories, i.nutritionFacts.proteinGrams as proteinGrams,
+                   i.nutritionFacts.carbsGrams as carbsGrams, i.nutritionFacts.fatGrams as fatGrams
+            from MealLogEntity m
+            left join MealItemEntity i on i.mealId = m.mealId
+            where m.userId = :userId
+              and m.consumedAt >= :from
+              and m.consumedAt < :to
+            order by m.consumedAt desc, m.mealId, i.dateTimeCreated, i.mealItemId
+            """)
+    List<MealItemRow> findMealItemRows(@Param("userId") UUID userId,
+                                       @Param("from") Instant from,
+                                       @Param("to") Instant to);
 }

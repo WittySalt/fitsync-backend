@@ -1356,6 +1356,72 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.proteinByMeal[0].gramsPerDay").value(12.5));
     }
 
+    @Test
+    void usualMealsRequireAuthenticationAndRejectAnInvalidTimezone() throws Exception {
+        mockMvc.perform(get("/api/v1/nutrition/meals/usual"))
+                .andExpect(status().isUnauthorized());
+
+        String token = tokenFor("usual-zone@example.com", "Usual Zone");
+        mockMvc.perform(get("/api/v1/nutrition/meals/usual")
+                        .header("Authorization", "Bearer " + token)
+                        .param("timezone", "Mars/Olympus"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void usualMealsDescribeWhatTheSignedInUserUsuallyEats() throws Exception {
+        String token = tokenFor("usual-meals@example.com", "Usual Meals");
+        UUID userId = UUID.fromString(userIdFromToken(token));
+        LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
+
+        UUID latestMealId = null;
+        for (int daysBack = 1; daysBack <= 3; daysBack++) {
+            MealLogEntity meal = new MealLogEntity();
+            meal.setMealId(UUID.randomUUID());
+            meal.setUserId(userId);
+            meal.setMealType(MealType.BREAKFAST);
+            meal.setSource(MealSource.MANUAL);
+            meal.setConsumedAt(today.minusDays(daysBack).atTime(7, 30).toInstant(java.time.ZoneOffset.UTC));
+            mealLogRepository.save(meal);
+            if (daysBack == 1) {
+                latestMealId = meal.getMealId();
+            }
+            MealItemEntity item = new MealItemEntity();
+            item.setMealItemId(UUID.randomUUID());
+            item.setMealId(meal.getMealId());
+            item.setFoodName("Rolled Oats");
+            item.setQuantity(BigDecimal.ONE);
+            item.setUnit("bowl");
+            item.setCategoryCode("GRAINS");
+            item.setCalories(190);
+            item.setProteinGrams(new BigDecimal("6.50"));
+            item.setCarbsGrams(new BigDecimal("33.25"));
+            item.setFatGrams(new BigDecimal("3.45"));
+            mealItemRepository.save(item);
+        }
+
+        mockMvc.perform(get("/api/v1/nutrition/meals/usual")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timezone").value("UTC"))
+                .andExpect(jsonPath("$.windowDays").value(14))
+                .andExpect(jsonPath("$.meals.length()").value(1))
+                .andExpect(jsonPath("$.meals[0].mealType").value("BREAKFAST"))
+                .andExpect(jsonPath("$.meals[0].label").value("Breakfast"))
+                .andExpect(jsonPath("$.meals[0].usualTime").value("07:30"))
+                .andExpect(jsonPath("$.meals[0].mealsInWindow").value(3))
+                .andExpect(jsonPath("$.meals[0].occurrences").value(3))
+                .andExpect(jsonPath("$.meals[0].sourceMealId").value(latestMealId.toString()))
+                .andExpect(jsonPath("$.meals[0].totalCalories").value(190))
+                .andExpect(jsonPath("$.meals[0].totalProteinGrams").value(6.5))
+                .andExpect(jsonPath("$.meals[0].totalCarbsGrams").value(33.3))
+                .andExpect(jsonPath("$.meals[0].totalFatGrams").value(3.5))
+                .andExpect(jsonPath("$.meals[0].items[0].name").value("Rolled Oats"))
+                .andExpect(jsonPath("$.meals[0].items[0].calories").value(190))
+                .andExpect(jsonPath("$.meals[0].items[0].proteinGrams").value(6.5))
+                .andExpect(jsonPath("$.meals[0].items[0].categoryCode").value("GRAINS"));
+    }
+
     private String tokenFor(String email, String displayName) {
         String userId = UUID.randomUUID().toString();
         return Jwts.builder()
