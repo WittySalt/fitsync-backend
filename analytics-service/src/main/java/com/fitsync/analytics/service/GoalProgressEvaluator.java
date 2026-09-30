@@ -3,6 +3,7 @@ package com.fitsync.analytics.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -134,7 +135,9 @@ public class GoalProgressEvaluator {
     }
 
     private void evaluateWorkoutFrequency(AnalyticsUserGoalProgressEntity goal, LocalDate today) {
-        LocalDate from = today.minusDays(6);
+        // The week runs from Monday to today, the same week the Home brief and the coach count, so
+        // that the goal never shows more sessions than the week has had.
+        LocalDate from = today.with(DayOfWeek.MONDAY);
         BigDecimal current = BigDecimal.valueOf(dailyWorkoutRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(goal.getUserId(), from, today)
                 .stream()
