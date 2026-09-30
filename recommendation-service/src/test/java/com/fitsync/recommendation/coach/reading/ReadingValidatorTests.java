@@ -344,6 +344,19 @@ class ReadingValidatorTests {
     }
 
     @Test
+    @DisplayName("the same pace is rejected when the pace changed, and passes when the pace fact says unchanged")
+    void steadyPaceMustComeFromThePaceFact() {
+        String headline = "You ran further at the same pace.";
+        String body = "Your cardio sessions averaged 5.75 km [1], up from 5.5 km.";
+
+        ReadingValidator.Result wrong = validator.validate(headline, body, paceFacts("5 s faster"));
+        ReadingValidator.Result right = validator.validate(headline, body, paceFacts("Unchanged"));
+
+        assertThat(wrong.violations()).contains("DIRECTION_NOT_IN_FACTS:pace unchanged in the headline");
+        assertThat(right.violations()).doesNotContain("DIRECTION_NOT_IN_FACTS:pace unchanged in the headline");
+    }
+
+    @Test
     @DisplayName("slower beside a pace fact that says faster is rejected")
     void slowerMustMatchThePaceNote() {
         String body = "The pace was 6:05 per km [2], 5 s slower than the week before.";
