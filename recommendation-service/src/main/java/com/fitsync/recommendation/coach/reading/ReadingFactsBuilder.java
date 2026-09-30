@@ -37,13 +37,159 @@ public class ReadingFactsBuilder {
 
     private static final int MAX_TEXT_LENGTH = 80;
 
+    /** Placeholder while a fact is being built; {@link #build} numbers the chosen facts afterwards. */
+    private static final int UNNUMBERED = 0;
+
+    private static final int MAX_FACTS = 4;
+
     public List<ReadingFact> build(TrainingInsight insight) {
-        List<ReadingFact> facts = new ArrayList<>();
-        addVolumePerSession(facts, insight);
-        addSessionLength(facts, insight);
-        addRecord(facts, insight);
-        addMostTrained(facts, insight);
-        return List.copyOf(facts);
+        List<ReadingFact> lifting = new ArrayList<>();
+        addVolumePerSession(lifting, insight);
+        addSessionLength(lifting, insight);
+        addRecord(lifting, insight);
+        addMostTrained(lifting, insight);
+
+        List<ReadingFact> cardio = new ArrayList<>();
+        addCardioFacts(cardio, insight.cardio());
+        ReadingFact mobility = mobilityTime(insight.mobility());
+        ReadingFact sport = sportTime(insight.sport());
+
+        List<ReadingFact> chosen = new ArrayList<>();
+        if (!lifting.isEmpty() && cardio.isEmpty()) {
+            chosen.addAll(lifting);
+        } else if (!lifting.isEmpty()) {
+            // A week with both kinds of training shows two of each; when the cardio side has only one
+            // fact, the place it leaves free goes to a third lifting fact.
+            chosen.addAll(lifting.subList(0, Math.min(2, lifting.size())));
+            chosen.addAll(cardio.subList(0, Math.min(2, cardio.size())));
+            if (cardio.size() == 1 && lifting.size() > 2) {
+                chosen.add(lifting.get(2));
+            }
+        } else {
+            chosen.addAll(cardio);
+        }
+        for (ReadingFact extra : new ReadingFact[] {mobility, sport}) {
+            if (extra != null && chosen.size() < MAX_FACTS) {
+                chosen.add(extra);
+            }
+        }
+        if (chosen.size() > MAX_FACTS) {
+            chosen = chosen.subList(0, MAX_FACTS);
+        }
+
+        List<ReadingFact> numbered = new ArrayList<>();
+        for (int i = 0; i < chosen.size(); i++) {
+            ReadingFact fact = chosen.get(i);
+            numbered.add(new ReadingFact(i + 1, fact.key(), fact.label(), fact.value(), fact.unit(),
+                    fact.numericValue(), fact.note(), fact.detail()));
+        }
+        return List.copyOf(numbered);
+    }
+
+    private void addCardioFacts(List<ReadingFact> facts, TrainingInsight.CardioInfo cardio) {
+        if (cardio == null) {
+            return;
+        }
+        BigDecimal distance = cardio.distancePerSessionKm();
+        if (distance != null) {
+            BigDecimal earlier = cardio.earlierDistancePerSessionKm();
+            facts.add(new ReadingFact(UNNUMBERED, "CARDIO_DISTANCE", "Distance per cardio session",
+                    upToTwoDecimals(distance), "km", distance,
+                    earlier == null ? "" : percentChangeNote(distance, earlier),
+                    earlier == null ? "" : upToTwoDecimals(earlier) + " km the week before"));
+            BigDecimal pace = cardio.paceSecondsPerKm();
+            if (pace != null) {
+                BigDecimal earlierPace = cardio.earlierPaceSecondsPerKm();
+                int seconds = wholeSeconds(pace);
+                facts.add(new ReadingFact(UNNUMBERED, "CARDIO_PACE", "Pace", clock(seconds), "per km",
+                        BigDecimal.valueOf(seconds),
+                        earlierPace == null ? "" : paceChangeNote(seconds, wholeSeconds(earlierPace)),
+                        earlierPace == null ? "" : clock(wholeSeconds(earlierPace)) + " per km the week before"));
+            }
+            return;
+        }
+        Integer minutes = cardio.minutesPerSession();
+        if (minutes != null && minutes > 0) {
+            Integer earlier = cardio.earlierMinutesPerSession();
+            facts.add(new ReadingFact(UNNUMBERED, "CARDIO_LENGTH", "Cardio session length",
+                    String.valueOf(minutes), "min", BigDecimal.valueOf(minutes),
+                    earlier == null ? "" : minuteChangeNote(minutes, earlier),
+                    earlier == null ? "" : earlier + " min the week before"));
+        }
+    }
+
+    private static ReadingFact mobilityTime(TrainingInsight.MobilityInfo mobility) {
+        if (mobility == null || mobility.minutes() == null || mobility.minutes() <= 0) {
+            return null;
+        }
+        Integer earlier = mobility.earlierMinutes();
+        return new ReadingFact(UNNUMBERED, "MOBILITY_TIME", "Mobility", String.valueOf(mobility.minutes()), "min",
+                BigDecimal.valueOf(mobility.minutes()), sessionCount(mobility.sessions()),
+                earlier == null ? "" : earlier + " min the week before");
+    }
+
+    /** The activity with the most minutes speaks for the sport group; the first one wins a tie. */
+    private static ReadingFact sportTime(TrainingInsight.SportInfo sport) {
+        if (sport == null) {
+            return null;
+        }
+        String label = "Sport";
+        Integer minutes = sport.minutes();
+        Integer sessions = sport.sessions();
+        TrainingInsight.SportActivity top = null;
+        for (TrainingInsight.SportActivity activity : sport.activities()) {
+            if (activity.minutes() != null && (top == null || activity.minutes() > top.minutes())) {
+                top = activity;
+            }
+        }
+        if (top != null) {
+            String named = trimAndCut(top.label());
+            label = named.isEmpty() ? label : named;
+            minutes = top.minutes();
+            sessions = top.sessions();
+        }
+        if (minutes == null || minutes <= 0) {
+            return null;
+        }
+        return new ReadingFact(UNNUMBERED, "SPORT_TIME", label, String.valueOf(minutes), "min",
+                BigDecimal.valueOf(minutes), sessionCount(sessions), "");
+    }
+
+    private static String sessionCount(Integer sessions) {
+        if (sessions == null) {
+            return "";
+        }
+        return sessions + (sessions == 1 ? " session" : " sessions");
+    }
+
+    private static int wholeSeconds(BigDecimal seconds) {
+        return seconds.setScale(0, RoundingMode.HALF_UP).intValueExact();
+    }
+
+    /** Seconds as minutes and seconds: {@code 365} becomes {@code "6:05"}. */
+    private static String clock(int seconds) {
+        return (seconds / 60) + ":" + String.format(Locale.ROOT, "%02d", seconds % 60);
+    }
+
+    /** A lower number of seconds a kilometre is a faster pace. */
+    private static String paceChangeNote(int current, int earlier) {
+        int diff = earlier - current;
+        if (diff == 0) {
+            return "Unchanged";
+        }
+        return Math.abs(diff) + " s " + (diff > 0 ? "faster" : "slower");
+    }
+
+    /**
+     * At most two decimal places, with trailing zeros dropped: {@code 5.750} becomes {@code "5.75"}.
+     * Package-private so {@link RuleReadingWriter} formats the earlier distance the way the fact does.
+     */
+    static String upToTwoDecimals(BigDecimal value) {
+        BigDecimal scaled = value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros();
+        if (scaled.scale() < 0) {
+            scaled = scaled.setScale(0);
+        }
+        return scaled.toPlainString();
     }
 
     private void addVolumePerSession(List<ReadingFact> facts, TrainingInsight insight) {
@@ -54,7 +200,7 @@ public class ReadingFactsBuilder {
         BigDecimal earlier = insight.earlierVolumePerSessionKg();
         String detail = earlier == null ? "" : wholeWithCommas(earlier) + " kg the week before";
         String note = earlier == null ? "" : percentChangeNote(volume, earlier);
-        facts.add(new ReadingFact(facts.size() + 1, "VOLUME_PER_SESSION", "Weight moved per session",
+        facts.add(new ReadingFact(UNNUMBERED, "VOLUME_PER_SESSION", "Weight moved per session",
                 wholeWithCommas(volume), "kg", volume, note, detail));
     }
 
@@ -66,7 +212,7 @@ public class ReadingFactsBuilder {
         Integer earlier = insight.earlierMinutesPerLiftingSession();
         String detail = earlier == null ? "" : earlier + " min the week before";
         String note = earlier == null ? "" : minuteChangeNote(minutes, earlier);
-        facts.add(new ReadingFact(facts.size() + 1, "SESSION_LENGTH", "Session length",
+        facts.add(new ReadingFact(UNNUMBERED, "SESSION_LENGTH", "Session length",
                 String.valueOf(minutes), "min", BigDecimal.valueOf(minutes), note, detail));
     }
 
@@ -81,7 +227,7 @@ public class ReadingFactsBuilder {
         String note = record.achievedOn() == null
                 ? ""
                 : record.achievedOn().getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
-        facts.add(new ReadingFact(facts.size() + 1, "RECORD", exerciseName + " record",
+        facts.add(new ReadingFact(UNNUMBERED, "RECORD", exerciseName + " record",
                 upToOneDecimal(record.weightKg()), "kg", record.weightKg(), note, detail));
     }
 
@@ -96,7 +242,7 @@ public class ReadingFactsBuilder {
         String note = mostTrained.sessions() != null && mostTrained.sessions().equals(sessionsInPeriod)
                 ? "Every one"
                 : "";
-        facts.add(new ReadingFact(facts.size() + 1, "MOST_TRAINED", "Sessions with " + muscleLabel + " work",
+        facts.add(new ReadingFact(UNNUMBERED, "MOST_TRAINED", "Sessions with " + muscleLabel + " work",
                 String.valueOf(mostTrained.sessions()), "of " + sessionsInPeriod,
                 mostTrained.sessions() == null ? null : BigDecimal.valueOf(mostTrained.sessions()), note, detail));
     }

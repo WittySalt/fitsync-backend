@@ -168,7 +168,209 @@ class ReadingFactsBuilderTests {
         assertThat(facts.get(1).note()).isEqualTo("Down 10 min");
     }
 
-    private static TrainingInsight fullInsight() {
+    @Test
+    @DisplayName("a period with only lifting produces exactly the four facts it always did")
+    void onlyLiftingIsUnchanged() {
+        List<ReadingFact> facts = builder.build(fullInsight());
+
+        assertThat(facts).containsExactly(
+                new ReadingFact(1, "VOLUME_PER_SESSION", "Weight moved per session", "1,923", "kg",
+                        new BigDecimal("1923.00"), "Up 12%", "1,716 kg the week before"),
+                new ReadingFact(2, "SESSION_LENGTH", "Session length", "50", "min",
+                        BigDecimal.valueOf(50), "Unchanged", "50 min the week before"),
+                new ReadingFact(3, "RECORD", "Dumbbell Bench Press record", "22.5", "kg",
+                        new BigDecimal("22.50"), "Monday", "20 kg before"),
+                new ReadingFact(4, "MOST_TRAINED", "Sessions with core work", "4", "of 4",
+                        BigDecimal.valueOf(4), "Every one", "Plank Hold"));
+    }
+
+    @Test
+    @DisplayName("distance and pace facts carry the change against the week before, and faster means fewer seconds")
+    void distanceAndPaceFacts() {
+        List<ReadingFact> facts = builder.build(withGroups(null,
+                cardio(new BigDecimal("5.75"), new BigDecimal("5.50"), 365, 370, 35, 35), null, null));
+
+        ReadingFact distance = facts.get(0);
+        assertThat(distance.key()).isEqualTo("CARDIO_DISTANCE");
+        assertThat(distance.label()).isEqualTo("Distance per cardio session");
+        assertThat(distance.value()).isEqualTo("5.75");
+        assertThat(distance.unit()).isEqualTo("km");
+        assertThat(distance.note()).isEqualTo("Up 5%");
+        assertThat(distance.detail()).isEqualTo("5.5 km the week before");
+
+        ReadingFact pace = facts.get(1);
+        assertThat(pace.key()).isEqualTo("CARDIO_PACE");
+        assertThat(pace.label()).isEqualTo("Pace");
+        assertThat(pace.value()).isEqualTo("6:05");
+        assertThat(pace.unit()).isEqualTo("per km");
+        assertThat(pace.note()).isEqualTo("5 s faster");
+        assertThat(pace.detail()).isEqualTo("6:10 per km the week before");
+    }
+
+    @Test
+    @DisplayName("a slower pace, a shorter distance and an unchanged pace are each named as such")
+    void paceAndDistanceDirections() {
+        List<ReadingFact> slower = builder.build(withGroups(null,
+                cardio(new BigDecimal("5.00"), new BigDecimal("5.50"), 370, 365, null, null), null, null));
+        List<ReadingFact> same = builder.build(withGroups(null,
+                cardio(new BigDecimal("5.50"), new BigDecimal("5.50"), 365, 365, null, null), null, null));
+
+        assertThat(slower.get(0).note()).isEqualTo("Down 9%");
+        assertThat(slower.get(1).note()).isEqualTo("5 s slower");
+        assertThat(slower.get(1).value()).isEqualTo("6:10");
+        assertThat(same.get(0).note()).isEqualTo("Unchanged");
+        assertThat(same.get(1).note()).isEqualTo("Unchanged");
+    }
+
+    @Test
+    @DisplayName("without an earlier week the cardio facts have no note and no detail")
+    void cardioWithoutEarlierValues() {
+        List<ReadingFact> facts = builder.build(withGroups(null,
+                cardio(new BigDecimal("5.75"), null, 365, null, 35, null), null, null));
+
+        assertThat(facts).extracting(ReadingFact::note).containsExactly("", "");
+        assertThat(facts).extracting(ReadingFact::detail).containsExactly("", "");
+    }
+
+    @Test
+    @DisplayName("seconds are two digits in a pace")
+    void paceSecondsAreTwoDigits() {
+        List<ReadingFact> facts = builder.build(withGroups(null,
+                cardio(new BigDecimal("5"), null, 363, null, null, null), null, null));
+
+        assertThat(facts.get(1).value()).isEqualTo("6:03");
+    }
+
+    @Test
+    @DisplayName("cardio with no distance gives one length fact")
+    void cardioLengthWithoutDistance() {
+        List<ReadingFact> facts = builder.build(withGroups(null,
+                cardio(null, null, null, null, 35, 30), null, null));
+
+        assertThat(facts).singleElement().satisfies(fact -> {
+            assertThat(fact.key()).isEqualTo("CARDIO_LENGTH");
+            assertThat(fact.label()).isEqualTo("Cardio session length");
+            assertThat(fact.value()).isEqualTo("35");
+            assertThat(fact.unit()).isEqualTo("min");
+            assertThat(fact.note()).isEqualTo("Up 5 min");
+            assertThat(fact.detail()).isEqualTo("30 min the week before");
+        });
+    }
+
+    @Test
+    @DisplayName("lifting and cardio with a distance give two lifting facts, then distance and pace")
+    void liftingAndCardioWithDistance() {
+        List<ReadingFact> facts = builder.build(withGroups(fullInsight(),
+                cardio(new BigDecimal("5.75"), new BigDecimal("5.50"), 365, 370, 35, 35), null, null));
+
+        assertThat(facts).extracting(ReadingFact::key).containsExactly(
+                "VOLUME_PER_SESSION", "SESSION_LENGTH", "CARDIO_DISTANCE", "CARDIO_PACE");
+        assertThat(facts).extracting(ReadingFact::number).containsExactly(1, 2, 3, 4);
+    }
+
+    @Test
+    @DisplayName("lifting and cardio without a distance give the freed place to a third lifting fact")
+    void liftingAndCardioWithoutDistance() {
+        List<ReadingFact> facts = builder.build(withGroups(fullInsight(),
+                cardio(null, null, null, null, 35, 35), null, null));
+
+        assertThat(facts).extracting(ReadingFact::key).containsExactly(
+                "VOLUME_PER_SESSION", "SESSION_LENGTH", "CARDIO_LENGTH", "RECORD");
+        assertThat(facts).extracting(ReadingFact::number).containsExactly(1, 2, 3, 4);
+    }
+
+    @Test
+    @DisplayName("only cardio, then mobility and the most played sport, in that order")
+    void onlyCardioWithMobilityAndSport() {
+        List<ReadingFact> facts = builder.build(withGroups(null,
+                cardio(null, null, null, null, 35, null),
+                new TrainingInsight.MobilityInfo(1, 20, 1, 15),
+                new TrainingInsight.SportInfo(3, 100, List.of(
+                        new TrainingInsight.SportActivity("RUNNING_CLUB", "Running club", 1, 40),
+                        new TrainingInsight.SportActivity("BADMINTON", "Badminton", 2, 60)))));
+
+        assertThat(facts).extracting(ReadingFact::key).containsExactly(
+                "CARDIO_LENGTH", "MOBILITY_TIME", "SPORT_TIME");
+
+        ReadingFact mobility = facts.get(1);
+        assertThat(mobility.label()).isEqualTo("Mobility");
+        assertThat(mobility.value()).isEqualTo("20");
+        assertThat(mobility.unit()).isEqualTo("min");
+        assertThat(mobility.note()).isEqualTo("1 session");
+        assertThat(mobility.detail()).isEqualTo("15 min the week before");
+
+        ReadingFact sport = facts.get(2);
+        assertThat(sport.label()).isEqualTo("Badminton");
+        assertThat(sport.value()).isEqualTo("60");
+        assertThat(sport.unit()).isEqualTo("min");
+        assertThat(sport.note()).isEqualTo("2 sessions");
+        assertThat(sport.detail()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("mobility and sport fill the free places after lifting, and never push out a fourth fact")
+    void mobilityAndSportAfterLifting() {
+        TrainingInsight twoLifting = new TrainingInsight(
+                "UTC", LocalDate.parse("2026-09-28"), "PREVIOUS_WEEK",
+                LocalDate.parse("2026-09-21"), LocalDate.parse("2026-09-27"),
+                4, 2, new BigDecimal("1923.00"), null, 50, null, null, null, List.of(), null,
+                new TrainingInsight.MobilityInfo(1, 20, null, null),
+                new TrainingInsight.SportInfo(1, 60, List.of(
+                        new TrainingInsight.SportActivity("BADMINTON", "Badminton", 1, 60))));
+
+        assertThat(builder.build(twoLifting)).extracting(ReadingFact::key).containsExactly(
+                "VOLUME_PER_SESSION", "SESSION_LENGTH", "MOBILITY_TIME", "SPORT_TIME");
+        assertThat(builder.build(withGroups(fullInsight(), null,
+                new TrainingInsight.MobilityInfo(1, 20, null, null), null)))
+                .extracting(ReadingFact::key)
+                .containsExactly("VOLUME_PER_SESSION", "SESSION_LENGTH", "RECORD", "MOST_TRAINED");
+    }
+
+    @Test
+    @DisplayName("the new groups are read from workout-service JSON, with unknown properties ignored")
+    void newGroupsAreReadFromJson() throws Exception {
+        String json = "{\"period\":\"PREVIOUS_WEEK\",\"somethingNew\":1,"
+                + "\"cardio\":{\"sessions\":2,\"distancePerSessionKm\":5.75,\"paceSecondsPerKm\":365,"
+                + "\"earlierPaceSecondsPerKm\":370,\"minutesPerSession\":35,\"extra\":true},"
+                + "\"mobility\":{\"sessions\":1,\"minutes\":20},"
+                + "\"sport\":{\"sessions\":1,\"minutes\":60,\"activities\":"
+                + "[{\"activity\":\"BADMINTON\",\"label\":\"Badminton\",\"sessions\":1,\"minutes\":60}]}}";
+
+        TrainingInsight insight = new com.fasterxml.jackson.databind.ObjectMapper()
+                .findAndRegisterModules().readValue(json, TrainingInsight.class);
+
+        assertThat(insight.cardio().distancePerSessionKm()).isEqualByComparingTo("5.75");
+        assertThat(insight.cardio().earlierDistancePerSessionKm()).isNull();
+        assertThat(insight.mobility().minutes()).isEqualTo(20);
+        assertThat(insight.sport().activities()).extracting(TrainingInsight.SportActivity::label)
+                .containsExactly("Badminton");
+        assertThat(builder.build(insight)).extracting(ReadingFact::key).containsExactly(
+                "CARDIO_DISTANCE", "CARDIO_PACE", "MOBILITY_TIME", "SPORT_TIME");
+    }
+
+    static TrainingInsight.CardioInfo cardio(BigDecimal distance, BigDecimal earlierDistance, Integer paceSeconds,
+                                             Integer earlierPaceSeconds, Integer minutes, Integer earlierMinutes) {
+        return new TrainingInsight.CardioInfo(2, 2, distance, earlierDistance,
+                paceSeconds == null ? null : BigDecimal.valueOf(paceSeconds),
+                earlierPaceSeconds == null ? null : BigDecimal.valueOf(earlierPaceSeconds),
+                minutes, earlierMinutes);
+    }
+
+    /** The given lifting insight (or an empty period) with the cardio, mobility and sport groups set. */
+    static TrainingInsight withGroups(TrainingInsight base, TrainingInsight.CardioInfo cardio,
+                                      TrainingInsight.MobilityInfo mobility, TrainingInsight.SportInfo sport) {
+        TrainingInsight from = base != null ? base : new TrainingInsight(
+                "Asia/Singapore", LocalDate.parse("2026-09-28"), "PREVIOUS_WEEK",
+                LocalDate.parse("2026-09-21"), LocalDate.parse("2026-09-27"),
+                2, 0, null, null, null, null, null, null, List.of());
+        return new TrainingInsight(from.timezone(), from.referenceDate(), from.period(), from.periodStart(),
+                from.periodEnd(), from.sessions(), from.liftingSessions(), from.volumePerSessionKg(),
+                from.earlierVolumePerSessionKg(), from.minutesPerLiftingSession(),
+                from.earlierMinutesPerLiftingSession(), from.personalRecord(), from.mostTrained(), from.lifts(),
+                cardio, mobility, sport);
+    }
+
+    static TrainingInsight fullInsight() {
         return new TrainingInsight(
                 "Asia/Singapore", LocalDate.parse("2026-09-28"), "PREVIOUS_WEEK",
                 LocalDate.parse("2026-09-21"), LocalDate.parse("2026-09-27"),

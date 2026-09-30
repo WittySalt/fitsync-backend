@@ -321,6 +321,55 @@ class ReadingValidatorTests {
         assertThat(validator.validate(HEADLINE, body, facts).violations()).isEmpty();
     }
 
+    private static List<ReadingFact> paceFacts(String note) {
+        return List.of(
+                new ReadingFact(1, "CARDIO_DISTANCE", "Distance per cardio session", "5.75", "km",
+                        new BigDecimal("5.75"), "Up 5%", "5.5 km the week before"),
+                new ReadingFact(2, "CARDIO_PACE", "Pace", "6:05", "per km",
+                        new BigDecimal("365"), note, "6:10 per km the week before"));
+    }
+
+    @Test
+    @DisplayName("faster beside a pace fact that says slower is rejected, and beside one that says faster it passes")
+    void fasterMustMatchThePaceNote() {
+        String headline = "Your cardio went further.";
+        String body = "The pace was 6:05 per km [2], 5 s faster than the week before.";
+
+        ReadingValidator.Result wrong = validator.validate(headline, body, paceFacts("5 s slower"));
+        ReadingValidator.Result right = validator.validate(headline, body, paceFacts("5 s faster"));
+
+        assertThat(wrong.valid()).isFalse();
+        assertThat(wrong.violations()).contains("DIRECTION_NOT_IN_FACTS:faster in the sentence 1");
+        assertThat(right.valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("slower beside a pace fact that says faster is rejected")
+    void slowerMustMatchThePaceNote() {
+        String body = "The pace was 6:05 per km [2], 5 s slower than the week before.";
+
+        ReadingValidator.Result wrong = validator.validate("Your cardio went further.", body, paceFacts("5 s faster"));
+        ReadingValidator.Result right = validator.validate("Your cardio went further.", body, paceFacts("5 s slower"));
+
+        assertThat(wrong.violations()).contains("DIRECTION_NOT_IN_FACTS:slower in the sentence 1");
+        assertThat(right.valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a time such as 6:05 is two numbers that are both found in the fact, and 6:15 is not")
+    void aTimeIsCheckedAsTwoNumbers() {
+        String headline = "Your cardio went further.";
+
+        ReadingValidator.Result found = validator.validate(headline,
+                "The pace was 6:05 per km [2], 5 s faster than the week before.", paceFacts("5 s faster"));
+        ReadingValidator.Result missing = validator.validate(headline,
+                "The pace was 6:15 per km [2], 5 s faster than the week before.", paceFacts("5 s faster"));
+
+        assertThat(found.valid()).isTrue();
+        assertThat(missing.valid()).isFalse();
+        assertThat(missing.violations()).contains("NUMBER_NOT_IN_FACTS:15");
+    }
+
     private static List<ReadingFact> exampleFacts() {
         return List.of(
                 new ReadingFact(1, "VOLUME_PER_SESSION", "Weight moved per session", "1,923", "kg",
