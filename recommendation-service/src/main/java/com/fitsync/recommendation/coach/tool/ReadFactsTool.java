@@ -1,6 +1,10 @@
 package com.fitsync.recommendation.coach.tool;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -58,6 +62,8 @@ public class ReadFactsTool implements CoachTool {
 
     private static final String DEFAULT_TIMEZONE = "UTC";
 
+    private static final DateTimeFormatter SPOKEN_DAY = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH);
+
     @Override
     public String name() {
         return "readFacts";
@@ -114,10 +120,21 @@ public class ReadFactsTool implements CoachTool {
         if (next.path("date").isTextual() && next.path("label").isTextual()) {
             Map<String, Object> nextGroup = new LinkedHashMap<>();
             nextGroup.put("date", next.path("date").asText());
+            // The model repeats what it is given, and a day of the week reads better than a date.
+            spokenDay(next.path("date").asText()).ifPresent(day -> nextGroup.put("day", day));
             nextGroup.put("label", next.path("label").asText());
             group.put("next", nextGroup);
         }
         return Optional.of(group);
+    }
+
+    /** A date as it is said aloud, "Friday 2 October", or nothing when the text is not a date. */
+    private static Optional<String> spokenDay(String isoDate) {
+        try {
+            return Optional.of(LocalDate.parse(isoDate).format(SPOKEN_DAY));
+        } catch (DateTimeParseException ex) {
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -137,7 +154,7 @@ public class ReadFactsTool implements CoachTool {
                   current week so far. Say which of the two weeks a count belongs to. The today group
                   says what kind of day today is (strength, cardio, mobility, a sport by name, rest, or
                   open) and where that comes from (done, in progress, the plan, or a habit of the last
-                  four weeks).""";
+                  four weeks). When you name the next training day, use its day, not its date.""";
     }
 
     @Override
