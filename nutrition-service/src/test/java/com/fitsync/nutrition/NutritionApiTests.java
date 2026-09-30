@@ -20,12 +20,16 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.FoodCatalogSource;
+import com.fitsync.nutrition.domain.MealSource;
+import com.fitsync.nutrition.domain.MealType;
 import com.fitsync.nutrition.entity.FoodBarcodeEntity;
 import com.fitsync.nutrition.entity.FoodBrandEntity;
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
 import com.fitsync.nutrition.entity.FoodNutrientDetailEntity;
 import com.fitsync.nutrition.entity.FoodNutrientProfileEntity;
 import com.fitsync.nutrition.entity.FoodServingEntity;
+import com.fitsync.nutrition.entity.MealItemEntity;
+import com.fitsync.nutrition.entity.MealLogEntity;
 import com.fitsync.nutrition.entity.NutritionTargetEntity;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
 import com.fitsync.nutrition.repository.FoodBrandRepository;
@@ -1295,6 +1299,61 @@ class NutritionApiTests {
         org.assertj.core.api.Assertions.assertThat(
                         outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PUBLISHED))
                 .hasSize(1);
+    }
+
+    @Test
+    void nutritionPageInsightRequiresAuthenticationAndRejectsAnInvalidTimezone() throws Exception {
+        mockMvc.perform(get("/api/v1/nutrition/insights/page"))
+                .andExpect(status().isUnauthorized());
+
+        String token = tokenFor("insight-zone@example.com", "Insight Zone");
+        mockMvc.perform(get("/api/v1/nutrition/insights/page")
+                        .header("Authorization", "Bearer " + token)
+                        .param("timezone", "Mars/Olympus"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void nutritionPageInsightDescribesTheLastFullWeekOfTheSignedInUser() throws Exception {
+        String token = tokenFor("insight-week@example.com", "Insight Week");
+        UUID userId = UUID.fromString(userIdFromToken(token));
+        LocalDate lastMonday = LocalDate.now(java.time.ZoneOffset.UTC)
+                .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+                .minusWeeks(1);
+
+        MealLogEntity meal = new MealLogEntity();
+        meal.setMealId(UUID.randomUUID());
+        meal.setUserId(userId);
+        meal.setMealType(MealType.BREAKFAST);
+        meal.setSource(MealSource.MANUAL);
+        meal.setConsumedAt(lastMonday.plusDays(2).atTime(12, 0).toInstant(java.time.ZoneOffset.UTC));
+        mealLogRepository.save(meal);
+        MealItemEntity item = new MealItemEntity();
+        item.setMealItemId(UUID.randomUUID());
+        item.setMealId(meal.getMealId());
+        item.setFoodName("Oats");
+        item.setQuantity(BigDecimal.ONE);
+        item.setUnit("bowl");
+        item.setCalories(350);
+        item.setProteinGrams(new BigDecimal("12.50"));
+        mealItemRepository.save(item);
+
+        mockMvc.perform(get("/api/v1/nutrition/insights/page")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timezone").value("UTC"))
+                .andExpect(jsonPath("$.period").value("PREVIOUS_WEEK"))
+                .andExpect(jsonPath("$.periodStart").value(lastMonday.toString()))
+                .andExpect(jsonPath("$.periodEnd").value(lastMonday.plusDays(6).toString()))
+                .andExpect(jsonPath("$.daysLogged").value(1))
+                .andExpect(jsonPath("$.proteinPerDayGrams").value(12.5))
+                .andExpect(jsonPath("$.caloriesPerDay").value(350))
+                .andExpect(jsonPath("$.earlierProteinPerDayGrams").isEmpty())
+                .andExpect(jsonPath("$.proteinTargetGrams").isEmpty())
+                .andExpect(jsonPath("$.calorieTargetKcal").isEmpty())
+                .andExpect(jsonPath("$.proteinByMeal[0].mealType").value("BREAKFAST"))
+                .andExpect(jsonPath("$.proteinByMeal[0].label").value("Breakfast"))
+                .andExpect(jsonPath("$.proteinByMeal[0].gramsPerDay").value(12.5));
     }
 
     private String tokenFor(String email, String displayName) {
