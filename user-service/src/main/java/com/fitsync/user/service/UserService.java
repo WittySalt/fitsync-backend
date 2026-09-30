@@ -2,6 +2,7 @@ package com.fitsync.user.service;
 
 import java.util.List;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.UUID;
 
 import com.fitsync.user.dto.AccountDataExportPayload;
@@ -14,6 +15,7 @@ import com.fitsync.user.dto.CompleteOnboardingRequest;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
 import com.fitsync.user.dto.HealthReadinessView;
+import com.fitsync.user.dto.ProgressInsightResponse;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
 import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
@@ -68,6 +70,8 @@ public interface UserService {
     AccountDataExportRequestView getLatestAccountDataExport(CurrentUserPrincipal principal);
 
     AccountDataExportPayload downloadAccountDataExport(CurrentUserPrincipal principal, UUID exportRequestId);
+
+    ProgressInsightResponse getProgressInsight(CurrentUserPrincipal principal, ZoneId zone);
 
     int republishActiveGoals();
 

@@ -1,5 +1,6 @@
 package com.fitsync.user.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,6 +13,9 @@ public interface BodyMetricEntryRepository extends JpaRepository<BodyMetricEntry
         BodyMetricEntryRepositoryCustom {
 
     Optional<BodyMetricEntryEntity> findTopByUserIdOrderByMeasuredAtDesc(UUID userId);
+
+    Optional<BodyMetricEntryEntity> findTopByUserIdAndWeightKgIsNotNullAndMeasuredAtLessThanOrderByMeasuredAtDesc(
+            UUID userId, Instant before);
 
     Optional<BodyMetricEntryEntity> findTopByUserIdAndNoteOrderByMeasuredAtDesc(UUID userId, String note);
 
