@@ -288,6 +288,7 @@ update demo_days set tier = ceil(m / 2.0)::int;
 alter table demo_days add column is_training_day boolean not null default false;
 alter table demo_days add column skip_session    boolean not null default false;
 alter table demo_days add column workout_kind    text;
+alter table demo_days add column plan_dow        int;
 alter table demo_days add column duration_minutes int;
 alter table demo_days add column bench_w         numeric(6,2);
 alter table demo_days add column squat_w         numeric(6,2);
@@ -297,18 +298,33 @@ alter table demo_days add column meal_day        boolean not null default false;
 alter table demo_days add column meal_mult       numeric(5,3) not null default 1.0;
 alter table demo_days add column shake_day       boolean not null default false;
 
--- STEADY: Monday/Friday strength, Thursday/Saturday cardio, every week; one
--- Thursday (week 0) and one Saturday (week 1) dropped inside the first three
--- weeks so the record is not a wall of perfect weeks. Weight rises every two
+-- STEADY: Monday/Friday strength, a Thursday run and Saturday badminton, every
+-- week, which is the week the plan lays out; one Thursday (week 0) and one
+-- Saturday (week 1) dropped inside the first three weeks so the record is not
+-- a wall of perfect weeks. Weight rises every two
 -- weeks going forward in time (equivalently: falls every two weeks the
 -- further back from "now" you look), floored at 10 kg.
 update demo_days
 set is_training_day = dow in (1, 4, 5, 6),
     workout_kind = case dow when 1 then 'STRENGTH' when 5 then 'STRENGTH'
-                             when 4 then 'CARDIO'   when 6 then 'CARDIO' end,
-    duration_minutes = case when dow in (1, 5) then 50 when dow in (4, 6) then 35 end,
+                             when 4 then 'CARDIO'   when 6 then 'SPORT' end,
+    duration_minutes = case when dow in (1, 5) then 50 when dow = 4 then 35 when dow = 6 then 60 end,
     skip_session = (w = 0 and dow = 4) or (w = 1 and dow = 6)
 where persona = 'steady';
+
+-- One moved session: the Thursday run is done on the Tuesday of the same week
+-- and still counts for the plan's Thursday. It sits in the current week once
+-- Tuesday has passed, and in the last completed week before that, so that a
+-- moved session exists whatever day the script runs on.
+update demo_days dd
+set is_training_day  = (dd.dow = 2),
+    workout_kind     = case when dd.dow = 2 then 'CARDIO' end,
+    duration_minutes = case when dd.dow = 2 then 35 end,
+    plan_dow         = case when dd.dow = 2 then 4 end
+from demo_config c
+where dd.persona = 'steady'
+  and dd.dow in (2, 4)
+  and dd.w = dd.w_last + case when extract(isodow from c.d_today)::int >= 3 then 1 else 0 end;
 
 update demo_days
 set bench_w = greatest(10, round(22.50 - 2.50 * tier, 2)),
@@ -338,11 +354,12 @@ set is_training_day = case
         else                  dow in (1, 4)
     end,
     workout_kind = case dow when 1 then 'STRENGTH' when 5 then 'STRENGTH'
-                             when 4 then 'CARDIO'   when 6 then 'CARDIO' end,
+                             when 4 then 'CARDIO'   when 6 then 'SPORT' end,
     duration_minutes = case
         when dow = 1 and m <= 1 then 40
         when dow in (1, 5)      then 50
-        when dow in (4, 6)      then 35
+        when dow = 4            then 35
+        when dow = 6            then 60
     end,
     skip_session = false
 where persona = 'drifting';
@@ -629,6 +646,11 @@ declare
     v_start  date;
     v_today  date;
     v_plan   uuid := gen_random_uuid();
+    v_day_mon uuid := gen_random_uuid();
+    v_day_thu uuid := gen_random_uuid();
+    v_day_fri uuid := gen_random_uuid();
+    v_day_sat uuid := gen_random_uuid();
+    v_plan_day uuid;
     ex_bench uuid;
     ex_squat uuid;
     ex_row   uuid;
@@ -710,28 +732,56 @@ begin
         (ex_run, v_user, 'DEMO_TREADMILL', 'Treadmill Run', 'Steady-state treadmill running.', 'CARDIO', 'CARDIO', 'CARDIO_MACHINE', 'BEGINNER', 'ACTIVE', true,
          (v_start + time '08:00') at time zone v_tz, (v_start + time '08:00') at time zone v_tz, 'demo-seed', 'demo-seed', 0);
 
-    -- 5b. workout plan (the strength template the strength sessions follow)
+    -- 5b. workout plan with a week: strength on Monday and Friday, a run on Thursday and
+    --     badminton on Saturday. The other three days are rest days.
     insert into workout.workout_plans
         (plan_id, user_id, name, description, goal_focus, workout_type, difficulty,
          estimated_duration_minutes, status, date_time_created, date_time_updated,
          created_by, updated_by, version)
     values
         (v_plan, v_user, 'Recomp Strength + Cardio',
-         'Four sessions a week alternating full-body strength and steady cardio.',
+         'Strength on Monday and Friday, a run on Thursday and badminton on Saturday.',
          'GENERAL_FITNESS', 'STRENGTH', 'BEGINNER', 50, 'ACTIVE',
          (v_start + time '08:00') at time zone v_tz, (v_start + time '08:00') at time zone v_tz,
          'demo-seed', 'demo-seed', 0);
 
-    -- 5c. plan exercises + per-set targets (3 working sets each)
+    insert into workout.workout_plan_days
+        (plan_day_id, plan_id, day_of_week, kind, title, sport_activity, estimated_duration_minutes,
+         date_time_created, date_time_updated, created_by, updated_by, version)
+    select d.plan_day_id, v_plan, d.day_of_week, d.kind, d.title, d.sport_activity, d.minutes,
+           (v_start + time '08:00') at time zone v_tz, (v_start + time '08:00') at time zone v_tz,
+           'demo-seed', 'demo-seed', 0
+    from (values
+        (v_day_mon, 1, 'STRENGTH', 'Full Body Strength', null,        50),
+        (v_day_thu, 4, 'CARDIO',   'Treadmill Run',      null,        35),
+        (v_day_fri, 5, 'STRENGTH', 'Full Body Strength', null,        50),
+        (v_day_sat, 6, 'SPORT',    'Badminton',          'BADMINTON', 60)
+    ) as d(plan_day_id, day_of_week, kind, title, sport_activity, minutes);
+
+    -- 5c. plan exercises by day, and their targets set by set. A sport day has no exercises.
     insert into workout.workout_plan_exercises
-        (plan_exercise_id, plan_id, exercise_id, exercise_name_snapshot, sequence_no,
+        (plan_exercise_id, plan_id, plan_day_id, exercise_id, exercise_name_snapshot, sequence_no,
+         target_sets, target_reps, target_weight_kg, target_duration_seconds,
+         target_distance_km, rest_seconds, notes)
+    select gen_random_uuid(), v_plan, d.plan_day_id, x.exercise_id, x.name, x.sequence_no,
+           x.target_sets, x.target_reps, x.target_weight_kg, x.target_duration_seconds,
+           null, x.rest_seconds, x.notes
+    from (values (v_day_mon), (v_day_fri)) as d(plan_day_id)
+    cross join (values
+        (ex_bench, 'Dumbbell Bench Press', 1, 3, 10,            20.00,          null::int, 75, 'Controlled tempo, full range.'),
+        (ex_squat, 'Goblet Squat',         2, 3, 12,            16.00,          null,      75, 'Knees tracking over toes.'),
+        (ex_row,   'Bent-Over Row',        3, 3, 10,            18.00,          null,      75, 'Squeeze the shoulder blades.'),
+        (ex_plank, 'Plank Hold',           4, 3, null,          null,           45,        45, 'Brace and keep hips level.')
+    ) as x(exercise_id, name, sequence_no, target_sets, target_reps, target_weight_kg,
+           target_duration_seconds, rest_seconds, notes);
+
+    insert into workout.workout_plan_exercises
+        (plan_exercise_id, plan_id, plan_day_id, exercise_id, exercise_name_snapshot, sequence_no,
          target_sets, target_reps, target_weight_kg, target_duration_seconds,
          target_distance_km, rest_seconds, notes)
     values
-        (gen_random_uuid(), v_plan, ex_bench, 'Dumbbell Bench Press', 1, 3, 10, 20.00, null, null, 75, 'Controlled tempo, full range.'),
-        (gen_random_uuid(), v_plan, ex_squat, 'Goblet Squat',         2, 3, 12, 16.00, null, null, 75, 'Knees tracking over toes.'),
-        (gen_random_uuid(), v_plan, ex_row,   'Bent-Over Row',        3, 3, 10, 18.00, null, null, 75, 'Squeeze the shoulder blades.'),
-        (gen_random_uuid(), v_plan, ex_plank, 'Plank Hold',           4, 3, null, null, 45, null, 45, 'Brace and keep hips level.');
+        (gen_random_uuid(), v_plan, v_day_thu, ex_run,   'Treadmill Run', 1, 1, null, null, 1800, 5.00, 0,  'Conversational pace.'),
+        (gen_random_uuid(), v_plan, v_day_thu, ex_plank, 'Plank Hold',    2, 3, null, null, 45,   null, 45, 'Brace and keep hips level.');
 
     insert into workout.workout_plan_exercise_set_targets
         (set_target_id, plan_exercise_id, set_number, target_reps, target_weight_kg,
@@ -740,7 +790,8 @@ begin
            pe.target_reps, pe.target_weight_kg, pe.target_duration_seconds, pe.target_distance_km, pe.rest_seconds
     from workout.workout_plan_exercises pe
     cross join (values (1),(2),(3)) as s(set_number)
-    where pe.plan_id = v_plan;
+    where pe.plan_id = v_plan
+      and s.set_number <= pe.target_sets;
 
     -- 5d. one completed session per scheduled, non-skipped training day.
     for r in
@@ -750,15 +801,18 @@ begin
     loop
         started   := (r.d + time '18:30') at time zone v_tz;
         v_session := gen_random_uuid();
+        -- A moved session keeps the plan day it was meant for.
+        v_plan_day := case coalesce(r.plan_dow, r.dow)
+            when 1 then v_day_mon when 4 then v_day_thu when 5 then v_day_fri when 6 then v_day_sat end;
 
         if r.workout_kind = 'STRENGTH' then
             insert into workout.workout_sessions
-                (session_id, user_id, plan_id, name, workout_type, kind, status, source,
+                (session_id, user_id, plan_id, plan_day_id, name, workout_type, kind, status, source,
                  started_at, completed_at, duration_minutes, calories_burned,
                  perceived_exertion, notes, date_time_created, date_time_updated,
                  created_by, updated_by, version)
             values
-                (v_session, v_user, v_plan, 'Strength — Full Body', 'STRENGTH', 'STRENGTH', 'COMPLETED', 'PLAN',
+                (v_session, v_user, v_plan, v_plan_day, 'Strength — Full Body', 'STRENGTH', 'STRENGTH', 'COMPLETED', 'PLAN',
                  started, started + (r.duration_minutes * interval '1 minute'), r.duration_minutes, 360, 7,
                  'Hit all working sets; progression felt manageable.',
                  started, started + (r.duration_minutes * interval '1 minute'), 'demo-seed', 'demo-seed', 0);
@@ -815,14 +869,27 @@ begin
             select gen_random_uuid(), v_log, s.n, null, null, 45, null, 45, 6 + s.n - 1, null, true, 'DONE'
             from (values (1),(2),(3)) as s(n);
 
-        else  -- CARDIO
+        elsif r.workout_kind = 'SPORT' then
+            -- A sport session is measured by its time and has no exercises.
             insert into workout.workout_sessions
-                (session_id, user_id, plan_id, name, workout_type, kind, status, source,
+                (session_id, user_id, plan_id, plan_day_id, name, workout_type, kind, sport_activity, status, source,
                  started_at, completed_at, duration_minutes, calories_burned,
                  perceived_exertion, notes, date_time_created, date_time_updated,
                  created_by, updated_by, version)
             values
-                (v_session, v_user, null, 'Cardio — Treadmill', 'CARDIO', 'CARDIO', 'COMPLETED', 'MANUAL',
+                (v_session, v_user, v_plan, v_plan_day, 'Badminton', 'SPORTS', 'SPORT', 'BADMINTON', 'COMPLETED', 'PLAN',
+                 started, started + (r.duration_minutes * interval '1 minute'), r.duration_minutes, 400, 6,
+                 'Doubles with friends.',
+                 started, started + (r.duration_minutes * interval '1 minute'), 'demo-seed', 'demo-seed', 0);
+
+        else  -- CARDIO
+            insert into workout.workout_sessions
+                (session_id, user_id, plan_id, plan_day_id, name, workout_type, kind, distance_km, status, source,
+                 started_at, completed_at, duration_minutes, calories_burned,
+                 perceived_exertion, notes, date_time_created, date_time_updated,
+                 created_by, updated_by, version)
+            values
+                (v_session, v_user, v_plan, v_plan_day, 'Cardio — Treadmill', 'CARDIO', 'CARDIO', r.run_km, 'COMPLETED', 'PLAN',
                  started, started + (r.duration_minutes * interval '1 minute'), r.duration_minutes, 380, 6,
                  'Steady-state run, conversational pace.',
                  started, started + (r.duration_minutes * interval '1 minute'), 'demo-seed', 'demo-seed', 0);
