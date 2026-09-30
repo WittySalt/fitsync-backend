@@ -215,7 +215,7 @@ public class CoachOrchestrator {
             transcript.add(surfaceLine(turnContext.surface()));
         }
         if (turnContext != null && turnContext.pinnedReading() != null) {
-            transcript.add(pinnedReadingObservation(turnContext.pinnedReading()));
+            transcript.add(pinnedReadingObservation(turnContext.surface(), turnContext.pinnedReading()));
             toolsUsed.add(PINNED_READING_TOOL_NAME);
         }
 
@@ -588,14 +588,17 @@ public class CoachOrchestrator {
 
     /** The one line that opens the transcript when the client says which page the user is on. */
     private static String surfaceLine(CoachSurface surface) {
-        String pageName = switch (surface) {
+        return "The user is on the " + pageName(surface) + " page.";
+    }
+
+    private static String pageName(CoachSurface surface) {
+        return switch (surface) {
             case HOME -> "Home";
             case WORKOUT -> "Workout";
             case NUTRITION -> "Nutrition";
             case PROGRESS -> "Progress";
             case PROFILE -> "Me";
         };
-        return "The user is on the " + pageName + " page.";
     }
 
     /**
@@ -603,9 +606,10 @@ public class CoachOrchestrator {
      * come from a tool result covers it too, and recorded as though {@link #PINNED_READING_TOOL_NAME}
      * had actually been called so the trace shows what grounded the answer.
      */
-    private static String pinnedReadingObservation(TurnContext.PinnedReading pinned) {
+    private static String pinnedReadingObservation(CoachSurface surface, TurnContext.PinnedReading pinned) {
         StringBuilder body = new StringBuilder();
-        body.append("The user is asking about this reading on their Workout page.");
+        body.append("The user is asking about this reading on their ")
+                .append(surface == null ? "Workout" : pageName(surface)).append(" page.");
         String headline = sanitizeFactPart(pinned.headline());
         String text = stripCitations(sanitizeFactPart(pinned.body()));
         if (!headline.isEmpty() || !text.isEmpty()) {

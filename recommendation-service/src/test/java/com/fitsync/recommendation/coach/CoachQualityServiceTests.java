@@ -219,12 +219,17 @@ class CoachQualityServiceTests {
         seedReading(ReadingSurface.WORKOUT, "MODEL", ReadingOutcome.ACCEPTED, Instant.parse("2026-09-25T00:00:00Z"));
         seedReading(ReadingSurface.WORKOUT, "MODEL", ReadingOutcome.ACCEPTED, Instant.parse("2026-09-26T00:00:00Z"));
         seedReading(ReadingSurface.WORKOUT, "RULES", ReadingOutcome.ACCEPTED, Instant.parse("2026-09-27T00:00:00Z"));
+        seedReading(ReadingSurface.NUTRITION, "MODEL", ReadingOutcome.ACCEPTED, Instant.parse("2026-09-27T01:00:00Z"));
+        seedReading(ReadingSurface.PROGRESS, "RULES", ReadingOutcome.REJECTED, Instant.parse("2026-09-27T02:00:00Z"));
+        seedReading(ReadingSurface.PROGRESS, "RULES", ReadingOutcome.REJECTED, Instant.parse("2026-09-27T03:00:00Z"));
 
         CoachQualityResponse response = service.quality(
                 LocalDate.parse("2026-09-24"), LocalDate.parse("2026-09-30"), null);
 
         assertThat(response.readings()).containsExactly(
+                new CoachQualityReadingCountView("PROGRESS", "RULES", "REJECTED", 2),
                 new CoachQualityReadingCountView("WORKOUT", "MODEL", "ACCEPTED", 2),
+                new CoachQualityReadingCountView("NUTRITION", "MODEL", "ACCEPTED", 1),
                 new CoachQualityReadingCountView("WORKOUT", "RULES", "ACCEPTED", 1));
     }
 

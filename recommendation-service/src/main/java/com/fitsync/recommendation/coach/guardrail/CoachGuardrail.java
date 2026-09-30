@@ -29,9 +29,14 @@ public class CoachGuardrail {
     /** The same floor the rule engine uses, so the coach and the cards never disagree about it. */
     public static final int CALORIE_FLOOR = NutritionGapRule.MIN_DAILY_CALORIES;
 
-    /** A number of calories, however the user wrote it: 800 kcal, 800 calories, 800cal, 800 cals. */
-    private static final Pattern CALORIE_FIGURE =
-            Pattern.compile("(\\d{2,5})\\s*(?:k?cal(?:orie)?s?)\\b", Pattern.CASE_INSENSITIVE);
+    /**
+     * A number of calories, however the user wrote it: 800 kcal, 800 calories, 800cal, 800 cals, or
+     * with a thousands comma as 2,173 kcal. The comma form is read whole, because reading only the
+     * digits after the comma turned a normal intake of 2,173 kcal into 173 and refused it.
+     */
+    private static final Pattern CALORIE_FIGURE = Pattern.compile(
+            "(?<![\\d,])(\\d{1,3}(?:,\\d{3}){1,2}|\\d{2,5})\\s*(?:k?cal(?:orie)?s?)\\b",
+            Pattern.CASE_INSENSITIVE);
 
     /**
      * Words that make a calorie figure a daily intake the user means to live on.
@@ -59,7 +64,7 @@ public class CoachGuardrail {
         String lower = message.toLowerCase(Locale.ROOT);
         Matcher figures = CALORIE_FIGURE.matcher(lower);
         while (figures.find()) {
-            int calories = Integer.parseInt(figures.group(1));
+            int calories = Integer.parseInt(figures.group(1).replace(",", ""));
             if (calories < CALORIE_FLOOR
                     && INTAKE_INTENT.matcher(lower).find()
                     && !NOT_A_PLAN.matcher(lower).find()) {

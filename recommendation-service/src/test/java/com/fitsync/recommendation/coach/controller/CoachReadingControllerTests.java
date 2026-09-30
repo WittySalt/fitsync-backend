@@ -119,6 +119,90 @@ class CoachReadingControllerTests {
                 .andExpect(jsonPath("$.code").value("READING_UNAVAILABLE"));
     }
 
+    @Test
+    void nutritionRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/coach/readings/nutrition")
+                        .header("Authorization", "Bearer token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void returnsTheNutritionReadingForAnAuthenticatedUser() throws Exception {
+        when(readingService.nutritionReading(eq(USER_ID), any(String.class), eq("Asia/Singapore")))
+                .thenReturn(new CoachReadingResponse(
+                        ReadingSurface.NUTRITION, ReadingStatus.READY, "9f2c4e1ab03d77aa",
+                        "PREVIOUS_WEEK", null, null, List.of(),
+                        new ModelReadingView("Your protein was spread across the day.",
+                                "You ate 150 g of protein a day [1].",
+                                List.of(1), "RULES", Instant.parse("2026-09-28T12:00:00Z")),
+                        List.of()));
+
+        mockMvc.perform(get("/api/v1/coach/readings/nutrition")
+                        .param("timezone", "Asia/Singapore")
+                        .header("Authorization", "Bearer token")
+                        .with(authentication(authToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.surface").value("NUTRITION"))
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.reading.source").value("RULES"));
+    }
+
+    @Test
+    void nutritionRejectsAnImplausibleTimezoneAndSurfacesAnUnavailableUpstream() throws Exception {
+        mockMvc.perform(get("/api/v1/coach/readings/nutrition")
+                        .param("timezone", "Asia/Singa pore")
+                        .header("Authorization", "Bearer token")
+                        .with(authentication(authToken())))
+                .andExpect(status().isBadRequest());
+
+        when(readingService.nutritionReading(eq(USER_ID), any(String.class), eq("UTC")))
+                .thenThrow(new ReadingUnavailableException("The nutrition service could not be read."));
+        mockMvc.perform(get("/api/v1/coach/readings/nutrition")
+                        .header("Authorization", "Bearer token")
+                        .with(authentication(authToken())))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("READING_UNAVAILABLE"));
+    }
+
+    @Test
+    void progressRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/coach/readings/progress")
+                        .header("Authorization", "Bearer token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void returnsTheProgressReadingForAnAuthenticatedUser() throws Exception {
+        when(readingService.progressReading(eq(USER_ID), any(String.class), eq("UTC")))
+                .thenReturn(new CoachReadingResponse(
+                        ReadingSurface.PROGRESS, ReadingStatus.EMPTY, null,
+                        "LAST_28_DAYS", null, null, List.of(), null, List.of()));
+
+        mockMvc.perform(get("/api/v1/coach/readings/progress")
+                        .header("Authorization", "Bearer token")
+                        .with(authentication(authToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.surface").value("PROGRESS"))
+                .andExpect(jsonPath("$.status").value("EMPTY"))
+                .andExpect(jsonPath("$.period").value("LAST_28_DAYS"));
+    }
+
+    @Test
+    void progressRejectsAnImplausibleTimezoneAndSurfacesAnUnavailableUpstream() throws Exception {
+        mockMvc.perform(get("/api/v1/coach/readings/progress")
+                        .param("timezone", "A".repeat(65))
+                        .header("Authorization", "Bearer token")
+                        .with(authentication(authToken())))
+                .andExpect(status().isBadRequest());
+
+        when(readingService.progressReading(eq(USER_ID), any(String.class), eq("UTC")))
+                .thenThrow(new ReadingUnavailableException("The user service could not be read."));
+        mockMvc.perform(get("/api/v1/coach/readings/progress")
+                        .header("Authorization", "Bearer token")
+                        .with(authentication(authToken())))
+                .andExpect(status().isServiceUnavailable());
+    }
+
     private static UsernamePasswordAuthenticationToken authToken() {
         CurrentUserPrincipal principal = new CurrentUserPrincipal(
                 USER_ID, "user@example.com", "User", "USER");

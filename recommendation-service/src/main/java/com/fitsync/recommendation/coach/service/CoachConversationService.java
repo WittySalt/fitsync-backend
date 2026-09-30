@@ -17,6 +17,7 @@ import com.fitsync.recommendation.coach.orchestrator.CoachOutcome;
 import com.fitsync.recommendation.coach.orchestrator.CoachProgressListener;
 import com.fitsync.recommendation.coach.orchestrator.TurnContext;
 import com.fitsync.recommendation.coach.reading.CoachReadingService;
+import com.fitsync.recommendation.coach.reading.ReadingSurface;
 import com.fitsync.recommendation.coach.stream.SseProgressStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -148,7 +149,7 @@ public class CoachConversationService {
 
     /**
      * Turns the client's page name and opaque reading id into what the orchestrator actually needs:
-     * the surface, and — only for the workout page, only when a reading id was sent, and only when it
+     * the surface, and — only for a page that shows a reading, only when a reading id was sent, and only when it
      * resolves to something real — the reading's text and facts.
      *
      * <p>Resolution runs off the request thread on the streaming path exactly like the rest of
@@ -164,9 +165,10 @@ public class CoachConversationService {
 
         TurnContext.PinnedReading pinnedReading = null;
         String pinnedReadingId = null;
-        if (messageContext.surface() == CoachSurface.WORKOUT && messageContext.readingId() != null) {
+        ReadingSurface readingSurface = readingSurfaceOf(messageContext.surface());
+        if (readingSurface != null && messageContext.readingId() != null) {
             try {
-                Optional<CoachReadingService.PinnedReading> resolved = readingService.pinnedWorkoutReading(
+                Optional<CoachReadingService.PinnedReading> resolved = readingService.pinnedReading(readingSurface,
                         userId, bearerToken, messageContext.timezoneOrDefault(), messageContext.readingId());
                 if (resolved.isPresent()) {
                     CoachReadingService.PinnedReading reading = resolved.get();
@@ -182,8 +184,22 @@ public class CoachConversationService {
         return new ResolvedContext(new TurnContext(messageContext.surface(), pinnedReading), pinnedReadingId);
     }
 
+    /** The pages that show a reading; every other page has nothing a message could be pinned to. */
+    private static ReadingSurface readingSurfaceOf(CoachSurface surface) {
+        if (surface == null) {
+            return null;
+        }
+        return switch (surface) {
+            case WORKOUT -> ReadingSurface.WORKOUT;
+            case NUTRITION -> ReadingSurface.NUTRITION;
+            case PROGRESS -> ReadingSurface.PROGRESS;
+            case HOME, PROFILE -> null;
+        };
+    }
+
     private static TurnContext.PinnedPeriod toPinnedPeriod(CoachReadingService.PinnedReading reading) {
-        if (reading.period() == null || reading.periodStart() == null || reading.periodEnd() == null) {
+        // The prompt describes the period as a week, so a reading over any other span is left without one.
+        if (!reading.describesAWeek() || reading.periodStart() == null || reading.periodEnd() == null) {
             return null;
         }
         return new TurnContext.PinnedPeriod(

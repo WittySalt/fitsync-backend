@@ -45,6 +45,15 @@ class CoachGuardrailTests {
     }
 
     @Test
+    @DisplayName("a figure with a thousands comma is read whole, not as its last three digits")
+    void readsAThousandsCommaWhole() {
+        assertThat(guardrail.check("Calories came to 2,173 kcal a day [4].")).isEmpty();
+        assertThat(guardrail.check("Can I eat 1,500 kcal a day?")).isEmpty();
+        assertThat(guardrail.check("Should I cut to 1,000 kcal a day?"))
+                .hasValueSatisfying(refusal -> assertThat(refusal.message()).contains("I won't plan for 1000 kcal"));
+    }
+
+    @Test
     @DisplayName("a small number that is not a daily intake is not refused")
     void allowsFiguresThatAreNotAnIntakePlan() {
         for (String message : new String[] {

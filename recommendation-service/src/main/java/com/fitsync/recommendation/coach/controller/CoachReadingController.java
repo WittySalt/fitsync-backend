@@ -66,4 +66,47 @@ public class CoachReadingController {
         String bearerToken = CoachPrincipal.bearerToken(authorization);
         return readingService.workoutReading(userId, bearerToken, timezone);
     }
+
+    @GetMapping("/nutrition")
+    @Operation(summary = "The nutrition page's insight panel",
+            description = "Up to four measured facts about last week's protein and calories, built "
+                    + "without a model, and a short reading over them, written and checked the same "
+                    + "way as the workout page's. Status is EMPTY when no full week was logged.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Facts returned, with a reading when one is ready"),
+            @ApiResponse(responseCode = "400", description = "Timezone is not a plausible IANA zone id"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "503", description = "The nutrition service could not be read")
+    })
+    public CoachReadingResponse nutrition(Authentication authentication,
+                                          @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+                                          @RequestParam(defaultValue = "UTC")
+                                          @Pattern(regexp = TIMEZONE_PATTERN) String timezone) {
+        UUID userId = CoachPrincipal.userId(authentication);
+        String bearerToken = CoachPrincipal.bearerToken(authorization);
+        return readingService.nutritionReading(userId, bearerToken, timezone);
+    }
+
+    @GetMapping("/progress")
+    @Operation(summary = "The progress page's insight panel",
+            description = "Up to four measured facts about the weight over the last 28 days, its "
+                    + "weekly rate, the goal and calories, built without a model, and a short reading "
+                    + "over them, written and checked the same way as the workout page's. Status is "
+                    + "EMPTY when there is no weight yet.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Facts returned, with a reading when one is ready"),
+            @ApiResponse(responseCode = "400", description = "Timezone is not a plausible IANA zone id"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "503", description = "The user service could not be read")
+    })
+    public CoachReadingResponse progress(Authentication authentication,
+                                         @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+                                         @RequestParam(defaultValue = "UTC")
+                                         @Pattern(regexp = TIMEZONE_PATTERN) String timezone) {
+        UUID userId = CoachPrincipal.userId(authentication);
+        String bearerToken = CoachPrincipal.bearerToken(authorization);
+        return readingService.progressReading(userId, bearerToken, timezone);
+    }
 }
