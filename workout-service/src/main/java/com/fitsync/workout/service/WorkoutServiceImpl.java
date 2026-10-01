@@ -273,7 +273,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         UUID userId = currentUser.userId();
         return new WorkoutExportView(
                 1,
-                Instant.now(),
+                Instant.now(clock),
                 exerciseService.exportCustomExercises(currentUser),
                 workoutPlanRepository.findByUserIdOrderByDateTimeUpdatedDesc(userId).stream()
                         .map(this::toPlanView)
@@ -289,6 +289,9 @@ public class WorkoutServiceImpl implements WorkoutService {
         validatePlanExerciseList(request.exercises());
         validatePlanWeek(request.exercises(), request.days());
         WorkoutPlanEntity entity = findPlan(currentUser.userId(), planId);
+        if (entity.getStatus() == WorkoutPlanStatus.ARCHIVED) {
+            throw new IllegalArgumentException("An archived workout plan cannot be edited");
+        }
         entity.setName(request.name());
         entity.setDescription(request.description());
         entity.setGoalFocus(request.goalFocus());
@@ -701,6 +704,10 @@ public class WorkoutServiceImpl implements WorkoutService {
     public WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId) {
         WorkoutSessionEntity source = findSession(currentUser.userId(), sessionId);
         requireNoActiveSession(currentUser.userId(), null);
+        if (source.getStatus() != WorkoutSessionStatus.COMPLETED) {
+            // Only the sets that were done are repeated, so anything else would start an empty workout.
+            throw new IllegalArgumentException("Only a completed workout session can be repeated");
+        }
         WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source);
         return toSessionView(workoutSessionRepository.save(repeated));
     }
@@ -731,7 +738,11 @@ public class WorkoutServiceImpl implements WorkoutService {
         }
         applySessionRequest(currentUser.userId(), entity, request);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
-        if (saved.getStatus() == WorkoutSessionStatus.COMPLETED && previousStatus != WorkoutSessionStatus.COMPLETED) {
+        if (previousStatus == WorkoutSessionStatus.COMPLETED && saved.getStatus() != WorkoutSessionStatus.COMPLETED) {
+            // Reopened or cancelled by an edit: the totals drop it, as they do for a delete, and take
+            // it back with a WorkoutLogged when it is completed again.
+            publishWorkoutDeleted(saved);
+        } else if (saved.getStatus() == WorkoutSessionStatus.COMPLETED && previousStatus != WorkoutSessionStatus.COMPLETED) {
             publishWorkoutLoggedAndPersonalRecords(saved);
         } else if (saved.getStatus() == WorkoutSessionStatus.COMPLETED) {
             publishWorkoutUpdated(saved);
@@ -961,15 +972,19 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setDeletedAt(Instant.now(clock));
         workoutSessionRepository.save(entity);
         if (publishDelete) {
-            domainEventPublisher.publish(workoutEventsTopic(), "WorkoutSession", sessionId.toString(), new FitSyncDomainEvent<>(
-                    UUID.randomUUID(),
-                    "WorkoutDeleted",
-                    1,
-                    Instant.now(),
-                    SOURCE,
-                    currentUser.userId(),
-                    new WorkoutDeletedPayload(entity.getSessionId(), entity.getPlanId(), Instant.now())));
+            publishWorkoutDeleted(entity);
         }
+    }
+
+    private void publishWorkoutDeleted(WorkoutSessionEntity entity) {
+        domainEventPublisher.publish(workoutEventsTopic(), "WorkoutSession", entity.getSessionId().toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "WorkoutDeleted",
+                1,
+                Instant.now(clock),
+                SOURCE,
+                entity.getUserId(),
+                new WorkoutDeletedPayload(entity.getSessionId(), entity.getPlanId(), Instant.now(clock))));
     }
 
     private WorkoutPlanEntity findPlan(UUID userId, UUID planId) {
@@ -1213,7 +1228,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setWorkoutType(source.getWorkoutType());
         repeated.setStatus(WorkoutSessionStatus.IN_PROGRESS);
         repeated.setSource(WorkoutSource.MANUAL);
-        repeated.setStartedAt(Instant.now());
+        repeated.setStartedAt(Instant.now(clock));
         repeated.setSportActivity(source.getSportActivity());
         repeated.setPlanDayId(source.getPlanDayId());
         for (WorkoutExerciseLogEntity sourceExercise : source.getExercises()) {
@@ -1563,7 +1578,30 @@ public class WorkoutServiceImpl implements WorkoutService {
         for (WorkoutPlanExerciseSetTargetEntity setTarget : planExercise.getSetTargets()) {
             exercise.getSets().add(toSeededSetLog(exercise, setTarget));
         }
+        // A plan written with only a number of sets (as the coach writes them) still gives the
+        // workout that many sets, each with the exercise's own targets.
+        if (planExercise.getSetTargets().isEmpty() && planExercise.getTargetSets() != null) {
+            for (int setNumber = 1; setNumber <= planExercise.getTargetSets(); setNumber++) {
+                exercise.getSets().add(toSeededSetLog(exercise, planExercise, setNumber));
+            }
+        }
         return exercise;
+    }
+
+    private WorkoutExerciseSetLogEntity toSeededSetLog(WorkoutExerciseLogEntity exercise,
+                                                       WorkoutPlanExerciseEntity planExercise,
+                                                       int setNumber) {
+        WorkoutExerciseSetLogEntity setLog = new WorkoutExerciseSetLogEntity();
+        setLog.setSetLogId(UUID.randomUUID());
+        setLog.setExerciseLog(exercise);
+        setLog.setSetNumber(setNumber);
+        setLog.setReps(planExercise.getTargetReps());
+        setLog.setWeightKg(planExercise.getTargetWeightKg());
+        setLog.setDurationSeconds(planExercise.getTargetDurationSeconds());
+        setLog.setDistanceKm(planExercise.getTargetDistanceKm());
+        setLog.setRestSeconds(planExercise.getRestSeconds());
+        setLog.setLogged(false);
+        return setLog;
     }
 
     private WorkoutExerciseSetLogEntity toSeededSetLog(WorkoutExerciseLogEntity exercise,
@@ -1681,6 +1719,9 @@ public class WorkoutServiceImpl implements WorkoutService {
         // workout started and completed in the same instant could otherwise seem to start in the future.
         if (startedAt.isAfter(Instant.now(clock).plusSeconds(1))) {
             throw new IllegalArgumentException("startedAt must not be in the future");
+        }
+        if (completedAt != null && completedAt.isAfter(Instant.now(clock).plusSeconds(1))) {
+            throw new IllegalArgumentException("completedAt must not be in the future");
         }
         if (status == WorkoutSessionStatus.COMPLETED && completedAt == null) {
             throw new IllegalArgumentException("completedAt is required when status is COMPLETED");
@@ -1851,7 +1892,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                     UUID.randomUUID(),
                     "PersonalRecordAchieved",
                     1,
-                    Instant.now(),
+                    Instant.now(clock),
                     SOURCE,
                     session.getUserId(),
                     new PersonalRecordAchievedPayload(
@@ -1968,7 +2009,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 UUID.randomUUID(),
                 "WorkoutLogged",
                 1,
-                Instant.now(),
+                Instant.now(clock),
                 SOURCE,
                 session.getUserId(),
                 sessionPayload(session)));
@@ -1980,7 +2021,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 UUID.randomUUID(),
                 "WorkoutUpdated",
                 1,
-                Instant.now(),
+                Instant.now(clock),
                 SOURCE,
                 session.getUserId(),
                 new WorkoutUpdatedPayload(

@@ -90,10 +90,11 @@ public class ExerciseRepositoryImpl extends AbstractCriteriaRepositorySupport im
                 criteriaBuilder.equal(exercise.get("ownerUserId"), userId)));
 
         if (query != null) {
-            String pattern = "%" + query.toLowerCase(Locale.ROOT) + "%";
+            // The wildcards a person types match as themselves, as in the session search.
+            String pattern = "%" + WorkoutSessionRepositoryImpl.escapeLike(query.toLowerCase(Locale.ROOT)) + "%";
             predicates.add(criteriaBuilder.or(
-                    criteriaBuilder.like(criteriaBuilder.lower(exercise.get("name")), pattern),
-                    criteriaBuilder.like(criteriaBuilder.lower(exercise.get("code")), pattern)));
+                    criteriaBuilder.like(criteriaBuilder.lower(exercise.get("name")), pattern, '\\'),
+                    criteriaBuilder.like(criteriaBuilder.lower(exercise.get("code")), pattern, '\\')));
         }
         if (exerciseType != null) {
             predicates.add(criteriaBuilder.equal(exercise.get("exerciseType"), exerciseType));

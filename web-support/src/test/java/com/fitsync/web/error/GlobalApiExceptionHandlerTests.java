@@ -58,6 +58,18 @@ class GlobalApiExceptionHandlerTests {
     }
 
     @Test
+    @DisplayName("two writes to the same row at once are a 409, not a 500")
+    void optimisticLockIsConflict() {
+        ResponseEntity<ApiError> response = handler.handleOptimisticLock(
+                new org.springframework.dao.OptimisticLockingFailureException("Row was updated by another transaction"),
+                request("PUT", "/api/v1/workouts/sessions/x"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().code()).isEqualTo("CONCURRENT_UPDATE");
+    }
+
+    @Test
     @DisplayName("an unmapped path is a 404, not a 500")
     void noResourceFoundIsNotFound() {
         ResponseEntity<ApiError> response = handler.handleNoHandler(

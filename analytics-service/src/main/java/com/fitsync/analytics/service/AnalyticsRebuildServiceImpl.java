@@ -35,6 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
 
     private static final ZoneId DEFAULT_ZONE = ZoneOffset.UTC;
+    /** How far back a streak is counted: past the longest milestone, so none is cut short at a week. */
+    private static final int STREAK_WINDOW_DAYS = 400;
     private static final String ACTIVE_STATUS = "ACTIVE";
     private static final String CALORIES_GOAL_TYPE = "CALORIES";
     private static final String PROTEIN_GOAL_TYPE = "PROTEIN";
@@ -113,7 +115,8 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         snapshot.setWeekWorkoutCount(lastSeven.stream().mapToInt(row -> defaultInt(row.getCompletedWorkoutCount())).sum());
         snapshot.setWeekWorkoutMinutes(lastSeven.stream().mapToInt(row -> defaultInt(row.getTotalWorkoutMinutes())).sum());
         int previousStreak = defaultInt(snapshot.getActiveStreakDays());
-        int newStreak = calculateActiveStreak(lastSeven, today);
+        int newStreak = calculateActiveStreak(dailyWorkoutRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, today.minusDays(STREAK_WINDOW_DAYS), today), today);
         snapshot.setActiveStreakDays(newStreak);
 
         applyTargetsFromGoals(snapshot, userId);
