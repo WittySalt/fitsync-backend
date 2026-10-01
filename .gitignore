@@ -19,6 +19,7 @@ uiux.md
 
 # AI-agent / assistant working files — keep local, never track
 **/CODEX-BACKLOG.md
+**/*-TASK.md
 workout-service/src/main/resources/static/workout/catalog/free-exercise-db/images/
 AGENTS.md
 .agents/

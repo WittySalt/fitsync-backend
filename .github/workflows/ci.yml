@@ -1,4 +1,4 @@
-# CI: code validation (ported from .gitlab/ci.yml).
+# CI: code validation.
 # Runs on pull requests and pushes to main. No AWS access, no deployment — purely
 # verifies the code: secret scanning, build + unit/integration tests + SAST.
 # Dependency scanning is a separate manual workflow (dependency-check.yml).
@@ -10,7 +10,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Cancel superseded runs on the same ref (GitLab `interruptible: true`).
+# Cancel superseded runs on the same ref.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

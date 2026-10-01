@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Runs ON the production EC2 host. Bootstraps Docker + compose on first run, then
 # deploys the full FitSync stack from ECR via docker-compose.prod.yml with a
-# health-gated automatic rollback. Invoked by the GitLab `deploy_prod` job over
+# health-gated automatic rollback. Invoked by the GitHub Actions `deploy-prod` job over
 # SSH; can also be run by hand for debugging.
 #
 #   Required env : ECR_REGISTRY  IMAGE_TAG  AWS_REGION
 #   Optional env : DEPLOY_DIR (default /opt/fitsync)
 #
 # The runtime .env (DB creds, JWT_SECRET, ...) is rendered by the CI job from
-# GitLab CI/CD variables and placed in $DEPLOY_DIR/.env before this runs.
+# GitHub Actions variables/secrets and placed in $DEPLOY_DIR/.env before this runs.
 # nginx/TLS is intentionally NOT started here (see EC2 setup runbook) so a fresh
 # host without certs can still come up.
 set -euo pipefail
