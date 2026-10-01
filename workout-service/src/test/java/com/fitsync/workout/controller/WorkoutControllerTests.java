@@ -282,7 +282,8 @@ class WorkoutControllerTests {
                 new WeeklyVolumeView(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0, 0),
                 List.of(monday, tuesday),
                 today,
-                nextTraining);
+                nextTraining,
+                "18:30");
 
         when(weeklyTrainingInsightService.getWeeklyTrainingInsight(
                         eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-29"))))
@@ -301,7 +302,8 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.today.source").value("NONE"))
                 .andExpect(jsonPath("$.nextTraining.date").value("2026-10-01"))
                 .andExpect(jsonPath("$.nextTraining.kind").value("CARDIO"))
-                .andExpect(jsonPath("$.nextTraining.title").value("Treadmill run"));
+                .andExpect(jsonPath("$.nextTraining.title").value("Treadmill run"))
+                .andExpect(jsonPath("$.usualStartTime").value("18:30"));
     }
 
     @Test
