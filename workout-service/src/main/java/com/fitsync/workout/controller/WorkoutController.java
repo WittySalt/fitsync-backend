@@ -24,6 +24,7 @@ import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.MonthlyTrainingInsightView;
 import com.fitsync.workout.dto.TrainingPageInsightView;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
@@ -33,6 +34,7 @@ import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.workout.service.ExerciseService;
+import com.fitsync.workout.service.MonthlyTrainingInsightService;
 import com.fitsync.workout.service.TrainingPageInsightService;
 import com.fitsync.workout.service.WeeklyTrainingInsightService;
 import com.fitsync.workout.service.WorkoutService;
@@ -69,15 +71,18 @@ public class WorkoutController {
     private final ExerciseService exerciseService;
     private final WeeklyTrainingInsightService weeklyTrainingInsightService;
     private final TrainingPageInsightService trainingPageInsightService;
+    private final MonthlyTrainingInsightService monthlyTrainingInsightService;
 
     public WorkoutController(WorkoutService workoutService,
                              ExerciseService exerciseService,
                              WeeklyTrainingInsightService weeklyTrainingInsightService,
-                             TrainingPageInsightService trainingPageInsightService) {
+                             TrainingPageInsightService trainingPageInsightService,
+                             MonthlyTrainingInsightService monthlyTrainingInsightService) {
         this.workoutService = workoutService;
         this.exerciseService = exerciseService;
         this.weeklyTrainingInsightService = weeklyTrainingInsightService;
         this.trainingPageInsightService = trainingPageInsightService;
+        this.monthlyTrainingInsightService = monthlyTrainingInsightService;
     }
 
     @PostMapping("/exercises")
@@ -155,6 +160,15 @@ public class WorkoutController {
             @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return trainingPageInsightService.getTrainingPageInsight(currentPrincipal(authentication), timezone, date);
+    }
+
+    @Operation(summary = "Get the calendar-month training insight for the current user")
+    @GetMapping("/insights/monthly")
+    public MonthlyTrainingInsightView getMonthlyTrainingInsight(
+            Authentication authentication,
+            @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone,
+            @RequestParam(required = false) @Size(max = 7) String month) {
+        return monthlyTrainingInsightService.getMonthlyTrainingInsight(currentPrincipal(authentication), timezone, month);
     }
 
     @Operation(summary = "Update a custom exercise")

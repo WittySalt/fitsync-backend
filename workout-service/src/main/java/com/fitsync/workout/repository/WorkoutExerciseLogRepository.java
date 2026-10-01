@@ -9,6 +9,7 @@ import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordSetRow;
 import com.fitsync.workout.dto.ExerciseTopWeightRow;
+import com.fitsync.workout.dto.SessionExerciseTopWeightRow;
 import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -43,4 +44,26 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerc
                                                                           @Param("status") WorkoutSessionStatus status,
                                                                           @Param("skippedStatus") WorkoutSetStatus skippedStatus,
                                                                           @Param("beforeInstant") Instant beforeInstant);
+
+    // The heaviest logged set weight of each exercise within each completed session that started
+    // in the window, grouped server-side so the monthly insight can find records without loading
+    // the sets. Same set rule as above: logged and not skipped, with a weight.
+    @Query("""
+            select new com.fitsync.workout.dto.SessionExerciseTopWeightRow(sess.sessionId, el.exercise.exerciseId, max(s.weightKg))
+            from WorkoutExerciseLogEntity el
+              join el.sets s
+              join el.session sess
+            where sess.userId = :userId
+              and sess.status = :status
+              and sess.startedAt between :from and :to
+              and s.weightKg is not null
+              and s.logged = true
+              and s.status <> :skippedStatus
+            group by sess.sessionId, el.exercise.exerciseId
+            """)
+    List<SessionExerciseTopWeightRow> findMaxSetWeightPerSessionExercise(@Param("userId") UUID userId,
+                                                                         @Param("status") WorkoutSessionStatus status,
+                                                                         @Param("skippedStatus") WorkoutSetStatus skippedStatus,
+                                                                         @Param("from") Instant from,
+                                                                         @Param("to") Instant to);
 }
