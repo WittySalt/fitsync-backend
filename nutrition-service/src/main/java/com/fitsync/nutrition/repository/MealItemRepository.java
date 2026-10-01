@@ -34,4 +34,22 @@ public interface MealItemRepository extends JpaRepository<MealItemEntity, UUID> 
             order by m.consumedAt desc, i.dateTimeCreated desc
             """)
     List<RecentLoggedFoodRow> findRecentItemsByUserId(@Param("userId") UUID userId, Pageable pageable);
+
+    /**
+     * The same rows as {@link #findRecentItemsByUserId}, kept to the items whose snapshotted category belongs to
+     * one plate group, so that a filter such as DRINKS looks through the whole scan window and not only through
+     * what is left of it after the filter.
+     */
+    @Query("""
+            select i as item, m.consumedAt as consumedAt
+            from MealItemEntity i, MealLogEntity m, FoodCategoryEntity c
+            where i.mealId = m.mealId
+              and m.userId = :userId
+              and c.code = i.categoryCode
+              and c.foodGroup = :foodGroup
+            order by m.consumedAt desc, i.dateTimeCreated desc
+            """)
+    List<RecentLoggedFoodRow> findRecentItemsByUserIdAndFoodGroup(@Param("userId") UUID userId,
+                                                                  @Param("foodGroup") String foodGroup,
+                                                                  Pageable pageable);
 }

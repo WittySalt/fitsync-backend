@@ -38,7 +38,29 @@ public record FoodDetailView(
         String nutriScore,
         String sourceDataset,
         List<FoodServingView> servings,
-        List<NutrientDetailView> nutrientDetails) {
+        List<NutrientDetailView> nutrientDetails,
+        String foodGroup,
+        boolean countsTowardWater,
+        BigDecimal waterGrams,
+        BigDecimal alcoholGrams) {
+
+    /** A food from a source that does not know its plate group or water content, such as Open Food Facts. */
+    public FoodDetailView(UUID foodId, String displayName, String normalizedName, String brandName,
+                          String categoryCode, FoodCatalogScope scope, UUID baseFoodId,
+                          FoodCreationMode creationMode, FoodCatalogSource source, boolean verified,
+                          BigDecimal densityGramsPerMl, Integer calories, BigDecimal proteinGrams,
+                          BigDecimal carbsGrams, BigDecimal fatGrams, BigDecimal saturatedFatGrams,
+                          BigDecimal transFatGrams, BigDecimal fiberGrams, BigDecimal sugarGrams,
+                          BigDecimal sodiumMg, BigDecimal potassiumMg, BigDecimal cholesterolMg,
+                          BigDecimal basisQuantity, String basisUnit, String primaryBarcode, Integer novaGroup,
+                          String nutriScore, String sourceDataset, List<FoodServingView> servings,
+                          List<NutrientDetailView> nutrientDetails) {
+        this(foodId, displayName, normalizedName, brandName, categoryCode, scope, baseFoodId, creationMode, source,
+                verified, densityGramsPerMl, calories, proteinGrams, carbsGrams, fatGrams, saturatedFatGrams,
+                transFatGrams, fiberGrams, sugarGrams, sodiumMg, potassiumMg, cholesterolMg, basisQuantity,
+                basisUnit, primaryBarcode, novaGroup, nutriScore, sourceDataset, servings, nutrientDetails,
+                null, false, null, null);
+    }
 
     public FoodDetailView {
         servings = servings == null ? List.of() : List.copyOf(servings);

@@ -214,9 +214,10 @@ public class NutritionController {
                                                   @RequestParam(required = false) Boolean verified,
                                                   @RequestParam(required = false) FoodCatalogScope scope,
                                                   @RequestParam(defaultValue = "0") int page,
-                                                  @RequestParam(defaultValue = "20") int size) {
+                                                  @RequestParam(defaultValue = "20") int size,
+                                                  @RequestParam(required = false) String foodGroup) {
         FoodSearchCriteria criteria = new FoodSearchCriteria(
-                q, categoryId, includeSubcategories, brandId, verified, scope, page, size);
+                q, categoryId, includeSubcategories, brandId, verified, scope, page, size, foodGroup);
         return nutritionService.searchFoods(currentPrincipal(authentication), criteria);
     }
 
@@ -227,14 +228,16 @@ public class NutritionController {
 
     @GetMapping("/foods/recent")
     public List<LoggedFoodView> recentFoods(Authentication authentication,
-                                            @RequestParam(defaultValue = "20") int limit) {
-        return nutritionService.listRecentFoods(currentPrincipal(authentication), limit);
+                                            @RequestParam(defaultValue = "20") int limit,
+                                            @RequestParam(required = false) String foodGroup) {
+        return nutritionService.listRecentFoods(currentPrincipal(authentication), limit, foodGroup);
     }
 
     @GetMapping("/foods/frequent")
     public List<LoggedFoodView> frequentFoods(Authentication authentication,
-                                              @RequestParam(defaultValue = "20") int limit) {
-        return nutritionService.listFrequentFoods(currentPrincipal(authentication), limit);
+                                              @RequestParam(defaultValue = "20") int limit,
+                                              @RequestParam(required = false) String foodGroup) {
+        return nutritionService.listFrequentFoods(currentPrincipal(authentication), limit, foodGroup);
     }
 
     @GetMapping("/foods/{foodId}")

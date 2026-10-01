@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -121,6 +122,9 @@ public class NutritionServiceImpl implements NutritionService {
     private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
     private static final long EXPORT_MAX_DAYS = 370;
     private static final String FOOD_GROUP_OTHER = "OTHER";
+    private static final Set<String> FOOD_GROUPS = Set.of(
+            "VEG", "FRUIT", "GRAINS", "PROTEIN", "DAIRY", "NUTS", "LEGUMES", "DRINKS", "SWEETS", FOOD_GROUP_OTHER);
+    private static final String ALCOHOL_CODE = "ALCOHOL";
 
     private final DomainEventPublisher domainEventPublisher;
     private final MealLogRepository mealLogRepository;
@@ -435,13 +439,14 @@ public class NutritionServiceImpl implements NutritionService {
             }
         }
 
+        String foodGroup = normalizeFoodGroup(criteria.foodGroup());
         int size = Math.min(Math.max(criteria.size(), 1), FOOD_SEARCH_MAX_SIZE);
         int page = Math.max(criteria.page(), 0);
         PageRequest pageRequest = PageRequest.of(page, size);
         Page<FoodCatalogItemEntity> foodPage = foodCatalogItemRepository.findAll(
                 FoodCatalogSearchSpecification.accessibleSearch(
                         principal.userId(), normalizedQuery, today, categoryCode, pathPrefix,
-                        criteria.brandId(), criteria.verified(), criteria.scope()),
+                        criteria.brandId(), criteria.verified(), criteria.scope(), foodGroup),
                 pageRequest);
         List<FoodCatalogItemEntity> foods = foodPage.getContent();
 
@@ -459,9 +464,10 @@ public class NutritionServiceImpl implements NutritionService {
         Map<UUID, String> primaryBarcodes = loadPrimaryBarcodes(foods.stream()
                 .map(FoodCatalogItemEntity::getFoodId)
                 .toList(), today);
+        Map<String, String> foodGroups = loadFoodGroups();
         List<FoodSearchResultView> localResults = foods.stream()
-                .map(food -> toFoodSearchResultView(food, brandNames, categoryNames, profiles.get(food.getFoodId()),
-                        primaryBarcodes.get(food.getFoodId())))
+                .map(food -> toFoodSearchResultView(food, brandNames, categoryNames, foodGroups,
+                        profiles.get(food.getFoodId()), primaryBarcodes.get(food.getFoodId())))
                 .toList();
         if (!shouldSearchExternalFoods(criteria, normalizedQuery, page, localResults.size())) {
             return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
@@ -500,7 +506,8 @@ public class NutritionServiceImpl implements NutritionService {
                 && criteria.categoryId() == null
                 && criteria.brandId() == null
                 && criteria.verified() == null
-                && criteria.scope() == null;
+                && criteria.scope() == null
+                && blankToNull(criteria.foodGroup()) == null;
     }
 
     @Override
@@ -750,9 +757,10 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(FoodCatalogItemEntity::getFoodId).toList(), today);
         Map<UUID, String> primaryBarcodes = loadPrimaryBarcodes(foods.stream()
                 .map(FoodCatalogItemEntity::getFoodId).toList(), today);
+        Map<String, String> foodGroups = loadFoodGroups();
         return foods.stream()
-                .map(food -> toFoodSearchResultView(food, brandNames, categoryNames, profiles.get(food.getFoodId()),
-                        primaryBarcodes.get(food.getFoodId())))
+                .map(food -> toFoodSearchResultView(food, brandNames, categoryNames, foodGroups,
+                        profiles.get(food.getFoodId()), primaryBarcodes.get(food.getFoodId())))
                 .toList();
     }
 
@@ -1029,14 +1037,14 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<LoggedFoodView> listRecentFoods(CurrentUserPrincipal principal, int limit) {
-        return aggregateLoggedFoods(principal.userId(), false, limit);
+    public List<LoggedFoodView> listRecentFoods(CurrentUserPrincipal principal, int limit, String foodGroup) {
+        return aggregateLoggedFoods(principal.userId(), false, limit, normalizeFoodGroup(foodGroup));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<LoggedFoodView> listFrequentFoods(CurrentUserPrincipal principal, int limit) {
-        return aggregateLoggedFoods(principal.userId(), true, limit);
+    public List<LoggedFoodView> listFrequentFoods(CurrentUserPrincipal principal, int limit, String foodGroup) {
+        return aggregateLoggedFoods(principal.userId(), true, limit, normalizeFoodGroup(foodGroup));
     }
 
     /**
@@ -1045,10 +1053,22 @@ public class NutritionServiceImpl implements NutritionService {
      * {@code byFrequency} is true the result is ordered by occurrence count (recency breaks ties);
      * otherwise it preserves recency order.
      */
-    private List<LoggedFoodView> aggregateLoggedFoods(UUID userId, boolean byFrequency, int limit) {
+    private List<LoggedFoodView> aggregateLoggedFoods(UUID userId, boolean byFrequency, int limit, String foodGroup) {
         int cappedLimit = Math.min(Math.max(limit, 1), LOGGED_FOOD_MAX_LIMIT);
-        List<MealItemRepository.RecentLoggedFoodRow> rows = mealItemRepository.findRecentItemsByUserId(
-                userId, PageRequest.of(0, LOGGED_FOOD_SCAN_LIMIT));
+        PageRequest scanWindow = PageRequest.of(0, LOGGED_FOOD_SCAN_LIMIT);
+        Map<String, String> foodGroups = loadFoodGroups();
+        List<MealItemRepository.RecentLoggedFoodRow> rows;
+        if (foodGroup == null) {
+            rows = mealItemRepository.findRecentItemsByUserId(userId, scanWindow);
+        } else if (FOOD_GROUP_OTHER.equals(foodGroup)) {
+            // OTHER also holds items with no category or a category that maps to no group, which a join cannot see.
+            rows = mealItemRepository.findRecentItemsByUserId(userId, scanWindow).stream()
+                    .filter(row -> FOOD_GROUP_OTHER.equals(
+                            foodGroups.getOrDefault(row.getItem().getCategoryCode(), FOOD_GROUP_OTHER)))
+                    .toList();
+        } else {
+            rows = mealItemRepository.findRecentItemsByUserIdAndFoodGroup(userId, foodGroup, scanWindow);
+        }
 
         LinkedHashMap<String, MealItemRepository.RecentLoggedFoodRow> representative = new LinkedHashMap<>();
         Map<String, Long> counts = new HashMap<>();
@@ -1064,10 +1084,40 @@ public class NutritionServiceImpl implements NutritionService {
             entries = entries.sorted(Comparator.comparingLong(
                     (Map.Entry<String, MealItemRepository.RecentLoggedFoodRow> e) -> counts.get(e.getKey())).reversed());
         }
-        return entries
-                .limit(cappedLimit)
-                .map(e -> toLoggedFoodView(e.getValue().getItem(), counts.get(e.getKey()), e.getValue().getConsumedAt()))
+        List<Map.Entry<String, MealItemRepository.RecentLoggedFoodRow>> picked = entries.limit(cappedLimit).toList();
+        Map<UUID, Boolean> countsTowardWater = loadCountsTowardWater(picked.stream()
+                .map(e -> e.getValue().getItem().getFoodCatalogItemId())
+                .filter(java.util.Objects::nonNull)
+                .toList());
+        return picked.stream()
+                .map(e -> toLoggedFoodView(e.getValue().getItem(), counts.get(e.getKey()),
+                        e.getValue().getConsumedAt(), foodGroups, countsTowardWater))
                 .toList();
+    }
+
+    /** Whether each catalogue food counts toward water, by food id. */
+    private Map<UUID, Boolean> loadCountsTowardWater(Collection<UUID> foodIds) {
+        if (foodIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Boolean> result = new HashMap<>();
+        for (FoodCatalogItemEntity food : foodCatalogItemRepository.findAllById(foodIds.stream().distinct().toList())) {
+            result.put(food.getFoodId(), food.isCountsTowardWater());
+        }
+        return result;
+    }
+
+    /** A blank filter means no filter; anything else must be one of the plate groups. */
+    private String normalizeFoodGroup(String foodGroup) {
+        String normalized = blankToNull(foodGroup);
+        if (normalized == null) {
+            return null;
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        if (!FOOD_GROUPS.contains(upper)) {
+            throw new BadRequestException("Unknown food group");
+        }
+        return upper;
     }
 
     private String loggedFoodKey(MealItemEntity item) {
@@ -1085,7 +1135,8 @@ public class NutritionServiceImpl implements NutritionService {
         return "N:" + name;
     }
 
-    private LoggedFoodView toLoggedFoodView(MealItemEntity item, long timesLogged, Instant lastLoggedAt) {
+    private LoggedFoodView toLoggedFoodView(MealItemEntity item, long timesLogged, Instant lastLoggedAt,
+                                            Map<String, String> foodGroups, Map<UUID, Boolean> countsTowardWater) {
         return new LoggedFoodView(
                 item.getCustomFoodId(),
                 item.getFoodCatalogItemId(),
@@ -1107,7 +1158,10 @@ public class NutritionServiceImpl implements NutritionService {
                 item.getSugarGrams(),
                 item.getSodiumMg(),
                 timesLogged,
-                lastLoggedAt);
+                lastLoggedAt,
+                foodGroupOf(item.getCategoryCode(), foodGroups),
+                item.getFoodCatalogItemId() != null
+                        && Boolean.TRUE.equals(countsTowardWater.get(item.getFoodCatalogItemId())));
     }
 
     @Override
@@ -1198,6 +1252,7 @@ public class NutritionServiceImpl implements NutritionService {
         clonedFood.setBrandId(baseFood.getBrandId());
         clonedFood.setVerified(false);
         clonedFood.setDensityGramsPerMl(baseFood.getDensityGramsPerMl());
+        clonedFood.setCountsTowardWater(baseFood.isCountsTowardWater());
         clonedFood.setActive(true);
         foodCatalogItemRepository.save(clonedFood);
 
@@ -1499,6 +1554,11 @@ public class NutritionServiceImpl implements NutritionService {
         List<NutrientDetailView> nutrientDetails = foodNutrientDetailRepository.findActiveByFoodId(food.getFoodId(), today).stream()
                 .map(this::toNutrientDetailView)
                 .toList();
+        BigDecimal alcoholGrams = nutrientDetails.stream()
+                .filter(detail -> ALCOHOL_CODE.equals(detail.nutrientCode()))
+                .map(NutrientDetailView::amount)
+                .findFirst()
+                .orElse(null);
 
         return new FoodDetailView(
                 food.getFoodId(),
@@ -1530,12 +1590,17 @@ public class NutritionServiceImpl implements NutritionService {
                 food.getNutriScore(),
                 food.getSourceDataset(),
                 servings,
-                nutrientDetails);
+                nutrientDetails,
+                foodGroupOf(food.getCategoryCode(), loadFoodGroups()),
+                food.isCountsTowardWater(),
+                profile == null ? null : profile.getWaterG(),
+                alcoholGrams);
     }
 
     private FoodSearchResultView toFoodSearchResultView(FoodCatalogItemEntity food,
                                                         Map<UUID, String> brandNames,
                                                         Map<String, String> categoryNames,
+                                                        Map<String, String> foodGroups,
                                                         FoodNutrientProfileEntity profile,
                                                         String primaryBarcode) {
         String basisLabel = profile == null ? null : profile.getBasisQuantity().stripTrailingZeros().toPlainString() + " " + profile.getBasisUnit();
@@ -1550,7 +1615,9 @@ public class NutritionServiceImpl implements NutritionService {
                 food.isVerified(),
                 profile == null ? null : profile.getCalories(),
                 basisLabel,
-                primaryBarcode);
+                primaryBarcode,
+                foodGroupOf(food.getCategoryCode(), foodGroups),
+                food.isCountsTowardWater());
     }
 
     private FoodServingView toFoodServingView(FoodServingEntity entity) {
@@ -1954,6 +2021,7 @@ public class NutritionServiceImpl implements NutritionService {
             clonedProfile.setSodiumMg(baseProfile.getSodiumMg());
             clonedProfile.setPotassiumMg(baseProfile.getPotassiumMg());
             clonedProfile.setCholesterolMg(baseProfile.getCholesterolMg());
+            clonedProfile.setWaterG(baseProfile.getWaterG());
             clonedProfile.setActive(true);
             foodNutrientProfileRepository.save(clonedProfile);
         }

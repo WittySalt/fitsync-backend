@@ -77,9 +77,9 @@ public interface NutritionService {
 
     void deleteRecipe(CurrentUserPrincipal principal, UUID recipeId);
 
-    List<LoggedFoodView> listRecentFoods(CurrentUserPrincipal principal, int limit);
+    List<LoggedFoodView> listRecentFoods(CurrentUserPrincipal principal, int limit, String foodGroup);
 
-    List<LoggedFoodView> listFrequentFoods(CurrentUserPrincipal principal, int limit);
+    List<LoggedFoodView> listFrequentFoods(CurrentUserPrincipal principal, int limit, String foodGroup);
 
     FoodDetailView getFood(CurrentUserPrincipal principal, UUID foodId);
 
