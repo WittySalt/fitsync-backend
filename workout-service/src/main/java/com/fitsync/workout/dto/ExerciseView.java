@@ -30,12 +30,40 @@ public record ExerciseView(
         String externalRef,
         List<ExerciseInstructionView> instructions,
         List<ExerciseImageView> images,
-        List<MuscleGroup> secondaryMuscleGroups) {
+        List<MuscleGroup> secondaryMuscleGroups,
+        List<String> shortSteps) {
 
     public ExerciseView {
         instructions = instructions == null ? List.of() : List.copyOf(instructions);
         images = images == null ? List.of() : List.copyOf(images);
         secondaryMuscleGroups = secondaryMuscleGroups == null ? List.of() : List.copyOf(secondaryMuscleGroups);
+        shortSteps = shortSteps == null ? List.of() : List.copyOf(shortSteps);
+    }
+
+    /** The detail shape without short steps, kept so callers that predate them stay valid. */
+    public ExerciseView(UUID exerciseId,
+                        UUID ownerUserId,
+                        String code,
+                        String name,
+                        String description,
+                        ExerciseType exerciseType,
+                        MuscleGroup primaryMuscleGroup,
+                        ExerciseEquipment equipment,
+                        WorkoutDifficulty difficulty,
+                        ExerciseStatus status,
+                        boolean custom,
+                        Instant createdAt,
+                        Instant updatedAt,
+                        String videoUrl,
+                        String animationUrl,
+                        String externalSource,
+                        String externalRef,
+                        List<ExerciseInstructionView> instructions,
+                        List<ExerciseImageView> images,
+                        List<MuscleGroup> secondaryMuscleGroups) {
+        this(exerciseId, ownerUserId, code, name, description, exerciseType, primaryMuscleGroup, equipment,
+                difficulty, status, custom, createdAt, updatedAt, videoUrl, animationUrl, externalSource,
+                externalRef, instructions, images, secondaryMuscleGroups, List.of());
     }
 
     public ExerciseView(UUID exerciseId,
@@ -71,6 +99,7 @@ public record ExerciseView(
                 null,
                 List.of(),
                 List.of(),
+                List.of(),
                 List.of());
     }
 
@@ -87,5 +116,10 @@ public record ExerciseView(
     @Override
     public List<MuscleGroup> secondaryMuscleGroups() {
         return List.copyOf(secondaryMuscleGroups);
+    }
+
+    @Override
+    public List<String> shortSteps() {
+        return List.copyOf(shortSteps);
     }
 }
