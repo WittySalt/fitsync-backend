@@ -2,7 +2,6 @@ package com.fitsync.contracts.events.user;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -50,22 +49,16 @@ class UserEventContractsTests {
     }
 
     @Test
-    void shouldCarryGenderAndBirthDateAndDefaultThemToNullForOlderCallers() {
-        UserProfileUpdatedPayload full = new UserProfileUpdatedPayload(
-                "Alice", new BigDecimal("170.50"), "MODERATELY_ACTIVE", true, List.of("gender"),
-                "Asia/Singapore", "FEMALE", LocalDate.parse("1995-04-12"));
-        UserProfileUpdatedPayload older = new UserProfileUpdatedPayload(
-                "Alice", new BigDecimal("170.50"), "MODERATELY_ACTIVE", true, List.of("timezone"),
-                "Asia/Singapore");
-        UserProfileUpdatedPayload oldest = new UserProfileUpdatedPayload(
-                "Alice", new BigDecimal("170.50"), "MODERATELY_ACTIVE", true, List.of("timezone"));
+    void shouldExposeNutritionReferenceProfilePayloadFieldsAndAllowNoAgeBand() {
+        NutritionReferenceProfileUpdatedPayload payload =
+                new NutritionReferenceProfileUpdatedPayload("FEMALE", "31-50");
+        NutritionReferenceProfileUpdatedPayload withoutAge =
+                new NutritionReferenceProfileUpdatedPayload("BLENDED", null);
 
-        assertEquals("FEMALE", full.gender());
-        assertEquals(LocalDate.parse("1995-04-12"), full.birthDate());
-        assertEquals(null, older.gender());
-        assertEquals(null, older.birthDate());
-        assertEquals(null, oldest.timezone());
-        assertEquals(null, oldest.birthDate());
+        assertEquals("FEMALE", payload.referenceSex());
+        assertEquals("31-50", payload.ageBand());
+        assertEquals("BLENDED", withoutAge.referenceSex());
+        assertEquals(null, withoutAge.ageBand());
     }
 
     @Test

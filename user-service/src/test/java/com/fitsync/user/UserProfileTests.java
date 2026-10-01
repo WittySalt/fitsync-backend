@@ -1,6 +1,7 @@
 package com.fitsync.user;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -1188,7 +1189,7 @@ class UserProfileTests {
     }
 
     @Test
-    void profileEventsCarryGenderAndBirthDate() throws Exception {
+    void profileEventsNeverCarryGenderOrBirthDateAndReferenceEventCarriesDerivedValues() throws Exception {
         String token = tokenFor("gender-event@example.com", "Gender Event");
         mockMvc.perform(put("/api/v1/users/me/profile")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -1204,12 +1205,67 @@ class UserProfileTests {
                                 """))
                 .andExpect(status().isOk());
 
-        var events = outboxEventRepository.findAll().stream()
-                .filter(event -> "UserProfileUpdated".equals(event.getEventType()))
+        var all = outboxEventRepository.findAll();
+        for (var event : all) {
+            assertFalse(event.getPayload().contains("1990-05-20"));
+            assertFalse(event.getPayload().contains("\"gender\":"));
+            assertFalse(event.getPayload().contains("\"birthDate\":"));
+        }
+        var events = all.stream()
+                .filter(event -> "NutritionReferenceProfileUpdated".equals(event.getEventType()))
                 .toList();
         assertEquals(1, events.size());
-        assertTrue(events.get(0).getPayload().contains("\"gender\":\"FEMALE\""));
-        assertTrue(events.get(0).getPayload().contains("\"birthDate\":\"1990-05-20\""));
+        assertTrue(events.get(0).getPayload().contains("\"referenceSex\":\"FEMALE\""));
+        assertTrue(events.get(0).getPayload().contains("\"ageBand\":"));
+    }
+
+    @Test
+    void referenceRangePreferenceDefaultsToProfileAndPublishesWhenChanged() throws Exception {
+        String token = tokenFor("range-pref@example.com", "Range Pref");
+        mockMvc.perform(put("/api/v1/users/me/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {"displayName": "Range Pref", "gender": "MALE", "onboardingCompleted": true}
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/users/me/preferences").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nutrition.nutrientReferenceRange").value("PROFILE"));
+        outboxEventRepository.deleteAll();
+
+        mockMvc.perform(put("/api/v1/users/me/preferences")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(preferencesJson("\"nutrientReferenceRange\": \"FEMALE\", ")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nutrition.nutrientReferenceRange").value("FEMALE"));
+
+        var reference = outboxEventRepository.findAll().stream()
+                .filter(event -> "NutritionReferenceProfileUpdated".equals(event.getEventType()))
+                .toList();
+        assertEquals(1, reference.size());
+        assertTrue(reference.get(0).getPayload().contains("\"referenceSex\":\"FEMALE\""));
+
+        outboxEventRepository.deleteAll();
+        mockMvc.perform(put("/api/v1/users/me/preferences")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(preferencesJson("")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nutrition.nutrientReferenceRange").value("FEMALE"));
+        assertTrue(outboxEventRepository.findAll().stream()
+                .noneMatch(event -> "NutritionReferenceProfileUpdated".equals(event.getEventType())));
+    }
+
+    @Test
+    void referenceRangePreferenceRejectsUnknownValue() throws Exception {
+        String token = tokenFor("range-bad@example.com", "Range Bad");
+        mockMvc.perform(put("/api/v1/users/me/preferences")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(preferencesJson("\"nutrientReferenceRange\": \"OTHER\", ")))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -1226,7 +1282,7 @@ class UserProfileTests {
     }
 
     @Test
-    void adminPersonFactsReconcileRepublishesProfilePreferencesAndLatestWeight() throws Exception {
+    void adminPersonFactsReconcileRepublishesReferenceProfilePreferencesAndLatestWeight() throws Exception {
         UUID factsUserId = UUID.randomUUID();
         String token = tokenFor(factsUserId, "facts@example.com", "Facts User");
         mockMvc.perform(put("/api/v1/users/me/profile")
@@ -1278,13 +1334,15 @@ class UserProfileTests {
         mockMvc.perform(post("/api/v1/internal/profiles/reconcile")
                         .with(user("admin").roles("ADMIN")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.profilesPublished").value(userProfileRepository.count()))
+                .andExpect(jsonPath("$.referenceProfilesPublished").value(userProfileRepository.count()))
                 .andExpect(jsonPath("$.preferencesPublished").isNumber())
                 .andExpect(jsonPath("$.bodyMetricsPublished").isNumber());
 
         var events = outboxEventRepository.findAll();
-        assertTrue(events.stream().anyMatch(event -> "UserProfileUpdated".equals(event.getEventType())
-                && event.getPayload().contains("\"gender\":\"MALE\"")));
+        assertTrue(events.stream().anyMatch(event -> "NutritionReferenceProfileUpdated".equals(event.getEventType())
+                && factsUserId.equals(event.getUserId())
+                && event.getPayload().contains("\"referenceSex\":\"MALE\"")));
+        assertTrue(events.stream().noneMatch(event -> "UserProfileUpdated".equals(event.getEventType())));
         assertTrue(events.stream().anyMatch(event -> "UserPreferencesUpdated".equals(event.getEventType())));
         var weights = events.stream()
                 .filter(event -> "BodyMetricsRecorded".equals(event.getEventType()))
@@ -1292,6 +1350,27 @@ class UserProfileTests {
                 .toList();
         assertEquals(1, weights.size());
         assertTrue(weights.get(0).getPayload().contains("80.5"));
+    }
+
+    private static String preferencesJson(String nutritionExtra) {
+        return """
+                {
+                  "app": {"preferredUnits": "100002", "language": "110002", "timezone": "Asia/Singapore",
+                          "privacyLevel": "120002", "dataSharingConsent": true},
+                  "training": {"fitnessLevel": "200002", "trainingLocation": "210002", "weeklyWorkoutDays": 3,
+                               "preferredDurationMinutes": 45, "preferredWorkoutTime": "19:30:00",
+                               "intensityPreference": "220003", "equipmentInventory": ["230002"],
+                               "focusAreas": ["240001"]},
+                  "nutrition": {%s"dietaryPattern": "300003", "mealFrequency": 3,
+                                "calorieTrackingMode": "310003", "macroPreference": "320002",
+                                "waterGoalMl": 2500},
+                  "notifications": {"pushEnabled": true, "emailEnabled": true, "workoutReminderEnabled": true,
+                                    "mealReminderEnabled": true, "weighInReminderEnabled": true,
+                                    "goalProgressReminderEnabled": true, "weeklyProgressReportEnabled": true,
+                                    "weeklyProgressReportChannel": "EMAIL", "marketingEmailsEnabled": false,
+                                    "quietHoursStart": "22:00:00", "quietHoursEnd": "07:00:00"}
+                }
+                """.formatted(nutritionExtra);
     }
 
     private String tokenFor(String email, String displayName) {

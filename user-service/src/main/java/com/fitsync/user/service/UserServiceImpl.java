@@ -20,6 +20,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
+import com.fitsync.contracts.events.user.NutritionReferenceProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.media.MediaStorageService;
@@ -32,6 +33,7 @@ import com.fitsync.user.domain.GoalType;
 import com.fitsync.user.domain.IntensityPreference;
 import com.fitsync.user.domain.LanguagePreference;
 import com.fitsync.user.domain.MacroPreference;
+import com.fitsync.user.domain.NutrientReferenceRange;
 import com.fitsync.user.domain.MembershipStatus;
 import com.fitsync.user.domain.MembershipTier;
 import com.fitsync.user.domain.NotificationChannel;
@@ -310,6 +312,10 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserProfileView upsertProfile(CurrentUserPrincipal principal, UpsertUserProfileRequest request) {
         UserProfileEntity entity = getOrCreateProfileEntity(principal);
+        NutrientReferenceRange storedRange = userNutritionPreferencesRepository.findById(principal.userId())
+                .map(UserNutritionPreferencesEntity::getNutrientReferenceRange)
+                .orElse(null);
+        NutritionReferenceProfileDeriver.Derived referenceBefore = deriveReference(entity, storedRange);
         entity.setDisplayName(request.displayName());
         entity.setFirstName(request.firstName());
         entity.setLastName(request.lastName());
@@ -325,6 +331,7 @@ public class UserServiceImpl implements UserService {
         publishProfileUpdated(principal.userId(), saved, List.of("displayName", "firstName", "lastName",
                 "birthDate", "gender", "heightCm", "activityLevel", "timezone", "bio", "onboardingCompleted"));
         energyProfileService.publishEnergyProfile(principal.userId());
+        publishReferenceProfileIfChanged(principal.userId(), referenceBefore, deriveReference(saved, storedRange));
         return toProfileView(saved);
     }
 
@@ -380,6 +387,12 @@ public class UserServiceImpl implements UserService {
         nutrition.setCalorieTrackingMode(request.nutrition().calorieTrackingMode());
         nutrition.setMacroPreference(request.nutrition().macroPreference());
         nutrition.setWaterGoalMl(request.nutrition().waterGoalMl());
+        UserProfileEntity referenceProfile = userProfileRepository.findById(principal.userId()).orElse(null);
+        NutritionReferenceProfileDeriver.Derived referenceBefore =
+                deriveReference(referenceProfile, nutrition.getNutrientReferenceRange());
+        if (request.nutrition().nutrientReferenceRange() != null) {
+            nutrition.setNutrientReferenceRange(request.nutrition().nutrientReferenceRange());
+        }
 
         UserNotificationPreferencesEntity notifications = getOrCreateNotificationPreferencesEntity(principal.userId());
         notifications.setPushEnabled(request.notifications().pushEnabled());
@@ -404,6 +417,8 @@ public class UserServiceImpl implements UserService {
         UserNotificationPreferencesEntity savedNotifications =
                 userNotificationPreferencesRepository.save(notifications);
         publishPreferencesUpdated(principal.userId(), savedApp, savedTraining, savedNutrition, savedNotifications);
+        publishReferenceProfileIfChanged(principal.userId(), referenceBefore,
+                deriveReference(referenceProfile, savedNutrition.getNutrientReferenceRange()));
         return toPreferencesView(savedApp, savedTraining, savedNutrition, savedNotifications);
     }
 
@@ -660,14 +675,14 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * Publishes the profile, the preferences and the latest weight of every user once, so that a service that
+     * Publishes the nutrition reference profile, the preferences and the latest weight of every user once, so that a service that
      * started keeping a projection of them after those users last changed anything gets its rows filled. A user
      * without a stored row or a weight is skipped for that event.
      */
     @Override
     @Transactional
     public PersonFactsReconcileResponse republishPersonFacts() {
-        int profiles = 0;
+        int referenceProfiles = 0;
         int preferences = 0;
         int bodyMetrics = 0;
         Page<UserProfileEntity> page;
@@ -676,8 +691,11 @@ public class UserServiceImpl implements UserService {
             page = userProfileRepository.findAll(PageRequest.of(pageNumber++, RECONCILE_PAGE_SIZE, Sort.by("userId")));
             for (UserProfileEntity profile : page.getContent()) {
                 UUID userId = profile.getUserId();
-                publishProfileUpdated(userId, profile, List.of("gender", "birthDate"));
-                profiles++;
+                UserNutritionPreferencesEntity nutritionForReference =
+                        userNutritionPreferencesRepository.findById(userId).orElse(null);
+                publishReferenceProfile(userId, deriveReference(profile,
+                        nutritionForReference == null ? null : nutritionForReference.getNutrientReferenceRange()));
+                referenceProfiles++;
                 UserAppPreferencesEntity app = userAppPreferencesRepository.findById(userId).orElse(null);
                 UserTrainingPreferencesEntity training = userTrainingPreferencesRepository.findById(userId).orElse(null);
                 UserNutritionPreferencesEntity nutrition = userNutritionPreferencesRepository.findById(userId).orElse(null);
@@ -695,7 +713,7 @@ public class UserServiceImpl implements UserService {
                 }
             }
         } while (page.hasNext());
-        return new PersonFactsReconcileResponse(profiles, preferences, bodyMetrics);
+        return new PersonFactsReconcileResponse(referenceProfiles, preferences, bodyMetrics);
     }
 
     @Override
@@ -840,6 +858,29 @@ public class UserServiceImpl implements UserService {
                         app.getTimezone())));
     }
 
+    private NutritionReferenceProfileDeriver.Derived deriveReference(UserProfileEntity profile,
+                                                                     NutrientReferenceRange range) {
+        return NutritionReferenceProfileDeriver.derive(
+                profile == null ? null : profile.getGender(),
+                profile == null ? null : profile.getBirthDate(),
+                range,
+                Clock.systemUTC());
+    }
+
+    private void publishReferenceProfileIfChanged(UUID userId, NutritionReferenceProfileDeriver.Derived before,
+                                                  NutritionReferenceProfileDeriver.Derived after) {
+        if (!before.equals(after)) {
+            publishReferenceProfile(userId, after);
+        }
+    }
+
+    private void publishReferenceProfile(UUID userId, NutritionReferenceProfileDeriver.Derived derived) {
+        domainEventPublisher.publish(
+                "user-events", "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "NutritionReferenceProfileUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE,
+                userId, new NutritionReferenceProfileUpdatedPayload(derived.referenceSex(), derived.ageBand())));
+    }
+
     private void publishProfileUpdated(UUID userId, UserProfileEntity saved, List<String> changedFields) {
         domainEventPublisher.publish(
                 "user-events", "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
@@ -850,9 +891,7 @@ public class UserServiceImpl implements UserService {
                         saved.getActivityLevel() == null ? null : saved.getActivityLevel().name(),
                         saved.isOnboardingCompleted(),
                         changedFields,
-                        saved.getTimezone(),
-                        saved.getGender() == null ? null : saved.getGender().name(),
-                        saved.getBirthDate())));
+                        saved.getTimezone())));
     }
 
     private void publishGoalUpdated(UserGoalEntity saved) {
@@ -930,7 +969,10 @@ public class UserServiceImpl implements UserService {
                         nutrition.getMealFrequency(),
                         nutrition.getCalorieTrackingMode(),
                         nutrition.getMacroPreference(),
-                        nutrition.getWaterGoalMl()),
+                        nutrition.getWaterGoalMl(),
+                        nutrition.getNutrientReferenceRange() == null
+                                ? NutrientReferenceRange.PROFILE
+                                : nutrition.getNutrientReferenceRange()),
                 new NotificationPreferencesView(
                         notifications.isPushEnabled(),
                         notifications.isEmailEnabled(),
