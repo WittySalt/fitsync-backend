@@ -25,6 +25,10 @@ spring:
     # overlap: a seed numbered inside the schema range collides with a future migration and the
     # service refuses to start. DuplicateFlywayVersionTest enforces this.
     locations: classpath:db/migration,classpath:db/seed
+    # A database that has run the V900 seed sees every later schema migration as older than what
+    # it has applied, and would refuse to start. Schema migrations are therefore allowed to run
+    # after a higher seed version.
+    out-of-order: true
     default-schema: nutrition
     schemas: nutrition
     table: nutrition_flyway_schema_history
