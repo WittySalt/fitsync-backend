@@ -1071,6 +1071,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         copy.setTargetDurationSeconds(source.getTargetDurationSeconds());
         copy.setTargetDistanceKm(source.getTargetDistanceKm());
         copy.setRestSeconds(source.getRestSeconds());
+        copy.setTempoSeconds(source.getTempoSeconds());
         copy.setNotes(source.getNotes());
         for (WorkoutPlanExerciseSetTargetEntity sourceSet : source.getSetTargets()) {
             copy.getSetTargets().add(toDuplicateSetTarget(copy, sourceSet));
@@ -1125,6 +1126,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setExercise(source.getExercise());
         repeated.setExerciseNameSnapshot(source.getExerciseNameSnapshot());
         repeated.setSequence(source.getSequence());
+        repeated.setTempoSeconds(source.getTempoSeconds());
         repeated.setNotes(source.getNotes());
         for (WorkoutExerciseSetLogEntity sourceSet : loggedSets) {
             repeated.getSets().add(toRepeatedSetLog(repeated, sourceSet));
@@ -1278,6 +1280,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             exercise.setTargetDurationSeconds(input.targetDurationSeconds());
             exercise.setTargetDistanceKm(input.targetDistanceKm());
             exercise.setRestSeconds(input.restSeconds());
+            exercise.setTempoSeconds(input.tempoSeconds());
             exercise.setNotes(input.notes());
             replaceSetTargets(exercise, input.setTargets());
             plan.getExercises().add(exercise);
@@ -1384,6 +1387,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         exercise.setDurationSeconds(input.durationSeconds());
         exercise.setAverageHeartRate(input.averageHeartRate());
         exercise.setMaxHeartRate(input.maxHeartRate());
+        exercise.setTempoSeconds(input.tempoSeconds());
         exercise.setNotes(input.notes());
         replaceSetLogs(exercise, input.sets(), logged);
         deriveExerciseMetrics(exercise);
@@ -1417,6 +1421,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         exercise.setExercise(planExercise.getExercise());
         exercise.setExerciseNameSnapshot(planExercise.getExerciseNameSnapshot());
         exercise.setSequence(planExercise.getSequence());
+        exercise.setTempoSeconds(planExercise.getTempoSeconds());
         exercise.setNotes(planExercise.getNotes());
 
         for (WorkoutPlanExerciseSetTargetEntity setTarget : planExercise.getSetTargets()) {
@@ -1933,7 +1938,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                                 setTarget.getTargetDurationSeconds(),
                                 setTarget.getTargetDistanceKm(),
                                 setTarget.getRestSeconds()))
-                        .toList());
+                        .toList(),
+                exercise.getTempoSeconds());
     }
 
     private WorkoutSessionResumeView toResumeView(WorkoutSessionEntity session) {
@@ -2025,7 +2031,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                                         setLog.getPerceivedExertion(),
                                         setLog.isLogged(),
                                         setLog.getNotes()))
-                                .toList()))
+                                .toList(),
+                        exercise.getTempoSeconds()))
                 .toList();
         return new WorkoutSessionView(
                 entity.getSessionId(),

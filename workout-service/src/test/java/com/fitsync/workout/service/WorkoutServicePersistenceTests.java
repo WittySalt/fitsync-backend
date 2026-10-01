@@ -35,6 +35,7 @@ import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
 import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
 import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
+import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
@@ -2564,6 +2565,49 @@ class WorkoutServicePersistenceTests {
                 2,
                 new UpsertWorkoutExerciseSetRequest(null, 7, new BigDecimal("122.50"), null, null, 150, 9, "Confirmed"));
         assertEquals(true, edited.exercises().get(0).sets().get(0).logged());
+    }
+
+    @Test
+    void shouldCarryThePlanTempoIntoTheSessionAndKeepTheSessionCopyWhenThePlanChanges() {
+        UUID squatId = createExercise("tempo-goblet-squat", "Tempo Goblet Squat");
+        WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                "Tempo Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                40,
+                List.of(new WorkoutPlanExerciseInput(squatId, 1, 2, 10, null, null, null, 75, null,
+                        List.of(new WorkoutPlanExerciseSetTargetInput(1, 10, new BigDecimal("20.00"), null, null, 75),
+                                new WorkoutPlanExerciseSetTargetInput(2, 10, new BigDecimal("20.00"), null, null, 75)),
+                        new BigDecimal("2.5")))));
+        assertEquals(0, new BigDecimal("2.5").compareTo(plan.exercises().get(0).tempoSeconds()));
+
+        WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+        assertEquals(0, new BigDecimal("2.5").compareTo(started.exercises().get(0).tempoSeconds()));
+
+        WorkoutPlanView copy = workoutService.duplicatePlan(currentUser, plan.planId());
+        assertEquals(0, new BigDecimal("2.5").compareTo(copy.exercises().get(0).tempoSeconds()));
+
+        WorkoutPlanView changed = workoutService.updatePlan(currentUser, plan.planId(), new UpdateWorkoutPlanRequest(
+                "Tempo Plan",
+                null,
+                GoalFocus.STRENGTH,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                40,
+                List.of(new WorkoutPlanExerciseInput(squatId, 1, 2, 10, null, null, null, 75, null, List.of())),
+                List.of()));
+        assertNull(changed.exercises().get(0).tempoSeconds());
+        WorkoutSessionView stillStarted = workoutService.getSession(currentUser, started.sessionId());
+        assertEquals(0, new BigDecimal("2.5").compareTo(stillStarted.exercises().get(0).tempoSeconds()));
+
+        workoutService.upsertSet(currentUser, started.sessionId(), started.exercises().get(0).exerciseLogId(), 1,
+                new UpsertWorkoutExerciseSetRequest(null, 10, new BigDecimal("20.00"), null, null, 75, 7, null));
+        WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(),
+                new CompleteWorkoutSessionRequest(Instant.now()));
+        WorkoutSessionView repeated = workoutService.repeatSession(currentUser, completed.sessionId());
+        assertEquals(0, new BigDecimal("2.5").compareTo(repeated.exercises().get(0).tempoSeconds()));
     }
 
     @Test

@@ -63,6 +63,10 @@ public class WorkoutExerciseLogEntity {
     @Column(name = "notes", length = 300)
     private String notes;
 
+    /** Seconds one rep takes when the exercise screen counts along, or null for the default of its kind. */
+    @Column(name = "tempo_seconds", precision = 3, scale = 1)
+    private BigDecimal tempoSeconds;
+
     @OneToMany(mappedBy = "exerciseLog", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("setNumber asc")
     @BatchSize(size = 100)
@@ -92,6 +96,8 @@ public class WorkoutExerciseLogEntity {
     public void setAverageHeartRate(Integer averageHeartRate) { this.averageHeartRate = averageHeartRate; }
     public Integer getMaxHeartRate() { return maxHeartRate; }
     public void setMaxHeartRate(Integer maxHeartRate) { this.maxHeartRate = maxHeartRate; }
+    public BigDecimal getTempoSeconds() { return tempoSeconds; }
+    public void setTempoSeconds(BigDecimal tempoSeconds) { this.tempoSeconds = tempoSeconds; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
     public List<WorkoutExerciseSetLogEntity> getSets() { return sets; }
