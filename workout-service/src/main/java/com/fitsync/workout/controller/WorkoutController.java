@@ -11,6 +11,7 @@ import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.dto.ActiveWorkoutSessionView;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
@@ -47,6 +48,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -312,6 +314,14 @@ public class WorkoutController {
     @GetMapping("/sessions/latest")
     public WorkoutSessionView latestSession(Authentication authentication) {
         return workoutService.getLatestSession(currentPrincipal(authentication));
+    }
+
+    @Operation(summary = "Get the workout in progress, or 204 when there is none")
+    @GetMapping("/sessions/active")
+    public ResponseEntity<ActiveWorkoutSessionView> activeSession(Authentication authentication) {
+        return workoutService.getActiveSession(currentPrincipal(authentication))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @Operation(summary = "Repeat the latest completed workout session")

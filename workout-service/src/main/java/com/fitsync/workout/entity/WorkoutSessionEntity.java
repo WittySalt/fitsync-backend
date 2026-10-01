@@ -86,6 +86,10 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     @Column(name = "distance_km", precision = 7, scale = 2)
     private BigDecimal distanceKm;
 
+    /** Set when the server closed this session because it was left open; empty otherwise. */
+    @Column(name = "auto_closed_at")
+    private Instant autoClosedAt;
+
     @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sequence asc")
     private List<WorkoutExerciseLogEntity> exercises = new ArrayList<>();
@@ -126,6 +130,8 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     public void setNotes(String notes) { this.notes = notes; }
     public BigDecimal getDistanceKm() { return distanceKm; }
     public void setDistanceKm(BigDecimal distanceKm) { this.distanceKm = distanceKm; }
+    public Instant getAutoClosedAt() { return autoClosedAt; }
+    public void setAutoClosedAt(Instant autoClosedAt) { this.autoClosedAt = autoClosedAt; }
     public List<WorkoutExerciseLogEntity> getExercises() { return exercises; }
     public void setExercises(List<WorkoutExerciseLogEntity> exercises) { this.exercises = exercises; }
 }

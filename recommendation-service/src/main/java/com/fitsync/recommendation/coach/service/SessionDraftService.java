@@ -57,6 +57,11 @@ public class SessionDraftService {
     /** Wide enough that the model has real choice, narrow enough not to crowd out the prompt. */
     private static final int CANDIDATES_PER_GROUP = 8;
 
+    /** The code workout-service answers with when the person already has a workout in progress. */
+    private static final String ACTIVE_SESSION_EXISTS = "ACTIVE_SESSION_EXISTS";
+    private static final String WORKOUT_IN_PROGRESS_MESSAGE =
+            "You have a workout in progress. Finish or end it first.";
+
     /**
      * The groups a session is drawn from when the user did not name one.
      *
@@ -144,6 +149,11 @@ public class SessionDraftService {
      * start. Undoing the plan to keep the two in step would take something real away from the user
      * to make a status field tidier.
      *
+     * <p>The one failure that does undo the plan is a workout already in progress, because the
+     * person can only run one at a time. That is checked before the plan is created, and again if
+     * workout-service refuses the start; either way the draft stays open and the person is told to
+     * finish or end the workout first.
+     *
      * <p>Accepting an already accepted draft returns what it became rather than creating a second
      * plan. The status check and the update happen in one transaction, and the entity's version
      * column turns two simultaneous accepts into one success and one retryable failure.
@@ -163,14 +173,18 @@ public class SessionDraftService {
             throw new DraftNotAcceptableException("This draft was rejected and cannot be accepted.");
         }
 
+        // Asked first so that, in the usual case, nothing is created for a session that cannot start.
+        if (workoutClient.activeSession(call.bearerToken()) != null) {
+            throw new DraftNotAcceptableException(WORKOUT_IN_PROGRESS_MESSAGE);
+        }
+
         SessionDraft draft = readDraft(artifact);
         UUID planId = createPlan(call, draft);
+        UUID sessionId = startPlan(call, planId);
 
         artifact.setStatus(ArtifactStatus.ACCEPTED);
         artifact.setAcceptedRef(planId);
         artifact.setAcceptedAt(Instant.now(clock));
-
-        UUID sessionId = startPlan(call, planId);
         artifact.setStartedSessionRef(sessionId);
         artifactRepository.save(artifact);
 
@@ -222,9 +236,35 @@ public class SessionDraftService {
         try {
             return readId(workoutClient.startPlan(call.bearerToken(), planId), "sessionId");
         } catch (DownstreamWriteException ex) {
+            if (isActiveSessionConflict(ex)) {
+                // Another workout began between the check and the start. The plan was made for this
+                // accept alone, so it is taken back rather than left behind, and the draft stays open.
+                archiveQuietly(call, planId);
+                throw new DraftNotAcceptableException(WORKOUT_IN_PROGRESS_MESSAGE);
+            }
             LOG.warn("Plan {} was created but its session could not be started (status {})",
                     planId, ex.status());
             return null;
+        }
+    }
+
+    private boolean isActiveSessionConflict(DownstreamWriteException ex) {
+        if (ex.status() != 409 || ex.responseBody() == null) {
+            return false;
+        }
+        try {
+            return ACTIVE_SESSION_EXISTS.equals(objectMapper.readTree(ex.responseBody()).path("code").asText(null));
+        } catch (JsonProcessingException parseFailure) {
+            return false;
+        }
+    }
+
+    private void archiveQuietly(CoachCallContext call, UUID planId) {
+        try {
+            workoutClient.archivePlan(call.bearerToken(), planId);
+        } catch (DownstreamWriteException ex) {
+            LOG.warn("Plan {} was created for a session that could not start and could not be archived (status {})",
+                    planId, ex.status());
         }
     }
 

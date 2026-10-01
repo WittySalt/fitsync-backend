@@ -59,7 +59,8 @@ public class GlobalApiExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> handleApiException(ApiException ex,
                                                        HttpServletRequest request) {
-        return buildError(ex.getStatus(), ex.getCode(), ex.getMessage(), request, ex.getDetails());
+        return ResponseEntity.status(ex.getStatus()).body(apiErrorFactory.create(
+                ex.getStatus(), ex.getCode(), ex.getMessage(), request, ex.getDetails(), ex.getData()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

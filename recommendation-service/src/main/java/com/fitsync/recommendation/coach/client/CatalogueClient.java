@@ -103,6 +103,27 @@ public abstract class CatalogueClient {
         }
     }
 
+    /**
+     * Deletes on a downstream service, with the same failure rule as {@link #post}: it throws, so a
+     * caller that is undoing something knows whether the undo happened.
+     */
+    protected void delete(String path, String bearerToken) {
+        URI url = UriComponentsBuilder.fromUriString(baseUrl + path).build().encode().toUri();
+        try {
+            restClient.delete()
+                    .uri(url)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (org.springframework.web.client.RestClientResponseException ex) {
+            LOG.warn("{} delete rejected for {} with status {}", label, path, ex.getStatusCode().value());
+            throw new DownstreamWriteException(label, ex.getStatusCode().value(), ex.getResponseBodyAsString());
+        } catch (RuntimeException ex) {
+            LOG.warn("{} delete failed for {}: {}", label, path, ex.getMessage());
+            throw new DownstreamWriteException(label, 0, null);
+        }
+    }
+
     /** A write the downstream service did not accept, with enough for the caller to say why. */
     public static class DownstreamWriteException extends RuntimeException {
         private static final long serialVersionUID = 1L;

@@ -12,6 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -21,6 +22,7 @@ import com.fitsync.contracts.events.workout.PersonalRecordAchievedPayload;
 import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
+import com.fitsync.workout.config.AutoCloseProperties;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.SessionKind;
@@ -30,6 +32,7 @@ import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.dto.ActiveWorkoutSessionView;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
@@ -70,13 +73,17 @@ import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.messaging.DomainEventPublisher;
 import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutExerciseLogRepository;
+import com.fitsync.workout.repository.SessionActivityRow;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import com.fitsync.web.error.ConflictException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -92,7 +99,19 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class WorkoutServiceImpl implements WorkoutService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(WorkoutServiceImpl.class);
+
     private static final String SOURCE = "workout-service";
+    private static final String ACTIVE_SESSION_EXISTS_CODE = "ACTIVE_SESSION_EXISTS";
+    private static final String ACTIVE_SESSION_EXISTS_MESSAGE = "You have a workout in progress.";
+    private static final String IMPORT_IN_PROGRESS_MESSAGE =
+            "An imported workout is history and cannot be in progress.";
+    /** How many in-progress sessions one user's check looks at; duplicates beyond it wait for the next check. */
+    private static final int OPEN_SESSION_PAGE_SIZE = 50;
+    private static final int SWEEP_PAGE_SIZE = 100;
+    /** Bounds one sweep run, so a very large backlog is worked through over several runs. */
+    private static final int SWEEP_MAX_PAGES = 50;
+    private static final Duration AUTO_CLOSE_MINIMUM_DURATION = Duration.ofMinutes(1);
     private static final String MAX_WEIGHT_KG = "MAX_WEIGHT_KG";
     private static final String MAX_REPS = "MAX_REPS";
     private static final String MAX_SINGLE_SET_VOLUME_KG = "MAX_SINGLE_SET_VOLUME_KG";
@@ -120,6 +139,8 @@ public class WorkoutServiceImpl implements WorkoutService {
     private final Validator validator;
     private final SessionKindResolver sessionKindResolver;
     private final TransactionTemplate importRowTransactionTemplate;
+    private final TransactionTemplate sweepTransactionTemplate;
+    private final AutoCloseProperties autoCloseProperties;
 
     public WorkoutServiceImpl(@Value("${fitsync.kafka.topics.workout-events:workout-events}") String workoutEventsTopic,
                               @Value("${fitsync.workout.exercise-history.max-range-days:370}") int exerciseHistoryMaxRangeDays,
@@ -132,7 +153,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                               WorkoutSessionRepository workoutSessionRepository,
                               Validator validator,
                               SessionKindResolver sessionKindResolver,
-                              PlatformTransactionManager transactionManager) {
+                              PlatformTransactionManager transactionManager,
+                              AutoCloseProperties autoCloseProperties) {
         this.workoutEventsTopic = workoutEventsTopic;
         this.exerciseHistoryMaxRangeDays = exerciseHistoryMaxRangeDays;
         this.clock = clock;
@@ -146,6 +168,9 @@ public class WorkoutServiceImpl implements WorkoutService {
         this.sessionKindResolver = sessionKindResolver;
         this.importRowTransactionTemplate = new TransactionTemplate(transactionManager);
         this.importRowTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.sweepTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.sweepTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.autoCloseProperties = autoCloseProperties;
     }
 
     @Override
@@ -302,6 +327,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (plan.getStatus() == WorkoutPlanStatus.ARCHIVED) {
             throw new IllegalArgumentException("Archived workout plan cannot be used for a session");
         }
+        requireNoActiveSession(currentUser.userId(), null);
 
         WorkoutSessionEntity session = new WorkoutSessionEntity();
         session.setSessionId(UUID.randomUUID());
@@ -374,6 +400,9 @@ public class WorkoutServiceImpl implements WorkoutService {
     @Transactional
     public WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request) {
         validateSessionRequest(currentUser.userId(), request);
+        if (request.status() == WorkoutSessionStatus.IN_PROGRESS) {
+            requireNoActiveSession(currentUser.userId(), null);
+        }
         WorkoutSessionEntity entity = new WorkoutSessionEntity();
         entity.setSessionId(UUID.randomUUID());
         entity.setUserId(currentUser.userId());
@@ -483,6 +512,168 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     @Override
+    @Transactional
+    public Optional<ActiveWorkoutSessionView> getActiveSession(CurrentUserPrincipal currentUser) {
+        UUID userId = currentUser.userId();
+        return settleOpenSessions(userId)
+                .map(open -> findSession(userId, open.getSessionId()))
+                .map(session -> new ActiveWorkoutSessionView(toSessionView(session), toResumeView(session)));
+    }
+
+    @Override
+    public StaleSessionSweepResult closeStaleSessions() {
+        Instant now = Instant.now(clock);
+        Instant cutoff = now.minus(autoCloseProperties.idle());
+        int completed = 0;
+        int cancelled = 0;
+        int failed = 0;
+        Instant afterStartedAt = Instant.EPOCH;
+        UUID afterSessionId = new UUID(0L, 0L);
+        for (int page = 0; page < SWEEP_MAX_PAGES; page++) {
+            List<WorkoutSessionEntity> batch = workoutSessionRepository.findSweepCandidates(
+                    WorkoutSessionStatus.IN_PROGRESS,
+                    cutoff,
+                    afterStartedAt,
+                    afterSessionId,
+                    PageRequest.of(0, SWEEP_PAGE_SIZE));
+            for (WorkoutSessionEntity candidate : batch) {
+                UUID candidateId = candidate.getSessionId();
+                UUID candidateUserId = candidate.getUserId();
+                try {
+                    AutoCloseOutcome outcome = sweepTransactionTemplate.execute(
+                            status -> closeIfStale(candidateId, candidateUserId, now, cutoff));
+                    if (outcome == AutoCloseOutcome.COMPLETED) {
+                        completed++;
+                    } else if (outcome == AutoCloseOutcome.CANCELLED) {
+                        cancelled++;
+                    }
+                } catch (RuntimeException ex) {
+                    // The next run tries again. Only the kind of failure is logged, never the session or the user.
+                    failed++;
+                    LOG.warn("event=stale_session_close_failed errorType={}", ex.getClass().getSimpleName());
+                }
+            }
+            if (batch.size() < SWEEP_PAGE_SIZE) {
+                break;
+            }
+            WorkoutSessionEntity last = batch.get(batch.size() - 1);
+            afterStartedAt = last.getStartedAt();
+            afterSessionId = last.getSessionId();
+        }
+        StaleSessionSweepResult result = new StaleSessionSweepResult(completed, cancelled, failed);
+        if (result.closed() > 0 || failed > 0) {
+            LOG.info("event=stale_sessions_swept completed={} cancelled={} failed={}", completed, cancelled, failed);
+        }
+        return result;
+    }
+
+    /**
+     * Closes one session of the sweep if it is stale when looked at again inside its own transaction.
+     * The session may have been finished, or logged to, since the sweep read it.
+     */
+    private AutoCloseOutcome closeIfStale(UUID sessionId, UUID userId, Instant now, Instant cutoff) {
+        WorkoutSessionEntity session = workoutSessionRepository.findById(sessionId).orElse(null);
+        if (session == null
+                || !userId.equals(session.getUserId())
+                || session.getStatus() != WorkoutSessionStatus.IN_PROGRESS) {
+            return AutoCloseOutcome.KEPT;
+        }
+        List<WorkoutSessionEntity> newest = workoutSessionRepository.findOpenSessions(
+                userId, WorkoutSessionStatus.IN_PROGRESS, PageRequest.of(0, 1));
+        boolean isNewest = !newest.isEmpty() && newest.get(0).getSessionId().equals(sessionId);
+        SessionActivityRow activity = sessionActivity(List.of(sessionId)).get(sessionId);
+        if (isNewest && !lastActivity(session, activity).isBefore(cutoff)) {
+            return AutoCloseOutcome.KEPT;
+        }
+        return autoClose(session, activity, now);
+    }
+
+    /**
+     * Closes the user's stale in-progress sessions and returns the one that stays open, if any. Only
+     * the newest session may stay, and only while it has been worked on within the idle time; every
+     * other in-progress session is closed, which also cleans up duplicates from before the rule.
+     * Runs in the caller's transaction, so the answer and whatever the caller does next agree.
+     */
+    private Optional<WorkoutSessionEntity> settleOpenSessions(UUID userId) {
+        List<WorkoutSessionEntity> open = workoutSessionRepository.findOpenSessions(
+                userId, WorkoutSessionStatus.IN_PROGRESS, PageRequest.of(0, OPEN_SESSION_PAGE_SIZE));
+        if (open.isEmpty()) {
+            return Optional.empty();
+        }
+        Instant now = Instant.now(clock);
+        Instant cutoff = now.minus(autoCloseProperties.idle());
+        Map<UUID, SessionActivityRow> activity = sessionActivity(
+                open.stream().map(WorkoutSessionEntity::getSessionId).toList());
+        WorkoutSessionEntity active = null;
+        for (int index = 0; index < open.size(); index++) {
+            WorkoutSessionEntity session = open.get(index);
+            SessionActivityRow row = activity.get(session.getSessionId());
+            if (index == 0 && !lastActivity(session, row).isBefore(cutoff)) {
+                active = session;
+            } else {
+                autoClose(session, row, now);
+            }
+        }
+        return Optional.ofNullable(active);
+    }
+
+    private Map<UUID, SessionActivityRow> sessionActivity(List<UUID> sessionIds) {
+        return workoutExerciseLogRepository
+                .findSessionActivity(sessionIds, List.of(WorkoutSetStatus.DONE, WorkoutSetStatus.SKIPPED), WorkoutSetStatus.DONE)
+                .stream()
+                .collect(Collectors.toMap(SessionActivityRow::sessionId, row -> row));
+    }
+
+    /** The later of the start and the last time a set was marked done or skipped. */
+    private Instant lastActivity(WorkoutSessionEntity session, SessionActivityRow activity) {
+        Instant lastSetAt = activity == null ? null : activity.lastSetAt();
+        return lastSetAt == null || lastSetAt.isBefore(session.getStartedAt()) ? session.getStartedAt() : lastSetAt;
+    }
+
+    /**
+     * Closes a left workout. One with a set that was done is completed at the time of its last
+     * activity through the same path as a manual completion, so duration, kind, totals and events
+     * come out as they would have. One without is cancelled, since nothing was trained, and
+     * publishes nothing.
+     */
+    private AutoCloseOutcome autoClose(WorkoutSessionEntity session, SessionActivityRow activity, Instant now) {
+        if (activity != null && activity.hasDoneSet()) {
+            Instant lastActivity = lastActivity(session, activity);
+            Instant completedAt = lastActivity.isAfter(session.getStartedAt())
+                    ? lastActivity
+                    : session.getStartedAt().plus(AUTO_CLOSE_MINIMUM_DURATION);
+            WorkoutSessionEntity full = findSession(session.getUserId(), session.getSessionId());
+            full.setAutoClosedAt(now);
+            completeEntity(full, completedAt);
+            return AutoCloseOutcome.COMPLETED;
+        }
+        session.setStatus(WorkoutSessionStatus.CANCELLED);
+        session.setAutoClosedAt(now);
+        workoutSessionRepository.save(session);
+        return AutoCloseOutcome.CANCELLED;
+    }
+
+    /**
+     * Refuses to put a second session in progress. Left workouts are closed first, so one that was
+     * forgotten never blocks a new start. The check and the insert that follows share the caller's
+     * transaction; without a database constraint two simultaneous requests can still both pass.
+     */
+    private void requireNoActiveSession(UUID userId, UUID exceptSessionId) {
+        settleOpenSessions(userId)
+                .filter(active -> !active.getSessionId().equals(exceptSessionId))
+                .ifPresent(active -> {
+                    throw new ConflictException(
+                            ACTIVE_SESSION_EXISTS_CODE,
+                            ACTIVE_SESSION_EXISTS_MESSAGE,
+                            Map.of("sessionId", active.getSessionId().toString(),
+                                    "name", active.getName(),
+                                    "startedAt", active.getStartedAt().toString()));
+                });
+    }
+
+    private enum AutoCloseOutcome { COMPLETED, CANCELLED, KEPT }
+
+    @Override
     @Transactional(readOnly = true)
     public WorkoutSessionView getSession(CurrentUserPrincipal currentUser, UUID sessionId) {
         return toSessionView(findSession(currentUser.userId(), sessionId));
@@ -499,6 +690,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     @Transactional
     public WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId) {
         WorkoutSessionEntity source = findSession(currentUser.userId(), sessionId);
+        requireNoActiveSession(currentUser.userId(), null);
         WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source);
         return toSessionView(workoutSessionRepository.save(repeated));
     }
@@ -510,6 +702,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 .findTopByUserIdAndStatusOrderByCompletedAtDesc(currentUser.userId(), WorkoutSessionStatus.COMPLETED)
                 .orElseThrow(() -> new ResourceNotFoundException("Completed workout session not found"));
         WorkoutSessionEntity source = findSession(currentUser.userId(), latest.getSessionId());
+        requireNoActiveSession(currentUser.userId(), null);
         WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source);
         return toSessionView(workoutSessionRepository.save(repeated));
     }
@@ -522,6 +715,10 @@ public class WorkoutServiceImpl implements WorkoutService {
         validateSessionRequest(currentUser.userId(), request);
         WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
         WorkoutSessionStatus previousStatus = entity.getStatus();
+        if (request.status() == WorkoutSessionStatus.IN_PROGRESS && previousStatus != WorkoutSessionStatus.IN_PROGRESS) {
+            // Reopening a session makes it the one in progress, so no other may be.
+            requireNoActiveSession(currentUser.userId(), sessionId);
+        }
         applySessionRequest(currentUser.userId(), entity, request);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         if (saved.getStatus() == WorkoutSessionStatus.COMPLETED && previousStatus != WorkoutSessionStatus.COMPLETED) {
@@ -539,8 +736,23 @@ public class WorkoutServiceImpl implements WorkoutService {
                                               CompleteWorkoutSessionRequest request) {
         WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
         validateTransitionAllowed(entity);
+        return toSessionView(completeEntity(entity, request == null ? null : request.completedAt()));
+    }
+
+    /**
+     * The one way a session is completed, whether the person asks for it or the server closes a left
+     * workout. Without a time the session ends now, but never before it started: the stored start
+     * can be rounded up by the database, so a workout finished in the same instant it began would
+     * otherwise fail its own timeline check.
+     */
+    private WorkoutSessionEntity completeEntity(WorkoutSessionEntity entity, Instant completedAt) {
+        Instant endedAt = completedAt;
+        if (endedAt == null) {
+            Instant now = Instant.now(clock);
+            endedAt = now.isBefore(entity.getStartedAt()) ? entity.getStartedAt() : now;
+        }
         entity.setStatus(WorkoutSessionStatus.COMPLETED);
-        entity.setCompletedAt(request == null || request.completedAt() == null ? Instant.now() : request.completedAt());
+        entity.setCompletedAt(endedAt);
         validateSessionTimingAndScalars(
                 entity.getStartedAt(),
                 entity.getCompletedAt(),
@@ -551,7 +763,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         deriveSessionMetrics(entity);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         publishWorkoutLoggedAndPersonalRecords(saved);
-        return toSessionView(saved);
+        return saved;
     }
 
     @Override
@@ -678,6 +890,9 @@ public class WorkoutServiceImpl implements WorkoutService {
         }
 
         validateImportRow(row);
+        if (row.status() == WorkoutSessionStatus.IN_PROGRESS) {
+            throw new IllegalArgumentException(IMPORT_IN_PROGRESS_MESSAGE);
+        }
         UpsertWorkoutSessionRequest request = toUpsertWorkoutSessionRequest(row, source);
         validateSessionRequest(userId, request);
 
@@ -1222,6 +1437,9 @@ public class WorkoutServiceImpl implements WorkoutService {
         setLog.setPerceivedExertion(input.perceivedExertion());
         setLog.setNotes(input.notes());
         setLog.setLogged(logged);
+        if (logged) {
+            setLog.setUpdatedAt(Instant.now(clock));
+        }
     }
 
     private void applySetLogRequest(WorkoutExerciseSetLogEntity setLog,
@@ -1234,6 +1452,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         setLog.setPerceivedExertion(request.perceivedExertion());
         setLog.setNotes(request.notes());
         setLog.setStatus(resolveLiveSetStatus(request.status()));
+        setLog.setUpdatedAt(Instant.now(clock));
     }
 
     private WorkoutSetStatus resolveLiveSetStatus(WorkoutSetStatus status) {
@@ -1807,7 +2026,9 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.getKind(),
                 entity.getSportActivity(),
                 entity.getSportActivity() == null ? null : entity.getSportActivity().label(),
-                entity.getDistanceKm());
+                entity.getDistanceKm(),
+                entity.getPlanDayId(),
+                entity.getAutoClosedAt());
     }
 
     private record PersonalRecordSnapshot(

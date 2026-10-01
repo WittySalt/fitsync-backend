@@ -2485,18 +2485,9 @@ class WorkoutServicePersistenceTests {
                 null,
                 null,
                 null,
-                List.of(new WorkoutExerciseLogInput(
-                        squatId,
-                        1,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("110.00"), null, null, 120, 7, null))))));
+                // No sets: a set logged now would make this session current, and the point here is only
+                // that repeat-latest ignores a session that is not completed.
+                List.of()));
         workoutService.createSession(currentUser, completedStrengthSession(
                 "Latest Strength",
                 Instant.parse("2026-06-11T10:00:00Z"),

@@ -23,6 +23,7 @@ import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.dto.ActiveWorkoutSessionView;
 import com.fitsync.workout.dto.CompleteWorkoutSessionRequest;
 import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
@@ -81,6 +82,7 @@ import com.fitsync.workout.service.MonthlyTrainingInsightService;
 import com.fitsync.workout.service.TrainingPageInsightService;
 import com.fitsync.workout.service.WeeklyTrainingInsightService;
 import com.fitsync.workout.service.WorkoutService;
+import com.fitsync.web.error.ConflictException;
 import com.fitsync.web.error.ForbiddenException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
@@ -97,6 +99,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -106,6 +109,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -1704,6 +1708,83 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.unmappedTerms[0].count").value(1));
 
         verify(exerciseCatalogImportService).importFreeExerciseDbCatalog();
+    }
+
+    @Test
+    void shouldReachTheActiveSessionHandlerAndNotTheSessionByIdHandler() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        CurrentUserPrincipal principal = principal();
+        when(workoutService.getActiveSession(any())).thenReturn(java.util.Optional.of(new ActiveWorkoutSessionView(
+                sessionView(sessionId, WorkoutSessionStatus.IN_PROGRESS),
+                new WorkoutSessionResumeView(sessionId, WorkoutSessionStatus.IN_PROGRESS, 1, 0, 2, 3, null))));
+
+        mockMvc.perform(get("/api/v1/workouts/sessions/active")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.session.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.session.planDayId").doesNotExist())
+                .andExpect(jsonPath("$.session.autoClosedAt").doesNotExist())
+                .andExpect(jsonPath("$.resume.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.resume.doneSets").value(1))
+                .andExpect(jsonPath("$.resume.totalSets").value(3));
+
+        verify(workoutService).getActiveSession(eq(principal));
+        verify(workoutService, never()).getSession(any(), any());
+    }
+
+    @Test
+    void shouldAnswerNoContentWhenThereIsNoActiveSession() throws Exception {
+        when(workoutService.getActiveSession(any())).thenReturn(java.util.Optional.empty());
+
+        mockMvc.perform(get("/api/v1/workouts/sessions/active")
+                        .with(authentication(authToken(principal()))))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+    }
+
+    @Test
+    void shouldStillReachTheSessionByIdHandlerForAnId() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        when(workoutService.getSession(any(), eq(sessionId)))
+                .thenReturn(sessionView(sessionId, WorkoutSessionStatus.IN_PROGRESS));
+
+        mockMvc.perform(get("/api/v1/workouts/sessions/" + sessionId)
+                        .with(authentication(authToken(principal()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()));
+
+        verify(workoutService, never()).getActiveSession(any());
+    }
+
+    @Test
+    void shouldAnswerConflictWithTheActiveSessionNamedWhenOneIsInProgress() throws Exception {
+        UUID activeId = UUID.randomUUID();
+        when(workoutService.startPlan(any(), any(), any(), any())).thenThrow(new ConflictException(
+                "ACTIVE_SESSION_EXISTS",
+                "You have a workout in progress.",
+                java.util.Map.of("sessionId", activeId.toString(), "name", "Leg day", "startedAt", "2026-06-11T12:00:00Z")));
+
+        mockMvc.perform(post("/api/v1/workouts/plans/" + UUID.randomUUID() + "/start")
+                        .with(authentication(authToken(principal())))
+                        .with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ACTIVE_SESSION_EXISTS"))
+                .andExpect(jsonPath("$.message").value("You have a workout in progress."))
+                .andExpect(jsonPath("$.data.sessionId").value(activeId.toString()))
+                .andExpect(jsonPath("$.data.name").value("Leg day"))
+                .andExpect(jsonPath("$.data.startedAt").value("2026-06-11T12:00:00Z"));
+    }
+
+    @Test
+    void shouldLeaveTheDataOutOfErrorsThatCarryNone() throws Exception {
+        when(workoutService.getSession(any(), any())).thenThrow(new ResourceNotFoundException("Workout session not found"));
+
+        mockMvc.perform(get("/api/v1/workouts/sessions/" + UUID.randomUUID())
+                        .with(authentication(authToken(principal()))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     private UsernamePasswordAuthenticationToken authToken(CurrentUserPrincipal principal) {

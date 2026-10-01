@@ -74,6 +74,10 @@ fitsync:
         image-base-url: ${FREE_EXERCISE_DB_IMAGE_BASE_URL:https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/}
     exercise-history:
       max-range-days: ${WORKOUT_EXERCISE_HISTORY_MAX_RANGE_DAYS:370}
+    auto-close:
+      enabled: ${WORKOUT_AUTO_CLOSE_ENABLED:true}
+      idle: ${WORKOUT_AUTO_CLOSE_IDLE:PT3H}
+      sweep-interval: ${WORKOUT_AUTO_CLOSE_SWEEP_INTERVAL:PT15M}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

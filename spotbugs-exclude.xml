@@ -343,6 +343,12 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- workout-service sweep scheduler holds the injected service (Spring-DI noise). -->
+    <Match>
+        <Class name="com.fitsync.workout.service.StaleSessionSweepScheduler"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- workout-service account-deletion cascade consumer/projection (Spring-DI noise). -->
     <Match>
         <Class name="com.fitsync.workout.messaging.AccountDeletedEventConsumerImpl"/>
@@ -528,6 +534,11 @@
 
     <Match>
         <Class name="com.fitsync.recommendation.coach.tool.SearchFoodsTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.ReadMealsOnDayTool"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 

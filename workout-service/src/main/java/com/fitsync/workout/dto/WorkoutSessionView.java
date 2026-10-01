@@ -31,10 +31,38 @@ public record WorkoutSessionView(
         SessionKind kind,
         SportActivity sportActivity,
         String sportLabel,
-        BigDecimal distanceKm) {
+        BigDecimal distanceKm,
+        UUID planDayId,
+        Instant autoClosedAt) {
 
     public WorkoutSessionView {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
+    }
+
+    /** A view without the plan day and the auto-close time, for callers written before those fields. */
+    public WorkoutSessionView(UUID sessionId,
+            UUID planId,
+            String name,
+            WorkoutType workoutType,
+            WorkoutSessionStatus status,
+            WorkoutSource source,
+            Instant startedAt,
+            Instant completedAt,
+            Integer durationMinutes,
+            Integer caloriesBurned,
+            Integer perceivedExertion,
+            String notes,
+            Integer exerciseCount,
+            List<WorkoutExerciseLogView> exercises,
+            Instant createdAt,
+            Instant updatedAt,
+            SessionKind kind,
+            SportActivity sportActivity,
+            String sportLabel,
+            BigDecimal distanceKm) {
+        this(sessionId, planId, name, workoutType, status, source, startedAt, completedAt,
+                durationMinutes, caloriesBurned, perceivedExertion, notes, exerciseCount, exercises,
+                createdAt, updatedAt, kind, sportActivity, sportLabel, distanceKm, null, null);
     }
 
     /** A view without a kind, sport activity, sport label or distance, used by fixtures that are
@@ -57,7 +85,7 @@ public record WorkoutSessionView(
             Instant updatedAt) {
         this(sessionId, planId, name, workoutType, status, source, startedAt, completedAt,
                 durationMinutes, caloriesBurned, perceivedExertion, notes, exerciseCount, exercises,
-                createdAt, updatedAt, null, null, null, null);
+                createdAt, updatedAt, null, null, null, null, null, null);
     }
 
     @Override
