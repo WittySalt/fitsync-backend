@@ -457,6 +457,62 @@ class WeeklyTrainingInsightServiceTests {
     }
 
     @Test
+    void lastOfKindNamesTheSessionAndItsFirstSixExercisesAndCostsOneQuery() {
+        List<WorkoutExerciseLogInput> exercises = new java.util.ArrayList<>();
+        for (int index = 1; index <= 7; index++) {
+            UUID exerciseId = createExercise("last-kind-" + index, "Lift " + index, MuscleGroup.CHEST);
+            exercises.add(exerciseLog(exerciseId, index, null));
+        }
+        createCompletedSession(currentUser, "Earlier strength", WorkoutType.STRENGTH,
+                LocalDateTime.parse("2026-09-24T18:30:00"), 50, exercises);
+        createCompletedSession(currentUser, "Today strength", WorkoutType.STRENGTH,
+                LocalDateTime.parse("2026-09-27T10:00:00"), 50, exercises);
+        UUID earlierId = workoutSessionRepository.findAll().stream()
+                .filter(session -> "Earlier strength".equals(session.getName()))
+                .findFirst().orElseThrow().getSessionId();
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+
+        statistics.clear();
+        WeeklyTrainingInsightView result = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-27"));
+        long statements = statistics.getPrepareStatementCount();
+
+        assertEquals(earlierId, result.today().lastOfKind().sessionId());
+        assertEquals(List.of("Lift 1", "Lift 2", "Lift 3", "Lift 4", "Lift 5", "Lift 6"),
+                result.today().lastOfKind().exerciseNames());
+        // The three the weekly insight always runs, plus one bounded read of the names.
+        assertEquals(4, statements);
+    }
+
+    @Test
+    void lastOfKindOfASessionWithoutExercisesHasNoNames() {
+        createCompletedSession(currentUser, "Earlier cardio", WorkoutType.CARDIO,
+                LocalDateTime.parse("2026-09-24T18:30:00"), 30, List.of());
+        createCompletedSession(currentUser, "Today cardio", WorkoutType.CARDIO,
+                LocalDateTime.parse("2026-09-27T10:00:00"), 30, List.of());
+
+        WeeklyTrainingInsightView result = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-27"));
+
+        assertTrue(result.today().lastOfKind().sessionId() != null);
+        assertEquals(List.of(), result.today().lastOfKind().exerciseNames());
+    }
+
+    @Test
+    void lastOfKindStaysNullWithoutAnEarlierSessionOfTheKindAndAddsNoQuery() {
+        createCompletedSession(currentUser, "Only today", WorkoutType.CARDIO,
+                LocalDateTime.parse("2026-09-27T10:00:00"), 30, List.of());
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+
+        statistics.clear();
+        WeeklyTrainingInsightView result = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-27"));
+
+        assertNull(result.today().lastOfKind());
+        assertEquals(3, statistics.getPrepareStatementCount());
+    }
+
+    @Test
     void usualStartTimeIsTheSharedHalfHourWhenThreeSessionsAgree() {
         seedStartTimes("2026-09-21T18:30", "2026-09-23T18:30", "2026-09-25T18:30");
         assertEquals("18:30", usualStartTime("Asia/Singapore"));

@@ -77,6 +77,7 @@ import com.fitsync.workout.repository.SessionActivityRow;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ConflictException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
@@ -104,6 +105,8 @@ public class WorkoutServiceImpl implements WorkoutService {
     private static final String SOURCE = "workout-service";
     private static final String ACTIVE_SESSION_EXISTS_CODE = "ACTIVE_SESSION_EXISTS";
     private static final String ACTIVE_SESSION_EXISTS_MESSAGE = "You have a workout in progress.";
+    private static final String NOTHING_LOGGED_CODE = "NOTHING_LOGGED";
+    private static final String NOTHING_LOGGED_MESSAGE = "No set was logged in this workout.";
     private static final String IMPORT_IN_PROGRESS_MESSAGE =
             "An imported workout is history and cannot be in progress.";
     /** How many in-progress sessions one user's check looks at; duplicates beyond it wait for the next check. */
@@ -446,12 +449,14 @@ public class WorkoutServiceImpl implements WorkoutService {
                                                          Integer minDurationMinutes,
                                                          Integer maxDurationMinutes,
                                                          UUID planId,
+                                                         String q,
                                                          int page,
                                                          int size) {
         validateSessionFilterRange(from, to);
         validateDurationRange(minDurationMinutes, maxDurationMinutes);
         UUID userId = currentUser.userId();
-        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt"));
+        PageRequest pageable = PageRequest.of(page, size,
+                Sort.by(Sort.Direction.DESC, "startedAt").and(Sort.by(Sort.Direction.DESC, "sessionId")));
         Page<UUID> sessionIds = workoutSessionRepository.findHistoryIds(
                         userId,
                         from,
@@ -461,6 +466,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                         minDurationMinutes,
                         maxDurationMinutes,
                         planId,
+                        q,
                         pageable);
         if (sessionIds.isEmpty()) {
             return toPageResponse(new PageImpl<>(List.of(), pageable, sessionIds.getTotalElements()));
@@ -736,7 +742,22 @@ public class WorkoutServiceImpl implements WorkoutService {
                                               CompleteWorkoutSessionRequest request) {
         WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
         validateTransitionAllowed(entity);
+        requireLoggedSetWhenGuided(entity);
         return toSessionView(completeEntity(entity, request == null ? null : request.completedAt()));
+    }
+
+    /**
+     * A guided workout, one with exercise logs, cannot be completed without a single set that is done
+     * and logged. A session without exercise logs, such as a timed workout or a sport, is not asked
+     * for sets. Only the person's own completion goes through this check; closing a left workout
+     * completes only sessions that have a done set and cancels the others.
+     */
+    private void requireLoggedSetWhenGuided(WorkoutSessionEntity entity) {
+        List<WorkoutExerciseLogEntity> exercises = entity.getExercises();
+        if (!exercises.isEmpty() && exercises.stream().noneMatch(
+                exercise -> exercise.getSets().stream().anyMatch(this::isDoneSet))) {
+            throw new BadRequestException(NOTHING_LOGGED_CODE, NOTHING_LOGGED_MESSAGE);
+        }
     }
 
     /**

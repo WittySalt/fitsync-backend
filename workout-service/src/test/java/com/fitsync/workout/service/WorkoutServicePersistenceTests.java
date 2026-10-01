@@ -53,6 +53,7 @@ import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ForbiddenException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
@@ -799,17 +800,13 @@ class WorkoutServicePersistenceTests {
         Instant untouchedStartedAt = Instant.parse("2026-06-11T10:00:00Z");
         WorkoutSessionView untouched = workoutService.startPlan(currentUser, plan.planId());
         moveSessionStartedAt(untouched.sessionId(), untouchedStartedAt);
-        WorkoutSessionView completedUntouched = workoutService.completeSession(
+        assertEquals(2, untouched.exercises().get(0).sets().size());
+        assertEquals(false, untouched.exercises().get(0).sets().get(0).logged());
+        assertThrows(BadRequestException.class, () -> workoutService.completeSession(
                 currentUser,
                 untouched.sessionId(),
-                new CompleteWorkoutSessionRequest(untouchedStartedAt.plus(Duration.ofMinutes(45))));
-
-        assertEquals(WorkoutSessionStatus.COMPLETED, completedUntouched.status());
-        assertEquals(2, completedUntouched.exercises().get(0).sets().size());
-        assertEquals(false, completedUntouched.exercises().get(0).sets().get(0).logged());
-        assertNull(completedUntouched.exercises().get(0).performedSets());
-        assertNull(completedUntouched.exercises().get(0).performedReps());
-        assertNull(completedUntouched.exercises().get(0).totalVolumeKg());
+                new CompleteWorkoutSessionRequest(untouchedStartedAt.plus(Duration.ofMinutes(45)))));
+        workoutService.cancelSession(currentUser, untouched.sessionId());
 
         Instant touchedStartedAt = Instant.parse("2026-06-11T11:00:00Z");
         WorkoutSessionView touched = workoutService.startPlan(currentUser, plan.planId());
@@ -1437,13 +1434,14 @@ class WorkoutServicePersistenceTests {
 
         WorkoutSessionView untouched = workoutService.startPlan(currentUser, plan.planId());
         outboxEventRepository.deleteAll();
-        workoutService.completeSession(
+        assertThrows(BadRequestException.class, () -> workoutService.completeSession(
                 currentUser,
                 untouched.sessionId(),
-                null);
+                null));
+        workoutService.cancelSession(currentUser, untouched.sessionId());
 
         ExerciseRecordsView emptyRecords = workoutService.getExerciseRecords(currentUser, squatId);
-        assertEquals(1, pendingEventCount("WorkoutLogged"));
+        assertEquals(0, pendingEventCount("WorkoutLogged"));
         assertEquals(0, pendingEventCount("PersonalRecordAchieved"));
         assertNull(emptyRecords.maxWeightKg());
         assertNull(emptyRecords.maxReps());
@@ -1897,6 +1895,7 @@ class WorkoutServicePersistenceTests {
                 null,
                 null,
                 null,
+                null,
                 0,
                 1);
 
@@ -1956,6 +1955,7 @@ class WorkoutServicePersistenceTests {
                 null,
                 null,
                 null,
+                null,
                 0,
                 20));
         PageResponse<WorkoutSessionView> cardioSessions = assertDoesNotThrow(() -> workoutService.listSessions(
@@ -1964,6 +1964,7 @@ class WorkoutServicePersistenceTests {
                 null,
                 null,
                 WorkoutType.CARDIO,
+                null,
                 null,
                 null,
                 null,
@@ -1978,6 +1979,7 @@ class WorkoutServicePersistenceTests {
                 40,
                 null,
                 null,
+                null,
                 0,
                 20));
         PageResponse<WorkoutSessionView> shortSessions = assertDoesNotThrow(() -> workoutService.listSessions(
@@ -1988,6 +1990,7 @@ class WorkoutServicePersistenceTests {
                 null,
                 null,
                 25,
+                null,
                 null,
                 0,
                 20));
@@ -2006,6 +2009,114 @@ class WorkoutServicePersistenceTests {
     }
 
     @Test
+    void shouldListSessionsWhoseNameContainsTheTextIgnoringCase() {
+        namedSession("Morning Run", WorkoutSessionStatus.COMPLETED, "2026-06-10T06:00:00Z");
+        namedSession("evening RUN", WorkoutSessionStatus.COMPLETED, "2026-06-11T18:00:00Z");
+        namedSession("Leg Day", WorkoutSessionStatus.COMPLETED, "2026-06-12T09:00:00Z");
+
+        PageResponse<WorkoutSessionView> byUpper = searchSessions("RUN", null, 0, 20);
+        PageResponse<WorkoutSessionView> byLower = searchSessions("orning r", null, 0, 20);
+
+        assertEquals(List.of("evening RUN", "Morning Run"), sessionNames(byUpper));
+        assertEquals(List.of("Morning Run"), sessionNames(byLower));
+    }
+
+    @Test
+    void shouldMatchWildcardCharactersTypedInTheSearchLiterally() {
+        namedSession("100% Effort", WorkoutSessionStatus.COMPLETED, "2026-06-10T06:00:00Z");
+        namedSession("Leg_Day", WorkoutSessionStatus.COMPLETED, "2026-06-11T06:00:00Z");
+        namedSession("Legs Day", WorkoutSessionStatus.COMPLETED, "2026-06-12T06:00:00Z");
+        namedSession("Back\\Slash", WorkoutSessionStatus.COMPLETED, "2026-06-13T06:00:00Z");
+
+        assertEquals(List.of("100% Effort"), sessionNames(searchSessions("%", null, 0, 20)));
+        assertEquals(List.of("Leg_Day"), sessionNames(searchSessions("g_d", null, 0, 20)));
+        assertEquals(List.of("Back\\Slash"), sessionNames(searchSessions("\\", null, 0, 20)));
+        assertEquals(0, searchSessions("%%", null, 0, 20).totalElements());
+    }
+
+    @Test
+    void shouldCombineTheNameSearchWithTheStatusFilter() {
+        namedSession("Easy Run", WorkoutSessionStatus.COMPLETED, "2026-06-10T06:00:00Z");
+        namedSession("Planned Run", WorkoutSessionStatus.PLANNED, "2026-06-11T06:00:00Z");
+        namedSession("Easy Swim", WorkoutSessionStatus.COMPLETED, "2026-06-12T06:00:00Z");
+
+        PageResponse<WorkoutSessionView> page = searchSessions("run", WorkoutSessionStatus.COMPLETED, 0, 20);
+
+        assertEquals(List.of("Easy Run"), sessionNames(page));
+        assertEquals(1, page.totalElements());
+    }
+
+    @Test
+    void shouldPageAndCountOnlyTheSessionsThatMatchTheNameSearch() {
+        namedSession("Run one", WorkoutSessionStatus.COMPLETED, "2026-06-10T06:00:00Z");
+        namedSession("Run two", WorkoutSessionStatus.COMPLETED, "2026-06-11T06:00:00Z");
+        namedSession("Run three", WorkoutSessionStatus.COMPLETED, "2026-06-12T06:00:00Z");
+        namedSession("Swim", WorkoutSessionStatus.COMPLETED, "2026-06-13T06:00:00Z");
+
+        PageResponse<WorkoutSessionView> first = searchSessions("run", null, 0, 2);
+        PageResponse<WorkoutSessionView> second = searchSessions("run", null, 1, 2);
+
+        assertEquals(3, first.totalElements());
+        assertEquals(List.of("Run three", "Run two"), sessionNames(first));
+        assertEquals(3, second.totalElements());
+        assertEquals(List.of("Run one"), sessionNames(second));
+    }
+
+    @Test
+    void shouldNotFilterWhenTheNameSearchIsBlankOrAbsent() {
+        namedSession("Morning Run", WorkoutSessionStatus.COMPLETED, "2026-06-10T06:00:00Z");
+        namedSession("Leg Day", WorkoutSessionStatus.COMPLETED, "2026-06-11T06:00:00Z");
+
+        assertEquals(2, searchSessions(null, null, 0, 20).totalElements());
+        assertEquals(2, searchSessions("", null, 0, 20).totalElements());
+        assertEquals(2, searchSessions("   ", null, 0, 20).totalElements());
+    }
+
+    @Test
+    void shouldKeepSessionsThatStartAtTheSameInstantInASteadyOrder() {
+        for (int index = 0; index < 4; index++) {
+            namedSession("Same start " + index, WorkoutSessionStatus.COMPLETED, "2026-06-10T06:00:00Z");
+        }
+
+        List<UUID> expected = searchSessions(null, null, 0, 20).content().stream()
+                .map(WorkoutSessionView::sessionId)
+                .toList();
+        List<UUID> pagedTogether = new java.util.ArrayList<>();
+        for (int page = 0; page < 4; page++) {
+            searchSessions(null, null, page, 1).content().forEach(view -> pagedTogether.add(view.sessionId()));
+        }
+
+        assertEquals(4, expected.stream().distinct().count());
+        assertEquals(expected, pagedTogether);
+    }
+
+    private void namedSession(String name, WorkoutSessionStatus status, String startedAt) {
+        Instant start = Instant.parse(startedAt);
+        boolean completed = status == WorkoutSessionStatus.COMPLETED;
+        workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                name,
+                WorkoutType.CARDIO,
+                status,
+                WorkoutSource.MANUAL,
+                start,
+                completed ? start.plus(Duration.ofMinutes(30)) : null,
+                30,
+                completed ? 200 : null,
+                completed ? 6 : null,
+                null,
+                List.of()));
+    }
+
+    private PageResponse<WorkoutSessionView> searchSessions(String q, WorkoutSessionStatus status, int page, int size) {
+        return workoutService.listSessions(currentUser, null, null, status, null, null, null, null, q, page, size);
+    }
+
+    private List<String> sessionNames(PageResponse<WorkoutSessionView> page) {
+        return page.content().stream().map(WorkoutSessionView::name).toList();
+    }
+
+    @Test
     void shouldRejectInvalidSessionDurationFilterRange() {
         assertThrows(IllegalArgumentException.class, () -> workoutService.listSessions(
                 currentUser,
@@ -2015,6 +2126,7 @@ class WorkoutServicePersistenceTests {
                 null,
                 45,
                 30,
+                null,
                 null,
                 0,
                 20));
@@ -2046,6 +2158,7 @@ class WorkoutServicePersistenceTests {
                 null,
                 null,
                 WorkoutSessionStatus.COMPLETED,
+                null,
                 null,
                 null,
                 null,

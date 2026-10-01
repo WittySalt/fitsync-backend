@@ -82,6 +82,7 @@ import com.fitsync.workout.service.MonthlyTrainingInsightService;
 import com.fitsync.workout.service.TrainingPageInsightService;
 import com.fitsync.workout.service.WeeklyTrainingInsightService;
 import com.fitsync.workout.service.WorkoutService;
+import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ConflictException;
 import com.fitsync.web.error.ForbiddenException;
 import com.fitsync.web.error.ResourceNotFoundException;
@@ -1449,6 +1450,50 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         verify(workoutService).completeSession(eq(principal), eq(sessionId), any());
+    }
+
+    @Test
+    void shouldAnswerBadRequestWithTheNothingLoggedCodeWhenNoSetWasLogged() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        when(workoutService.completeSession(any(), eq(sessionId), any())).thenThrow(
+                new BadRequestException("NOTHING_LOGGED", "No set was logged in this workout."));
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/complete", sessionId)
+                        .with(authentication(authToken(principal())))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("NOTHING_LOGGED"))
+                .andExpect(jsonPath("$.message").value("No set was logged in this workout."));
+    }
+
+    @Test
+    void shouldPassTheSessionNameSearchToTheService() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(workoutService.listSessions(any(), any(), any(), any(), any(), any(), any(), any(), eq("run"),
+                eq(0), eq(20))).thenReturn(PageResponse.of(List.of(), 0, 20, 0, 0, true, true));
+
+        mockMvc.perform(get("/api/v1/workouts/sessions")
+                        .param("q", "run")
+                        .with(authentication(authToken(principal))))
+                .andExpect(status().isOk());
+
+        verify(workoutService).listSessions(eq(principal), any(), any(), any(), any(), any(), any(), any(),
+                eq("run"), eq(0), eq(20));
+    }
+
+    @Test
+    void shouldRejectASessionNameSearchLongerThanEightyCharacters() throws Exception {
+        mockMvc.perform(get("/api/v1/workouts/sessions")
+                        .param("q", "x".repeat(81))
+                        .with(authentication(authToken(principal()))))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/v1/workouts/sessions")
+                        .param("q", "x".repeat(80))
+                        .with(authentication(authToken(principal()))))
+                .andExpect(status().isOk());
     }
 
     @Test

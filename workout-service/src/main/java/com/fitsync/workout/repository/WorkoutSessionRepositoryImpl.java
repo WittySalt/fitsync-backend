@@ -3,6 +3,7 @@ package com.fitsync.workout.repository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.WorkoutSessionStatus;
@@ -22,6 +23,8 @@ import org.springframework.data.domain.Pageable;
 public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupport
         implements WorkoutSessionRepositoryCustom {
 
+    private static final char LIKE_ESCAPE = '\\';
+
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -34,6 +37,7 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
                                      Integer minDurationMinutes,
                                      Integer maxDurationMinutes,
                                      UUID planId,
+                                     String q,
                                      Pageable pageable) {
         CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
         CriteriaQuery<UUID> queryDefinition = criteriaBuilder.createQuery(UUID.class);
@@ -48,7 +52,8 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
                 workoutType,
                 minDurationMinutes,
                 maxDurationMinutes,
-                planId);
+                planId,
+                q);
 
         queryDefinition.select(session.get("sessionId"))
                 .where(predicates.toArray(Predicate[]::new));
@@ -70,7 +75,8 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
                         workoutType,
                         minDurationMinutes,
                         maxDurationMinutes,
-                        planId)
+                        planId,
+                        q)
                         .toArray(Predicate[]::new));
 
         long total = entityManager.createQuery(countDefinition).getSingleResult();
@@ -86,7 +92,8 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
                                        WorkoutType workoutType,
                                        Integer minDurationMinutes,
                                        Integer maxDurationMinutes,
-                                       UUID planId) {
+                                       UUID planId,
+                                       String q) {
         List<Predicate> predicates = new ArrayList<>();
         predicates.add(criteriaBuilder.equal(session.get("userId"), userId));
         if (from != null) {
@@ -110,6 +117,17 @@ public class WorkoutSessionRepositoryImpl extends AbstractCriteriaRepositorySupp
         if (planId != null) {
             predicates.add(criteriaBuilder.equal(session.get("planId"), planId));
         }
+        if (q != null && !q.isBlank()) {
+            predicates.add(criteriaBuilder.like(
+                    criteriaBuilder.lower(session.get("name")),
+                    "%" + escapeLike(q.strip().toLowerCase(Locale.ROOT)) + "%",
+                    LIKE_ESCAPE));
+        }
         return predicates;
+    }
+
+    /** Makes the escape character and the two LIKE wildcards match as themselves. */
+    static String escapeLike(String text) {
+        return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

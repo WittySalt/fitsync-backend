@@ -296,6 +296,7 @@ public class WorkoutController {
             @RequestParam(required = false) @Min(0) Integer minDurationMinutes,
             @RequestParam(required = false) @Min(0) Integer maxDurationMinutes,
             @RequestParam(required = false) UUID planId,
+            @RequestParam(required = false) @Size(max = 80) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return workoutService.listSessions(
@@ -307,6 +308,7 @@ public class WorkoutController {
                 minDurationMinutes,
                 maxDurationMinutes,
                 planId,
+                q,
                 page,
                 size);
     }

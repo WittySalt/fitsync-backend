@@ -16,6 +16,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 
 import com.fitsync.workout.domain.DayKind;
 import com.fitsync.workout.domain.DaySource;
@@ -43,6 +44,7 @@ final class WeekByDayCalculator {
     private static final int HABIT_REST_MIN_TOTAL_SESSIONS = 4;
     private static final int LAST_OF_KIND_LOOKBACK_DAYS = 90;
     private static final int MAX_CARRIED_OVER = 3;
+    static final int MAX_LAST_OF_KIND_EXERCISE_NAMES = 6;
     private static final int MAX_NEXT_TRAINING_LOOKAHEAD_DAYS = 7;
 
     private WeekByDayCalculator() {
@@ -97,6 +99,15 @@ final class WeekByDayCalculator {
     }
 
     static Result compute(List<SessionSnapshot> sessions, List<PlanDaySnapshot> planDays, LocalDate referenceDate) {
+        return compute(sessions, planDays, referenceDate, sessionId -> List.of());
+    }
+
+    /** {@code exerciseNamesOf} is asked for the names of one session only, the one picked as the
+     * last of today's kind, and only when there is one. */
+    static Result compute(List<SessionSnapshot> sessions,
+                          List<PlanDaySnapshot> planDays,
+                          LocalDate referenceDate,
+                          Function<UUID, List<String>> exerciseNamesOf) {
         LocalDate weekStart = InsightDates.mondayOf(referenceDate);
         LocalDate weekEnd = weekStart.plusDays(6);
         boolean hasWeek = !planDays.isEmpty();
@@ -125,7 +136,8 @@ final class WeekByDayCalculator {
         }
 
         Determination todayDetermination = determinations.get(referenceDate);
-        TodayInsightView today = buildToday(referenceDate, todayDetermination, sessions, determinations, weekStart);
+        TodayInsightView today = buildToday(referenceDate, todayDetermination, sessions, determinations, weekStart,
+                exerciseNamesOf);
         NextTrainingView nextTraining = findNextTraining(referenceDate, weekStart, weekEnd, hasWeek,
                 planDaysByDayOfWeek, habitCache, sessions, determinations);
 
@@ -222,7 +234,8 @@ final class WeekByDayCalculator {
                                                 Determination today,
                                                 List<SessionSnapshot> sessions,
                                                 Map<LocalDate, Determination> determinations,
-                                                LocalDate weekStart) {
+                                                LocalDate weekStart,
+                                                Function<UUID, List<String>> exerciseNamesOf) {
         UUID planDayId = null;
         String title = null;
         Integer estimatedMinutes = null;
@@ -252,7 +265,7 @@ final class WeekByDayCalculator {
         }
 
         LastOfKindView lastOfKind = isTraining(today.kind())
-                ? findLastOfKind(referenceDate, today.kind(), today.activity(), sessions)
+                ? findLastOfKind(referenceDate, today.kind(), today.activity(), sessions, exerciseNamesOf)
                 : null;
 
         List<CarriedOverView> carriedOver = List.of();
@@ -287,7 +300,8 @@ final class WeekByDayCalculator {
     private static LastOfKindView findLastOfKind(LocalDate referenceDate,
                                                   DayKind kind,
                                                   SportActivity activity,
-                                                  List<SessionSnapshot> sessions) {
+                                                  List<SessionSnapshot> sessions,
+                                                  Function<UUID, List<String>> exerciseNamesOf) {
         LocalDate earliest = referenceDate.minusDays(LAST_OF_KIND_LOOKBACK_DAYS);
         SessionSnapshot best = null;
         for (SessionSnapshot session : sessions) {
@@ -317,7 +331,11 @@ final class WeekByDayCalculator {
             BigDecimal totalSeconds = BigDecimal.valueOf(best.durationMinutes() * 60L);
             paceSecondsPerKm = totalSeconds.divide(best.distanceKm(), 0, RoundingMode.HALF_UP).intValue();
         }
-        return new LastOfKindView(best.localDate(), best.durationMinutes(), best.distanceKm(), paceSecondsPerKm);
+        List<String> exerciseNames = exerciseNamesOf.apply(best.sessionId()).stream()
+                .limit(MAX_LAST_OF_KIND_EXERCISE_NAMES)
+                .toList();
+        return new LastOfKindView(best.localDate(), best.durationMinutes(), best.distanceKm(), paceSecondsPerKm,
+                best.sessionId(), exerciseNames);
     }
 
     private static NextTrainingView findNextTraining(LocalDate referenceDate,

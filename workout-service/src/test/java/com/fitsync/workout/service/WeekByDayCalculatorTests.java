@@ -288,6 +288,68 @@ class WeekByDayCalculatorTests {
     }
 
     @Test
+    void lastOfKindNamesTheSessionAndItsExercisesInOrder() {
+        WeekByDayCalculator.SessionSnapshot earlier = completedSession(
+                SessionKind.STRENGTH, null, THURSDAY.minusDays(7), 50, null, null);
+        WeekByDayCalculator.SessionSnapshot latest = completedSession(
+                SessionKind.STRENGTH, null, THURSDAY.minusDays(2), 45, null, null);
+        List<UUID> asked = new ArrayList<>();
+
+        WeekByDayCalculator.SessionSnapshot today = completedSession(
+                SessionKind.STRENGTH, null, THURSDAY, 40, null, null);
+
+        WeekByDayCalculator.Result result = WeekByDayCalculator.compute(List.of(earlier, latest, today), List.of(), THURSDAY,
+                sessionId -> {
+                    asked.add(sessionId);
+                    return List.of("Squat", "Row");
+                });
+
+        assertEquals(latest.sessionId(), result.today().lastOfKind().sessionId());
+        assertEquals(List.of("Squat", "Row"), result.today().lastOfKind().exerciseNames());
+        assertEquals(List.of(latest.sessionId()), asked);
+    }
+
+    @Test
+    void lastOfKindOfASportSessionWithoutExercisesHasNoNames() {
+        WeekByDayCalculator.SessionSnapshot match = completedSession(
+                SessionKind.SPORT, SportActivity.BADMINTON, THURSDAY.minusDays(3), 60, null, null);
+
+        WeekByDayCalculator.Result result = WeekByDayCalculator.compute(
+                List.of(match, completedSession(SessionKind.SPORT, SportActivity.BADMINTON, THURSDAY, 30, null, null)),
+                List.of(), THURSDAY, sessionId -> List.of());
+
+        assertEquals(match.sessionId(), result.today().lastOfKind().sessionId());
+        assertEquals(List.of(), result.today().lastOfKind().exerciseNames());
+    }
+
+    @Test
+    void lastOfKindListsAtMostSixExerciseNames() {
+        List<WeekByDayCalculator.SessionSnapshot> sessions = List.of(
+                completedSession(SessionKind.STRENGTH, null, THURSDAY, 40, null, null),
+                completedSession(SessionKind.STRENGTH, null, THURSDAY.minusDays(2), 45, null, null));
+
+        WeekByDayCalculator.Result result = WeekByDayCalculator.compute(sessions, List.of(), THURSDAY,
+                sessionId -> List.of("A", "B", "C", "D", "E", "F", "G", "H"));
+
+        assertEquals(List.of("A", "B", "C", "D", "E", "F"), result.today().lastOfKind().exerciseNames());
+    }
+
+    @Test
+    void exerciseNamesAreNotAskedForWhenThereIsNoLastOfKind() {
+        List<UUID> asked = new ArrayList<>();
+
+        WeekByDayCalculator.Result result = WeekByDayCalculator.compute(
+                List.of(completedSession(SessionKind.CARDIO, null, THURSDAY, 30, null, null)),
+                List.of(), THURSDAY, sessionId -> {
+                    asked.add(sessionId);
+                    return List.of("Never");
+                });
+
+        assertNull(result.today().lastOfKind());
+        assertTrue(asked.isEmpty());
+    }
+
+    @Test
     void nextTrainingCanReachIntoNextWeek() {
         UUID mondayPlanDayId = UUID.randomUUID();
         List<WeekByDayCalculator.PlanDaySnapshot> planDays = List.of(

@@ -75,6 +75,7 @@ public interface WorkoutService {
                                                   Integer minDurationMinutes,
                                                   Integer maxDurationMinutes,
                                                   UUID planId,
+                                                  String q,
                                                   int page,
                                                   int size);
 
