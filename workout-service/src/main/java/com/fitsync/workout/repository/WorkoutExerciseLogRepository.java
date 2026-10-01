@@ -11,12 +11,25 @@ import com.fitsync.workout.dto.ExerciseRecordSetRow;
 import com.fitsync.workout.dto.ExerciseTopWeightRow;
 import com.fitsync.workout.dto.SessionExerciseTopWeightRow;
 import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerciseLogEntity, UUID>,
         WorkoutExerciseLogRepositoryCustom {
+
+    // The exercise names of one session of the user, in sequence order. Bounded by the page, so the
+    // weekly insight reads only a handful of names for the one session it points at.
+    @Query("""
+            select el.exerciseNameSnapshot from WorkoutExerciseLogEntity el
+            where el.session.sessionId = :sessionId
+              and el.session.userId = :userId
+            order by el.sequence asc
+            """)
+    List<String> findExerciseNames(@Param("userId") UUID userId,
+                                   @Param("sessionId") UUID sessionId,
+                                   Pageable pageable);
 
     // For each of the given sessions that has a set marked done or skipped: when one was last marked
     // and how many are done. Sessions without such a set have no row. One grouped query, so closing

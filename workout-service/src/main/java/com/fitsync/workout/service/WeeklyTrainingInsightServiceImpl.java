@@ -25,9 +25,11 @@ import com.fitsync.workout.entity.WorkoutPlanDayEntity;
 import com.fitsync.workout.entity.WorkoutPlanEntity;
 import com.fitsync.workout.entity.WorkoutPlanExerciseEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
+import com.fitsync.workout.repository.WorkoutExerciseLogRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,13 +54,16 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
     private final Clock clock;
     private final WorkoutSessionRepository workoutSessionRepository;
     private final WorkoutPlanRepository workoutPlanRepository;
+    private final WorkoutExerciseLogRepository workoutExerciseLogRepository;
 
     public WeeklyTrainingInsightServiceImpl(Clock clock,
                                             WorkoutSessionRepository workoutSessionRepository,
-                                            WorkoutPlanRepository workoutPlanRepository) {
+                                            WorkoutPlanRepository workoutPlanRepository,
+                                            WorkoutExerciseLogRepository workoutExerciseLogRepository) {
         this.clock = clock;
         this.workoutSessionRepository = workoutSessionRepository;
         this.workoutPlanRepository = workoutPlanRepository;
+        this.workoutExerciseLogRepository = workoutExerciseLogRepository;
     }
 
     @Override
@@ -168,7 +173,11 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 loadDayKindSessions(userId, zoneId, referenceDate, windowStart);
         List<WeekByDayCalculator.PlanDaySnapshot> planDays = buildPlanDaySnapshots(activePlan);
 
-        return WeekByDayCalculator.compute(sessions, planDays, referenceDate);
+        // The names of the last session of today's kind come from one bounded query, and only when
+        // such a session exists.
+        return WeekByDayCalculator.compute(sessions, planDays, referenceDate,
+                sessionId -> workoutExerciseLogRepository.findExerciseNames(userId, sessionId,
+                        PageRequest.of(0, WeekByDayCalculator.MAX_LAST_OF_KIND_EXERCISE_NAMES)));
     }
 
     private List<WeekByDayCalculator.SessionSnapshot> loadDayKindSessions(UUID userId,

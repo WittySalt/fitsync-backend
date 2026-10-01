@@ -130,6 +130,7 @@ class WorkoutServicePostgresIT {
                 null,
                 null,
                 null,
+                null,
                 0,
                 20);
         PageResponse<WorkoutSessionView> filteredSessions = workoutService.listSessions(
@@ -141,6 +142,7 @@ class WorkoutServicePostgresIT {
                 null,
                 null,
                 activePlanId,
+                null,
                 0,
                 20);
 

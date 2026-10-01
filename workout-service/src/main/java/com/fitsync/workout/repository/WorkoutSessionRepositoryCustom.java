@@ -18,5 +18,6 @@ public interface WorkoutSessionRepositoryCustom {
                               Integer minDurationMinutes,
                               Integer maxDurationMinutes,
                               UUID planId,
+                              String q,
                               Pageable pageable);
 }

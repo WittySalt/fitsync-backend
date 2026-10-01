@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.media.MediaStorageService;
+import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ConflictException;
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
@@ -517,6 +518,55 @@ class WorkoutSessionLifecycleTests {
             WorkoutSessionView completed = workoutService.completeSession(alice, started.sessionId(), null);
             assertFalse(completed.completedAt().isBefore(completed.startedAt()));
         }
+    }
+
+    // ---- completing needs a logged set -------------------------------------------------------
+
+    @Test
+    void shouldRefuseToCompleteAGuidedWorkoutWithoutALoggedSet() {
+        UUID squat = createExercise("nothing-squat", "Nothing Squat");
+        UUID sessionId = insertOpenSession(alice, "Nothing logged", now.minus(Duration.ofMinutes(10)), squat,
+                List.of(), List.of(now.minus(Duration.ofMinutes(5))));
+
+        BadRequestException refused = assertThrows(BadRequestException.class,
+                () -> workoutService.completeSession(alice, sessionId, null));
+
+        assertEquals("NOTHING_LOGGED", refused.getCode());
+        assertEquals("No set was logged in this workout.", refused.getMessage());
+        assertEquals(WorkoutSessionStatus.IN_PROGRESS, workoutService.getSession(alice, sessionId).status());
+        assertEquals(0, pendingEventCount("WorkoutLogged"));
+    }
+
+    @Test
+    void shouldCompleteAGuidedWorkoutWithOneDoneSet() {
+        UUID squat = createExercise("one-set-squat", "One Set Squat");
+        UUID sessionId = insertOpenSession(alice, "One set", now.minus(Duration.ofMinutes(10)), squat,
+                List.of(now.minus(Duration.ofMinutes(5))), List.of());
+
+        WorkoutSessionView completed = workoutService.completeSession(alice, sessionId, null);
+
+        assertEquals(WorkoutSessionStatus.COMPLETED, completed.status());
+        assertEquals(1, pendingEventCount("WorkoutLogged"));
+    }
+
+    @Test
+    void shouldCompleteAWorkoutWithoutExerciseLogsAsBefore() {
+        WorkoutSessionView free = workoutService.createSession(alice, inProgressRequest("Timed workout"));
+
+        WorkoutSessionView completed = workoutService.completeSession(alice, free.sessionId(), null);
+
+        assertEquals(WorkoutSessionStatus.COMPLETED, completed.status());
+    }
+
+    @Test
+    void shouldStillCancelALeftGuidedWorkoutWithoutADoneSetInsteadOfRefusing() {
+        UUID squat = createExercise("left-squat", "Left Squat");
+        UUID sessionId = insertOpenSession(alice, "Left without a set", now.minus(Duration.ofHours(6)), squat,
+                List.of(), List.of(now.minus(Duration.ofHours(5))));
+
+        assertTrue(workoutService.getActiveSession(alice).isEmpty());
+
+        assertEquals(WorkoutSessionStatus.CANCELLED, workoutService.getSession(alice, sessionId).status());
     }
 
     // ---- helpers ------------------------------------------------------------------------------
