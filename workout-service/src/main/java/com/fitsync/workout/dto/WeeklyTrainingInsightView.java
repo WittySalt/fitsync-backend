@@ -39,7 +39,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
             "lastOfKind": null,
             "carriedOver": []
           },
-          "nextTraining": null
+          "nextTraining": null,
+          "usualStartTime": "18:30"
         }
         """)
 public record WeeklyTrainingInsightView(
@@ -55,7 +56,8 @@ public record WeeklyTrainingInsightView(
         WeeklyVolumeView volume,
         List<DayInsightView> days,
         TodayInsightView today,
-        NextTrainingView nextTraining) {
+        NextTrainingView nextTraining,
+        String usualStartTime) {
 
     public WeeklyTrainingInsightView {
         muscleGroups = muscleGroups == null ? List.of() : List.copyOf(muscleGroups);
@@ -81,6 +83,7 @@ public record WeeklyTrainingInsightView(
                 defaultDays(weekStart, referenceDate),
                 new TodayInsightView(referenceDate, DayKind.OPEN, "Open", DaySource.NONE,
                         null, null, null, null, null, List.of()),
+                null,
                 null);
     }
 

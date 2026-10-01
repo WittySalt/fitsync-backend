@@ -39,6 +39,9 @@ import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,7 +64,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @SpringBootTest(properties = {
         "fitsync.workout.catalog.free-exercise-db.resource=classpath:fixtures/free-exercise-db-exercises.json",
-        "fitsync.workout.catalog.free-exercise-db.image-source-directory=src/test/resources/fixtures/free-exercise-db-images"
+        "fitsync.workout.catalog.free-exercise-db.image-source-directory=src/test/resources/fixtures/free-exercise-db-images",
+        "spring.jpa.properties.hibernate.generate_statistics=true"
 })
 @ActiveProfiles("test")
 @Import(WeeklyTrainingInsightServiceTests.FixedClockConfig.class)
@@ -74,6 +78,9 @@ class WeeklyTrainingInsightServiceTests {
 
     @Autowired
     private WorkoutService workoutService;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     @Autowired
     private ExerciseRepository exerciseRepository;
@@ -447,6 +454,78 @@ class WeeklyTrainingInsightServiceTests {
     private WorkoutExerciseLogInput exerciseLog(UUID exerciseId, int sequence, BigDecimal totalVolumeKg) {
         return new WorkoutExerciseLogInput(
                 exerciseId, sequence, null, null, totalVolumeKg, null, null, null, null, null, List.of());
+    }
+
+    @Test
+    void usualStartTimeIsTheSharedHalfHourWhenThreeSessionsAgree() {
+        seedStartTimes("2026-09-21T18:30", "2026-09-23T18:30", "2026-09-25T18:30");
+        assertEquals("18:30", usualStartTime("Asia/Singapore"));
+    }
+
+    @Test
+    void usualStartTimeRoundsTheMedianToTheNearestHalfHour() {
+        seedStartTimes("2026-09-21T18:10", "2026-09-23T18:40", "2026-09-25T18:50");
+        assertEquals("18:30", usualStartTime("Asia/Singapore"));
+    }
+
+    @Test
+    void usualStartTimeIsNullBelowThreeSessions() {
+        seedStartTimes("2026-09-21T18:30", "2026-09-23T18:30");
+        assertNull(usualStartTime("Asia/Singapore"));
+    }
+
+    @Test
+    void usualStartTimeIsNullWhenTheSessionsDoNotAgree() {
+        seedStartTimes("2026-09-20T06:00", "2026-09-22T12:00", "2026-09-24T18:00", "2026-09-26T22:00");
+        assertNull(usualStartTime("Asia/Singapore"));
+    }
+
+    @Test
+    void usualStartTimeIgnoresSessionsOlderThanTwentyEightDays() {
+        // 2026-09-27 is the reference day, so the window starts on 2026-08-31; 08-29 is 29 days back.
+        seedStartTimes("2026-08-29T18:30", "2026-09-23T18:30", "2026-09-25T18:30");
+        assertNull(usualStartTime("Asia/Singapore"));
+        seedStartTimes("2026-08-31T18:30");
+        assertEquals("18:30", usualStartTime("Asia/Singapore"));
+    }
+
+    @Test
+    void usualStartTimeFollowsTheRequestedTimezone() {
+        Instant tenThirtyUtc = Instant.parse("2026-09-21T10:30:00Z");
+        for (int day = 0; day < 3; day++) {
+            Instant start = tenThirtyUtc.plusSeconds(day * 2L * 86400);
+            createCompletedSessionAtInstants(currentUser, "Zone " + day, WorkoutType.CARDIO,
+                    start, start.plusSeconds(1800), List.of());
+        }
+        assertEquals("18:30", usualStartTime("Asia/Singapore"));
+        assertEquals("10:30", usualStartTime("UTC"));
+    }
+
+    @Test
+    void usualStartTimeAddsNoQueryToTheWeeklyInsight() {
+        seedStartTimes("2026-09-21T18:30", "2026-09-23T18:30", "2026-09-25T18:30");
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+
+        statistics.clear();
+        weeklyTrainingInsightService.getWeeklyTrainingInsight(currentUser, "Asia/Singapore",
+                LocalDate.parse("2026-09-27"));
+        long statements = statistics.getPrepareStatementCount();
+
+        // Active plan, completed sessions, and the wider window the day-by-day
+        // breakdown needs; the usual start time is worked out from the sessions already loaded.
+        assertEquals(3, statements);
+    }
+
+    private String usualStartTime(String timezone) {
+        return weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, timezone, LocalDate.parse("2026-09-27")).usualStartTime();
+    }
+
+    private void seedStartTimes(String... localStarts) {
+        for (String localStart : localStarts) {
+            createCompletedSession(currentUser, "Usual " + localStart, WorkoutType.CARDIO,
+                    LocalDateTime.parse(localStart), 30, List.of());
+        }
     }
 
     private void createCompletedSession(CurrentUserPrincipal user,

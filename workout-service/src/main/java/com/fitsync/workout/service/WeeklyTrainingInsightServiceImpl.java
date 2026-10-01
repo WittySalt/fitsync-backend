@@ -126,7 +126,28 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 volume,
                 weekByDay.days(),
                 weekByDay.today(),
-                weekByDay.nextTraining());
+                weekByDay.nextTraining(),
+                usualStartTime(sessions, zoneId, lookbackStart, referenceDate));
+    }
+
+    /** The usual local start time over the 28-day lookback, from the sessions already loaded (no
+     * extra query). Sessions are picked by their start instant, in the request's timezone. */
+    private String usualStartTime(List<DatedSession> sessions,
+                                  ZoneId zoneId,
+                                  LocalDate lookbackStart,
+                                  LocalDate referenceDate) {
+        List<Instant> starts = new ArrayList<>();
+        for (DatedSession dated : sessions) {
+            Instant startedAt = dated.session().getStartedAt();
+            if (startedAt == null) {
+                continue;
+            }
+            LocalDate startDate = startedAt.atZone(zoneId).toLocalDate();
+            if (!startDate.isBefore(lookbackStart) && !startDate.isAfter(referenceDate)) {
+                starts.add(startedAt);
+            }
+        }
+        return UsualStartTime.compute(starts, zoneId);
     }
 
     /** Resolves the day-by-day breakdown, today's detail and the next training day. Loads its own,
