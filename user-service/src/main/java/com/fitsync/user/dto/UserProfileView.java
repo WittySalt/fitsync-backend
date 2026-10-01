@@ -7,6 +7,7 @@ import com.fitsync.user.domain.ActivityLevel;
 import com.fitsync.user.domain.Gender;
 import com.fitsync.user.domain.MembershipStatus;
 import com.fitsync.user.domain.MembershipTier;
+import com.fitsync.user.domain.PrimaryGoal;
 
 public record UserProfileView(
         String displayName,
@@ -22,5 +23,6 @@ public record UserProfileView(
         String bio,
         MembershipTier membershipTier,
         MembershipStatus membershipStatus,
-        boolean onboardingCompleted) {
+        boolean onboardingCompleted,
+        PrimaryGoal primaryGoal) {
 }

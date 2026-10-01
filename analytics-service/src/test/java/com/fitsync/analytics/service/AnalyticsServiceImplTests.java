@@ -103,6 +103,8 @@ class AnalyticsServiceImplTests {
         snapshot.setLatestBodyFatRate(new BigDecimal("19.80"));
         snapshot.setBmi(new BigDecimal("24.70"));
         snapshot.setWeightChange30d(new BigDecimal("-1.60"));
+        snapshot.setLatestWaistCm(new BigDecimal("85.50"));
+        snapshot.setWaistMeasuredOn(LocalDate.parse("2026-06-12"));
         snapshot.setTodayWorkoutCount(1);
         snapshot.setWeekWorkoutCount(4);
         snapshot.setWeekWorkoutMinutes(205);
@@ -141,6 +143,8 @@ class AnalyticsServiceImplTests {
         assertThat(response.generatedAt()).isEqualTo(Instant.parse("2026-06-14T07:00:00Z"));
         assertThat(response.timezone()).isEqualTo("Asia/Singapore");
         assertThat(response.body().latestWeightKg()).isEqualTo(78.4);
+        assertThat(response.body().latestWaistCm()).isEqualTo(85.5);
+        assertThat(response.body().waistMeasuredAt()).isEqualTo(LocalDate.parse("2026-06-12"));
         assertThat(response.workout().weekWorkoutCount()).isEqualTo(4);
         assertThat(response.nutrition().todayCaloriesConsumed()).isEqualTo(1860);
         assertThat(response.goals()).singleElement()

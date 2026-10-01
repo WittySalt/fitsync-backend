@@ -51,6 +51,11 @@ class AnalyticsRebuildServiceImplTests {
         when(fixture.dashboardSnapshotRepository().findById(USER_ID)).thenReturn(Optional.of(snapshot));
         when(fixture.dailyBodyRepository().findTopByUserIdOrderByMetricDateDesc(USER_ID))
                 .thenReturn(Optional.of(bodyMetrics()));
+        AnalyticsUserDailyBodyEntity waistRow = bodyMetrics();
+        waistRow.setMetricDate(TODAY.minusDays(2));
+        waistRow.setWaistCm(new BigDecimal("84.00"));
+        when(fixture.dailyBodyRepository().findTopByUserIdAndWaistCmIsNotNullOrderByMetricDateDesc(USER_ID))
+                .thenReturn(Optional.of(waistRow));
         when(fixture.dailyNutritionRepository().findByUserIdAndActivityDate(USER_ID, TODAY))
                 .thenReturn(Optional.of(nutritionRow(700, "48.50")));
         when(fixture.dailyWorkoutRepository()
@@ -74,6 +79,8 @@ class AnalyticsRebuildServiceImplTests {
         assertThat(saved.getLatestBodyFatRate()).isEqualByComparingTo("19.80");
         assertThat(saved.getBmi()).isEqualByComparingTo("24.70");
         assertThat(saved.getWeightChange30d()).isEqualByComparingTo("-1.60");
+        assertThat(saved.getLatestWaistCm()).isEqualByComparingTo("84.00");
+        assertThat(saved.getWaistMeasuredOn()).isEqualTo(TODAY.minusDays(2));
         assertThat(saved.getTodayCaloriesConsumed()).isEqualTo(700);
         assertThat(saved.getTodayCaloriesTarget()).isEqualTo(2100);
         assertThat(saved.getTodayProteinGrams()).isEqualByComparingTo("48.50");

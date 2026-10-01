@@ -77,9 +77,65 @@ class BodyMetricsRecordedEventConsumerTests {
                 .satisfies(snapshot -> {
                     assertThat(snapshot.getLatestWeightKg()).isEqualByComparingTo("78.40");
                     assertThat(snapshot.getLatestBodyFatRate()).isEqualByComparingTo("19.80");
+                    assertThat(snapshot.getLatestWaistCm()).isEqualByComparingTo("85.50");
+                    assertThat(snapshot.getWaistMeasuredOn()).isEqualTo(LocalDate.parse("2026-06-14"));
                 });
 
         assertThat(processedEventRepository.findById(eventId)).isPresent();
+    }
+
+    @Test
+    void eventWithoutWaistStillWorksAndKeepsEarlierWaistOnTheSnapshot() {
+        UUID userId = UUID.randomUUID();
+
+        consumer.consume(bodyEvent(userId, "2026-06-13T03:50:00Z", "80.00", "84.00"));
+        consumer.consume(bodyEvent(userId, "2026-06-14T03:50:00Z", "79.50", null));
+
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId).orElseThrow();
+        assertThat(snapshot.getLatestWeightKg()).isEqualByComparingTo("79.50");
+        assertThat(snapshot.getLatestWaistCm()).isEqualByComparingTo("84.00");
+        assertThat(snapshot.getWaistMeasuredOn()).isEqualTo(LocalDate.parse("2026-06-13"));
+    }
+
+    @Test
+    void eventWithoutWaistLeavesSnapshotWaistEmptyForANewUser() {
+        UUID userId = UUID.randomUUID();
+
+        consumer.consume(bodyEvent(userId, "2026-06-14T03:50:00Z", "79.50", null));
+
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId).orElseThrow();
+        assertThat(snapshot.getLatestWaistCm()).isNull();
+        assertThat(snapshot.getWaistMeasuredOn()).isNull();
+    }
+
+    @Test
+    void olderWaistEventArrivingLateDoesNotReplaceTheNewerWaist() {
+        UUID userId = UUID.randomUUID();
+
+        consumer.consume(bodyEvent(userId, "2026-06-14T03:50:00Z", "79.50", "83.00"));
+        consumer.consume(bodyEvent(userId, "2026-06-10T03:50:00Z", "81.00", "86.00"));
+
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId).orElseThrow();
+        assertThat(snapshot.getLatestWaistCm()).isEqualByComparingTo("83.00");
+        assertThat(snapshot.getWaistMeasuredOn()).isEqualTo(LocalDate.parse("2026-06-14"));
+    }
+
+    private FitSyncDomainEvent<BodyMetricsRecordedPayload> bodyEvent(UUID userId, String measuredAt,
+                                                                    String weight, String waist) {
+        Instant measured = Instant.parse(measuredAt);
+        return new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "BodyMetricsRecorded",
+                1,
+                measured.plusSeconds(600),
+                "user-service",
+                userId,
+                new BodyMetricsRecordedPayload(
+                        UUID.randomUUID(),
+                        new BigDecimal(weight),
+                        null,
+                        waist == null ? null : new BigDecimal(waist),
+                        measured));
     }
 
     @Test

@@ -13,6 +13,7 @@ import com.fitsync.user.domain.Gender;
 import com.fitsync.user.domain.IntensityPreference;
 import com.fitsync.user.domain.LanguagePreference;
 import com.fitsync.user.domain.MacroPreference;
+import com.fitsync.user.domain.PrimaryGoal;
 import com.fitsync.user.domain.PrivacyLevel;
 import com.fitsync.user.domain.TrainingEquipment;
 import com.fitsync.user.domain.TrainingFocusArea;
@@ -59,7 +60,8 @@ public record CompleteOnboardingRequest(
         boolean workoutReminderEnabled,
         boolean mealReminderEnabled,
         boolean weighInReminderEnabled,
-        @Valid UpsertHealthReadinessRequest healthReadiness) {
+        @Valid UpsertHealthReadinessRequest healthReadiness,
+        PrimaryGoal primaryGoal) {
 
     public CompleteOnboardingRequest {
         equipmentInventory = equipmentInventory == null ? List.of() : List.copyOf(equipmentInventory);

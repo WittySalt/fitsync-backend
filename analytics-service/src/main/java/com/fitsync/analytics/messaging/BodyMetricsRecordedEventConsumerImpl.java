@@ -81,6 +81,7 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
         snapshot.setLatestWeightKg(payload.weightKg());
         snapshot.setLatestBodyFatRate(payload.bodyFatRate());
         snapshot.setWeightChange30d(resolveWeightChange30d(event.userId(), metricDate, payload.weightKg()));
+        applyLatestWaist(snapshot, payload.waistCm(), metricDate);
         snapshot.setGeneratedAt(generatedAt);
         dashboardSnapshotRepository.save(snapshot);
 
@@ -126,6 +127,24 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
                 .filter(baseline -> baseline != null)
                 .map(weightKg::subtract)
                 .orElse(null);
+    }
+
+    /**
+     * The waist is optional on the event and many entries carry weight only, so an absent waist
+     * leaves the earlier one in place. A measurement dated before the stored waist is ignored so a
+     * late-arriving older event cannot roll the figure back.
+     */
+    private void applyLatestWaist(AnalyticsUserDashboardSnapshotEntity snapshot, BigDecimal waistCm,
+                                  LocalDate metricDate) {
+        if (waistCm == null) {
+            return;
+        }
+        LocalDate current = snapshot.getWaistMeasuredOn();
+        if (current != null && metricDate.isBefore(current)) {
+            return;
+        }
+        snapshot.setLatestWaistCm(waistCm);
+        snapshot.setWaistMeasuredOn(metricDate);
     }
 
     private Instant resolveOccurredAt(Instant occurredAt, Instant measuredAt) {
