@@ -270,8 +270,9 @@ public class NutritionServiceImpl implements NutritionService {
     @Transactional
     public void deleteMeal(CurrentUserPrincipal principal, UUID mealId) {
         MealLogEntity meal = getOwnedMeal(principal.userId(), mealId);
-        mealItemRepository.deleteByMealId(meal.getMealId());
-        mealLogRepository.delete(meal);
+        // The meal and its items stay in the table, marked as deleted, and every read leaves them out.
+        meal.setDeletedAt(Instant.now(Clock.systemUTC()));
+        mealLogRepository.save(meal);
         domainEventPublisher.publish(NUTRITION_EVENTS_TOPIC, "MealLog", meal.getMealId().toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
                 "MealDeleted",

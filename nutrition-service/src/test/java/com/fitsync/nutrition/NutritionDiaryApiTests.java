@@ -1,5 +1,8 @@
 package com.fitsync.nutrition;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -26,6 +29,8 @@ import com.fitsync.nutrition.repository.FoodServingRepository;
 import com.fitsync.nutrition.repository.MealItemNutrientDetailRepository;
 import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealLogRepository;
+import com.fitsync.nutrition.messaging.AccountDeletionProjectionService;
+import com.fitsync.nutrition.messaging.repository.OutboxEventRepository;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +39,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -51,6 +57,15 @@ class NutritionDiaryApiTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
+    @Autowired
+    private AccountDeletionProjectionService accountDeletionProjectionService;
 
     @Autowired
     private MealLogRepository mealLogRepository;
@@ -78,6 +93,11 @@ class NutritionDiaryApiTests {
 
     @BeforeEach
     void clearData() {
+        outboxEventRepository.deleteAll();
+        // Meals marked as deleted are hidden from the repositories, so the tables are emptied directly.
+        jdbcTemplate.update("delete from meal_item_nutrient_details");
+        jdbcTemplate.update("delete from meal_items");
+        jdbcTemplate.update("delete from meal_logs");
         mealItemNutrientDetailRepository.deleteAll();
         mealItemRepository.deleteAll();
         mealLogRepository.deleteAll();
@@ -181,8 +201,112 @@ class NutritionDiaryApiTests {
                 .andExpect(jsonPath("$.items[0].nutrientDetails[0].nutrientCode").value("VIT_C"));
     }
 
+    @Test
+    void deletingAMealMarksItAndEveryReadLeavesItOut() throws Exception {
+        String token = tokenFor("softdelete@example.com");
+        Seeded banana = seedFood("Banana", "FRUITS", false, "g", 89, "0.1", null, Map.of());
+        banana.addServing("100 g", "g", "100", "100");
+        String kept = logMeal(token, banana, "2026-06-11T08:00:00Z");
+        String removed = logMeal(token, banana, "2026-06-11T12:00:00Z");
+
+        mockMvc.perform(delete(BASE + "/meals/{id}", removed).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get(BASE + "/meals/{id}", removed).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get(BASE + "/meals").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-11T00:00:00Z").param("to", "2026-06-11T23:59:59Z"))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].mealId").value(kept));
+        mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                .andExpect(jsonPath("$.mealCount").value(1))
+                .andExpect(jsonPath("$.totalCalories").value(89));
+        mockMvc.perform(get(BASE + "/foods/recent").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$[0].timesLogged").value(1));
+        mockMvc.perform(get(BASE + "/export").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-11T00:00:00Z").param("to", "2026-06-11T23:59:59Z"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString().trim().split("\n"))
+                        .hasSize(2));
+        // Deleting it again is a not-found, like deleting any meal that is gone.
+        mockMvc.perform(delete(BASE + "/meals/{id}", removed).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deletingAMealKeepsTheRowAndStillPublishesMealDeleted() throws Exception {
+        String token = tokenFor("softdelete-row@example.com");
+        Seeded banana = seedFood("Banana", "FRUITS", false, "g", 89, "0.1", null, Map.of());
+        banana.addServing("100 g", "g", "100", "100");
+        String mealId = logMeal(token, banana, "2026-06-11T08:00:00Z");
+
+        mockMvc.perform(delete(BASE + "/meals/{id}", mealId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        Integer markedRows = jdbcTemplate.queryForObject(
+                "select count(*) from meal_logs where meal_id = ? and deleted_at is not null", Integer.class,
+                UUID.fromString(mealId));
+        Integer events = jdbcTemplate.queryForObject(
+                "select count(*) from outbox_events where event_type = 'MealDeleted'", Integer.class);
+        assertThat(markedRows).isEqualTo(1);
+        assertThat(events).isEqualTo(1);
+    }
+
+    @Test
+    void anotherUserCannotDeleteAMeal() throws Exception {
+        String owner = tokenFor("owner@example.com");
+        String stranger = tokenFor("stranger@example.com");
+        Seeded banana = seedFood("Banana", "FRUITS", false, "g", 89, "0.1", null, Map.of());
+        banana.addServing("100 g", "g", "100", "100");
+        String mealId = logMeal(owner, banana, "2026-06-11T08:00:00Z");
+
+        mockMvc.perform(delete(BASE + "/meals/{id}", mealId).header("Authorization", "Bearer " + stranger))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get(BASE + "/meals/{id}", mealId).header("Authorization", "Bearer " + owner))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void anAccountPurgeAlsoRemovesMealsThatWereAlreadyDeleted() throws Exception {
+        String token = tokenFor("purge@example.com");
+        UUID userId = UUID.fromString(userIdOf(token));
+        Seeded banana = seedFood("Banana", "FRUITS", false, "g", 89, "0.1", null, Map.of("VIT_C", "8.7"));
+        banana.addServing("100 g", "g", "100", "100");
+        logMeal(token, banana, "2026-06-11T08:00:00Z");
+        String removed = logMeal(token, banana, "2026-06-11T12:00:00Z");
+        mockMvc.perform(delete(BASE + "/meals/{id}", removed).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        accountDeletionProjectionService.deleteUserData(userId);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from meal_logs where user_id = ?", Integer.class, userId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from meal_items", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from meal_item_nutrient_details", Integer.class)).isZero();
+    }
+
     // ---------------------------------------------------------------------------------------------
     // helpers
+
+    private String logMeal(String token, Seeded food, String consumedAt) throws Exception {
+        String body = mockMvc.perform(post(BASE + "/meals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(mealJson("SNACK", consumedAt, food, food.servingIds.keySet().iterator().next(), "1")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return com.jayway.jsonpath.JsonPath.read(body, "$.mealId");
+    }
+
+    private String userIdOf(String token) {
+        return Jwts.parser()
+                .verifyWith(Keys.hmacShaKeyFor("test-secret-test-secret-test-secret-123456".getBytes(StandardCharsets.UTF_8)))
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get("userId", String.class);
+    }
 
     private void ensureCategory(String code, String foodGroup) {
         if (!foodCategoryRepository.findByCodeInAndActiveTrue(java.util.List.of(code)).isEmpty()) {
