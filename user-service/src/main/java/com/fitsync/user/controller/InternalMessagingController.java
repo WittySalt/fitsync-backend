@@ -5,6 +5,7 @@ import java.time.Instant;
 import com.fitsync.user.dto.OutboxPendingResponse;
 import com.fitsync.user.dto.OutboxRelayResponse;
 import com.fitsync.user.dto.GoalReconcileResponse;
+import com.fitsync.user.dto.PersonFactsReconcileResponse;
 import com.fitsync.user.messaging.OutboxEventRelay;
 import com.fitsync.user.messaging.OutboxEventStatus;
 import com.fitsync.user.messaging.entity.OutboxEventEntity;
@@ -56,6 +57,15 @@ public class InternalMessagingController {
                 .map(OutboxEventEntity::getDateTimeCreated)
                 .orElse(null);
         return ResponseEntity.ok(new OutboxPendingResponse(pending, oldestCreatedAt));
+    }
+
+    /**
+     * Republishes the profile, the preferences and the latest weight of every user, so that the projections of
+     * other services are filled once for users who have not changed anything since those projections existed.
+     */
+    @PostMapping("/profiles/reconcile")
+    public ResponseEntity<PersonFactsReconcileResponse> reconcilePersonFacts() {
+        return ResponseEntity.ok(userService.republishPersonFacts());
     }
 
     @PostMapping("/goals/reconcile")

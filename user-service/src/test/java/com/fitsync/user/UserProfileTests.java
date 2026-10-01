@@ -1187,6 +1187,113 @@ class UserProfileTests {
         assertTrue(activeGoals >= 1);
     }
 
+    @Test
+    void profileEventsCarryGenderAndBirthDate() throws Exception {
+        String token = tokenFor("gender-event@example.com", "Gender Event");
+        mockMvc.perform(put("/api/v1/users/me/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Gender Event",
+                                  "birthDate": "1990-05-20",
+                                  "gender": "FEMALE",
+                                  "heightCm": 168.0,
+                                  "onboardingCompleted": true
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        var events = outboxEventRepository.findAll().stream()
+                .filter(event -> "UserProfileUpdated".equals(event.getEventType()))
+                .toList();
+        assertEquals(1, events.size());
+        assertTrue(events.get(0).getPayload().contains("\"gender\":\"FEMALE\""));
+        assertTrue(events.get(0).getPayload().contains("\"birthDate\":\"1990-05-20\""));
+    }
+
+    @Test
+    void personFactsReconcileRejectsOrdinaryUserRole() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/profiles/reconcile")
+                        .with(user("plain-user").roles("USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void personFactsReconcileRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/profiles/reconcile"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void adminPersonFactsReconcileRepublishesProfilePreferencesAndLatestWeight() throws Exception {
+        UUID factsUserId = UUID.randomUUID();
+        String token = tokenFor(factsUserId, "facts@example.com", "Facts User");
+        mockMvc.perform(put("/api/v1/users/me/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "displayName": "Facts User",
+                                  "birthDate": "1988-02-01",
+                                  "gender": "MALE",
+                                  "heightCm": 180.0,
+                                  "onboardingCompleted": true
+                                }
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/api/v1/users/me/preferences")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "app": {"preferredUnits": "100002", "language": "110002", "timezone": "Asia/Singapore",
+                                          "privacyLevel": "120002", "dataSharingConsent": true},
+                                  "training": {"fitnessLevel": "200002", "trainingLocation": "210002", "weeklyWorkoutDays": 3,
+                                               "preferredDurationMinutes": 45, "preferredWorkoutTime": "19:30:00",
+                                               "intensityPreference": "220003", "equipmentInventory": ["230002"],
+                                               "focusAreas": ["240001"]},
+                                  "nutrition": {"dietaryPattern": "300003", "mealFrequency": 3,
+                                                "calorieTrackingMode": "310003", "macroPreference": "320002",
+                                                "waterGoalMl": 2500},
+                                  "notifications": {"pushEnabled": true, "emailEnabled": true, "workoutReminderEnabled": true,
+                                                    "mealReminderEnabled": true, "weighInReminderEnabled": true,
+                                                    "goalProgressReminderEnabled": true, "weeklyProgressReportEnabled": true,
+                                                    "weeklyProgressReportChannel": "EMAIL", "marketingEmailsEnabled": false,
+                                                    "quietHoursStart": "22:00:00", "quietHoursEnd": "07:00:00"}
+                                }
+                                """))
+                .andExpect(status().isOk());
+        for (String weight : new String[] {"82.0", "80.5"}) {
+            mockMvc.perform(post("/api/v1/users/me/body-metrics")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + token)
+                            .content("""
+                                    {"weightKg": %s, "measuredAt": "%s", "source": "MANUAL"}
+                                    """.formatted(weight, "82.0".equals(weight) ? "2026-06-10T08:00:00Z" : "2026-06-11T08:00:00Z")))
+                    .andExpect(status().isCreated());
+        }
+        outboxEventRepository.deleteAll();
+
+        mockMvc.perform(post("/api/v1/internal/profiles/reconcile")
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profilesPublished").value(userProfileRepository.count()))
+                .andExpect(jsonPath("$.preferencesPublished").isNumber())
+                .andExpect(jsonPath("$.bodyMetricsPublished").isNumber());
+
+        var events = outboxEventRepository.findAll();
+        assertTrue(events.stream().anyMatch(event -> "UserProfileUpdated".equals(event.getEventType())
+                && event.getPayload().contains("\"gender\":\"MALE\"")));
+        assertTrue(events.stream().anyMatch(event -> "UserPreferencesUpdated".equals(event.getEventType())));
+        var weights = events.stream()
+                .filter(event -> "BodyMetricsRecorded".equals(event.getEventType()))
+                .filter(event -> factsUserId.equals(event.getUserId()))
+                .toList();
+        assertEquals(1, weights.size());
+        assertTrue(weights.get(0).getPayload().contains("80.5"));
+    }
+
     private String tokenFor(String email, String displayName) {
         return tokenFor(UUID.randomUUID(), email, displayName);
     }

@@ -14,6 +14,8 @@ public interface BodyMetricEntryRepository extends JpaRepository<BodyMetricEntry
 
     Optional<BodyMetricEntryEntity> findTopByUserIdOrderByMeasuredAtDesc(UUID userId);
 
+    Optional<BodyMetricEntryEntity> findTopByUserIdAndWeightKgIsNotNullOrderByMeasuredAtDesc(UUID userId);
+
     Optional<BodyMetricEntryEntity> findTopByUserIdAndWeightKgIsNotNullAndMeasuredAtLessThanOrderByMeasuredAtDesc(
             UUID userId, Instant before);
 

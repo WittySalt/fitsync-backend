@@ -7,5 +7,7 @@
     "displayName",
     "timezone"
   ],
-  "timezone": "Asia/Singapore"
+  "timezone": "Asia/Singapore",
+  "gender": "FEMALE",
+  "birthDate": "1995-04-12"
 }

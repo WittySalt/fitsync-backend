@@ -12,6 +12,7 @@ import com.fitsync.user.domain.GoalType;
 import com.fitsync.user.dto.BodyMetricTrendResponse;
 import com.fitsync.user.dto.BodyMetricView;
 import com.fitsync.user.dto.CompleteOnboardingRequest;
+import com.fitsync.user.dto.PersonFactsReconcileResponse;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
 import com.fitsync.user.dto.HealthReadinessView;
@@ -74,6 +75,8 @@ public interface UserService {
     ProgressInsightResponse getProgressInsight(CurrentUserPrincipal principal, ZoneId zone);
 
     int republishActiveGoals();
+
+    PersonFactsReconcileResponse republishPersonFacts();
 
     void deleteCurrentUser(CurrentUserPrincipal principal);
 }
