@@ -20,7 +20,7 @@ enable_rds = true
 enable_ec2 = true
 
 # Existing EC2 key pair name (create once: `aws ec2 create-key-pair --key-name
-# fitsync-staging ...`). Empty = no SSH key on the instance (deploy_staging_app
+# fitsync-staging ...`). Empty = no SSH key on the instance (deploy-staging-app
 # would not be able to connect).
 ec2_key_name = "fitsync-staging"
 

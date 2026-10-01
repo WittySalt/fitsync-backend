@@ -20,7 +20,7 @@ resource "aws_iam_role_policy_attachment" "ec2_ecr_pull" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
-# Lets the GitLab `deploy_prod` job drive the host over SSM Run Command.
+# Lets the CD `deploy-prod` job drive the host over SSM Run Command.
 resource "aws_iam_role_policy_attachment" "ec2_ssm" {
   role       = aws_iam_role.ec2_app.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
@@ -32,7 +32,7 @@ resource "aws_iam_instance_profile" "ec2_app" {
 }
 
 # ── CI deploy policy: push images + trigger SSM deploy (free) ─────────────────
-# Attach this to your GitLab CI principal (OIDC role or CI IAM user).
+# Attach this to your GitHub Actions principal (the OIDC role in AWS_ROLE_ARN).
 data "aws_iam_policy_document" "ci_deploy" {
   statement {
     sid = "EcrAuth"

@@ -24,7 +24,7 @@ resource "aws_instance" "app" {
   key_name               = var.ec2_key_name != "" ? var.ec2_key_name : null
 
   # Mirrors the bootstrap in backend/scripts/ec2-deploy.sh: install docker +
-  # compose plugin so the GitLab deploy job can render docker-compose.prod.yml.
+  # compose plugin so the CD deploy job can render docker-compose.prod.yml.
   user_data = <<-EOF
     #!/bin/bash
     set -euo pipefail

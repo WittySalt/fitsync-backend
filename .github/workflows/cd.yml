@@ -1,19 +1,17 @@
-# CD: provision, deploy, verify, promote (ported from .gitlab/cd.yml).
+# CD: provision, deploy, verify, promote.
 #
 # DORMANT BY DEFAULT. Every job is gated on the `AWS_ROLE_ARN` *repository
 # variable* (Settings → Secrets and variables → Actions → Variables). While it is
-# empty, the whole pipeline is skipped and the repo stays green — exactly like the
-# GitLab `$AWS_ROLE_ARN` gate. Set it (plus the secrets listed in each job) to
-# enable deployment once AWS is provisioned again.
+# empty, the whole pipeline is skipped and the repo stays green. Set it (plus the
+# secrets listed in each job) to enable deployment once AWS is provisioned again.
 #
 # AWS auth uses GitHub OIDC (no static keys). The IAM role in AWS_ROLE_ARN must
 # trust GitHub's OIDC provider:
 #   Provider : token.actions.githubusercontent.com
 #   Audience : sts.amazonaws.com
 #   Subject  : repo:WittySalt/fitsync-backend:*
-# (The old role trusted GitLab's OIDC — update the trust policy when re-wiring.)
 #
-# Flow mirrors GitLab: iac → docker → deploy-staging cascade → stress/DAST → prod.
+# Flow: iac → docker → deploy-staging cascade → stress/DAST → prod.
 name: CD
 
 on:
@@ -358,7 +356,7 @@ jobs:
 
   # ── promote to production ───────────────────────────────────────────────────
   # Add required reviewers to the `production` Environment for the manual
-  # confirmation gate (GitLab `when: manual` / manual_confirmation).
+  # confirmation gate.
   deploy-prod:
     if: ${{ vars.AWS_ROLE_ARN != '' && vars.PROD_EC2_HOST != '' }}
     runs-on: ubuntu-latest

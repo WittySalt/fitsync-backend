@@ -1,32 +1,33 @@
 # FitSync Backend — AWS Deployment Runbook
 
 Single-host (EC2 + docker-compose) deployment that lights up the **gated**
-`docker_image` and `deploy_prod` jobs in [`.gitlab-ci.yml`](.gitlab-ci.yml).
+`docker-image` and `deploy-prod` jobs in [`.github/workflows/cd.yml`](.github/workflows/cd.yml)
+(full variable/secret reference: [`.github/CICD-VARIABLES.md`](.github/CICD-VARIABLES.md)).
 Region: **ap-southeast-1 (Singapore)**. Everything below is one-time setup; after
-it, every push to `main` builds 6 images and a manual click deploys them.
+it, every push to `main` builds 6 images and deploys them (behind the `production`
+Environment's approval gate, if you add required reviewers).
 
 > The pipeline stays gated (green, jobs skipped) until the **`AWS_ROLE_ARN`**
-> CI/CD variable is set. Set it last, on purpose.
+> repository variable is set. Set it last, on purpose.
 
 ## What runs where
 
 - **6 images** in ECR: `fitsync-{api-gateway,auth-service,user-service,workout-service,nutrition-service,analytics-service}`
 - **EC2** (t3.medium, Amazon Linux 2023): runs all 6 + a `redis` container, via `/opt/fitsync/docker-compose.prod.yml`
 - **RDS PostgreSQL**: one DB `fitsync`, 5 schemas (`auth`, `user_domain`, `workout`, `nutrition`, `analytics`) auto-created by Flyway
-- CI authenticates to AWS via **GitLab OIDC → IAM role** (no static keys). The EC2 host pulls from ECR via its **instance role**.
+- CI authenticates to AWS via **GitHub OIDC → IAM role** (no static keys). The EC2 host pulls from ECR via its **instance role**.
 
 Set these shell vars first to paste the commands as-is:
 ```bash
 export AWS_REGION=ap-southeast-1
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export PROJECT=fitsyncs/fitsync-backend      # your GitLab path
 ```
 
 ---
 
 ## 1. ECR (image registry)
 
-The `docker_image` job auto-creates each repo on first push, so this is optional —
+The `docker-image` job auto-creates each repo on first push, so this is optional —
 but you can pre-create them:
 ```bash
 for s in api-gateway auth-service user-service workout-service nutrition-service analytics-service; do
@@ -35,33 +36,33 @@ for s in api-gateway auth-service user-service workout-service nutrition-service
 done
 ```
 
-## 2. IAM — GitLab OIDC role (lets CI assume AWS)
+## 2. IAM — GitHub OIDC role (lets CI assume AWS)
 
-**2a. Register GitLab as an OIDC provider** (once per account):
+**2a. Register GitHub Actions as an OIDC provider** (once per account):
 ```bash
 aws iam create-open-id-connect-provider \
-  --url https://gitlab.com \
+  --url https://token.actions.githubusercontent.com \
   --client-id-list sts.amazonaws.com
 ```
 
-**2b. Trust policy** — only `main` pipelines of *your* project may assume it.
+**2b. Trust policy** — only workflows of *your* repository may assume it.
 Save as `trust.json` (replace `<ACCOUNT_ID>`):
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
-    "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/gitlab.com" },
+    "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com" },
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {
-      "StringEquals": { "gitlab.com:aud": "sts.amazonaws.com" },
-      "StringLike": { "gitlab.com:sub": "project_path:fitsyncs/fitsync-backend:ref_type:branch:ref:main" }
+      "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+      "StringLike": { "token.actions.githubusercontent.com:sub": "repo:WittySalt/fitsync-backend:*" }
     }
   }]
 }
 ```
 ```bash
-aws iam create-role --role-name fitsync-gitlab-ci --assume-role-policy-document file://trust.json
+aws iam create-role --role-name fitsync-github-ci --assume-role-policy-document file://trust.json
 ```
 
 **2c. Permissions** — push to ECR + create repos. Save as `ci-policy.json`:
@@ -79,10 +80,10 @@ aws iam create-role --role-name fitsync-gitlab-ci --assume-role-policy-document 
 }
 ```
 ```bash
-aws iam put-role-policy --role-name fitsync-gitlab-ci \
+aws iam put-role-policy --role-name fitsync-github-ci \
   --policy-name ecr-push --policy-document file://ci-policy.json
-# -> note the role ARN; it becomes the AWS_ROLE_ARN CI/CD variable
-aws iam get-role --role-name fitsync-gitlab-ci --query Role.Arn --output text
+# -> note the role ARN; it becomes the AWS_ROLE_ARN repository variable
+aws iam get-role --role-name fitsync-github-ci --query Role.Arn --output text
 ```
 
 ## 3. IAM — EC2 instance role (lets the host pull from ECR)
@@ -130,8 +131,9 @@ export RDS_SG=$(aws ec2 create-security-group --group-name fitsync-rds \
   --description "FitSync RDS" --vpc-id "$VPC_ID" --query GroupId --output text)
 aws ec2 authorize-security-group-ingress --group-id "$RDS_SG" --protocol tcp --port 5432 --source-group "$EC2_SG"
 ```
-> SSH 22 is `0.0.0.0/0` because GitLab SaaS runners have dynamic IPs. It's
-> key-only (no password). Tighten to GitLab's published IP ranges if you want.
+> SSH 22 is `0.0.0.0/0` because GitHub-hosted runners have dynamic IPs. It's
+> key-only (no password). Tighten to GitHub's published Actions IP ranges
+> (`https://api.github.com/meta`) if you want.
 
 ## 5. RDS PostgreSQL
 
@@ -169,7 +171,7 @@ aws rds describe-db-instances --db-instance-identifier fitsync-prod \
 ## 6. EC2 instance
 
 ```bash
-# ed25519 key pair — keep the private key for the GitLab variable
+# ed25519 key pair — keep the private key for the PROD_EC2_SSH_KEY secret
 aws ec2 create-key-pair --key-name fitsync --key-type ed25519 \
   --query KeyMaterial --output text > fitsync_ed25519
 chmod 600 fitsync_ed25519
@@ -200,17 +202,18 @@ aws ec2 describe-addresses --allocation-ids "$EIP_ALLOC" --query 'Addresses[0].P
 ```
 - `PROD_EC2_HOST` = that Elastic IP (or a DNS A record pointing at it).
 
-## 7. GitLab CI/CD variables (the bridge — Settings → CI/CD → Variables)
+## 7. GitHub Actions variables & secrets (the bridge — Settings → Secrets and variables → Actions)
 
-Set on the **fitsync-backend** project. Mark secrets **Masked**, and everything
-**Protected** (only protected branches/main can read them).
+Set on the **fitsync-backend** repository. Rows marked **Secret = yes** go under
+*Secrets*; the rest under *Variables*. See [`.github/CICD-VARIABLES.md`](.github/CICD-VARIABLES.md)
+for which job reads each one and `gh` one-liners.
 
-| Variable | Value | Masked | Notes |
+| Name | Value | Secret | Notes |
 |---|---|---|---|
-| `AWS_ROLE_ARN` | arn of `fitsync-gitlab-ci` (step 2c) | no | **set LAST — this un-gates the pipeline** |
+| `AWS_ROLE_ARN` | arn of `fitsync-github-ci` (step 2c) | no | **set LAST — this un-gates the pipeline** |
 | `AWS_REGION` | `ap-southeast-1` | no | |
-| `AWS_ACCOUNT_ID` | your 12-digit account id | yes | |
-| `DB_URL` | `jdbc:postgresql://<rds>:5432/fitsync` | no | shared (one db) |
+| `AWS_ACCOUNT_ID` | your 12-digit account id | no | |
+| `DB_URL` | `jdbc:postgresql://<rds>:5432/fitsync` | yes | shared (one db) |
 | `AUTH_DB_PASSWORD` | password for DB user `auth_svc` | yes | per-service least-privilege user |
 | `USER_DB_PASSWORD` | password for DB user `user_svc` | yes | |
 | `WORKOUT_DB_PASSWORD` | password for DB user `workout_svc` | yes | |
@@ -219,11 +222,11 @@ Set on the **fitsync-backend** project. Mark secrets **Masked**, and everything
 | `JWT_SECRET` | long random string | yes | `openssl rand -base64 48` |
 | `PROD_EC2_HOST` | the Elastic IP | no | |
 | `PROD_EC2_SSH_KEY` | contents of `fitsync_ed25519` | yes | the **private** key, full file |
-| `PROD_DOMAIN` | your domain (optional, for TLS/smoke) | no | leave unset until you add DNS |
+| `PROD_DOMAIN` | your domain (optional, for nginx/TLS) | no | leave unset until you add DNS |
 
 Media / images (only if you want exercise images + avatars — see §8.5):
 
-| Variable | Value | Masked | Notes |
+| Name | Value | Secret | Notes |
 |---|---|---|---|
 | `FITSYNC_MEDIA_ENDPOINT` | `https://s3.ap-southeast-1.amazonaws.com` | no | S3 API the SDK writes through (path-style) |
 | `FITSYNC_MEDIA_REGION` | `ap-southeast-1` | no | defaults to this if unset |
@@ -231,20 +234,23 @@ Media / images (only if you want exercise images + avatars — see §8.5):
 | `FITSYNC_MEDIA_SECRET_KEY` | IAM user secret | yes | |
 | `FITSYNC_MEDIA_BUCKET` | `fitsync-media` | no | defaults to this if unset |
 | `FITSYNC_MEDIA_PUBLIC_BASE_URL` | `https://fitsync-media.s3.ap-southeast-1.amazonaws.com` | no | browser-reachable **https** base baked into stored URLs |
-| `FREE_EXERCISE_DB_IMAGES_DIR` | `/opt/fitsync/free-exercise-db/exercises` | no | host dir mounted into workout-service (§8.5) |
 
+> The workout-service image dir is fixed to `/opt/fitsync/free-exercise-db/exercises`
+> by `cd.yml` (see §8.5 d).
+>
 > Leave all of these unset and the services still boot, but they fall back to the
 > local-dev MinIO defaults (`localhost:9000`) — there is no MinIO in this prod
 > stack, so **every image silently stays broken.** That is the default state.
 
-Optional: `JWT_EXPIRATION` (default `PT2H`), `SPRING_CACHE_TYPE`, `COGNITO_ENABLED`,
-`PROD_IMAGE_TAG` (deploy a specific tag instead of latest commit), `RUN_PROD_SMOKE`.
+Optional: `COGNITO_ENABLED` (`true`/`false`, default `false`). `JWT_EXPIRATION` (`PT2H`)
+and `SPRING_CACHE_TYPE` (`simple`) are fixed in the rendered `.env` — edit `cd.yml` to change them.
 
 ## 8. First deploy
 
-1. Set all variables above **except** `AWS_ROLE_ARN`. Confirm `main` pipeline is green (AWS jobs skipped).
-2. Set `AWS_ROLE_ARN`. Push to `main` (or re-run) → `docker_image` builds + pushes all 6 images to ECR.
-3. Pipeline → `deploy_prod` job → **Run** (manual, asks for confirmation).
+1. Set all variables/secrets above **except** `AWS_ROLE_ARN`. Confirm the `main` CD run is green (AWS jobs skipped).
+2. Set `AWS_ROLE_ARN`. Push to `main` (or Actions → CD → **Run workflow**) → `docker-image` builds + pushes all 6 images to ECR.
+3. `deploy-prod` runs after `docker-image` (it needs `PROD_EC2_HOST` set). For a manual
+   confirmation step, add required reviewers to the `production` Environment.
    - First run auto-installs Docker + compose + aws-cli on the host, renders `/opt/fitsync/.env` from the variables, pulls from ECR, `compose up --wait`, health-gates the gateway, writes the rollback tag.
 4. Check: `curl http://<EIP>:8088/actuator/health` → `{"status":"UP"}`.
 
@@ -306,7 +312,7 @@ aws iam create-access-key --user-name fitsync-media-writer
 # -> AccessKeyId  -> FITSYNC_MEDIA_ACCESS_KEY,  SecretAccessKey -> FITSYNC_MEDIA_SECRET_KEY
 ```
 
-**c. Set the 7 media CI/CD variables** from the table in §7 (mark the secret key Masked).
+**c. Set the 6 media variables/secrets** from the table in §7 (access + secret key as Secrets).
 
 **d. Put the source images on the EC2 host** (one-time, ~90MB; not committed to the repo):
 ```bash
@@ -339,7 +345,7 @@ Avatars need no seeding — they upload on demand once `user-service` has the me
 
 ## 9. TLS / nginx (optional follow-up)
 
-`deploy_prod` brings up the 6 services + redis but **not nginx** (a fresh host has
+`deploy-prod` brings up the 6 services + redis but **not nginx** (a fresh host has
 no certs). To add HTTPS:
 ```bash
 ssh -i fitsync_ed25519 ec2-user@<EIP>
@@ -347,7 +353,7 @@ sudo dnf install -y certbot
 sudo certbot certonly --standalone -d <your-domain>   # needs PROD_DOMAIN DNS A -> EIP
 cd /opt/fitsync && sudo docker compose -f docker-compose.prod.yml up -d nginx
 ```
-Then set `PROD_DOMAIN` + `RUN_PROD_SMOKE=true` to enable the external smoke test.
+Then set `PROD_DOMAIN` so the rendered nginx config uses your domain and its certificate.
 
 ## 10. Cost control (demo)
 

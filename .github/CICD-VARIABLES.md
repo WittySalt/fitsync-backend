@@ -1,7 +1,5 @@
 # GitHub Actions — CI/CD variables & secrets
 
-This repo's pipelines were ported from GitLab CI to GitHub Actions.
-
 - **CI** (`ci.yml`, `dependency-check.yml`) needs **no** variables or secrets — it is
   green out of the box. SonarCloud is optional (set `SONAR_TOKEN` to enable).
 - **CD** (`cd.yml`) is **dormant** until the `AWS_ROLE_ARN` *repository variable* is
@@ -42,9 +40,8 @@ commands below.
 ## Manual gates (Environments)
 
 `deploy-staging`, `deploy-staging-app` and `deploy-prod` use the `staging` /
-`production` Environments. To require a click-to-approve gate (the GitLab
-`when: manual` behaviour), add **required reviewers** to those Environments under
-Settings → Environments.
+`production` Environments. To require a click-to-approve gate, add
+**required reviewers** to those Environments under Settings → Environments.
 
 ## Quick set with `gh`
 

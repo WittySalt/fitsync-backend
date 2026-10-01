@@ -40,9 +40,10 @@ docker run --rm -i -v "$PWD:/work" -w /work \
 
 ## Run in CI
 
-The `stress_test` job in `.gitlab-ci.yml` runs the same script against a live target.
-It is **manual** (it needs a deployed environment), and is configured with CI/CD
-variables:
+The `stress-test` job in `.github/workflows/cd.yml` runs the same script against a live
+target. It is **manual** (it needs a deployed environment): Actions → CD → **Run workflow**
+with *Run k6 stress test against staging* ticked. It is configured with repository
+variables and secrets:
 
 - `STRESS_TARGET_URL` — base URL of the gateway/host to hit
 - `STRESS_USER_EMAIL`, `STRESS_USER_PASSWORD` — credentials of a seeded user
