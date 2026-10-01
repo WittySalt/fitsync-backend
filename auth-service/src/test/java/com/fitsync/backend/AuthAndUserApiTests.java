@@ -124,6 +124,46 @@ class AuthAndUserApiTests {
     }
 
     @Test
+    void bootstrapPrefersTheNameClaimOverTheCognitoUsername() throws Exception {
+        bootstrapAndExpectDisplayName("name-wins-sub", "name-wins@example.com",
+                "Named Person", "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f", "Named Person");
+    }
+
+    @Test
+    void bootstrapUsesAHumanCognitoUsernameWhenThereIsNoNameClaim() throws Exception {
+        bootstrapAndExpectDisplayName("human-username-sub", "human-username@example.com",
+                null, "handle_42", "handle_42");
+    }
+
+    @Test
+    void bootstrapSkipsAUuidCognitoUsernameAndUsesTheEmailLocalPart() throws Exception {
+        bootstrapAndExpectDisplayName("uuid-username-sub", "uuid.person@example.com",
+                null, "9F1C2D3E-4A5B-4C6D-8E7F-0A1B2C3D4E5F", "uuid.person");
+    }
+
+    @Test
+    void bootstrapSkipsACognitoUsernameEqualToTheSubject() throws Exception {
+        bootstrapAndExpectDisplayName("same-as-subject", "subject.person@example.com",
+                null, "same-as-subject", "subject.person");
+    }
+
+    private void bootstrapAndExpectDisplayName(String subject, String email, String nameClaim,
+                                               String cognitoUsername, String expectedDisplayName) throws Exception {
+        mockMvc.perform(post("/api/v1/auth/bootstrap")
+                        .with(jwt().jwt(jwt -> {
+                            jwt.subject(subject)
+                                    .claim("email", email)
+                                    .claim("cognito:username", cognitoUsername)
+                                    .claim("email_verified", true);
+                            if (nameClaim != null) {
+                                jwt.claim("name", nameClaim);
+                            }
+                        })))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value(expectedDisplayName));
+    }
+
+    @Test
     void localAccountCanUpdateRecoveryEmailWithCurrentPassword() throws Exception {
         registerUser("local-recovery@example.com", "Local Recovery", "supersecret");
         String token = loginAndGetAccessToken("local-recovery@example.com", "supersecret");

@@ -1302,6 +1302,21 @@ class NutritionApiTests {
     }
 
     @Test
+    void nutritionOutboxRelayRejectsOrdinaryUserRole() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/outbox/publish")
+                        .with(user("plain-user").roles("USER"))
+                        .param("batchSize", "10"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void nutritionOutboxRelayRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/outbox/publish")
+                        .param("batchSize", "10"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void nutritionPageInsightRequiresAuthenticationAndRejectsAnInvalidTimezone() throws Exception {
         mockMvc.perform(get("/api/v1/nutrition/insights/page"))
                 .andExpect(status().isUnauthorized());

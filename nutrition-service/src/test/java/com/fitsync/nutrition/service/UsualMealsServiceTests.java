@@ -103,13 +103,17 @@ class UsualMealsServiceTests {
         assertEquals(new BigDecimal("14.6"), breakfast.totalProteinGrams());
         assertEquals(new BigDecimal("44.3"), breakfast.totalCarbsGrams());
         assertEquals(new BigDecimal("7.5"), breakfast.totalFatGrams());
-        assertEquals(List.of("Rolled Oats", "Milk"),
-                breakfast.items().stream().map(UsualMealItemView::name).toList());
-        UsualMealItemView first = breakfast.items().get(0);
+        // Two items saved in the same instant have no order between them, so the names are compared
+        // as a set and the item is found by its name.
+        assertEquals(List.of("Milk", "Rolled Oats"),
+                breakfast.items().stream().map(UsualMealItemView::name).sorted().toList());
+        UsualMealItemView first = breakfast.items().stream()
+                .filter(item -> "Rolled Oats".equals(item.name())).findFirst().orElseThrow();
         assertEquals(190, first.calories());
         assertEquals(new BigDecimal("6.5"), first.proteinGrams());
         assertEquals("GRAINS", first.categoryCode());
-        assertNull(breakfast.items().get(1).categoryCode());
+        assertNull(breakfast.items().stream()
+                .filter(item -> "Milk".equals(item.name())).findFirst().orElseThrow().categoryCode());
     }
 
     @Test

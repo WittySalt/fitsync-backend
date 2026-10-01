@@ -108,6 +108,21 @@ class OutboxEventTests {
     }
 
     @Test
+    void relayRejectsOrdinaryUserRole() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/outbox/publish")
+                        .with(user("someone").roles("USER"))
+                        .param("batchSize", "10"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void relayRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/outbox/publish")
+                        .param("batchSize", "10"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void pendingCountRejectsMissingAuthentication() throws Exception {
         mockMvc.perform(get("/api/v1/internal/outbox/pending"))
                 .andExpect(status().isUnauthorized());

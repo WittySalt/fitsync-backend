@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import com.fitsync.backend.dto.ActiveSessionView;
 import com.fitsync.backend.dto.AccountDeletionRequestStatusResponse;
@@ -33,6 +34,9 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class CurrentUserService {
+
+    private static final Pattern UUID_PATTERN = Pattern.compile(
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", Pattern.CASE_INSENSITIVE);
 
     private final AppUserRepository appUserRepository;
     private final DomainEventPublisher domainEventPublisher;
@@ -247,12 +251,18 @@ public class CurrentUserService {
         }
 
         String username = jwt.getClaimAsString("cognito:username");
-        if (StringUtils.hasText(username)) {
+        // Pool users who sign up without a name get their subject (a UUID) as username, which is
+        // not something a person should be shown as their name.
+        if (StringUtils.hasText(username) && !isIdentifierLike(username.trim(), jwt.getSubject())) {
             return username.trim();
         }
 
         int separator = fallbackEmail.indexOf('@');
         return separator > 0 ? fallbackEmail.substring(0, separator) : fallbackEmail;
+    }
+
+    private boolean isIdentifierLike(String username, String subject) {
+        return username.equals(subject) || UUID_PATTERN.matcher(username).matches();
     }
 
     private String normalizeEmail(String email) {

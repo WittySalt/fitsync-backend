@@ -86,6 +86,69 @@ class InternalAnalyticsControllerTests {
                 .andExpect(jsonPath("$.date").value("2026-06-14"));
     }
 
+    @Test
+    void shouldRejectUnauthenticatedDashboardRebuild() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/analytics/users/{userId}/dashboard/rebuild",
+                        UUID.fromString("11111111-1111-1111-1111-111111111111"))
+                        .with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldRejectNonAdminNutritionRebuild() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/analytics/users/{userId}/nutrition/rebuild",
+                        UUID.fromString("11111111-1111-1111-1111-111111111111"))
+                        .with(csrf())
+                        .with(authentication(authToken(userPrincipal())))
+                        .param("date", "2026-06-14"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void shouldRejectUnauthenticatedNutritionRebuild() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/analytics/users/{userId}/nutrition/rebuild",
+                        UUID.fromString("11111111-1111-1111-1111-111111111111"))
+                        .with(csrf())
+                        .param("date", "2026-06-14"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldRejectNonAdminWorkoutRebuild() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/analytics/users/{userId}/workouts/rebuild",
+                        UUID.fromString("11111111-1111-1111-1111-111111111111"))
+                        .with(csrf())
+                        .with(authentication(authToken(userPrincipal())))
+                        .param("date", "2026-06-14"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void shouldRejectUnauthenticatedWorkoutRebuild() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/analytics/users/{userId}/workouts/rebuild",
+                        UUID.fromString("11111111-1111-1111-1111-111111111111"))
+                        .with(csrf())
+                        .param("date", "2026-06-14"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldAllowAdminToRebuildWorkoutsForDate() throws Exception {
+        UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        when(analyticsRebuildService.rebuildWorkouts(eq(userId), eq(LocalDate.parse("2026-06-14"))))
+                .thenReturn(new AnalyticsRebuildResponse(userId, "workouts", LocalDate.parse("2026-06-14"),
+                        Instant.parse("2026-06-14T08:00:00Z")));
+
+        mockMvc.perform(post("/api/v1/internal/analytics/users/{userId}/workouts/rebuild", userId)
+                        .with(csrf())
+                        .with(authentication(authToken(adminPrincipal())))
+                        .param("date", "2026-06-14"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("workouts"))
+                .andExpect(jsonPath("$.userId").value(userId.toString()))
+                .andExpect(jsonPath("$.date").value("2026-06-14"));
+    }
+
     private UsernamePasswordAuthenticationToken authToken(CurrentUserPrincipal principal) {
         return new UsernamePasswordAuthenticationToken(principal, null, List.of(() -> "ROLE_" + principal.role()));
     }
