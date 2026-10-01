@@ -36,6 +36,9 @@ import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
 import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
+import com.fitsync.workout.dto.SetRestRequest;
+import com.fitsync.workout.dto.SessionEffortRequest;
+import com.fitsync.workout.dto.NewRecordView;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
@@ -61,8 +64,10 @@ import com.fitsync.web.response.PageResponse;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -147,7 +152,7 @@ class WorkoutServicePersistenceTests {
     @BeforeEach
     void clearOutbox() {
         outboxEventRepository.deleteAll();
-        workoutSessionRepository.deleteAll();
+        purgeAllSessions();
         workoutPlanRepository.deleteAll();
         exerciseRepository.deleteAll();
     }
@@ -2610,6 +2615,184 @@ class WorkoutServicePersistenceTests {
         assertEquals(0, new BigDecimal("2.5").compareTo(repeated.exercises().get(0).tempoSeconds()));
     }
 
+    @Nested
+    class TheSessionPage {
+
+        private UUID benchId;
+
+        @BeforeEach
+        void exercise() {
+            benchId = createExercise("record-details-bench", "Record Details Bench");
+        }
+
+        /** A deleted session stays in the table; other test classes share it and clean with the repository. */
+        @AfterEach
+        void purge() {
+            purgeAllSessions();
+        }
+
+        private WorkoutSessionView startedWithTwoSets() {
+            WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                    "Record Details Plan", null, GoalFocus.STRENGTH, WorkoutType.STRENGTH, WorkoutDifficulty.BEGINNER, 40,
+                    List.of(new WorkoutPlanExerciseInput(benchId, 1, 2, 10, null, null, null, 75, null,
+                            List.of(new WorkoutPlanExerciseSetTargetInput(1, 10, new BigDecimal("20.00"), null, null, 75),
+                                    new WorkoutPlanExerciseSetTargetInput(2, 10, new BigDecimal("20.00"), null, null, 75))))));
+            WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+            moveSessionStartedAt(started.sessionId(), Instant.now().minus(Duration.ofMinutes(30)));
+            return started;
+        }
+
+        private WorkoutSessionView doFirstSet(WorkoutSessionView started) {
+            return workoutService.upsertSet(currentUser, started.sessionId(), started.exercises().get(0).exerciseLogId(), 1,
+                    new UpsertWorkoutExerciseSetRequest(null, 10, new BigDecimal("20.00"), null, null, 75, null, null));
+        }
+
+        @Test
+        void keepsTheEndTheDurationAndAnEstimateOfTheCaloriesOfACancelledSession() {
+            WorkoutSessionView started = startedWithTwoSets();
+            outboxEventRepository.deleteAll();
+
+            WorkoutSessionView cancelled = workoutService.cancelSession(currentUser, started.sessionId());
+
+            assertEquals(WorkoutSessionStatus.CANCELLED, cancelled.status());
+            assertNotNull(cancelled.endedAt());
+            assertNull(cancelled.completedAt());
+            assertEquals(30, cancelled.durationMinutes());
+            assertEquals(180, cancelled.caloriesBurned());
+            assertTrue(cancelled.caloriesEstimated());
+            assertNull(cancelled.perceivedExertion());
+            assertEquals(0, outboxEventRepository.count());
+        }
+
+        @Test
+        void estimatesTheCaloriesAndTheEffortOfACompletedSessionAndNamesItsNewRecords() {
+            WorkoutSessionView started = startedWithTwoSets();
+            doFirstSet(started);
+
+            WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
+
+            assertEquals(completed.completedAt(), completed.endedAt());
+            assertEquals(180, completed.caloriesBurned());
+            assertTrue(completed.caloriesEstimated());
+            assertTrue(completed.effortEstimated());
+            assertNotNull(completed.perceivedExertion());
+            assertTrue(completed.perceivedExertion() >= 1 && completed.perceivedExertion() <= 10);
+            assertEquals(List.of("Record Details Bench"), completed.newRecords().stream().map(NewRecordView::exerciseName).distinct().toList());
+            assertTrue(completed.newRecords().stream().anyMatch(record -> "MAX_WEIGHT_KG".equals(record.recordType())
+                    && record.value().compareTo(new BigDecimal("20")) == 0));
+            // A later read does not repeat the records; they belong to the moment of completion.
+            assertEquals(List.of(), workoutService.getSession(currentUser, started.sessionId()).newRecords());
+        }
+
+        @Test
+        void replacesTheEstimatedEffortWithThePersonsOwnOnACompletedSessionOnly() {
+            WorkoutSessionView started = startedWithTwoSets();
+            doFirstSet(started);
+            WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
+
+            WorkoutSessionView chosen = workoutService.updateEffort(currentUser, completed.sessionId(), new SessionEffortRequest(8));
+
+            assertEquals(8, chosen.perceivedExertion());
+            assertFalse(chosen.effortEstimated());
+            assertThrows(ResourceNotFoundException.class,
+                    () -> workoutService.updateEffort(otherUser, completed.sessionId(), new SessionEffortRequest(5)));
+            WorkoutSessionView running = startedWithTwoSets();
+            assertThrows(IllegalArgumentException.class,
+                    () -> workoutService.updateEffort(currentUser, running.sessionId(), new SessionEffortRequest(5)));
+        }
+
+        @Test
+        void dropsTheEstimateMarkOfAValueThePersonChangesAndKeepsTheOtherAndTheRestTaken() {
+            WorkoutSessionView started = startedWithTwoSets();
+            doFirstSet(started);
+            workoutService.recordRestTaken(currentUser, started.sessionId(), started.exercises().get(0).exerciseLogId(), 1,
+                    new SetRestRequest(50));
+            WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
+
+            WorkoutSessionView edited = workoutService.updateSession(currentUser, completed.sessionId(), new UpsertWorkoutSessionRequest(
+                    completed.planId(), completed.name(), completed.workoutType(), completed.status(), completed.source(),
+                    completed.startedAt(), completed.completedAt(), completed.durationMinutes(), 250,
+                    completed.perceivedExertion(), null,
+                    completed.exercises().stream().map(log -> new WorkoutExerciseLogInput(log.exerciseId(), log.sequence(),
+                            null, null, null, null, null, null, null, null,
+                            log.sets().stream().map(set -> new WorkoutExerciseSetLogInput(set.setNumber(), set.reps(), set.weightKg(),
+                                    set.durationSeconds(), set.distanceKm(), set.restSeconds(), set.perceivedExertion(), set.notes())).toList(),
+                            log.tempoSeconds())).toList()));
+
+            assertEquals(250, edited.caloriesBurned());
+            assertFalse(edited.caloriesEstimated());
+            assertTrue(edited.effortEstimated());
+            assertEquals(50, edited.exercises().get(0).sets().get(0).restTakenSeconds());
+        }
+
+        @Test
+        void recordsTheRestTakenAfterADoneSetOnly() {
+            WorkoutSessionView started = startedWithTwoSets();
+            UUID logId = started.exercises().get(0).exerciseLogId();
+            doFirstSet(started);
+
+            WorkoutSessionView rested = workoutService.recordRestTaken(currentUser, started.sessionId(), logId, 1, new SetRestRequest(42));
+
+            assertEquals(42, rested.exercises().get(0).sets().get(0).restTakenSeconds());
+            assertEquals(75, rested.exercises().get(0).sets().get(0).restSeconds());
+            assertThrows(IllegalArgumentException.class,
+                    () -> workoutService.recordRestTaken(currentUser, started.sessionId(), logId, 2, new SetRestRequest(42)));
+            assertThrows(ResourceNotFoundException.class,
+                    () -> workoutService.recordRestTaken(otherUser, started.sessionId(), logId, 1, new SetRestRequest(42)));
+        }
+
+        @Test
+        void countsACancelledSessionWithADoneSetAsCompletedAtItsLastSetWithItsEvent() {
+            WorkoutSessionView started = startedWithTwoSets();
+            doFirstSet(started);
+            workoutService.cancelSession(currentUser, started.sessionId());
+            outboxEventRepository.deleteAll();
+
+            WorkoutSessionView counted = workoutService.countSession(currentUser, started.sessionId());
+
+            assertEquals(WorkoutSessionStatus.COMPLETED, counted.status());
+            assertNotNull(counted.completedAt());
+            assertTrue(counted.completedAt().isBefore(Instant.now().plusSeconds(1)));
+            assertTrue(counted.effortEstimated());
+            assertEquals(1, pendingEventCount("WorkoutLogged"));
+            assertThrows(IllegalArgumentException.class, () -> workoutService.countSession(currentUser, started.sessionId()));
+        }
+
+        @Test
+        void refusesToCountACancelledSessionWithoutADoneSet() {
+            WorkoutSessionView started = startedWithTwoSets();
+            workoutService.cancelSession(currentUser, started.sessionId());
+
+            BadRequestException refused = assertThrows(BadRequestException.class,
+                    () -> workoutService.countSession(currentUser, started.sessionId()));
+            assertEquals("NOTHING_LOGGED", refused.getCode());
+        }
+
+        @Test
+        void keepsADeletedSessionMarkedAndLeavesItOutOfEveryRead() {
+            WorkoutSessionView started = startedWithTwoSets();
+            doFirstSet(started);
+            WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
+            outboxEventRepository.deleteAll();
+
+            workoutService.deleteSession(currentUser, completed.sessionId());
+
+            assertThrows(ResourceNotFoundException.class, () -> workoutService.getSession(currentUser, completed.sessionId()));
+            assertTrue(workoutSessionRepository.findByUserIdOrderByStartedAtDesc(currentUser.userId()).stream()
+                    .noneMatch(session -> session.getSessionId().equals(completed.sessionId())));
+            assertEquals(1, pendingEventCount("WorkoutDeleted"));
+            Object deletedAt = entityManagerFactory.createEntityManager()
+                    .createNativeQuery("select deleted_at from workout_sessions where session_id = :id")
+                    .setParameter("id", completed.sessionId())
+                    .getSingleResult();
+            assertNotNull(deletedAt);
+            // Its sets no longer count as records either: the same weight is a new best again.
+            WorkoutSessionView again = startedWithTwoSets();
+            doFirstSet(again);
+            assertFalse(workoutService.completeSession(currentUser, again.sessionId(), null).newRecords().isEmpty());
+        }
+    }
+
     @Test
     void shouldReturnNotFoundWhenRepeatingNonOwnedWorkoutSession() {
         UUID squatId = createExercise("repeat-non-owned-squat", "Repeat Non-Owned Squat");
@@ -2939,6 +3122,18 @@ class WorkoutServicePersistenceTests {
         entity.setStatus(ExerciseStatus.ACTIVE);
         entity.setCustom(false);
         return exerciseRepository.save(entity).getExerciseId();
+    }
+
+    /** Removes every session, deleted ones included, which the repository's own queries no longer see. */
+    private void purgeAllSessions() {
+        var entityManager = entityManagerFactory.createEntityManager();
+        try {
+            entityManager.getTransaction().begin();
+            entityManager.createNativeQuery("delete from workout_sessions").executeUpdate();
+            entityManager.getTransaction().commit();
+        } finally {
+            entityManager.close();
+        }
     }
 
     private void moveSessionStartedAt(UUID sessionId, Instant startedAt) {

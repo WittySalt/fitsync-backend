@@ -99,6 +99,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -1466,6 +1467,61 @@ class WorkoutControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("NOTHING_LOGGED"))
                 .andExpect(jsonPath("$.message").value("No set was logged in this workout."));
+    }
+
+    @Test
+    void shouldCountSetTheEffortAndRecordTheRestOnlyForASignedInPerson() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID logId = UUID.randomUUID();
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/count", sessionId).with(csrf()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(put("/api/v1/workouts/sessions/{sessionId}/effort", sessionId).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"perceivedExertion\":5}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(put("/api/v1/workouts/sessions/{sessionId}/exercises/{logId}/sets/1/rest", sessionId, logId).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"restTakenSeconds\":40}"))
+                .andExpect(status().isUnauthorized());
+        verify(workoutService, never()).countSession(any(), any());
+        verify(workoutService, never()).updateEffort(any(), any(), any());
+        verify(workoutService, never()).recordRestTaken(any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void shouldRefuseAnEffortOutsideOneToTenAndARestOutsideZeroToSixHours() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID logId = UUID.randomUUID();
+        for (String body : new String[] {"{\"perceivedExertion\":0}", "{\"perceivedExertion\":11}", "{}"}) {
+            mockMvc.perform(put("/api/v1/workouts/sessions/{sessionId}/effort", sessionId)
+                            .with(authentication(authToken(principal())))
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        for (String body : new String[] {"{\"restTakenSeconds\":-1}", "{\"restTakenSeconds\":21601}"}) {
+            mockMvc.perform(put("/api/v1/workouts/sessions/{sessionId}/exercises/{logId}/sets/1/rest", sessionId, logId)
+                            .with(authentication(authToken(principal())))
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        verify(workoutService, never()).updateEffort(any(), any(), any());
+        verify(workoutService, never()).recordRestTaken(any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void shouldCountACancelledSessionForTheSignedInPerson() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        UUID sessionId = UUID.randomUUID();
+        when(workoutService.countSession(eq(principal), eq(sessionId))).thenReturn(sessionView(sessionId, WorkoutSessionStatus.COMPLETED));
+
+        mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/count", sessionId)
+                        .with(authentication(authToken(principal)))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.newRecords").isArray());
     }
 
     @Test

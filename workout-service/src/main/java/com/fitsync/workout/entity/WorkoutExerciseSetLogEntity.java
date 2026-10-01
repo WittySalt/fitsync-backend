@@ -62,6 +62,10 @@ public class WorkoutExerciseSetLogEntity {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    /** The rest the person actually took after this set; empty when it was not timed. */
+    @Column(name = "rest_taken_seconds")
+    private Integer restTakenSeconds;
+
     public UUID getSetLogId() { return setLogId; }
     public void setSetLogId(UUID setLogId) { this.setLogId = setLogId; }
     public WorkoutExerciseLogEntity getExerciseLog() { return exerciseLog; }
@@ -89,6 +93,8 @@ public class WorkoutExerciseSetLogEntity {
     }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public Integer getRestTakenSeconds() { return restTakenSeconds; }
+    public void setRestTakenSeconds(Integer restTakenSeconds) { this.restTakenSeconds = restTakenSeconds; }
     public WorkoutSetStatus getStatus() { return status; }
     public void setStatus(WorkoutSetStatus status) {
         this.status = status == null ? WorkoutSetStatus.PENDING : status;

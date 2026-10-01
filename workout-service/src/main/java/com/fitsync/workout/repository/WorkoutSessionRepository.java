@@ -5,12 +5,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.workout.domain.SessionKind;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -28,6 +30,18 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     List<WorkoutSessionEntity> findByUserIdOrderByStartedAtDesc(UUID userId);
+
+    /** The person's latest finished sessions of a kind, for the effort estimate; deleted ones are left out. */
+    List<WorkoutSessionEntity> findTop4ByUserIdAndKindAndStatusAndSessionIdNotOrderByStartedAtDesc(
+            UUID userId, SessionKind kind, WorkoutSessionStatus status, UUID sessionId);
+
+    /**
+     * Removes every session of a person, deleted ones included, with their exercises and sets by the
+     * cascade of the foreign keys. Only the final purge of an account uses it.
+     */
+    @Modifying
+    @Query(value = "delete from workout_sessions where user_id = :userId", nativeQuery = true)
+    int purgeAllByUserId(@Param("userId") UUID userId);
 
     @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
     @Query("""

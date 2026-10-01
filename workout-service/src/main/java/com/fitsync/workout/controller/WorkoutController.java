@@ -33,6 +33,8 @@ import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.SetRestRequest;
+import com.fitsync.workout.dto.SessionEffortRequest;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.workout.service.ExerciseService;
 import com.fitsync.workout.service.MonthlyTrainingInsightService;
@@ -374,6 +376,31 @@ public class WorkoutController {
     public WorkoutSessionView cancelSession(Authentication authentication,
                                             @PathVariable UUID sessionId) {
         return workoutService.cancelSession(currentPrincipal(authentication), sessionId);
+    }
+
+    @Operation(summary = "Count a cancelled workout session that has a done set, as completed at its last set")
+    @PostMapping("/sessions/{sessionId}/count")
+    public WorkoutSessionView countSession(Authentication authentication,
+                                           @PathVariable UUID sessionId) {
+        return workoutService.countSession(currentPrincipal(authentication), sessionId);
+    }
+
+    @Operation(summary = "Set the effort of a completed workout session, from 1 to 10")
+    @PutMapping("/sessions/{sessionId}/effort")
+    public WorkoutSessionView updateEffort(Authentication authentication,
+                                           @PathVariable UUID sessionId,
+                                           @Valid @RequestBody SessionEffortRequest request) {
+        return workoutService.updateEffort(currentPrincipal(authentication), sessionId, request);
+    }
+
+    @Operation(summary = "Record the rest actually taken after a done set of a workout in progress")
+    @PutMapping("/sessions/{sessionId}/exercises/{exerciseLogId}/sets/{setNumber}/rest")
+    public WorkoutSessionView recordRestTaken(Authentication authentication,
+                                              @PathVariable UUID sessionId,
+                                              @PathVariable UUID exerciseLogId,
+                                              @PathVariable @Min(1) int setNumber,
+                                              @Valid @RequestBody SetRestRequest request) {
+        return workoutService.recordRestTaken(currentPrincipal(authentication), sessionId, exerciseLogId, setNumber, request);
     }
 
     @Operation(summary = "Append or replace one exercise log in an editable workout session")

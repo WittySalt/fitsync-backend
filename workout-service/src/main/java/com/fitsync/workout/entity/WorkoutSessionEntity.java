@@ -21,9 +21,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "workout_sessions")
+// A deleted session is only marked; every query leaves it out. See V15.
+@SQLRestriction("deleted_at is null")
 public class WorkoutSessionEntity extends BaseAuditableEntity {
 
     @Id
@@ -90,6 +93,22 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     @Column(name = "auto_closed_at")
     private Instant autoClosedAt;
 
+    /** When the session ended, completed or cancelled; empty while it is in progress. */
+    @Column(name = "ended_at")
+    private Instant endedAt;
+
+    /** The calories were estimated by the server, not entered by the person. */
+    @Column(name = "calories_estimated", nullable = false)
+    private boolean caloriesEstimated;
+
+    /** The effort was estimated by the server, not chosen by the person. */
+    @Column(name = "effort_estimated", nullable = false)
+    private boolean effortEstimated;
+
+    /** Set when the person deleted the session; the row is kept and left out of every read. */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sequence asc")
     private List<WorkoutExerciseLogEntity> exercises = new ArrayList<>();
@@ -132,6 +151,14 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     public void setDistanceKm(BigDecimal distanceKm) { this.distanceKm = distanceKm; }
     public Instant getAutoClosedAt() { return autoClosedAt; }
     public void setAutoClosedAt(Instant autoClosedAt) { this.autoClosedAt = autoClosedAt; }
+    public Instant getEndedAt() { return endedAt; }
+    public void setEndedAt(Instant endedAt) { this.endedAt = endedAt; }
+    public boolean isCaloriesEstimated() { return caloriesEstimated; }
+    public void setCaloriesEstimated(boolean caloriesEstimated) { this.caloriesEstimated = caloriesEstimated; }
+    public boolean isEffortEstimated() { return effortEstimated; }
+    public void setEffortEstimated(boolean effortEstimated) { this.effortEstimated = effortEstimated; }
+    public Instant getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
     public List<WorkoutExerciseLogEntity> getExercises() { return exercises; }
     public void setExercises(List<WorkoutExerciseLogEntity> exercises) { this.exercises = exercises; }
 }
