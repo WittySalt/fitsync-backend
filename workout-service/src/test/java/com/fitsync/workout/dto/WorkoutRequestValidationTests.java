@@ -41,6 +41,30 @@ class WorkoutRequestValidationTests {
     }
 
     @Test
+    void shouldAcceptATempoBetweenOneAndTenSecondsInTenths() {
+        assertTrue(validator.validate(planExerciseWithTempo("1.0")).isEmpty());
+        assertTrue(validator.validate(planExerciseWithTempo("2.5")).isEmpty());
+        assertTrue(validator.validate(planExerciseWithTempo("10.0")).isEmpty());
+        assertTrue(validator.validate(planExerciseWithTempo(null)).isEmpty());
+    }
+
+    @Test
+    void shouldRejectATempoOutsideOneToTenSecondsOrFinerThanATenth() {
+        for (String tempo : List.of("0.5", "10.5", "2.55")) {
+            assertTrue(validator.validate(planExerciseWithTempo(tempo)).stream()
+                    .anyMatch(violation -> violation.getPropertyPath().toString().equals("tempoSeconds")), tempo);
+        }
+        WorkoutExerciseLogInput log = new WorkoutExerciseLogInput(UUID.randomUUID(), 1, null, null, null, null, null,
+                null, null, null, null, new BigDecimal("12"));
+        assertFalse(validator.validate(log).isEmpty());
+    }
+
+    private WorkoutPlanExerciseInput planExerciseWithTempo(String tempo) {
+        return new WorkoutPlanExerciseInput(UUID.randomUUID(), 1, 3, 10, null, null, null, 60, null, List.of(),
+                tempo == null ? null : new BigDecimal(tempo));
+    }
+
+    @Test
     void shouldRejectNegativeExerciseDuration() {
         UpsertWorkoutSessionRequest request = new UpsertWorkoutSessionRequest(
                 null,

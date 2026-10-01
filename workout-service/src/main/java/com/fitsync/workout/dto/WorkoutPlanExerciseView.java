@@ -23,10 +23,21 @@ public record WorkoutPlanExerciseView(
          * batch-fetches the image collection, so this costs one extra query for the whole plan.
          */
         String primaryImageUrl,
-        List<WorkoutPlanExerciseSetTargetView> setTargets) {
+        List<WorkoutPlanExerciseSetTargetView> setTargets,
+        /** Seconds one rep takes when the exercise screen counts along, or null for the default of its kind. */
+        BigDecimal tempoSeconds) {
 
     public WorkoutPlanExerciseView {
         setTargets = setTargets == null ? List.of() : List.copyOf(setTargets);
+    }
+
+    /** An exercise without a tempo of its own. */
+    public WorkoutPlanExerciseView(UUID planExerciseId, UUID exerciseId, String exerciseNameSnapshot, Integer sequence,
+                                   Integer targetSets, Integer targetReps, BigDecimal targetWeightKg,
+                                   Integer targetDurationSeconds, BigDecimal targetDistanceKm, Integer restSeconds,
+                                   String notes, String primaryImageUrl, List<WorkoutPlanExerciseSetTargetView> setTargets) {
+        this(planExerciseId, exerciseId, exerciseNameSnapshot, sequence, targetSets, targetReps, targetWeightKg,
+                targetDurationSeconds, targetDistanceKm, restSeconds, notes, primaryImageUrl, setTargets, null);
     }
 
     @Override
