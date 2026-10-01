@@ -1,6 +1,7 @@
 package com.fitsync.recommendation.coach.tool;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
@@ -11,6 +12,7 @@ import java.util.Optional;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
@@ -41,19 +43,28 @@ public class ReadFactsTool implements CoachTool {
     private final CoachFacts coachFacts;
     private final ObjectMapper objectMapper;
     private final WorkoutCatalogueClient workoutClient;
+    private final NutritionCatalogueClient nutritionClient;
+    private final UserCalendar calendar;
 
     public ReadFactsTool(RecommendationContextRepository contextRepository,
                          CoachFacts coachFacts,
                          ObjectMapper objectMapper,
-                         WorkoutCatalogueClient workoutClient) {
+                         WorkoutCatalogueClient workoutClient,
+                         NutritionCatalogueClient nutritionClient,
+                         UserCalendar calendar) {
         this.contextRepository = contextRepository;
         this.coachFacts = coachFacts;
         this.objectMapper = objectMapper;
         this.workoutClient = workoutClient;
+        this.nutritionClient = nutritionClient;
+        this.calendar = calendar;
     }
 
     /** The name of the group that holds the current week so far. */
     public static final String CURRENT_WEEK_GROUP = "trainingThisWeek";
+
+    /** The name of the group that holds the vitamins and minerals of the last seven days. */
+    public static final String MICRONUTRIENTS_WEEK_GROUP = "micronutrientsWeek";
 
     /** The name of the group that holds what kind of day today is. */
     public static final String TODAY_GROUP = "today";
@@ -81,6 +92,41 @@ public class ReadFactsTool implements CoachTool {
         } catch (JsonProcessingException | RuntimeException ex) {
             // The current week is an addition. A turn is still answered from the rest of the facts.
             return Optional.empty();
+        }
+    }
+
+    /**
+     * Today's diary figures and the vitamins and minerals of the last seven days, read from
+     * nutrition-service. Everything here is an addition: any call that fails, or any field an older
+     * service does not send, leaves that part out and the facts are returned as they were.
+     */
+    private void addDiaryFigures(CoachCallContext context, Map<String, Object> facts) {
+        try {
+            ZoneId zone = calendar.zone(context.userId());
+            LocalDate today = calendar.today(zone);
+            String token = context.bearerToken();
+            JsonNode summary = DiaryFigures.read(objectMapper.reader(),
+                    nutritionClient.dailySummary(token, today, zone.getId()));
+            JsonNode todayNutrients = DiaryFigures.read(objectMapper.reader(),
+                    nutritionClient.nutrientsSummary(token, today, today, zone.getId()));
+            Map<String, Object> diary = DiaryFigures.day(summary, todayNutrients);
+            if (!diary.isEmpty()) {
+                Object existing = facts.get("nutritionToday");
+                Map<String, Object> nutritionToday = new LinkedHashMap<>();
+                if (existing instanceof Map<?, ?> map) {
+                    map.forEach((key, value) -> nutritionToday.put(String.valueOf(key), value));
+                }
+                nutritionToday.putAll(diary);
+                facts.put("nutritionToday", nutritionToday);
+            }
+            JsonNode week = DiaryFigures.read(objectMapper.reader(),
+                    nutritionClient.nutrientsSummary(token, today.minusDays(6), today, zone.getId()));
+            Map<String, Object> micronutrients = DiaryFigures.micronutrients(week);
+            if (!micronutrients.isEmpty()) {
+                facts.put(MICRONUTRIENTS_WEEK_GROUP, micronutrients);
+            }
+        } catch (RuntimeException ex) {
+            // The diary is an addition. A turn is still answered from the rest of the facts.
         }
     }
 
@@ -148,8 +194,12 @@ public class ReadFactsTool implements CoachTool {
                 readFacts()
                   no arguments
                   returns the user's computed facts as JSON: training, nutritionToday, goalPace,
-                  loggingStreak, personalRecord, foodGroupWeek, focusAreas, today. Every number here is
-                  already calculated — quote it, never recompute it. The training group describes
+                  loggingStreak, personalRecord, foodGroupWeek, focusAreas, today, micronutrientsWeek.
+                  Every number here is already calculated — quote it, never recompute it. When the
+                  service has them, nutritionToday also carries today's fibre, sugar, saturated fat,
+                  sodium and potassium against their references, water, protein at each meal and the
+                  lowest vitamins and minerals, and micronutrientsWeek the lowest three over the last
+                  seven days and any average above its upper limit. The training group describes
                   the last full week, Monday to Sunday. The trainingThisWeek group describes the
                   current week so far. Say which of the two weeks a count belongs to. The today group
                   says what kind of day today is (strength, cardio, mobility, a sport by name, rest, or
@@ -175,6 +225,8 @@ public class ReadFactsTool implements CoachTool {
             currentWeek(week).ifPresent(group -> facts.put(CURRENT_WEEK_GROUP, group));
             today(week).ifPresent(group -> facts.put(TODAY_GROUP, group));
         });
+
+        addDiaryFigures(context, facts);
 
         try {
             return ToolResult.of(facts.size() + " fact groups",

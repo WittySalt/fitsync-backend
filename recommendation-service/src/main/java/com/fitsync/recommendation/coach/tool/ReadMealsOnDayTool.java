@@ -77,7 +77,10 @@ public class ReadMealsOnDayTool implements CoachTool {
                   returns JSON with the day's totals (calories, protein, carbohydrate and fat, with
                   the targets when there are any) and the meals in time order: meal type, local time,
                   calories, protein and food names. Every number here is already calculated, so
-                  quote it and never add it up yourself. An empty meals list means nothing was
+                  quote it and never add it up yourself. When the service has them, a diary group adds
+                  the day's fibre, sugar, saturated fat, sodium and potassium against their references,
+                  water, protein at each meal and the three lowest vitamins or minerals with their share
+                  of the daily amount. An empty meals list means nothing was
                   logged that day.""";
     }
 
@@ -142,6 +145,13 @@ public class ReadMealsOnDayTool implements CoachTool {
             Map<String, Object> targets = targets(summary);
             if (!targets.isEmpty()) {
                 result.put("targets", targets);
+            }
+            // The diary figures are an addition: when nutrition-service is older or the call fails
+            // the line is simply absent and the result is what it was before.
+            Map<String, Object> diary = DiaryFigures.day(summary, DiaryFigures.read(reader,
+                    client.nutrientsSummary(context.bearerToken(), date, date, zone.getId())));
+            if (!diary.isEmpty()) {
+                result.put("diary", diary);
             }
             result.put("mealCount", meals.size());
             List<Map<String, Object>> listed = new ArrayList<>();

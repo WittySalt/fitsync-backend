@@ -6,6 +6,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.time.Instant;
@@ -16,6 +17,7 @@ import com.fitsync.recommendation.coach.config.CoachProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -61,6 +63,45 @@ class NutritionMealsClientTests {
 
         server.verify();
         assertThat(body).isEqualTo("[]");
+    }
+
+    @Test
+    @DisplayName("the nutrient summary and the water of a day are read with the caller's credential")
+    void readsTheDiaryFigures() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(method(HttpMethod.GET))
+                .andExpect(requestTo(endsWith(
+                        "/api/v1/nutrition/nutrients/summary?from=2026-09-24&to=2026-09-30&timezone=Asia/Singapore")))
+                .andExpect(header("Authorization", "Bearer " + CALLER))
+                .andRespond(withSuccess("{\"daysLogged\":5}", MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET))
+                .andExpect(requestTo(endsWith("/api/v1/nutrition/water?date=2026-09-30&timezone=Asia/Singapore")))
+                .andExpect(header("Authorization", "Bearer " + CALLER))
+                .andRespond(withSuccess("{\"fromDrinksMl\":350}", MediaType.APPLICATION_JSON));
+        NutritionCatalogueClient client = new NutritionCatalogueClient(builder, properties, new ObjectMapper());
+
+        String nutrients = client.nutrientsSummary(CALLER, LocalDate.parse("2026-09-24"),
+                LocalDate.parse("2026-09-30"), "Asia/Singapore");
+        String water = client.water(CALLER, LocalDate.parse("2026-09-30"), "Asia/Singapore");
+
+        server.verify();
+        assertThat(nutrients).contains("daysLogged");
+        assertThat(water).contains("350");
+    }
+
+    @Test
+    @DisplayName("an older nutrition-service without the new endpoints reads as null")
+    void anOlderServiceReadsAsNull() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(method(HttpMethod.GET)).andRespond(withStatus(HttpStatus.NOT_FOUND));
+        server.expect(method(HttpMethod.GET)).andRespond(withStatus(HttpStatus.NOT_FOUND));
+        NutritionCatalogueClient client = new NutritionCatalogueClient(builder, properties, new ObjectMapper());
+
+        assertThat(client.nutrientsSummary(CALLER, LocalDate.parse("2026-09-30"), LocalDate.parse("2026-09-30"),
+                "UTC")).isNull();
+        assertThat(client.water(CALLER, LocalDate.parse("2026-09-30"), "UTC")).isNull();
     }
 
     @Test

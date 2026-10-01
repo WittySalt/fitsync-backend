@@ -32,6 +32,8 @@ public class NutritionCatalogueClient extends CatalogueClient {
     private static final String PAGE_INSIGHT = "/api/v1/nutrition/insights/page";
     private static final String DAILY_SUMMARY = "/api/v1/nutrition/summary/daily";
     private static final String MEALS = "/api/v1/nutrition/meals";
+    private static final String NUTRIENTS_SUMMARY = "/api/v1/nutrition/nutrients/summary";
+    private static final String WATER = "/api/v1/nutrition/water";
 
     // A reader is immutable, which a shared ObjectMapper is not.
     private final ObjectReader insightReader;
@@ -57,6 +59,27 @@ public class NutritionCatalogueClient extends CatalogueClient {
         params.put("date", date.toString());
         params.put("timezone", timezone);
         return get(DAILY_SUMMARY, params, bearerToken);
+    }
+
+    /**
+     * The vitamins and minerals over a run of local days, each against its daily reference. Null
+     * when nutrition-service cannot be reached, and also when it predates this endpoint, which a
+     * caller treats alike: the figures are an addition and the answer goes on without them.
+     */
+    public String nutrientsSummary(String bearerToken, LocalDate from, LocalDate to, String timezone) {
+        Map<String, Object> params = params();
+        params.put("from", from.toString());
+        params.put("to", to.toString());
+        params.put("timezone", timezone);
+        return get(NUTRIENTS_SUMMARY, params, bearerToken);
+    }
+
+    /** The plain water logged on one local day, and the water that came from drinks. */
+    public String water(String bearerToken, LocalDate date, String timezone) {
+        Map<String, Object> params = params();
+        params.put("date", date.toString());
+        params.put("timezone", timezone);
+        return get(WATER, params, bearerToken);
     }
 
     /** The caller's meals between two instants, both ends included. */

@@ -90,6 +90,70 @@ class ReadMealsOnDayToolTests {
     }
 
     @Test
+    @DisplayName("the diary line carries the balance, water, protein by meal and the lowest three vitamins")
+    void addsTheDiaryLine() throws Exception {
+        oneMealOn("2026-09-30");
+        when(client.dailySummary(any(), any(), any())).thenReturn(DiaryFixtures.SUMMARY);
+        when(client.nutrientsSummary("caller", LocalDate.parse("2026-09-30"), LocalDate.parse("2026-09-30"),
+                "Asia/Singapore")).thenReturn(DiaryFixtures.NUTRIENTS);
+
+        JsonNode day = objectMapper.readTree(tool.invoke(CALL, args("2026-09-30")).observation());
+
+        JsonNode diary = day.path("diary");
+        assertThat(diary.path("fibre").asText()).isEqualTo("22.4 g of 30 g (75%)");
+        assertThat(diary.path("sugar").asText())
+                .isEqualTo("62 g against a limit of 50 g (124%, over), 18 g of it from drinks");
+        assertThat(diary.path("saturatedFat").asText()).isEqualTo("14 g against a limit of 20 g (70%)");
+        assertThat(diary.path("sodium").asText()).isEqualTo("1800 mg against a limit of 2300 mg (78%)");
+        assertThat(diary.path("potassium").asText()).isEqualTo("2100 mg of 3500 mg (60%)");
+        assertThat(diary.path("water").asText()).isEqualTo("1200 ml plain water and 350 ml from drinks");
+        assertThat(diary.path("proteinByMeal").asText()).startsWith("breakfast 30 g, lunch 48.3 g, dinner 0 g")
+                .endsWith("21 to 28 g");
+        assertThat(diary.path("lowestVitaminsAndMinerals")).hasSize(3);
+        assertThat(diary.path("lowestVitaminsAndMinerals").get(0).asText())
+                .isEqualTo("Vitamin D 12% (1.8 of 15 mcg)");
+        assertThat(diary.path("lowestVitaminsAndMinerals").toString()).doesNotContain("Caffeine");
+        assertThat(diary.path("vitaminDataNote").asText())
+                .isEqualTo("2 of 5 logged foods have no vitamin or mineral data");
+        assertThat(tool.promptSignature()).contains("diary group");
+    }
+
+    @Test
+    @DisplayName("an older service, or a failing nutrient call, leaves the result as it was")
+    void noDiaryLineWithoutTheNewFields() throws Exception {
+        oneMealOn("2026-09-30");
+        when(client.dailySummary(any(), any(), any())).thenReturn("{\"totalCalories\":1200}");
+        when(client.nutrientsSummary(any(), any(), any(), any())).thenReturn(null);
+
+        JsonNode day = objectMapper.readTree(tool.invoke(CALL, args("2026-09-30")).observation());
+
+        assertThat(day.has("diary")).isFalse();
+        assertThat(day.path("totals").path("calories").asInt()).isEqualTo(1200);
+
+        when(client.nutrientsSummary(any(), any(), any(), any())).thenReturn("not json");
+        assertThat(objectMapper.readTree(tool.invoke(CALL, args("2026-09-30")).observation()).has("diary"))
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("an answer quoting the diary line passes the answer check, a share the model worked out does not")
+    void theAnswerCheckAcceptsTheDiaryLine() {
+        oneMealOn("2026-09-30");
+        when(client.dailySummary(any(), any(), any())).thenReturn(DiaryFixtures.SUMMARY);
+        when(client.nutrientsSummary(any(), any(), any(), any())).thenReturn(DiaryFixtures.NUTRIENTS);
+        ToolResult result = tool.invoke(CALL, args("2026-09-30"));
+        List<String> transcript = List.of(
+                "Result of readMealsOnDay({\"date\":\"2026-09-30\"}):\n" + result.observation());
+        AnswerValidator validator = new AnswerValidator();
+
+        assertThat(validator.validate("Sugar was 62 g against a limit of 50 g, and 18 g came from drinks. "
+                + "Vitamin D was only 12% and you drank 350 ml from drinks.", "How was my day?", transcript, null)
+                .valid()).isTrue();
+        assertThat(validator.validate("Lunch protein was 48.3 g, which is 160% of what a meal needs.",
+                "How was my day?", transcript, null).violations()).containsExactly("NUMBER_NOT_IN_RECORDS:160");
+    }
+
+    @Test
     @DisplayName("a day without meals returns the date, an empty list and a plain note, without a summary call")
     void anEmptyDay() throws Exception {
         when(client.meals(any(), any(), any())).thenReturn("[]");
@@ -206,6 +270,12 @@ class ReadMealsOnDayToolTests {
         assertThat(validator.validate("Dinner was 900 kcal with 48.3 g of protein.",
                 "What did I eat yesterday?", transcript, null).violations())
                 .containsExactly("NUMBER_NOT_IN_RECORDS:900");
+    }
+
+    private void oneMealOn(String date) {
+        when(client.meals(any(), any(), any())).thenReturn("""
+                [{"mealType":"LUNCH","consumedAt":"%sT04:00:00Z","totalCalories":600,
+                  "totalProteinGrams":48.25,"items":[{"foodName":"Chicken rice"}]}]""".formatted(date));
     }
 
     private JsonNode args(String date) {

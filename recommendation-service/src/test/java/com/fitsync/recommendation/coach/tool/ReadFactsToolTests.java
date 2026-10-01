@@ -7,18 +7,24 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
+import com.fitsync.recommendation.coach.orchestrator.AnswerValidator;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.service.ai.CoachFacts;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +37,81 @@ class ReadFactsToolTests {
     private final RecommendationContextRepository repository = mock(RecommendationContextRepository.class);
     private final CoachFacts coachFacts = mock(CoachFacts.class);
     private final WorkoutCatalogueClient workoutClient = mock(WorkoutCatalogueClient.class);
-    private final ReadFactsTool tool = new ReadFactsTool(repository, coachFacts, objectMapper, workoutClient);
+    private final NutritionCatalogueClient nutritionClient = mock(NutritionCatalogueClient.class);
+    private final UserCalendar calendar = mock(UserCalendar.class);
+    private final ReadFactsTool tool = new ReadFactsTool(repository, coachFacts, objectMapper, workoutClient,
+            nutritionClient, calendar);
+
+    @BeforeEach
+    void todayIsTheFirstOfOctoberInSingapore() {
+        ZoneId singapore = ZoneId.of("Asia/Singapore");
+        when(calendar.zone(USER)).thenReturn(singapore);
+        when(calendar.today(singapore)).thenReturn(LocalDate.parse("2026-10-01"));
+    }
+
+    @Test
+    @DisplayName("today's diary figures join nutritionToday and the seven-day vitamins get their own group")
+    void addsTheDiaryFigures() throws Exception {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(nutritionClient.dailySummary(CALL.bearerToken(), LocalDate.parse("2026-10-01"), "Asia/Singapore"))
+                .thenReturn(DiaryFixtures.SUMMARY);
+        when(nutritionClient.nutrientsSummary(CALL.bearerToken(), LocalDate.parse("2026-10-01"),
+                LocalDate.parse("2026-10-01"), "Asia/Singapore")).thenReturn(DiaryFixtures.NUTRIENTS);
+        when(nutritionClient.nutrientsSummary(CALL.bearerToken(), LocalDate.parse("2026-09-25"),
+                LocalDate.parse("2026-10-01"), "Asia/Singapore")).thenReturn(DiaryFixtures.NUTRIENTS);
+
+        ToolResult result = tool.invoke(CALL, objectMapper.createObjectNode());
+        JsonNode facts = objectMapper.readTree(result.observation());
+
+        JsonNode today = facts.path("nutritionToday");
+        assertThat(today.path("consumedCalories").asInt()).isEqualTo(1200);
+        assertThat(today.path("fibre").asText()).isEqualTo("22.4 g of 30 g (75%)");
+        assertThat(today.path("water").asText()).isEqualTo("1200 ml plain water and 350 ml from drinks");
+        assertThat(today.path("lowestVitaminsAndMinerals")).hasSize(3);
+        JsonNode week = facts.path("micronutrientsWeek");
+        assertThat(week.path("lowest").get(0).asText()).startsWith("Vitamin D 12%");
+        assertThat(week.path("aboveUpperLimit").get(0).asText()).contains("Vitamin A");
+        assertThat(tool.promptSignature()).contains("micronutrientsWeek");
+    }
+
+    @Test
+    @DisplayName("without the new fields, or when nutrition-service fails, the facts are as they were")
+    void leavesTheFactsAloneWithoutTheDiary() throws Exception {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(nutritionClient.dailySummary(any(), any(), any())).thenReturn("{\"totalCalories\":1200}");
+        when(nutritionClient.nutrientsSummary(any(), any(), any(), any())).thenReturn(null);
+
+        JsonNode old = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+
+        assertThat(old.path("nutritionToday").path("consumedCalories").asInt()).isEqualTo(1200);
+        assertThat(old.path("nutritionToday").has("fibre")).isFalse();
+        assertThat(old.has("micronutrientsWeek")).isFalse();
+
+        when(nutritionClient.dailySummary(any(), any(), any())).thenThrow(new IllegalStateException("down"));
+        JsonNode failing = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+
+        assertThat(failing.path("training").path("workoutCount").asInt()).isEqualTo(4);
+        assertThat(failing.has("micronutrientsWeek")).isFalse();
+    }
+
+    @Test
+    @DisplayName("an answer quoting the new facts passes the answer check, a share worked out by the model does not")
+    void theAnswerCheckAcceptsTheDiaryFacts() {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(nutritionClient.dailySummary(any(), any(), any())).thenReturn(DiaryFixtures.SUMMARY);
+        when(nutritionClient.nutrientsSummary(any(), any(), any(), any())).thenReturn(DiaryFixtures.NUTRIENTS);
+        ToolResult result = tool.invoke(CALL, objectMapper.createObjectNode());
+        List<String> transcript = List.of("Result of readFacts({}):\n" + result.observation());
+        AnswerValidator validator = new AnswerValidator();
+
+        assertThat(validator.validate("You have 22.4 g of fibre, which is 75% of 30 g, and 350 ml of water came "
+                + "from drinks. Vitamin D is at 12%.", "How is my diet?", transcript, null).valid()).isTrue();
+        assertThat(validator.validate("You are about 74% of the way to your fibre target.", "How is my diet?",
+                transcript, null).violations()).containsExactly("NUMBER_NOT_IN_RECORDS:74");
+    }
 
     @Test
     @DisplayName("the current week so far is handed over beside the last full week")
@@ -159,6 +239,9 @@ class ReadFactsToolTests {
         training.put("totalMinutes", 170);
         Map<String, Object> facts = new LinkedHashMap<>();
         facts.put("training", training);
+        Map<String, Object> nutritionToday = new LinkedHashMap<>();
+        nutritionToday.put("consumedCalories", 1200);
+        facts.put("nutritionToday", nutritionToday);
         when(repository.findById(USER)).thenReturn(Optional.of(entity));
         when(coachFacts.assemble(eq(entity), isNull())).thenReturn(facts);
     }
