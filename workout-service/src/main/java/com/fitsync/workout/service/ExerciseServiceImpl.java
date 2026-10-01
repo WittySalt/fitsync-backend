@@ -26,6 +26,7 @@ import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.entity.ExerciseEntity;
 import com.fitsync.workout.entity.ExerciseImageEntity;
 import com.fitsync.workout.repository.ExerciseRepository;
+import com.fitsync.workout.repository.ExerciseShortStepRepository;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ForbiddenException;
@@ -53,11 +54,14 @@ public class ExerciseServiceImpl implements ExerciseService {
             "video/webm", "webm");
 
     private final ExerciseRepository exerciseRepository;
+    private final ExerciseShortStepRepository shortStepRepository;
     private final ObjectProvider<MediaStorageService> mediaStorageServiceProvider;
 
     public ExerciseServiceImpl(ExerciseRepository exerciseRepository,
+                               ExerciseShortStepRepository shortStepRepository,
                                ObjectProvider<MediaStorageService> mediaStorageServiceProvider) {
         this.exerciseRepository = exerciseRepository;
+        this.shortStepRepository = shortStepRepository;
         this.mediaStorageServiceProvider = mediaStorageServiceProvider;
     }
 
@@ -344,6 +348,7 @@ public class ExerciseServiceImpl implements ExerciseService {
                         .toList(),
                 entity.getSecondaryMuscles().stream()
                         .map(secondaryMuscle -> secondaryMuscle.getMuscleGroup())
-                        .toList());
+                        .toList(),
+                shortStepRepository.findTextsByExerciseCode(entity.getCode()));
     }
 }
