@@ -44,7 +44,7 @@ public class SecurityConfig {
     @Order(1)
     SecurityFilterChain cognitoBootstrapSecurityFilterChain(HttpSecurity http) throws Exception {
         http
-                .securityMatcher("/api/v1/auth/bootstrap")
+                .securityMatcher("/api/v1/auth/bootstrap", "/api/v1/auth/account-deletion/cancel")
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

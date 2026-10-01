@@ -42,15 +42,18 @@ public class CurrentUserService {
     private final DomainEventPublisher domainEventPublisher;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final AccountDeletionPolicy accountDeletionPolicy;
 
     public CurrentUserService(AppUserRepository appUserRepository,
                               DomainEventPublisher domainEventPublisher,
                               PasswordEncoder passwordEncoder,
-                              JwtService jwtService) {
+                              JwtService jwtService,
+                              AccountDeletionPolicy accountDeletionPolicy) {
         this.appUserRepository = appUserRepository;
         this.domainEventPublisher = domainEventPublisher;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.accountDeletionPolicy = accountDeletionPolicy;
     }
 
     @Transactional(readOnly = true)
@@ -163,6 +166,30 @@ public class CurrentUserService {
         return toAccountDeletionStatus(user);
     }
 
+    /**
+     * Undoes a requested deletion while the grace period is running. The caller holds a Cognito identity token
+     * rather than an application token, because an account with a pending deletion is not issued one. A
+     * subject that has no account here is never provisioned by this call.
+     */
+    @Transactional
+    public AccountDeletionRequestStatusResponse cancelAccountDeletion(Authentication authentication) {
+        Jwt jwt = extractJwt(authentication);
+        String subject = requiredClaim(jwt, "sub");
+        requireVerifiedEmail(jwt);
+        AppUser user = appUserRepository.findByExternalSubject(subject)
+                .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
+
+        if (user.getAccountDeletionRequestedAt() == null) {
+            return toAccountDeletionStatus(user);
+        }
+        if (accountDeletionPolicy.gracePeriodEnded(user, Instant.now())) {
+            throw accountDeletionPolicy.deletionFinal(user);
+        }
+
+        user.setAccountDeletionRequestedAt(null);
+        return toAccountDeletionStatus(appUserRepository.save(user));
+    }
+
     @Transactional
     public AppUser bootstrapCognitoUser(Authentication authentication) {
         Jwt jwt = extractJwt(authentication);
@@ -170,7 +197,9 @@ public class CurrentUserService {
         requireVerifiedEmail(jwt);
         Optional<AppUser> existingBySubject = appUserRepository.findByExternalSubject(subject);
         if (existingBySubject.isPresent()) {
-            return existingBySubject.get();
+            AppUser existing = existingBySubject.get();
+            accountDeletionPolicy.requireNoPendingDeletion(existing);
+            return existing;
         }
 
         String email = normalizeEmail(requiredClaim(jwt, "email"));
@@ -347,6 +376,7 @@ public class CurrentUserService {
         return new AccountDeletionRequestStatusResponse(
                 user.getAccountDeletionRequestedAt() == null ? "NOT_REQUESTED" : "REQUESTED",
                 user.getAccountDeletionRequestedAt(),
+                accountDeletionPolicy.scheduledFor(user.getAccountDeletionRequestedAt()),
                 user.getAuthProvider() == AuthProvider.LOCAL);
     }
 

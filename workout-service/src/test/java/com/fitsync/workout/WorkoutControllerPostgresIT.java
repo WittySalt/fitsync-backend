@@ -1,14 +1,23 @@
 package com.fitsync.workout;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.workout.domain.ExerciseEquipment;
+import com.fitsync.workout.domain.ExerciseType;
+import com.fitsync.workout.domain.MuscleGroup;
+import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.domain.WorkoutType;
+import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
 import com.fitsync.workout.security.CurrentUserPrincipal;
+import com.fitsync.workout.service.ExerciseService;
 import com.fitsync.workout.service.WorkoutService;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -37,7 +46,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class WorkoutControllerPostgresIT {
 
     private static final UUID GOBLET_SQUAT_ID = UUID.fromString("51111111-1111-1111-1111-111111111112");
-    private static final UUID ALICE_BAND_ROW_ID = UUID.fromString("51111111-1111-1111-1111-111111111114");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -59,12 +67,17 @@ class WorkoutControllerPostgresIT {
     @Autowired
     private WorkoutService workoutService;
 
+    @Autowired
+    private ExerciseService exerciseService;
+
     @Test
     void exerciseHistoryAcceptsPageAndSizeWithoutDateRangeOnPostgres() throws Exception {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
 
+        CurrentUserPrincipal principal = seedSquatSession(UUID.randomUUID());
+
         mockMvc.perform(get("/api/v1/workouts/exercises/{exerciseId}/history", GOBLET_SQUAT_ID)
-                        .with(authentication(TestJwt.authentication("USER")))
+                        .with(authentication(authenticationFor(principal)))
                         .param("page", "0")
                         .param("size", "2"))
                 .andExpect(status().isOk())
@@ -89,8 +102,18 @@ class WorkoutControllerPostgresIT {
     void exerciseHistoryReturnsEmptyPageForAccessibleExerciseWithoutHistoryOnPostgres() throws Exception {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
 
-        mockMvc.perform(get("/api/v1/workouts/exercises/{exerciseId}/history", ALICE_BAND_ROW_ID)
-                        .with(authentication(TestJwt.authentication("USER")))
+        CurrentUserPrincipal principal = newPrincipal(UUID.randomUUID());
+        UUID ownExerciseId = exerciseService.createCustomExercise(principal, new CreateExerciseRequest(
+                "RESISTANCE_BAND_ROW",
+                "Resistance Band Row",
+                "Custom pulling movement used at home.",
+                ExerciseType.STRENGTH,
+                MuscleGroup.BACK,
+                ExerciseEquipment.BAND,
+                WorkoutDifficulty.BEGINNER)).exerciseId();
+
+        mockMvc.perform(get("/api/v1/workouts/exercises/{exerciseId}/history", ownExerciseId)
+                        .with(authentication(authenticationFor(principal)))
                         .param("page", "0")
                         .param("size", "20"))
                 .andExpect(status().isOk())
@@ -235,6 +258,34 @@ class WorkoutControllerPostgresIT {
                 .andExpect(jsonPath("$.last").value(true))
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].name").value("Session Filters Strength"));
+    }
+
+    private CurrentUserPrincipal newPrincipal(UUID userId) {
+        return new CurrentUserPrincipal(userId, "workout-it-" + userId + "@example.com", "Workout It", "USER");
+    }
+
+    /** A person with one completed session of three goblet squat sets of ten reps at twelve kilograms. */
+    private CurrentUserPrincipal seedSquatSession(UUID userId) {
+        CurrentUserPrincipal principal = newPrincipal(userId);
+        List<WorkoutExerciseSetLogInput> sets = List.of(
+                new WorkoutExerciseSetLogInput(1, 10, new BigDecimal("12.00"), null, null, 75, 6, null),
+                new WorkoutExerciseSetLogInput(2, 10, new BigDecimal("12.00"), null, null, 75, 7, null),
+                new WorkoutExerciseSetLogInput(3, 10, new BigDecimal("12.00"), null, null, 75, 7, null));
+        workoutService.createSession(principal, new UpsertWorkoutSessionRequest(
+                null,
+                "Full Body Starter - Session 1",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-10T09:00:00Z"),
+                Instant.parse("2026-06-10T09:46:00Z"),
+                46,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(GOBLET_SQUAT_ID, 1, 3, 30, new BigDecimal("360.00"),
+                        null, null, null, null, null, sets))));
+        return principal;
     }
 
     private CurrentUserPrincipal seedSessionFilterFixtures(UUID userId) {

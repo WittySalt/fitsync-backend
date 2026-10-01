@@ -16,9 +16,12 @@ import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.domain.GoalFocus;
 import com.fitsync.workout.domain.SessionKind;
 import com.fitsync.workout.domain.SportActivity;
+import com.fitsync.workout.dto.CreateExerciseRequest;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;
 import com.fitsync.workout.dto.ExerciseView;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
+import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
 import com.fitsync.workout.dto.WorkoutPlanDayInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
@@ -47,8 +50,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Testcontainers(disabledWithoutDocker = true)
 class WorkoutServicePostgresIT {
 
-    private static final UUID ALICE_USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
-    private static final UUID ACTIVE_PLAN_ID = UUID.fromString("52111111-1111-1111-1111-111111111111");
     private static final UUID GOBLET_SQUAT_ID = UUID.fromString("51111111-1111-1111-1111-111111111112");
 
     @Container
@@ -71,15 +72,19 @@ class WorkoutServicePostgresIT {
     @Autowired
     private WorkoutService workoutService;
 
-    private final CurrentUserPrincipal currentUser = new CurrentUserPrincipal(
-            ALICE_USER_ID,
-            "alice@example.com",
-            "Alice",
-            "USER");
-
     @Test
     void shouldListExercisesWhenQueryIsBlankOrFilteredOnPostgres() {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
+
+        CurrentUserPrincipal currentUser = newUser();
+        exerciseService.createCustomExercise(currentUser, new CreateExerciseRequest(
+                "RESISTANCE_BAND_ROW",
+                "Resistance Band Row",
+                "Custom pulling movement used at home.",
+                ExerciseType.STRENGTH,
+                MuscleGroup.BACK,
+                ExerciseEquipment.BAND,
+                WorkoutDifficulty.BEGINNER));
 
         PageResponse<ExerciseView> blankQuery = exerciseService.listExercises(
                 currentUser,
@@ -109,6 +114,10 @@ class WorkoutServicePostgresIT {
     void shouldListPlansAndSessionsWithNullableFiltersOnPostgres() {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
 
+        TrainingHistory history = seedTrainingHistory();
+        CurrentUserPrincipal currentUser = history.user();
+        UUID activePlanId = history.planId();
+
         PageResponse<WorkoutPlanView> allPlans = workoutService.listPlans(currentUser, null, 0, 20);
         PageResponse<WorkoutPlanView> activePlans = workoutService.listPlans(currentUser, WorkoutPlanStatus.ACTIVE, 0, 20);
 
@@ -131,7 +140,7 @@ class WorkoutServicePostgresIT {
                 null,
                 null,
                 null,
-                ACTIVE_PLAN_ID,
+                activePlanId,
                 0,
                 20);
 
@@ -139,12 +148,14 @@ class WorkoutServicePostgresIT {
         assertEquals(1, activePlans.totalElements());
         assertEquals(1, allSessions.totalElements());
         assertEquals(1, filteredSessions.totalElements());
-        assertEquals(ACTIVE_PLAN_ID, filteredSessions.content().get(0).planId());
+        assertEquals(activePlanId, filteredSessions.content().get(0).planId());
     }
 
     @Test
     void shouldLoadExerciseRecordsAndHistoryOnPostgres() {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
+
+        CurrentUserPrincipal currentUser = seedTrainingHistory().user();
 
         var records = workoutService.getExerciseRecords(currentUser, GOBLET_SQUAT_ID);
         var history = workoutService.getExerciseHistory(
@@ -224,6 +235,48 @@ class WorkoutServicePostgresIT {
         assertEquals(1, fetched.days().get(0).exercises().size());
         assertEquals(SportActivity.BADMINTON, fetched.days().get(1).sportActivity());
         assertEquals("Badminton", fetched.days().get(1).sportLabel());
+    }
+
+    private CurrentUserPrincipal newUser() {
+        UUID userId = UUID.randomUUID();
+        return new CurrentUserPrincipal(userId, "training-" + userId + "@example.com", "Training User", "USER");
+    }
+
+    /** A person with one active plan and one completed session of three goblet squat sets. */
+    private TrainingHistory seedTrainingHistory() {
+        CurrentUserPrincipal user = newUser();
+        WorkoutPlanView plan = workoutService.createPlan(user, new CreateWorkoutPlanRequest(
+                "Full Body Starter",
+                null,
+                GoalFocus.GENERAL_FITNESS,
+                WorkoutType.STRENGTH,
+                WorkoutDifficulty.BEGINNER,
+                45,
+                List.of(new WorkoutPlanExerciseInput(GOBLET_SQUAT_ID, 1, 3, 10, null, null, null, 75, null, null))));
+        workoutService.activatePlan(user, plan.planId());
+        workoutService.createSession(user, new UpsertWorkoutSessionRequest(
+                plan.planId(),
+                "Full Body Starter - Session 1",
+                WorkoutType.STRENGTH,
+                WorkoutSessionStatus.COMPLETED,
+                WorkoutSource.PLAN,
+                Instant.parse("2026-06-10T09:00:00Z"),
+                Instant.parse("2026-06-10T09:46:00Z"),
+                46,
+                null,
+                null,
+                null,
+                List.of(new WorkoutExerciseLogInput(GOBLET_SQUAT_ID, 1, 3, 30, new BigDecimal("360.00"),
+                        null, null, null, null, null,
+                        List.of(squatSet(1), squatSet(2), squatSet(3))))));
+        return new TrainingHistory(user, plan.planId());
+    }
+
+    private WorkoutExerciseSetLogInput squatSet(int setNumber) {
+        return new WorkoutExerciseSetLogInput(setNumber, 10, new BigDecimal("12.00"), null, null, 75, 7, null);
+    }
+
+    private record TrainingHistory(CurrentUserPrincipal user, UUID planId) {
     }
 
     private UpsertWorkoutSessionRequest sessionRequest(String name,
