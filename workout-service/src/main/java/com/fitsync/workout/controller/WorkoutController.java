@@ -99,7 +99,7 @@ public class WorkoutController {
     @GetMapping("/exercises")
     public PageResponse<ExerciseView> listExercises(
             Authentication authentication,
-            @RequestParam(required = false) String q,
+            @RequestParam(required = false) @Size(max = 80) String q,
             @RequestParam(required = false) ExerciseType exerciseType,
             @RequestParam(required = false) MuscleGroup primaryMuscleGroup,
             @RequestParam(required = false) ExerciseEquipment equipment,

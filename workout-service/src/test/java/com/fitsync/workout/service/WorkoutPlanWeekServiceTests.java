@@ -382,8 +382,7 @@ class WorkoutPlanWeekServiceTests {
         WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId(), thursdayPlanDayId, "Asia/Singapore");
         workoutService.upsertSet(currentUser, started.sessionId(), started.exercises().get(0).exerciseLogId(), 1,
                 new com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest(null, 5, new java.math.BigDecimal("60.00"), null, null, 90, 7, null));
-        workoutService.completeSession(currentUser, started.sessionId(),
-                new com.fitsync.workout.dto.CompleteWorkoutSessionRequest(THURSDAY_IN_SINGAPORE.plusSeconds(1800)));
+        workoutService.completeSession(currentUser, started.sessionId(), null);
 
         WorkoutSessionView repeated = workoutService.repeatSession(currentUser, started.sessionId());
 

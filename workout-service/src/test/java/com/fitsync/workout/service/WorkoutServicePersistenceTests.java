@@ -44,6 +44,7 @@ import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseLogView;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
+import com.fitsync.workout.dto.WorkoutExerciseSetLogView;
 import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseSetTargetInput;
@@ -917,10 +918,13 @@ class WorkoutServicePersistenceTests {
         assertEquals(WorkoutSetStatus.SKIPPED, afterSkipped.exercises().get(0).sets().get(1).status());
         assertEquals(false, afterSkipped.exercises().get(0).sets().get(1).logged());
 
+        // A completion time cannot be in the future, so the workout is moved an hour back first.
+        Instant startedAnHourAgo = Instant.now().minus(Duration.ofHours(1));
+        moveSessionStartedAt(afterSkipped.sessionId(), startedAnHourAgo);
         WorkoutSessionView completed = workoutService.completeSession(
                 currentUser,
                 afterSkipped.sessionId(),
-                new CompleteWorkoutSessionRequest(afterSkipped.startedAt().plus(Duration.ofMinutes(45))));
+                new CompleteWorkoutSessionRequest(startedAnHourAgo.plus(Duration.ofMinutes(45))));
         WorkoutSessionResumeView terminalResume = workoutService.resumeSession(currentUser, completed.sessionId());
         ExerciseRecordsView records = workoutService.getExerciseRecords(currentUser, squatId);
 
@@ -2613,6 +2617,89 @@ class WorkoutServicePersistenceTests {
                 new CompleteWorkoutSessionRequest(Instant.now()));
         WorkoutSessionView repeated = workoutService.repeatSession(currentUser, completed.sessionId());
         assertEquals(0, new BigDecimal("2.5").compareTo(repeated.exercises().get(0).tempoSeconds()));
+    }
+
+    @Nested
+    class TheWorkoutPageCleanup {
+
+        @AfterEach
+        void purge() {
+            purgeAllSessions();
+        }
+
+        @Test
+        void refusesToEditAnArchivedPlan() {
+            UUID squatId = createExercise("archived-squat", "Archived Squat");
+            WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                    "Archived Plan", null, GoalFocus.STRENGTH, WorkoutType.STRENGTH, WorkoutDifficulty.BEGINNER, 40,
+                    List.of(new WorkoutPlanExerciseInput(squatId, 1, 3, 5, null, null, null, 90, null, null))));
+            workoutService.archivePlan(currentUser, plan.planId());
+
+            assertThrows(IllegalArgumentException.class, () -> workoutService.updatePlan(currentUser, plan.planId(),
+                    new UpdateWorkoutPlanRequest("Renamed", null, GoalFocus.STRENGTH, WorkoutType.STRENGTH,
+                            WorkoutDifficulty.BEGINNER, 40,
+                            List.of(new WorkoutPlanExerciseInput(squatId, 1, 3, 5, null, null, null, 90, null, null)),
+                            List.of())));
+        }
+
+        @Test
+        void givesAPlanWrittenWithOnlyANumberOfSetsThatManySetsWithItsTargets() {
+            UUID squatId = createExercise("count-only-squat", "Count Only Squat");
+            WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                    "Coach Plan", null, GoalFocus.STRENGTH, WorkoutType.STRENGTH, WorkoutDifficulty.BEGINNER, 40,
+                    List.of(new WorkoutPlanExerciseInput(squatId, 1, 3, 8, new BigDecimal("40.00"), null, null, 90, null, List.of()))));
+
+            WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+
+            List<WorkoutExerciseSetLogView> sets = started.exercises().get(0).sets();
+            assertEquals(List.of(1, 2, 3), sets.stream().map(WorkoutExerciseSetLogView::setNumber).toList());
+            assertTrue(sets.stream().allMatch(set -> set.reps() == 8 && set.weightKg().compareTo(new BigDecimal("40")) == 0
+                    && set.restSeconds() == 90 && !set.logged()));
+        }
+
+        @Test
+        void repeatsOnlyACompletedSession() {
+            UUID squatId = createExercise("repeat-only-squat", "Repeat Only Squat");
+            WorkoutSessionView cancelled = workoutService.createSession(currentUser, completedStrengthSession(
+                    "To Cancel", Instant.parse("2026-06-11T10:00:00Z"), squatId,
+                    List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("90.00"), null, null, 120, 7, null))));
+            workoutService.updateSession(currentUser, cancelled.sessionId(), new UpsertWorkoutSessionRequest(
+                    null, "To Cancel", WorkoutType.STRENGTH, WorkoutSessionStatus.CANCELLED, WorkoutSource.MANUAL,
+                    Instant.parse("2026-06-11T10:00:00Z"), null, null, null, null, null, List.of()));
+
+            assertThrows(IllegalArgumentException.class, () -> workoutService.repeatSession(currentUser, cancelled.sessionId()));
+        }
+
+        @Test
+        void dropsAReopenedSessionFromTheTotalsAndTakesItBackWhenItIsCompletedAgain() {
+            UUID squatId = createExercise("reopen-totals-squat", "Reopen Totals Squat");
+            WorkoutSessionView completed = workoutService.createSession(currentUser, completedStrengthSession(
+                    "Reopen Me", Instant.parse("2026-06-11T10:00:00Z"), squatId,
+                    List.of(new WorkoutExerciseSetLogInput(1, 5, new BigDecimal("90.00"), null, null, 120, 7, null))));
+            outboxEventRepository.deleteAll();
+
+            workoutService.updateSession(currentUser, completed.sessionId(), new UpsertWorkoutSessionRequest(
+                    null, "Reopen Me", WorkoutType.STRENGTH, WorkoutSessionStatus.IN_PROGRESS, WorkoutSource.MANUAL,
+                    Instant.parse("2026-06-11T10:00:00Z"), null, null, null, null, null, List.of()));
+
+            assertEquals(1, pendingEventCount("WorkoutDeleted"));
+            assertEquals(0, pendingEventCount("WorkoutLogged"));
+        }
+
+        @Test
+        void refusesACompletionTimeInTheFuture() {
+            UUID squatId = createExercise("future-squat", "Future Squat");
+            WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
+                    "Future Plan", null, GoalFocus.STRENGTH, WorkoutType.STRENGTH, WorkoutDifficulty.BEGINNER, 40,
+                    List.of(new WorkoutPlanExerciseInput(squatId, 1, 1, 5, null, null, null, 90, null, null))));
+            WorkoutSessionView started = workoutService.startPlan(currentUser, plan.planId());
+            workoutService.upsertSet(currentUser, started.sessionId(), started.exercises().get(0).exerciseLogId(), 1,
+                    new UpsertWorkoutExerciseSetRequest(null, 5, null, null, null, 90, null, null));
+
+            IllegalArgumentException refused = assertThrows(IllegalArgumentException.class, () -> workoutService.completeSession(
+                    currentUser, started.sessionId(), new CompleteWorkoutSessionRequest(Instant.now().plus(Duration.ofHours(2)))));
+            assertEquals("completedAt must not be in the future", refused.getMessage());
+        }
     }
 
     @Nested

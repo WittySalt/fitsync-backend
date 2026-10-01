@@ -87,6 +87,20 @@ class AnalyticsRebuildStreakEventTests {
     }
 
     @Test
+    void countsAStreakPastAWeekSoTheThirtyDayMilestoneCanBeReached() {
+        LocalDate today = LocalDate.parse("2026-06-15");
+        List<AnalyticsUserDailyWorkoutEntity> thirtyConsecutive = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            thirtyConsecutive.add(workout(today.minusDays(i)));
+        }
+        Fixture fixture = fixtureWithStreak(29, thirtyConsecutive);
+
+        fixture.service().rebuildDashboard(USER_ID);
+
+        verify(fixture.publisher()).publishStreakMilestone(USER_ID, 30, 30, today);
+    }
+
+    @Test
     void doesNotEmitWhenNoMilestoneCrossed() {
         LocalDate today = LocalDate.parse("2026-06-15");
         // Only 3 consecutive active days → streak 3, no configured milestone crossed.

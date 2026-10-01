@@ -61,6 +61,10 @@ class AnalyticsRebuildServiceImplTests {
         when(fixture.dailyWorkoutRepository()
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(USER_ID, TODAY.minusDays(6), TODAY))
                 .thenReturn(consecutiveWorkoutRows(7));
+        // The streak is counted over a longer window than the week.
+        when(fixture.dailyWorkoutRepository()
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(USER_ID, TODAY.minusDays(400), TODAY))
+                .thenReturn(consecutiveWorkoutRows(7));
         when(fixture.goalProgressRepository().findByUserIdOrderByTargetDateAscGoalIdAsc(USER_ID))
                 .thenReturn(List.of(
                         goal("calories", "active", "2100.00"),
@@ -125,6 +129,11 @@ class AnalyticsRebuildServiceImplTests {
                 .thenReturn(Optional.empty());
         when(fixture.dailyWorkoutRepository().findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
                 USER_ID, singaporeToday.minusDays(6), singaporeToday))
+                .thenReturn(List.of(
+                        workoutRow(singaporeToday, 1, 45),
+                        workoutRow(singaporeToday.minusDays(1), 1, 30)));
+        when(fixture.dailyWorkoutRepository().findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                USER_ID, singaporeToday.minusDays(400), singaporeToday))
                 .thenReturn(List.of(
                         workoutRow(singaporeToday, 1, 45),
                         workoutRow(singaporeToday.minusDays(1), 1, 30)));

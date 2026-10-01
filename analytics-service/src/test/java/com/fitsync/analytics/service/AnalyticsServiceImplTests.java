@@ -1084,6 +1084,11 @@ class AnalyticsServiceImplTests {
                 .thenReturn(List.of(
                         workoutDay(userId, "2026-06-17", 1, 30),
                         workoutDay(userId, "2026-06-16", 1, 40)));
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                userId, LocalDate.parse("2026-06-18").minusDays(400), LocalDate.parse("2026-06-18")))
+                .thenReturn(List.of(
+                        workoutDay(userId, "2026-06-17", 1, 30),
+                        workoutDay(userId, "2026-06-16", 1, 40)));
 
         rebuildService(dashboardRepository, bodyRepository, nutritionRepository, workoutRepository, goalRepository,
                 fixedClock).rebuildDashboard(userId);

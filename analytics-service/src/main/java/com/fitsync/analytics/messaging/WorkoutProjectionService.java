@@ -28,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class WorkoutProjectionService {
 
     private static final ZoneId DEFAULT_ZONE = ZoneOffset.UTC;
+    /** How far back a streak is counted: past the longest milestone, so none is cut short at a week. */
+    private static final int STREAK_WINDOW_DAYS = 400;
 
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsWorkoutContributionRepository workoutContributionRepository;
@@ -169,7 +171,8 @@ public class WorkoutProjectionService {
         int weekWorkoutMinutes = lastSevenDays.stream()
                 .mapToInt(row -> defaultInt(row.getTotalWorkoutMinutes()))
                 .sum();
-        int activeStreakDays = calculateActiveStreak(lastSevenDays, today);
+        int activeStreakDays = calculateActiveStreak(dailyWorkoutRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, today.minusDays(STREAK_WINDOW_DAYS), today), today);
         int todayWorkoutCount = lastSevenDays.stream()
                 .filter(row -> today.equals(row.getActivityDate()))
                 .mapToInt(row -> defaultInt(row.getCompletedWorkoutCount()))

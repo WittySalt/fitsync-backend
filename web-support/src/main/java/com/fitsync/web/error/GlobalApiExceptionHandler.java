@@ -11,6 +11,7 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -70,6 +71,14 @@ public class GlobalApiExceptionHandler {
                 ? "Invalid request"
                 : ex.getMessage();
         return buildError(HttpStatus.BAD_REQUEST, "BAD_REQUEST", message, request, List.of(message));
+    }
+
+    /** Two writes to the same row at once: the later one is told to reload and try again. */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLock(OptimisticLockingFailureException ex,
+                                                         HttpServletRequest request) {
+        return buildError(HttpStatus.CONFLICT, "CONCURRENT_UPDATE",
+                "This was changed at the same time elsewhere. Reload and try again.", request, List.of());
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
