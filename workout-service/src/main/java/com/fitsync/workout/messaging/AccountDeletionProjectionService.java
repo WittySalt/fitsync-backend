@@ -28,7 +28,8 @@ public class AccountDeletionProjectionService {
         if (userId == null) {
             return;
         }
-        workoutSessionRepository.deleteAll(workoutSessionRepository.findByUserIdOrderByStartedAtDesc(userId));
+        // The purge takes deleted sessions too, which the entity's own queries no longer see.
+        workoutSessionRepository.purgeAllByUserId(userId);
         workoutPlanRepository.deleteAll(workoutPlanRepository.findByUserIdOrderByDateTimeUpdatedDesc(userId));
         exerciseRepository.deleteAll(exerciseRepository.findByOwnerUserIdOrderByNameAsc(userId));
     }

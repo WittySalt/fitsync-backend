@@ -23,6 +23,8 @@ import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.SetRestRequest;
+import com.fitsync.workout.dto.SessionEffortRequest;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.web.response.PageResponse;
 
@@ -103,6 +105,16 @@ public interface WorkoutService {
     WorkoutSessionView completeSession(CurrentUserPrincipal currentUser, UUID sessionId, CompleteWorkoutSessionRequest request);
 
     WorkoutSessionView cancelSession(CurrentUserPrincipal currentUser, UUID sessionId);
+
+    /** Counts a cancelled session that has a done set: it is completed at its last set, with its events. */
+    WorkoutSessionView countSession(CurrentUserPrincipal currentUser, UUID sessionId);
+
+    /** The effort the person chose for a completed session, replacing the estimate. */
+    WorkoutSessionView updateEffort(CurrentUserPrincipal currentUser, UUID sessionId, SessionEffortRequest request);
+
+    /** The rest the person actually took after a done set of a session in progress. */
+    WorkoutSessionView recordRestTaken(CurrentUserPrincipal currentUser, UUID sessionId, UUID exerciseLogId,
+                                       int setNumber, SetRestRequest request);
 
     WorkoutSessionView appendOrReplaceExercise(CurrentUserPrincipal currentUser, UUID sessionId, WorkoutExerciseLogInput request);
 

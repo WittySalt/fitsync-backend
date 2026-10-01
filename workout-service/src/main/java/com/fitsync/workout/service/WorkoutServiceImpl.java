@@ -62,6 +62,9 @@ import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutResumeSetView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.SetRestRequest;
+import com.fitsync.workout.dto.SessionEffortRequest;
+import com.fitsync.workout.dto.NewRecordView;
 import com.fitsync.workout.entity.ExerciseEntity;
 import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
@@ -653,7 +656,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             completeEntity(full, completedAt);
             return AutoCloseOutcome.COMPLETED;
         }
-        session.setStatus(WorkoutSessionStatus.CANCELLED);
+        endCancelled(session, lastActivity(session, activity));
         session.setAutoClosedAt(now);
         workoutSessionRepository.save(session);
         return AutoCloseOutcome.CANCELLED;
@@ -743,7 +746,12 @@ public class WorkoutServiceImpl implements WorkoutService {
         WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
         validateTransitionAllowed(entity);
         requireLoggedSetWhenGuided(entity);
-        return toSessionView(completeEntity(entity, request == null ? null : request.completedAt()));
+        Completion completion = completeEntity(entity, request == null ? null : request.completedAt());
+        return toSessionView(completion.session()).withNewRecords(completion.newRecords());
+    }
+
+    /** A session and the personal records it set, from the one path that completes sessions. */
+    private record Completion(WorkoutSessionEntity session, List<NewRecordView> newRecords) {
     }
 
     /**
@@ -766,7 +774,7 @@ public class WorkoutServiceImpl implements WorkoutService {
      * can be rounded up by the database, so a workout finished in the same instant it began would
      * otherwise fail its own timeline check.
      */
-    private WorkoutSessionEntity completeEntity(WorkoutSessionEntity entity, Instant completedAt) {
+    private Completion completeEntity(WorkoutSessionEntity entity, Instant completedAt) {
         Instant endedAt = completedAt;
         if (endedAt == null) {
             Instant now = Instant.now(clock);
@@ -782,9 +790,55 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.getCaloriesBurned());
         applySessionKind(entity);
         deriveSessionMetrics(entity);
+        entity.setEndedAt(endedAt);
+        List<ExerciseRecords> records = findNewRecords(entity);
+        fillCaloriesEstimate(entity);
+        fillEffortEstimate(entity, !records.isEmpty());
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
-        publishWorkoutLoggedAndPersonalRecords(saved);
-        return saved;
+        publishWorkoutLogged(saved);
+        publishPersonalRecords(saved, records);
+        return new Completion(saved, records.stream()
+                .flatMap(exercise -> exercise.achievements().stream()
+                        .map(record -> new NewRecordView(exercise.exerciseName(), record.recordType(), record.value())))
+                .toList());
+    }
+
+    /**
+     * Ends a session that was cancelled: it keeps when it ended and how long it ran, and an estimate
+     * of its calories, so the session page can show them. It publishes nothing and counts nowhere.
+     */
+    private void endCancelled(WorkoutSessionEntity entity, Instant endedAt) {
+        Instant end = endedAt.isBefore(entity.getStartedAt()) ? entity.getStartedAt() : endedAt;
+        entity.setStatus(WorkoutSessionStatus.CANCELLED);
+        entity.setEndedAt(end);
+        entity.setDurationMinutes(Math.toIntExact(Duration.between(entity.getStartedAt(), end).toMinutes()));
+        fillCaloriesEstimate(entity);
+    }
+
+    /** Estimates the calories from the kind and the minutes when the person gave none. */
+    private void fillCaloriesEstimate(WorkoutSessionEntity entity) {
+        if (entity.getCaloriesBurned() != null && !entity.isCaloriesEstimated()) {
+            return;
+        }
+        Integer estimate = EffortEstimator.estimateCalories(entity.getWorkoutType(), entity.getDurationMinutes());
+        entity.setCaloriesBurned(estimate);
+        entity.setCaloriesEstimated(estimate != null);
+    }
+
+    /** Estimates the effort when the person gave none, against their last finished sessions of the same kind. */
+    private void fillEffortEstimate(WorkoutSessionEntity entity, boolean newBest) {
+        if (entity.getPerceivedExertion() != null && !entity.isEffortEstimated()) {
+            return;
+        }
+        List<EffortEstimator.Load> history = entity.getKind() == null ? List.of()
+                : workoutSessionRepository.findTop4ByUserIdAndKindAndStatusAndSessionIdNotOrderByStartedAtDesc(
+                        entity.getUserId(), entity.getKind(), WorkoutSessionStatus.COMPLETED, entity.getSessionId())
+                        .stream()
+                        .map(EffortEstimator::loadOf)
+                        .toList();
+        Integer estimate = EffortEstimator.estimate(entity, history, newBest);
+        entity.setPerceivedExertion(estimate);
+        entity.setEffortEstimated(estimate != null);
     }
 
     @Override
@@ -792,7 +846,61 @@ public class WorkoutServiceImpl implements WorkoutService {
     public WorkoutSessionView cancelSession(CurrentUserPrincipal currentUser, UUID sessionId) {
         WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
         validateTransitionAllowed(entity);
-        entity.setStatus(WorkoutSessionStatus.CANCELLED);
+        endCancelled(entity, Instant.now(clock));
+        return toSessionView(workoutSessionRepository.save(entity));
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView countSession(CurrentUserPrincipal currentUser, UUID sessionId) {
+        WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
+        if (entity.getStatus() != WorkoutSessionStatus.CANCELLED) {
+            throw new IllegalArgumentException("Only a cancelled workout session can be counted");
+        }
+        if (entity.getExercises().stream().noneMatch(exercise -> exercise.getSets().stream().anyMatch(this::isDoneSet))) {
+            throw new BadRequestException(NOTHING_LOGGED_CODE, NOTHING_LOGGED_MESSAGE);
+        }
+        // Counted as it happened: it ends at its last done or skipped set, or when it was cancelled.
+        Instant lastSet = entity.getExercises().stream()
+                .flatMap(exercise -> exercise.getSets().stream())
+                .map(WorkoutExerciseSetLogEntity::getUpdatedAt)
+                .filter(java.util.Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+        Instant completedAt = lastSet != null && lastSet.isAfter(entity.getStartedAt()) ? lastSet : entity.getEndedAt();
+        Completion completion = completeEntity(entity, completedAt);
+        return toSessionView(completion.session()).withNewRecords(completion.newRecords());
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView updateEffort(CurrentUserPrincipal currentUser, UUID sessionId, SessionEffortRequest request) {
+        WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
+        if (entity.getStatus() != WorkoutSessionStatus.COMPLETED) {
+            throw new IllegalArgumentException("Only a completed workout session has an effort");
+        }
+        entity.setPerceivedExertion(request.perceivedExertion());
+        entity.setEffortEstimated(false);
+        return toSessionView(workoutSessionRepository.save(entity));
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView recordRestTaken(CurrentUserPrincipal currentUser,
+                                              UUID sessionId,
+                                              UUID exerciseLogId,
+                                              int setNumber,
+                                              SetRestRequest request) {
+        WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
+        validateLiveEditable(entity);
+        WorkoutExerciseSetLogEntity set = findExerciseLog(entity, exerciseLogId).getSets().stream()
+                .filter(candidate -> candidate.getSetNumber() == setNumber)
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Workout set not found"));
+        if (!isDoneSet(set)) {
+            throw new IllegalArgumentException("Only a done set has a rest after it");
+        }
+        set.setRestTakenSeconds(request.restTakenSeconds());
         return toSessionView(workoutSessionRepository.save(entity));
     }
 
@@ -848,7 +956,9 @@ public class WorkoutServiceImpl implements WorkoutService {
     public void deleteSession(CurrentUserPrincipal currentUser, UUID sessionId) {
         WorkoutSessionEntity entity = findSession(currentUser.userId(), sessionId);
         boolean publishDelete = entity.getStatus() == WorkoutSessionStatus.COMPLETED;
-        workoutSessionRepository.delete(entity);
+        // Kept and marked: every read leaves it out from now on, and the event lets the projections drop it.
+        entity.setDeletedAt(Instant.now(clock));
+        workoutSessionRepository.save(entity);
         if (publishDelete) {
             domainEventPublisher.publish(workoutEventsTopic(), "WorkoutSession", sessionId.toString(), new FitSyncDomainEvent<>(
                     UUID.randomUUID(),
@@ -1541,7 +1651,9 @@ public class WorkoutServiceImpl implements WorkoutService {
                                                  Integer durationMinutes,
                                                  Integer caloriesBurned) {
         validateTimeRange(startedAt, completedAt);
-        if (startedAt.isAfter(Instant.now())) {
+        // A second of leeway: the database rounds a start it was given up to its own precision, so a
+        // workout started and completed in the same instant could otherwise seem to start in the future.
+        if (startedAt.isAfter(Instant.now(clock).plusSeconds(1))) {
             throw new IllegalArgumentException("startedAt must not be in the future");
         }
         if (status == WorkoutSessionStatus.COMPLETED && completedAt == null) {
@@ -1676,6 +1788,18 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void publishPersonalRecordsAchieved(WorkoutSessionEntity session) {
+        publishPersonalRecords(session, findNewRecords(session));
+    }
+
+    /** The records of one exercise that a session beat. */
+    private record ExerciseRecords(WorkoutExerciseLogEntity exercise,
+                                   String exerciseName,
+                                   List<PersonalRecordAchievedPayload.RecordAchievement> achievements) {
+    }
+
+    /** Each exercise of the session that set a personal record, against the person's other sessions. */
+    private List<ExerciseRecords> findNewRecords(WorkoutSessionEntity session) {
+        List<ExerciseRecords> found = new ArrayList<>();
         for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
             PersonalRecordSnapshot current = snapshotExercise(exercise);
             if (current.isEmpty()) {
@@ -1686,9 +1810,17 @@ public class WorkoutServiceImpl implements WorkoutService {
                     exercise.getExercise().getExerciseId(),
                     session.getSessionId()));
             List<PersonalRecordAchievedPayload.RecordAchievement> achievements = compareRecords(current, prior);
-            if (achievements.isEmpty()) {
-                continue;
+            if (!achievements.isEmpty()) {
+                found.add(new ExerciseRecords(exercise, exercise.getExerciseNameSnapshot(), achievements));
             }
+        }
+        return found;
+    }
+
+    private void publishPersonalRecords(WorkoutSessionEntity session, List<ExerciseRecords> records) {
+        for (ExerciseRecords record : records) {
+            WorkoutExerciseLogEntity exercise = record.exercise();
+            List<PersonalRecordAchievedPayload.RecordAchievement> achievements = record.achievements();
             domainEventPublisher.publish(workoutEventsTopic(), "WorkoutSession", session.getSessionId().toString(), new FitSyncDomainEvent<>(
                     UUID.randomUUID(),
                     "PersonalRecordAchieved",
@@ -2030,7 +2162,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                                         setLog.getRestSeconds(),
                                         setLog.getPerceivedExertion(),
                                         setLog.isLogged(),
-                                        setLog.getNotes()))
+                                        setLog.getNotes(),
+                                        setLog.getRestTakenSeconds()))
                                 .toList(),
                         exercise.getTempoSeconds()))
                 .toList();
@@ -2056,7 +2189,11 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.getSportActivity() == null ? null : entity.getSportActivity().label(),
                 entity.getDistanceKm(),
                 entity.getPlanDayId(),
-                entity.getAutoClosedAt());
+                entity.getAutoClosedAt(),
+                entity.getEndedAt(),
+                entity.isCaloriesEstimated(),
+                entity.isEffortEstimated(),
+                List.of());
     }
 
     private record PersonalRecordSnapshot(

@@ -9,7 +9,6 @@ import java.util.UUID;
 
 import com.fitsync.workout.entity.ExerciseEntity;
 import com.fitsync.workout.entity.WorkoutPlanEntity;
-import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.messaging.AccountDeletionProjectionService;
 import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
@@ -27,17 +26,16 @@ class AccountDeletionProjectionServiceTests {
         AccountDeletionProjectionService service =
                 new AccountDeletionProjectionService(sessionRepository, planRepository, exerciseRepository);
         UUID userId = UUID.randomUUID();
-        List<WorkoutSessionEntity> sessions = List.of(new WorkoutSessionEntity());
         List<WorkoutPlanEntity> plans = List.of(new WorkoutPlanEntity());
         List<ExerciseEntity> exercises = List.of(new ExerciseEntity());
-        when(sessionRepository.findByUserIdOrderByStartedAtDesc(userId)).thenReturn(sessions);
         when(planRepository.findByUserIdOrderByDateTimeUpdatedDesc(userId)).thenReturn(plans);
         when(exerciseRepository.findByOwnerUserIdOrderByNameAsc(userId)).thenReturn(exercises);
 
         service.deleteUserData(userId);
 
         InOrder inOrder = inOrder(sessionRepository, planRepository, exerciseRepository);
-        inOrder.verify(sessionRepository).deleteAll(sessions);
+        // Sessions go by one statement that also takes the deleted ones, before the plans they point to.
+        inOrder.verify(sessionRepository).purgeAllByUserId(userId);
         inOrder.verify(planRepository).deleteAll(plans);
         inOrder.verify(exerciseRepository).deleteAll(exercises);
     }
