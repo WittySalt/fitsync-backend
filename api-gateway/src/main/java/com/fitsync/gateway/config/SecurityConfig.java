@@ -61,6 +61,10 @@ public class SecurityConfig {
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/bootstrap",
+                                // Cancelling a pending deletion is done with the Cognito identity
+                                // token, because such an account has no application token. The
+                                // auth service verifies that token itself, as it does for bootstrap.
+                                "/api/v1/auth/account-deletion/cancel",
                                 "/api/v1/health",
                                 "/actuator/health",
                                 "/v3/api-docs/**",

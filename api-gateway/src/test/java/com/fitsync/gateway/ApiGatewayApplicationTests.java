@@ -123,6 +123,27 @@ class ApiGatewayApplicationTests {
     }
 
     @Test
+    void cancellingADeletionIsProxiedWithTheIdentityTokenItCarries() throws Exception {
+        when(gatewayProxyService.forwardToAuthService(any(), any()))
+                .thenReturn(ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":\"NOT_REQUESTED\"}".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer cognito-identity"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NOT_REQUESTED"));
+    }
+
+    @Test
+    void theOtherAccountDeletionRoutesStillNeedAnApplicationToken() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/account-deletion/request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void protectedUserRouteRejectsMissingToken() throws Exception {
         mockMvc.perform(get("/api/v1/users/me/profile"))
                 .andExpect(status().isUnauthorized())
