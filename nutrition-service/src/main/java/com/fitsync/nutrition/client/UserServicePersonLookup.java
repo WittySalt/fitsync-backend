@@ -6,7 +6,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.Period;
 import java.time.format.DateTimeParseException;
-import java.util.Locale;
+import java.util.Map;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -39,6 +39,17 @@ public class UserServicePersonLookup implements PersonLookup {
     private static final String PROFILE_PATH = "/api/v1/users/me/profile";
     private static final String BODY_METRICS_PATH = "/api/v1/users/me/body-metrics/latest";
     private static final String PREFERENCES_PATH = "/api/v1/users/me/preferences";
+    private static final String MALE = "MALE";
+    private static final String FEMALE = "FEMALE";
+    // user-service answers with the numeric code of a dietary pattern. The names and the old lower-case codes are
+    // accepted as well, so that a change in how it writes the value does not silently drop the focus nutrients.
+    private static final Map<String, String> DIETARY_PATTERNS = Map.ofEntries(
+            Map.entry("300001", "NONE"), Map.entry("300002", "HALAL"), Map.entry("300003", "VEGETARIAN"),
+            Map.entry("300004", "VEGAN"), Map.entry("300005", "KETO"), Map.entry("300006", "LOW_CARB"),
+            Map.entry("NONE", "NONE"), Map.entry("HALAL", "HALAL"), Map.entry("VEGETARIAN", "VEGETARIAN"),
+            Map.entry("VEGAN", "VEGAN"), Map.entry("KETO", "KETO"), Map.entry("LOW_CARB", "LOW_CARB"),
+            Map.entry("none", "NONE"), Map.entry("halal", "HALAL"), Map.entry("vegetarian", "VEGETARIAN"),
+            Map.entry("vegan", "VEGAN"), Map.entry("keto", "KETO"), Map.entry("low_carb", "LOW_CARB"));
 
     private final boolean enabled;
     private final String baseUrl;
@@ -84,15 +95,22 @@ public class UserServicePersonLookup implements PersonLookup {
             return null;
         }
         JsonNode pattern = preferences.path("nutrition").path("dietaryPattern");
-        return pattern.isTextual() ? pattern.asText().toUpperCase(Locale.ROOT) : null;
+        if (!pattern.isTextual()) {
+            return null;
+        }
+        // Only the patterns user-service defines are passed on, so no free text travels further.
+        return DIETARY_PATTERNS.get(pattern.asText());
     }
 
     private String sexOf(JsonNode gender) {
         if (!gender.isTextual()) {
             return null;
         }
-        String value = gender.asText().toUpperCase(Locale.ROOT);
-        return "MALE".equals(value) || "FEMALE".equals(value) ? value : null;
+        String value = gender.asText();
+        if (MALE.equals(value)) {
+            return MALE;
+        }
+        return FEMALE.equals(value) ? FEMALE : null;
     }
 
     private Integer ageOf(JsonNode birthDate) {
@@ -123,9 +141,14 @@ public class UserServicePersonLookup implements PersonLookup {
             return body == null || body.isBlank() ? null : treeReader.readTree(body);
         } catch (JsonProcessingException | RuntimeException ex) {
             // The path is a constant and the token is never logged.
-            LOG.warn("event=person_lookup_unavailable path={} reason={}", path, ex.getClass().getSimpleName());
+            LOG.warn("event=person_lookup_unavailable path={} reason={}",
+                    sanitizeForLog(path), sanitizeForLog(ex.getClass().getSimpleName()));
             return null;
         }
+    }
+
+    private String sanitizeForLog(String value) {
+        return value.replace("\r", "_").replace("\n", "_");
     }
 
     private String currentAuthorization() {

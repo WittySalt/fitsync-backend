@@ -143,6 +143,12 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Constructor-injected Spring Data repositories of the Diary read service, same noise as above. -->
+    <Match>
+        <Class name="com.fitsync.nutrition.service.NutritionDiaryServiceImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- Spring wiring, controllers, and JPA relationship noise in workout-service -->
     <Match>
         <Class name="com.fitsync.workout.controller.WorkoutController"/>
