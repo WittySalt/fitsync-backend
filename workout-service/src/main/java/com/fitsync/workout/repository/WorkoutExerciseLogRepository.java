@@ -18,6 +18,22 @@ import org.springframework.data.repository.query.Param;
 public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerciseLogEntity, UUID>,
         WorkoutExerciseLogRepositoryCustom {
 
+    // For each of the given sessions that has a set marked done or skipped: when one was last marked
+    // and how many are done. Sessions without such a set have no row. One grouped query, so closing
+    // a left workout never loads its sets just to find out when it was last worked on.
+    @Query("""
+            select new com.fitsync.workout.repository.SessionActivityRow(
+                       el.session.sessionId, max(s.updatedAt), sum(case when s.status = :doneStatus then 1L else 0L end))
+            from WorkoutExerciseLogEntity el
+              join el.sets s
+            where el.session.sessionId in :sessionIds
+              and s.status in :activeStatuses
+            group by el.session.sessionId
+            """)
+    List<SessionActivityRow> findSessionActivity(@Param("sessionIds") List<UUID> sessionIds,
+                                                 @Param("activeStatuses") List<WorkoutSetStatus> activeStatuses,
+                                                 @Param("doneStatus") WorkoutSetStatus doneStatus);
+
     // Bounded, grouped projection used by the training page insight's "personal record" rule: the
     // heaviest logged set weight per exercise across the user's history, without loading whole
     // session/log/set entity graphs. "Before the period" is approximated by session startedAt

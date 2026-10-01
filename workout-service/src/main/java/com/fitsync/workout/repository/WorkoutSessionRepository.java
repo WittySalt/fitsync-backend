@@ -8,6 +8,7 @@ import java.util.UUID;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSource;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -59,6 +60,42 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
                                                                           @Param("statuses") List<WorkoutSessionStatus> statuses,
                                                                           @Param("from") Instant from,
                                                                           @Param("to") Instant to);
+
+    // The caller's in-progress sessions, newest first, so the first is the active one. Bounded by the
+    // page, and without the exercise graph, which nothing that reads it needs.
+    @Query("""
+            select session from WorkoutSessionEntity session
+            where session.userId = :userId
+              and session.status = :status
+            order by session.startedAt desc, session.sessionId desc
+            """)
+    List<WorkoutSessionEntity> findOpenSessions(@Param("userId") UUID userId,
+                                                @Param("status") WorkoutSessionStatus status,
+                                                Pageable pageable);
+
+    // One page of the in-progress sessions the sweep has to look at, across all users: those that
+    // started before the cutoff (the only ones that can be idle for long enough) and those that
+    // have a newer in-progress session of the same user (only one may stay open). Keyset paging by
+    // (startedAt, sessionId), so a session that fails to close does not come back in the same run.
+    @Query("""
+            select session from WorkoutSessionEntity session
+            where session.status = :status
+              and (session.startedAt < :cutoff
+                   or exists (select 1 from WorkoutSessionEntity newer
+                              where newer.userId = session.userId
+                                and newer.status = :status
+                                and (newer.startedAt > session.startedAt
+                                     or (newer.startedAt = session.startedAt
+                                         and newer.sessionId > session.sessionId))))
+              and (session.startedAt > :afterStartedAt
+                   or (session.startedAt = :afterStartedAt and session.sessionId > :afterSessionId))
+            order by session.startedAt asc, session.sessionId asc
+            """)
+    List<WorkoutSessionEntity> findSweepCandidates(@Param("status") WorkoutSessionStatus status,
+                                                   @Param("cutoff") Instant cutoff,
+                                                   @Param("afterStartedAt") Instant afterStartedAt,
+                                                   @Param("afterSessionId") UUID afterSessionId,
+                                                   Pageable pageable);
 
     // The earliest moment any completed session of the user is dated by, using the same
     // completedAt-then-startedAt rule the insights use to place a session on a day. The parameters

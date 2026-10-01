@@ -90,6 +90,20 @@ public class WorkoutCatalogueClient extends CatalogueClient {
     }
 
     /**
+     * The person's workout in progress as workout-service reports it, or null when there is none or
+     * the service could not be reached. Asking also makes workout-service close a workout that was
+     * left, so a forgotten one does not count.
+     */
+    public String activeSession(String bearerToken) {
+        return get(SESSIONS + "/active", params(), bearerToken);
+    }
+
+    /** Archives a plan, which is how a plan this coach created is taken back. */
+    public void archivePlan(String bearerToken, UUID planId) {
+        delete(PLANS + "/" + planId, bearerToken);
+    }
+
+    /**
      * The current week as workout-service counts it: the sessions completed since Monday and
      * their minutes. Null when the service could not be reached.
      */

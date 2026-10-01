@@ -133,6 +133,56 @@ class SessionDraftAcceptTests {
     }
 
     @Test
+    @DisplayName("a workout already in progress stops the accept before anything is created")
+    void refusesToAcceptWhileAWorkoutIsInProgress() throws Exception {
+        GeneratedArtifactEntity artifact = storedDraft(ArtifactStatus.DRAFT);
+        when(repository.findByArtifactIdAndUserId(ARTIFACT, USER)).thenReturn(Optional.of(artifact));
+        when(workoutClient.activeSession("token")).thenReturn("{\"session\":{},\"resume\":{}}");
+
+        assertThatThrownBy(() -> service.accept(CALL, ARTIFACT))
+                .isInstanceOf(SessionDraftService.DraftNotAcceptableException.class)
+                .hasMessage("You have a workout in progress. Finish or end it first.");
+        assertThat(artifact.getStatus()).isEqualTo(ArtifactStatus.DRAFT);
+        verify(workoutClient, never()).createPlan(any(), any());
+        verify(workoutClient, never()).startPlan(any(), any());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("a workout that begins during the accept takes the new plan back and leaves the draft open")
+    void takesThePlanBackWhenAWorkoutBeginsMeanwhile() throws Exception {
+        GeneratedArtifactEntity artifact = storedDraft(ArtifactStatus.DRAFT);
+        when(repository.findByArtifactIdAndUserId(ARTIFACT, USER)).thenReturn(Optional.of(artifact));
+        when(workoutClient.createPlan(eq("token"), any())).thenReturn("{\"planId\":\"" + PLAN + "\"}");
+        when(workoutClient.startPlan("token", PLAN)).thenThrow(new DownstreamWriteException(
+                "workout", 409, "{\"code\":\"ACTIVE_SESSION_EXISTS\",\"message\":\"You have a workout in progress.\"}"));
+
+        assertThatThrownBy(() -> service.accept(CALL, ARTIFACT))
+                .isInstanceOf(SessionDraftService.DraftNotAcceptableException.class)
+                .hasMessage("You have a workout in progress. Finish or end it first.");
+        verify(workoutClient).archivePlan("token", PLAN);
+        assertThat(artifact.getStatus()).isEqualTo(ArtifactStatus.DRAFT);
+        assertThat(artifact.getAcceptedRef()).isNull();
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("the person gets the same sentence even when the new plan cannot be archived")
+    void answersTheSameWhenTheArchiveFails() throws Exception {
+        GeneratedArtifactEntity artifact = storedDraft(ArtifactStatus.DRAFT);
+        when(repository.findByArtifactIdAndUserId(ARTIFACT, USER)).thenReturn(Optional.of(artifact));
+        when(workoutClient.createPlan(eq("token"), any())).thenReturn("{\"planId\":\"" + PLAN + "\"}");
+        when(workoutClient.startPlan("token", PLAN)).thenThrow(new DownstreamWriteException(
+                "workout", 409, "{\"code\":\"ACTIVE_SESSION_EXISTS\"}"));
+        org.mockito.Mockito.doThrow(new DownstreamWriteException("workout", 0, null))
+                .when(workoutClient).archivePlan("token", PLAN);
+
+        assertThatThrownBy(() -> service.accept(CALL, ARTIFACT))
+                .isInstanceOf(SessionDraftService.DraftNotAcceptableException.class)
+                .hasMessage("You have a workout in progress. Finish or end it first.");
+    }
+
+    @Test
     @DisplayName("if the plan cannot be created nothing is recorded and the caller gets a 409")
     void failsCleanlyWhenThePlanIsRefused() throws Exception {
         GeneratedArtifactEntity artifact = storedDraft(ArtifactStatus.DRAFT);

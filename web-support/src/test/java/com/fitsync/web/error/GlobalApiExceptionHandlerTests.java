@@ -133,6 +133,38 @@ class GlobalApiExceptionHandlerTests {
                 assertThat(event.getFormattedMessage()).contains("corr_INJECTED"));
     }
 
+    @Test
+    @DisplayName("a coded conflict carries its code and data into the response body")
+    void codedConflictCarriesItsData() throws Exception {
+        ConflictException conflict = new ConflictException(
+                "ACTIVE_SESSION_EXISTS", "You have a workout in progress.", java.util.Map.of("sessionId", "abc"));
+
+        ResponseEntity<ApiError> response = handler.handleApiException(conflict, request("POST", "/api/v1/workouts/sessions"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        ApiError body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.code()).isEqualTo("ACTIVE_SESSION_EXISTS");
+        assertThat(body.message()).isEqualTo("You have a workout in progress.");
+        assertThat(body.data()).containsEntry("sessionId", "abc");
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().writeValueAsString(body))
+                .contains("\"data\":{\"sessionId\":\"abc\"}");
+    }
+
+    @Test
+    @DisplayName("an error without data has no data field at all, so existing bodies are unchanged")
+    void errorWithoutDataOmitsTheField() throws Exception {
+        ResponseEntity<ApiError> response = handler.handleApiException(
+                new ConflictException("Already there"), request("POST", "/api/v1/workouts/plans"));
+
+        ApiError body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.code()).isEqualTo("CONFLICT");
+        assertThat(body.data()).isNull();
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().writeValueAsString(body))
+                .doesNotContain("\"data\"");
+    }
+
     private MockHttpServletRequest request(String method, String uri) {
         MockHttpServletRequest request = new MockHttpServletRequest(method, uri);
         request.setRequestURI(uri);

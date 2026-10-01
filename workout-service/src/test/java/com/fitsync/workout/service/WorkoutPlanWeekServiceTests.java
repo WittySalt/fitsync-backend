@@ -273,6 +273,7 @@ class WorkoutPlanWeekServiceTests {
         assertEquals(SessionKind.CARDIO, started.kind());
         assertEquals(WorkoutType.CARDIO, started.workoutType());
         assertEquals(thursdayPlanDayId, workoutSessionRepository.findById(started.sessionId()).orElseThrow().getPlanDayId());
+        assertEquals(thursdayPlanDayId, started.planDayId());
     }
 
     @Test

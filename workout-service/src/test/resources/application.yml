@@ -29,5 +29,7 @@ fitsync:
   workout:
     catalog:
       auto-import: false
+    auto-close:
+      enabled: false
   kafka:
     enabled: false

@@ -1,6 +1,7 @@
 package com.fitsync.workout.entity;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.WorkoutSetStatus;
@@ -57,6 +58,10 @@ public class WorkoutExerciseSetLogEntity {
     @Column(name = "status", nullable = false, length = 20)
     private WorkoutSetStatus status = WorkoutSetStatus.PENDING;
 
+    /** When the set was last marked done or skipped; empty while it is still pending. */
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
     public UUID getSetLogId() { return setLogId; }
     public void setSetLogId(UUID setLogId) { this.setLogId = setLogId; }
     public WorkoutExerciseLogEntity getExerciseLog() { return exerciseLog; }
@@ -82,6 +87,8 @@ public class WorkoutExerciseSetLogEntity {
         this.logged = logged;
         this.status = logged ? WorkoutSetStatus.DONE : WorkoutSetStatus.PENDING;
     }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
     public WorkoutSetStatus getStatus() { return status; }
     public void setStatus(WorkoutSetStatus status) {
         this.status = status == null ? WorkoutSetStatus.PENDING : status;
