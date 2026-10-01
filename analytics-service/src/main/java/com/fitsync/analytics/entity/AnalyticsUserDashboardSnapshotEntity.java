@@ -2,6 +2,7 @@ package com.fitsync.analytics.entity;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseAuditableEntity;
@@ -32,6 +33,12 @@ public class AnalyticsUserDashboardSnapshotEntity extends BaseAuditableEntity {
 
     @Column(name = "weight_change_30d", precision = 6, scale = 2)
     private BigDecimal weightChange30d;
+
+    @Column(name = "latest_waist_cm", precision = 6, scale = 2)
+    private BigDecimal latestWaistCm;
+
+    @Column(name = "waist_measured_on")
+    private LocalDate waistMeasuredOn;
 
     @Column(name = "today_workout_count", nullable = false)
     private Integer todayWorkoutCount;
@@ -82,6 +89,22 @@ public class AnalyticsUserDashboardSnapshotEntity extends BaseAuditableEntity {
 
     public void setLatestWeightKg(BigDecimal latestWeightKg) {
         this.latestWeightKg = latestWeightKg;
+    }
+
+    public BigDecimal getLatestWaistCm() {
+        return latestWaistCm;
+    }
+
+    public void setLatestWaistCm(BigDecimal latestWaistCm) {
+        this.latestWaistCm = latestWaistCm;
+    }
+
+    public LocalDate getWaistMeasuredOn() {
+        return waistMeasuredOn;
+    }
+
+    public void setWaistMeasuredOn(LocalDate waistMeasuredOn) {
+        this.waistMeasuredOn = waistMeasuredOn;
     }
 
     public BigDecimal getLatestBodyFatRate() {

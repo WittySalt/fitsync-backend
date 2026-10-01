@@ -89,6 +89,12 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
                     snapshot.setWeightChange30d(body.getWeightDeltaFromStart());
                 });
 
+        dailyBodyRepository.findTopByUserIdAndWaistCmIsNotNullOrderByMetricDateDesc(userId)
+                .ifPresent(body -> {
+                    snapshot.setLatestWaistCm(body.getWaistCm());
+                    snapshot.setWaistMeasuredOn(body.getMetricDate());
+                });
+
         dailyNutritionRepository.findByUserIdAndActivityDate(userId, today)
                 .ifPresent(nutrition -> {
                     snapshot.setTodayCaloriesConsumed(nutrition.getTotalCaloriesConsumed());

@@ -194,6 +194,12 @@ public class UserServiceImpl implements UserService {
                 "",
                 true));
 
+        if (request.primaryGoal() != null) {
+            UserProfileEntity onboardedProfile = getOrCreateProfileEntity(principal);
+            onboardedProfile.setPrimaryGoal(request.primaryGoal());
+            userProfileRepository.save(onboardedProfile);
+        }
+
         upsertPreferences(principal, new UpsertUserPreferencesRequest(
                 new com.fitsync.user.dto.UpsertAppPreferencesRequest(
                         request.preferredUnits(),
@@ -839,7 +845,8 @@ public class UserServiceImpl implements UserService {
                 entity.getDisplayName(), entity.getFirstName(), entity.getLastName(), entity.getAvatarUrl(),
                 entity.getBirthDate(), entity.getGender(), entity.getHeightCm(), entity.getActivityLevel(),
                 entity.getTimezone(), entity.getLocationDisplay(), entity.getBio(),
-                entity.getMembershipTier(), entity.getMembershipStatus(), entity.isOnboardingCompleted());
+                entity.getMembershipTier(), entity.getMembershipStatus(), entity.isOnboardingCompleted(),
+                entity.getPrimaryGoal());
     }
 
     private UserPreferencesView toPreferencesView(UserAppPreferencesEntity app,

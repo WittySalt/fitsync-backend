@@ -64,7 +64,8 @@ class AnalyticsControllerTests {
         AnalyticsDashboardResponse response = new AnalyticsDashboardResponse(
                 Instant.parse("2026-06-14T08:00:00Z"),
                 "Asia/Singapore",
-                new AnalyticsDashboardResponse.BodySummary(78.4, 19.8, 24.7, -1.6, LocalDate.parse("2026-06-14")),
+                new AnalyticsDashboardResponse.BodySummary(78.4, 19.8, 24.7, -1.6, LocalDate.parse("2026-06-14"),
+                        85.5, LocalDate.parse("2026-06-12")),
                 new AnalyticsDashboardResponse.WorkoutSummary(1, 4, 205, 3),
                 new AnalyticsDashboardResponse.NutritionSummary(1860, 2100, 132.5, 150.0),
                 List.of(new AnalyticsDashboardResponse.GoalProgressSummary(
@@ -77,6 +78,8 @@ class AnalyticsControllerTests {
                         .with(authentication(authToken(principal))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timezone").value("Asia/Singapore"))
+                .andExpect(jsonPath("$.body.latestWaistCm").value(85.5))
+                .andExpect(jsonPath("$.body.waistMeasuredAt").value("2026-06-12"))
                 .andExpect(jsonPath("$.workout.weekWorkoutCount").value(4))
                 .andExpect(jsonPath("$.goals[0].goalId").value(goalId.toString()));
     }

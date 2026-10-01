@@ -93,6 +93,7 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.profile.displayName").value("Bob"))
                 .andExpect(jsonPath("$.profile.membershipTier").value("MEMBER"))
                 .andExpect(jsonPath("$.profile.membershipStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.profile.primaryGoal").value(nullValue()))
                 .andExpect(jsonPath("$.preferences.app.preferredUnits").value("100001"))
                 .andExpect(jsonPath("$.preferences.training.fitnessLevel").value("200001"))
                 .andExpect(jsonPath("$.preferences.nutrition.dietaryPattern").value("300001"))
@@ -349,18 +350,25 @@ class UserProfileTests {
                                   "waterGoalMl": 2500,
                                   "workoutReminderEnabled": true,
                                   "mealReminderEnabled": true,
-                                  "weighInReminderEnabled": true
+                                  "weighInReminderEnabled": true,
+                                  "primaryGoal": "BUILD_MUSCLE"
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profile.displayName").value("New User"))
                 .andExpect(jsonPath("$.profile.onboardingCompleted").value(true))
+                .andExpect(jsonPath("$.profile.primaryGoal").value("BUILD_MUSCLE"))
                 .andExpect(jsonPath("$.preferences.training.weeklyWorkoutDays").value(4))
                 .andExpect(jsonPath("$.preferences.nutrition.macroPreference").value("320002"))
                 .andExpect(jsonPath("$.latestBodyMetrics.weightKg").value(72.0))
                 .andExpect(jsonPath("$.activeGoals", hasSize(6)))
                 .andExpect(jsonPath("$.activeGoals[*].goalType", containsInAnyOrder(
                         "WEIGHT", "WORKOUT_FREQUENCY", "CALORIES", "PROTEIN", "CARBS", "FAT")));
+
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile.primaryGoal").value("BUILD_MUSCLE"));
 
         mockMvc.perform(get("/api/v1/users/me/goals")
                         .contentType(MediaType.APPLICATION_JSON)

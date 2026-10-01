@@ -1146,6 +1146,7 @@ join lateral (
 -- 6g. dashboard snapshot (single row the home screen reads)
 insert into analytics.analytics_user_dashboard_snapshot
     (user_id, timezone, latest_weight_kg, latest_body_fat_rate, bmi, weight_change_30d,
+     latest_waist_cm, waist_measured_on,
      today_workout_count, week_workout_count, week_workout_minutes, active_streak_days,
      today_calories_consumed, today_calories_target, today_protein_grams,
      today_protein_target_grams, generated_at, date_time_created, date_time_updated,
@@ -1153,6 +1154,12 @@ insert into analytics.analytics_user_dashboard_snapshot
 select
     c.user_id, c.tz,
     bd.weight_kg, bd.body_fat_rate, bd.bmi, bd.weight_delta_from_start,
+    (select w.waist_cm from analytics.analytics_user_daily_body w
+      where w.user_id = c.user_id and w.waist_cm is not null
+      order by w.metric_date desc limit 1),
+    (select w.metric_date from analytics.analytics_user_daily_body w
+      where w.user_id = c.user_id and w.waist_cm is not null
+      order by w.metric_date desc limit 1),
     coalesce((select completed_workout_count from analytics.analytics_user_daily_workout w
               where w.user_id = c.user_id and w.activity_date = c.d_today), 0),
     coalesce((select sum(completed_workout_count) from analytics.analytics_user_daily_workout w

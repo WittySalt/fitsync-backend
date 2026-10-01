@@ -123,7 +123,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         toDouble(snapshot.getLatestBodyFatRate()),
                         toDouble(snapshot.getBmi()),
                         toDouble(snapshot.getWeightChange30d()),
-                        latestBodyMeasurementDate(principal.userId())),
+                        latestBodyMeasurementDate(principal.userId()),
+                        toDouble(snapshot.getLatestWaistCm()),
+                        snapshot.getWaistMeasuredOn()),
                 new AnalyticsDashboardResponse.WorkoutSummary(
                         sameDay ? defaultInteger(snapshot.getTodayWorkoutCount()) : 0,
                         sameWeek ? defaultInteger(snapshot.getWeekWorkoutCount()) : 0,
@@ -783,7 +785,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return new AnalyticsDashboardResponse(
                 Instant.now(clock),
                 DEFAULT_TIMEZONE,
-                new AnalyticsDashboardResponse.BodySummary(null, null, null, null, null),
+                new AnalyticsDashboardResponse.BodySummary(null, null, null, null, null, null, null),
                 new AnalyticsDashboardResponse.WorkoutSummary(0, 0, 0, 0),
                 new AnalyticsDashboardResponse.NutritionSummary(null, null, null, null),
                 goals);

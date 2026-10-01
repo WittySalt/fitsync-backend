@@ -9,6 +9,7 @@ import com.fitsync.user.domain.ActivityLevel;
 import com.fitsync.user.domain.Gender;
 import com.fitsync.user.domain.MembershipStatus;
 import com.fitsync.user.domain.MembershipTier;
+import com.fitsync.user.domain.PrimaryGoal;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -70,6 +71,10 @@ public class UserProfileEntity extends BaseAuditableEntity {
     @Column(name = "onboarding_completed", nullable = false)
     private boolean onboardingCompleted;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "primary_goal", length = 30)
+    private PrimaryGoal primaryGoal;
+
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public String getDisplayName() { return displayName; }
@@ -94,6 +99,8 @@ public class UserProfileEntity extends BaseAuditableEntity {
     public void setLocationDisplay(String locationDisplay) { this.locationDisplay = locationDisplay; }
     public String getBio() { return bio; }
     public void setBio(String bio) { this.bio = bio; }
+    public PrimaryGoal getPrimaryGoal() { return primaryGoal; }
+    public void setPrimaryGoal(PrimaryGoal primaryGoal) { this.primaryGoal = primaryGoal; }
     public MembershipTier getMembershipTier() { return membershipTier; }
     public void setMembershipTier(MembershipTier membershipTier) { this.membershipTier = membershipTier; }
     public MembershipStatus getMembershipStatus() { return membershipStatus; }

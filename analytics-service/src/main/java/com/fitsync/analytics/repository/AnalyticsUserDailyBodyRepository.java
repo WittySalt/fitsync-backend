@@ -20,6 +20,8 @@ public interface AnalyticsUserDailyBodyRepository
 
     Optional<AnalyticsUserDailyBodyEntity> findTopByUserIdOrderByMetricDateDesc(UUID userId);
 
+    Optional<AnalyticsUserDailyBodyEntity> findTopByUserIdAndWaistCmIsNotNullOrderByMetricDateDesc(UUID userId);
+
     List<AnalyticsUserDailyBodyEntity> findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(UUID userId,
                                                                                              LocalDate from,
                                                                                              LocalDate to);

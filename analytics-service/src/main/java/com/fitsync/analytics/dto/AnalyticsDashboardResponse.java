@@ -26,13 +26,17 @@ public record AnalyticsDashboardResponse(
      * {@code measuredOn} is the day the newest body measurement was taken. It used to be absent,
      * which left the client captioning the "Latest body metric" card with the snapshot's generation
      * time because that was the only date in the payload.
+     * {@code latestWaistCm} and {@code waistMeasuredAt} describe the newest measurement that had a
+     * waist value, which can be older than {@code measuredOn} when a later entry carried weight only.
      */
     public record BodySummary(
             Double latestWeightKg,
             Double latestBodyFatRate,
             Double bmi,
             Double weightChange30d,
-            LocalDate measuredOn) {
+            LocalDate measuredOn,
+            Double latestWaistCm,
+            LocalDate waistMeasuredAt) {
     }
 
     public record WorkoutSummary(
