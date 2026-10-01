@@ -3,17 +3,15 @@ package com.fitsync.nutrition;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
-import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
+import com.fitsync.contracts.events.user.NutritionReferenceProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
-import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.nutrition.client.PersonFacts;
 import com.fitsync.nutrition.client.PersonLookup;
 import com.fitsync.nutrition.repository.NutritionPreferenceProjectionRepository;
@@ -23,7 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * The person's sex, birth date, weight and dietary pattern arrive as three kinds of events and meet in one row.
+ * The person's reference sex, age band, weight and dietary pattern arrive as three kinds of events and meet in one row.
  * These tests feed the consumers directly and read the row back through the lookup the Diary uses.
  */
 @SpringBootTest
@@ -31,7 +29,7 @@ import org.springframework.test.context.ActiveProfiles;
 class PersonFactsProjectionTests {
 
     @Autowired
-    private DomainEventConsumer<UserProfileUpdatedPayload> profileConsumer;
+    private DomainEventConsumer<NutritionReferenceProfileUpdatedPayload> profileConsumer;
 
     @Autowired
     private DomainEventConsumer<UserPreferencesUpdatedPayload> preferencesConsumer;
@@ -45,18 +43,14 @@ class PersonFactsProjectionTests {
     @Autowired
     private PersonLookup lookup;
 
-    @Autowired
-    private Clock clock;
-
     private static <T> FitSyncDomainEvent<T> event(String type, UUID userId, T payload) {
         return new FitSyncDomainEvent<>(UUID.randomUUID(), type, 1, Instant.parse("2026-10-02T00:00:00Z"),
                 "user-service", userId, payload);
     }
 
-    private void profile(UUID userId, String gender, LocalDate birthDate) {
-        profileConsumer.consume(event("UserProfileUpdated", userId, new UserProfileUpdatedPayload(
-                "Alice", new BigDecimal("170.0"), "MODERATELY_ACTIVE", true, List.of("gender"), "Asia/Singapore",
-                gender, birthDate)));
+    private void profile(UUID userId, String referenceSex, String ageBand) {
+        profileConsumer.consume(event("NutritionReferenceProfileUpdated", userId,
+                new NutritionReferenceProfileUpdatedPayload(referenceSex, ageBand)));
     }
 
     private void weight(UUID userId, String kg, String measuredAt) {
@@ -68,7 +62,7 @@ class PersonFactsProjectionTests {
     void aPersonWithNoRowIsUnknown() {
         PersonFacts facts = lookup.facts(UUID.randomUUID());
 
-        assertThat(facts.basics().sex()).isNull();
+        assertThat(facts.basics().referenceSex()).isNull();
         assertThat(facts.basics().age()).isNull();
         assertThat(facts.weightKg()).isNull();
         assertThat(facts.dietaryPattern()).isNull();
@@ -77,16 +71,15 @@ class PersonFactsProjectionTests {
     @Test
     void profileWeightAndPreferencesFillOneRowThatTheLookupReads() {
         UUID userId = UUID.randomUUID();
-        LocalDate birthDate = LocalDate.now(clock).minusYears(34).minusDays(3);
 
-        profile(userId, "FEMALE", birthDate);
+        profile(userId, "FEMALE", "31-50");
         weight(userId, "61.50", "2026-10-01T08:00:00Z");
         preferencesConsumer.consume(event("UserPreferencesUpdated", userId,
                 new UserPreferencesUpdatedPayload("100001", 4, "300003", true, List.of(), List.of())));
 
         PersonFacts facts = lookup.facts(userId);
-        assertThat(facts.basics().sex()).isEqualTo("FEMALE");
-        assertThat(facts.basics().age()).isEqualTo(34);
+        assertThat(facts.basics().referenceSex()).isEqualTo("FEMALE");
+        assertThat(facts.basics().age()).isEqualTo(31);
         assertThat(facts.weightKg()).isEqualByComparingTo("61.5");
         assertThat(facts.dietaryPattern()).isEqualTo("VEGETARIAN");
         assertThat(repository.findById(userId)).isPresent();
@@ -95,17 +88,17 @@ class PersonFactsProjectionTests {
     @Test
     void anotherEventKindDoesNotWipeTheOtherFacts() {
         UUID userId = UUID.randomUUID();
-        profile(userId, "MALE", LocalDate.parse("1990-01-01"));
+        profile(userId, "MALE", "31-50");
         weight(userId, "80.0", "2026-10-01T08:00:00Z");
 
         preferencesConsumer.consume(event("UserPreferencesUpdated", userId,
                 new UserPreferencesUpdatedPayload("100001", 4, "300004", true, List.of(), List.of())));
-        profile(userId, "MALE", LocalDate.parse("1990-01-01"));
+        profile(userId, "MALE", "31-50");
 
         PersonFacts facts = lookup.facts(userId);
         assertThat(facts.weightKg()).isEqualByComparingTo("80.0");
         assertThat(facts.dietaryPattern()).isEqualTo("VEGAN");
-        assertThat(facts.basics().sex()).isEqualTo("MALE");
+        assertThat(facts.basics().referenceSex()).isEqualTo("MALE");
     }
 
     @Test
@@ -134,24 +127,39 @@ class PersonFactsProjectionTests {
     }
 
     @Test
-    void sexOtherThanMaleOrFemaleAndAnImpossibleBirthDateStayUnknown() {
-        UUID userId = UUID.randomUUID();
+    void blendedIsKeptAndAnUnknownSexOrBandStaysUnknown() {
+        UUID blended = UUID.randomUUID();
+        profile(blended, "BLENDED", "71+");
+        assertThat(lookup.facts(blended).basics().referenceSex()).isEqualTo("BLENDED");
+        assertThat(lookup.facts(blended).basics().age()).isEqualTo(71);
 
-        profile(userId, "PREFER_NOT_TO_SAY", LocalDate.now(clock).plusYears(2));
-
-        PersonFacts facts = lookup.facts(userId);
-        assertThat(facts.basics().sex()).isNull();
-        assertThat(facts.basics().age()).isNull();
+        UUID odd = UUID.randomUUID();
+        profile(odd, "SOMETHING_ELSE", "9-12");
+        assertThat(lookup.facts(odd).basics().referenceSex()).isNull();
+        assertThat(lookup.facts(odd).basics().age()).isNull();
     }
 
     @Test
-    void aProfileEventThatClearsTheBirthDateClearsIt() {
+    void aProfileEventWithoutAnAgeBandClearsItAndReplayingChangesNothing() {
         UUID userId = UUID.randomUUID();
-        profile(userId, "FEMALE", LocalDate.parse("1990-01-01"));
+        profile(userId, "FEMALE", "19-30");
+        assertThat(lookup.facts(userId).basics().age()).isEqualTo(19);
 
+        profile(userId, "FEMALE", null);
         profile(userId, "FEMALE", null);
 
         assertThat(lookup.facts(userId).basics().age()).isNull();
-        assertThat(lookup.facts(userId).basics().sex()).isEqualTo("FEMALE");
+        assertThat(lookup.facts(userId).basics().referenceSex()).isEqualTo("FEMALE");
+    }
+
+    @Test
+    void everyBandStartsAtItsYoungestAge() {
+        String[] bands = {"19-30", "31-50", "51-70", "71+"};
+        int[] ages = {19, 31, 51, 71};
+        for (int i = 0; i < bands.length; i++) {
+            UUID userId = UUID.randomUUID();
+            profile(userId, "MALE", bands[i]);
+            assertThat(lookup.facts(userId).basics().age()).isEqualTo(ages[i]);
+        }
     }
 }

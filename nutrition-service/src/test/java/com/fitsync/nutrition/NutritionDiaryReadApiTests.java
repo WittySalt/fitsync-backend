@@ -455,7 +455,8 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.to").value("2026-06-11"))
                 .andExpect(jsonPath("$.days").value(3))
                 .andExpect(jsonPath("$.daysLogged").value(2))
-                .andExpect(jsonPath("$.referenceLabel").value("for a man aged 19 to 30"))
+                .andExpect(jsonPath("$.referenceLabel").value("for male ranges, aged 19 to 30"))
+                .andExpect(jsonPath("$.referenceRange").value("MALE"))
                 .andExpect(jsonPath("$.focusCodes.length()").value(0))
                 .andExpect(jsonPath("$.coverage.itemsLogged").value(4))
                 .andExpect(jsonPath("$.coverage.itemsWithoutNutrients").value(1))
@@ -495,7 +496,8 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
 
         mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
                         .param("from", "2026-06-09").param("to", "2026-06-11"))
-                .andExpect(jsonPath("$.referenceLabel").value("for a woman aged 19 to 30"))
+                .andExpect(jsonPath("$.referenceLabel").value("for female ranges, aged 19 to 30"))
+                .andExpect(jsonPath("$.referenceRange").value("FEMALE"))
                 .andExpect(jsonPath("$.focusCodes[0]").value("VIT_B12"))
                 .andExpect(jsonPath("$.focusCodes[1]").value("IRON"))
                 .andExpect(jsonPath("$.focusCodes[2]").value("ZINC"))
@@ -521,6 +523,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.days").value(1))
                 .andExpect(jsonPath("$.daysLogged").value(1))
                 .andExpect(jsonPath("$.referenceLabel").value("for an adult"))
+                .andExpect(jsonPath("$.referenceRange").value(nullValue()))
                 .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].averageAmount").value(28.0));
         mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
                         .param("from", "2026-05-01").param("to", "2026-05-03"))
@@ -528,6 +531,30 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.coverage.itemsLogged").value(0))
                 .andExpect(jsonPath("$.nutrients[0].averageAmount").value(nullValue()))
                 .andExpect(jsonPath("$.nutrients[0].met").value(nullValue()));
+    }
+
+    @Test
+    void nutrientSummaryForABlendedPersonReadsTheAnyRowsAndNamesTheRange() throws Exception {
+        personIs("BLENDED", 31, null, null);
+        String token = logVitaminDays(tokenFor("blended@example.com"));
+
+        mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-09").param("to", "2026-06-11"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.referenceLabel").value("for blended adult ranges, aged 31 to 50"))
+                .andExpect(jsonPath("$.referenceRange").value("BLENDED"))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'IRON')].reference").value(13.0));
+    }
+
+    @Test
+    void nutrientSummaryForAKnownRangeWithoutAnAgeBandStillNamesTheRange() throws Exception {
+        personIs("FEMALE", null, null, null);
+        String token = tokenFor("noage@example.com");
+
+        mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-11").param("to", "2026-06-11"))
+                .andExpect(jsonPath("$.referenceLabel").value("for female ranges"))
+                .andExpect(jsonPath("$.referenceRange").value("FEMALE"));
     }
 
     @Test
@@ -553,7 +580,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
 
         mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
                         .param("from", "2026-06-11").param("to", "2026-06-11"))
-                .andExpect(jsonPath("$.referenceLabel").value("for a man aged 71 and over"));
+                .andExpect(jsonPath("$.referenceLabel").value("for male ranges, aged 71 and over"));
         mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
                         .param("from", "2026-05-11").param("to", "2026-06-11"))
                 .andExpect(status().isBadRequest());

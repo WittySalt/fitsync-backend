@@ -2,7 +2,6 @@ package com.fitsync.nutrition.entity;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseAuditableEntity;
@@ -31,11 +30,11 @@ public class NutritionPreferenceProjectionEntity extends BaseAuditableEntity {
     @Column(name = "notifications_enabled")
     private boolean notificationsEnabled;
 
-    @Column(name = "sex", length = 30)
-    private String sex;
+    @Column(name = "reference_sex", length = 10)
+    private String referenceSex;
 
-    @Column(name = "birth_date")
-    private LocalDate birthDate;
+    @Column(name = "age_band", length = 10)
+    private String ageBand;
 
     @Column(name = "weight_kg", precision = 6, scale = 2)
     private BigDecimal weightKg;
@@ -86,20 +85,20 @@ public class NutritionPreferenceProjectionEntity extends BaseAuditableEntity {
         this.notificationsEnabled = notificationsEnabled;
     }
 
-    public String getSex() {
-        return sex;
+    public String getReferenceSex() {
+        return referenceSex;
     }
 
-    public void setSex(String sex) {
-        this.sex = sex;
+    public void setReferenceSex(String referenceSex) {
+        this.referenceSex = referenceSex;
     }
 
-    public LocalDate getBirthDate() {
-        return birthDate;
+    public String getAgeBand() {
+        return ageBand;
     }
 
-    public void setBirthDate(LocalDate birthDate) {
-        this.birthDate = birthDate;
+    public void setAgeBand(String ageBand) {
+        this.ageBand = ageBand;
     }
 
     public BigDecimal getWeightKg() {

@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * Vitamins and minerals over a range. The averages divide by the days that have a logged meal, not by the days
- * in the range. focusCodes lists the nutrients a vegetarian or vegan diet most often misses, and they come first.
+ * in the range. referenceRange is FEMALE, MALE or BLENDED, or null when nothing is known about the person. focusCodes lists the nutrients a vegetarian or vegan diet most often misses, and they come first.
  */
 public record NutrientSummaryView(
         LocalDate from,
@@ -13,6 +13,7 @@ public record NutrientSummaryView(
         int days,
         int daysLogged,
         String referenceLabel,
+        String referenceRange,
         List<String> focusCodes,
         NutrientCoverageView coverage,
         List<NutrientSummaryItemView> nutrients) {

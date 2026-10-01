@@ -414,7 +414,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         NutrientCoverageView coverage = new NutrientCoverageView(
                 mealQueries.countItems(userId, start, end),
                 mealQueries.countItemsWithoutNutrients(userId, start, end));
-        return new NutrientSummaryView(from, to, days, daysLogged, references.label(), focusCodes, coverage, items);
+        return new NutrientSummaryView(from, to, days, daysLogged, references.label(), references.range(), focusCodes, coverage, items);
     }
 
     /**
