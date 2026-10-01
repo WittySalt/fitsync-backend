@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import com.fitsync.backend.dto.ActiveSessionView;
 import com.fitsync.backend.dto.AccountDeletionRequestStatusResponse;
@@ -34,19 +35,25 @@ import org.springframework.util.StringUtils;
 @Service
 public class CurrentUserService {
 
+    private static final Pattern UUID_PATTERN = Pattern.compile(
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", Pattern.CASE_INSENSITIVE);
+
     private final AppUserRepository appUserRepository;
     private final DomainEventPublisher domainEventPublisher;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final AccountDeletionPolicy accountDeletionPolicy;
 
     public CurrentUserService(AppUserRepository appUserRepository,
                               DomainEventPublisher domainEventPublisher,
                               PasswordEncoder passwordEncoder,
-                              JwtService jwtService) {
+                              JwtService jwtService,
+                              AccountDeletionPolicy accountDeletionPolicy) {
         this.appUserRepository = appUserRepository;
         this.domainEventPublisher = domainEventPublisher;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.accountDeletionPolicy = accountDeletionPolicy;
     }
 
     @Transactional(readOnly = true)
@@ -159,6 +166,30 @@ public class CurrentUserService {
         return toAccountDeletionStatus(user);
     }
 
+    /**
+     * Undoes a requested deletion while the grace period is running. The caller holds a Cognito identity token
+     * rather than an application token, because an account with a pending deletion is not issued one. A
+     * subject that has no account here is never provisioned by this call.
+     */
+    @Transactional
+    public AccountDeletionRequestStatusResponse cancelAccountDeletion(Authentication authentication) {
+        Jwt jwt = extractJwt(authentication);
+        String subject = requiredClaim(jwt, "sub");
+        requireVerifiedEmail(jwt);
+        AppUser user = appUserRepository.findByExternalSubject(subject)
+                .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
+
+        if (user.getAccountDeletionRequestedAt() == null) {
+            return toAccountDeletionStatus(user);
+        }
+        if (accountDeletionPolicy.gracePeriodEnded(user, Instant.now())) {
+            throw accountDeletionPolicy.deletionFinal(user);
+        }
+
+        user.setAccountDeletionRequestedAt(null);
+        return toAccountDeletionStatus(appUserRepository.save(user));
+    }
+
     @Transactional
     public AppUser bootstrapCognitoUser(Authentication authentication) {
         Jwt jwt = extractJwt(authentication);
@@ -166,7 +197,9 @@ public class CurrentUserService {
         requireVerifiedEmail(jwt);
         Optional<AppUser> existingBySubject = appUserRepository.findByExternalSubject(subject);
         if (existingBySubject.isPresent()) {
-            return existingBySubject.get();
+            AppUser existing = existingBySubject.get();
+            accountDeletionPolicy.requireNoPendingDeletion(existing);
+            return existing;
         }
 
         String email = normalizeEmail(requiredClaim(jwt, "email"));
@@ -247,12 +280,18 @@ public class CurrentUserService {
         }
 
         String username = jwt.getClaimAsString("cognito:username");
-        if (StringUtils.hasText(username)) {
+        // Pool users who sign up without a name get their subject (a UUID) as username, which is
+        // not something a person should be shown as their name.
+        if (StringUtils.hasText(username) && !isIdentifierLike(username.trim(), jwt.getSubject())) {
             return username.trim();
         }
 
         int separator = fallbackEmail.indexOf('@');
         return separator > 0 ? fallbackEmail.substring(0, separator) : fallbackEmail;
+    }
+
+    private boolean isIdentifierLike(String username, String subject) {
+        return username.equals(subject) || UUID_PATTERN.matcher(username).matches();
     }
 
     private String normalizeEmail(String email) {
@@ -337,6 +376,7 @@ public class CurrentUserService {
         return new AccountDeletionRequestStatusResponse(
                 user.getAccountDeletionRequestedAt() == null ? "NOT_REQUESTED" : "REQUESTED",
                 user.getAccountDeletionRequestedAt(),
+                accountDeletionPolicy.scheduledFor(user.getAccountDeletionRequestedAt()),
                 user.getAuthProvider() == AuthProvider.LOCAL);
     }
 

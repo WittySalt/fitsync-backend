@@ -2,6 +2,7 @@ package com.fitsync.workout;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -75,6 +76,19 @@ class ExerciseCatalogSummaryControllerTests {
     @Test
     void catalogSummaryRejectsMissingAuthentication() throws Exception {
         mockMvc.perform(get("/api/v1/internal/workouts/exercises/summary"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void userCannotImportTheCatalog() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/workouts/exercises/import-catalog")
+                        .with(authentication(TestJwt.authentication("USER"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void catalogImportRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/workouts/exercises/import-catalog"))
                 .andExpect(status().isUnauthorized());
     }
 

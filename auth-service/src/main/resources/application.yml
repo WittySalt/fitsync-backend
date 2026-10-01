@@ -62,6 +62,10 @@ security:
     principal-claim: ${COGNITO_PRINCIPAL_CLAIM:username}
 
 fitsync:
+  auth:
+    local-accounts-enabled: ${AUTH_LOCAL_ACCOUNTS_ENABLED:false}
+  account-deletion:
+    grace-days: ${ACCOUNT_DELETION_GRACE_DAYS:30}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
   outbox:

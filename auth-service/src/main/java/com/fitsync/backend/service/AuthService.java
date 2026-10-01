@@ -30,15 +30,18 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final DomainEventPublisher domainEventPublisher;
+    private final AccountDeletionPolicy accountDeletionPolicy;
 
     public AuthService(AppUserRepository appUserRepository,
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
-                       DomainEventPublisher domainEventPublisher) {
+                       DomainEventPublisher domainEventPublisher,
+                       AccountDeletionPolicy accountDeletionPolicy) {
         this.appUserRepository = appUserRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.domainEventPublisher = domainEventPublisher;
+        this.accountDeletionPolicy = accountDeletionPolicy;
     }
 
     @Transactional
@@ -71,6 +74,8 @@ public class AuthService {
             throw new UnauthorizedException("Invalid email or password");
         }
 
+        // Checked after the password so that the state of an account is only revealed to its owner.
+        accountDeletionPolicy.requireNoPendingDeletion(user);
         return issueToken(user);
     }
 

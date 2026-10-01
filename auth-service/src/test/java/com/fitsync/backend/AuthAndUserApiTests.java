@@ -1,5 +1,6 @@
 package com.fitsync.backend;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -7,21 +8,35 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.backend.entity.AppUser;
+import com.fitsync.backend.repository.AppUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "fitsync.auth.local-accounts-enabled=true",
+        "fitsync.account-deletion.grace-days=7"
+})
 @AutoConfigureMockMvc
 class AuthAndUserApiTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AppUserRepository appUserRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -121,6 +136,46 @@ class AuthAndUserApiTests {
                 .andExpect(jsonPath("$.sessionCount").value(1))
                 .andExpect(jsonPath("$.sessionTrackingAvailable").value(true))
                 .andExpect(jsonPath("$.securityLabel").value("COGNITO_PROTECTED"));
+    }
+
+    @Test
+    void bootstrapPrefersTheNameClaimOverTheCognitoUsername() throws Exception {
+        bootstrapAndExpectDisplayName("name-wins-sub", "name-wins@example.com",
+                "Named Person", "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f", "Named Person");
+    }
+
+    @Test
+    void bootstrapUsesAHumanCognitoUsernameWhenThereIsNoNameClaim() throws Exception {
+        bootstrapAndExpectDisplayName("human-username-sub", "human-username@example.com",
+                null, "handle_42", "handle_42");
+    }
+
+    @Test
+    void bootstrapSkipsAUuidCognitoUsernameAndUsesTheEmailLocalPart() throws Exception {
+        bootstrapAndExpectDisplayName("uuid-username-sub", "uuid.person@example.com",
+                null, "9F1C2D3E-4A5B-4C6D-8E7F-0A1B2C3D4E5F", "uuid.person");
+    }
+
+    @Test
+    void bootstrapSkipsACognitoUsernameEqualToTheSubject() throws Exception {
+        bootstrapAndExpectDisplayName("same-as-subject", "subject.person@example.com",
+                null, "same-as-subject", "subject.person");
+    }
+
+    private void bootstrapAndExpectDisplayName(String subject, String email, String nameClaim,
+                                               String cognitoUsername, String expectedDisplayName) throws Exception {
+        mockMvc.perform(post("/api/v1/auth/bootstrap")
+                        .with(jwt().jwt(jwt -> {
+                            jwt.subject(subject)
+                                    .claim("email", email)
+                                    .claim("cognito:username", cognitoUsername)
+                                    .claim("email_verified", true);
+                            if (nameClaim != null) {
+                                jwt.claim("name", nameClaim);
+                            }
+                        })))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value(expectedDisplayName));
     }
 
     @Test
@@ -293,6 +348,234 @@ class AuthAndUserApiTests {
                                 .claim("email_verified", false))))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value("A verified email is required for Cognito provisioning"));
+    }
+
+    @Test
+    void existingErrorsKeepTheirFieldsAndGainNoCode() throws Exception {
+        registerUser("shape@example.com", "Shape", "supersecret");
+
+        String content = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "shape@example.com",
+                                  "password": "wrong-password"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        List<String> fieldNames = new ArrayList<>();
+        objectMapper.readTree(content).fieldNames().forEachRemaining(fieldNames::add);
+        assertThat(fieldNames).containsExactlyInAnyOrder("timestamp", "status", "error", "message", "path", "details");
+    }
+
+    @Test
+    void bootstrapIsRefusedWhileADeletionIsPending() throws Exception {
+        bootstrapOk("deletion-pending-sub", "deletion-pending@example.com");
+        requestDeletion("deletion-pending-sub", "deletion-pending@example.com");
+
+        String content = mockMvc.perform(post("/api/v1/auth/bootstrap")
+                        .with(cognitoJwt("deletion-pending-sub", "deletion-pending@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.code").value("ACCOUNT_DELETION_PENDING"))
+                .andExpect(jsonPath("$.accessToken").doesNotExist())
+                .andExpect(jsonPath("$.data.requestedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.scheduledFor").isNotEmpty())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode data = objectMapper.readTree(content).get("data");
+        Instant requestedAt = Instant.parse(data.get("requestedAt").asText());
+        Instant scheduledFor = Instant.parse(data.get("scheduledFor").asText());
+        AppUser stored = appUserRepository.findByExternalSubject("deletion-pending-sub").orElseThrow();
+        assertThat(requestedAt).isEqualTo(stored.getAccountDeletionRequestedAt());
+        assertThat(scheduledFor).isEqualTo(requestedAt.plus(Duration.ofDays(7)));
+    }
+
+    @Test
+    void theDeletionStatusCarriesTheEndOfTheGracePeriod() throws Exception {
+        bootstrapOk("status-sub", "status-user@example.com");
+
+        mockMvc.perform(get("/api/v1/auth/account-deletion")
+                        .with(cognitoJwt("status-sub", "status-user@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NOT_REQUESTED"))
+                .andExpect(jsonPath("$.requestedAt").doesNotExist())
+                .andExpect(jsonPath("$.scheduledFor").doesNotExist());
+
+        requestDeletion("status-sub", "status-user@example.com");
+
+        String content = mockMvc.perform(get("/api/v1/auth/account-deletion")
+                        .with(cognitoJwt("status-sub", "status-user@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REQUESTED"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        JsonNode json = objectMapper.readTree(content);
+        assertThat(Instant.parse(json.get("scheduledFor").asText()))
+                .isEqualTo(Instant.parse(json.get("requestedAt").asText()).plus(Duration.ofDays(7)));
+    }
+
+    @Test
+    void cancellingWithinTheGracePeriodRestoresBootstrap() throws Exception {
+        bootstrapOk("cancel-sub", "cancel-user@example.com");
+        requestDeletion("cancel-sub", "cancel-user@example.com");
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .with(cognitoJwt("cancel-sub", "cancel-user@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NOT_REQUESTED"))
+                .andExpect(jsonPath("$.requestedAt").doesNotExist())
+                .andExpect(jsonPath("$.scheduledFor").doesNotExist())
+                .andExpect(jsonPath("$.passwordConfirmationRequired").value(false));
+
+        mockMvc.perform(post("/api/v1/auth/bootstrap")
+                        .with(cognitoJwt("cancel-sub", "cancel-user@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+    }
+
+    @Test
+    void cancellingAfterTheGracePeriodIsRefusedAndTheAccountStaysClosed() throws Exception {
+        bootstrapOk("final-sub", "final-user@example.com");
+        requestDeletion("final-sub", "final-user@example.com");
+        AppUser user = appUserRepository.findByExternalSubject("final-sub").orElseThrow();
+        user.setAccountDeletionRequestedAt(Instant.now().minus(Duration.ofDays(8)));
+        appUserRepository.save(user);
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .with(cognitoJwt("final-sub", "final-user@example.com")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_DELETION_FINAL"))
+                .andExpect(jsonPath("$.data.requestedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.scheduledFor").isNotEmpty());
+
+        mockMvc.perform(post("/api/v1/auth/bootstrap")
+                        .with(cognitoJwt("final-sub", "final-user@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_DELETION_PENDING"));
+    }
+
+    @Test
+    void cancellingWithoutAPendingDeletionChangesNothing() throws Exception {
+        bootstrapOk("nothing-pending-sub", "nothing-pending@example.com");
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .with(cognitoJwt("nothing-pending-sub", "nothing-pending@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NOT_REQUESTED"));
+    }
+
+    @Test
+    void cancellingRequiresCredentials() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void cancellingWithAnApplicationTokenIsRefused() throws Exception {
+        registerUser("cancel-local@example.com", "Cancel Local", "supersecret");
+        String applicationToken = loginAndGetAccessToken("cancel-local@example.com", "supersecret");
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .header("Authorization", "Bearer " + applicationToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void cancellingRequiresAVerifiedEmail() throws Exception {
+        bootstrapOk("cancel-unverified-sub", "cancel-unverified@example.com");
+        requestDeletion("cancel-unverified-sub", "cancel-unverified@example.com");
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .with(jwt().jwt(jwt -> jwt
+                                .subject("cancel-unverified-sub")
+                                .claim("email", "cancel-unverified@example.com")
+                                .claim("email_verified", false))))
+                .andExpect(status().isUnauthorized());
+        assertThat(appUserRepository.findByExternalSubject("cancel-unverified-sub").orElseThrow()
+                .getAccountDeletionRequestedAt()).isNotNull();
+    }
+
+    @Test
+    void cancellingForAnUnknownSubjectDoesNotCreateAUser() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .with(cognitoJwt("never-seen-sub", "never-seen@example.com")))
+                .andExpect(status().isNotFound());
+
+        assertThat(appUserRepository.findByExternalSubject("never-seen-sub")).isEmpty();
+        assertThat(appUserRepository.findByEmailIgnoreCase("never-seen@example.com")).isEmpty();
+    }
+
+    @Test
+    void localLoginIsRefusedWhileADeletionIsPending() throws Exception {
+        registerUser("login-pending@example.com", "Login Pending", "supersecret");
+        String applicationToken = loginAndGetAccessToken("login-pending@example.com", "supersecret");
+        mockMvc.perform(post("/api/v1/auth/account-deletion/request")
+                        .header("Authorization", "Bearer " + applicationToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "confirmationText": "DELETE",
+                                  "currentPassword": "supersecret"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "login-pending@example.com",
+                                  "password": "supersecret"
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_DELETION_PENDING"))
+                .andExpect(jsonPath("$.data.requestedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.scheduledFor").isNotEmpty());
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "login-pending@example.com",
+                                  "password": "wrong-password"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").doesNotExist());
+    }
+
+    private JwtRequestPostProcessor cognitoJwt(String subject, String email) {
+        return jwt().jwt(jwt -> jwt
+                .subject(subject)
+                .claim("email", email)
+                .claim("name", "Test Person")
+                .claim("email_verified", true));
+    }
+
+    private void bootstrapOk(String subject, String email) throws Exception {
+        mockMvc.perform(post("/api/v1/auth/bootstrap").with(cognitoJwt(subject, email)))
+                .andExpect(status().isOk());
+    }
+
+    private void requestDeletion(String subject, String email) throws Exception {
+        mockMvc.perform(post("/api/v1/auth/account-deletion/request")
+                        .with(cognitoJwt(subject, email))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "confirmationText": "DELETE"
+                                }
+                                """))
+                .andExpect(status().isOk());
     }
 
     private void registerUser(String email, String displayName, String password) throws Exception {

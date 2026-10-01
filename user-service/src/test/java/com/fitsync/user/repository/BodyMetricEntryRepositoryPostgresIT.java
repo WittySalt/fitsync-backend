@@ -1,11 +1,14 @@
 package com.fitsync.user.repository;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.user.domain.MetricSource;
 import com.fitsync.user.entity.BodyMetricEntryEntity;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,10 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 @Testcontainers(disabledWithoutDocker = true)
 class BodyMetricEntryRepositoryPostgresIT {
 
-    private static final UUID ALICE_USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
-    private static final UUID LATEST_METRIC_ID = UUID.fromString("71111111-1111-1111-1111-111111111112");
-    private static final UUID OLDEST_METRIC_ID = UUID.fromString("71111111-1111-1111-1111-111111111111");
-
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("fitsync")
@@ -47,38 +46,58 @@ class BodyMetricEntryRepositoryPostgresIT {
     @Autowired
     private BodyMetricEntryRepository bodyMetricEntryRepository;
 
+    private UUID userId;
+    private UUID latestMetricId;
+    private UUID oldestMetricId;
+
+    @BeforeEach
+    void seedTwoCheckIns() {
+        userId = UUID.randomUUID();
+        oldestMetricId = saveCheckIn(Instant.parse("2026-06-03T23:00:00Z"), "63.80");
+        latestMetricId = saveCheckIn(Instant.parse("2026-06-10T23:00:00Z"), "62.90");
+    }
+
+    private UUID saveCheckIn(Instant measuredAt, String weightKg) {
+        BodyMetricEntryEntity entry = new BodyMetricEntryEntity();
+        entry.setUserId(userId);
+        entry.setWeightKg(new BigDecimal(weightKg));
+        entry.setMeasuredAt(measuredAt);
+        entry.setSource(MetricSource.MANUAL);
+        return bodyMetricEntryRepository.save(entry).getMetricId();
+    }
+
     @Test
     void shouldReturnHistoryWhenDateRangeIsNullableOnPostgres() {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
 
         List<BodyMetricEntryEntity> allEntries = bodyMetricEntryRepository.findHistory(
-                ALICE_USER_ID,
+                userId,
                 null,
                 null,
                 PageRequest.of(0, 10));
         List<BodyMetricEntryEntity> fromOnly = bodyMetricEntryRepository.findHistory(
-                ALICE_USER_ID,
+                userId,
                 Instant.parse("2026-06-06T00:00:00Z"),
                 null,
                 PageRequest.of(0, 10));
         List<BodyMetricEntryEntity> toOnly = bodyMetricEntryRepository.findHistory(
-                ALICE_USER_ID,
+                userId,
                 null,
                 Instant.parse("2026-06-06T00:00:00Z"),
                 PageRequest.of(0, 10));
         List<BodyMetricEntryEntity> bounded = bodyMetricEntryRepository.findHistory(
-                ALICE_USER_ID,
+                userId,
                 Instant.parse("2026-06-01T00:00:00Z"),
                 Instant.parse("2026-06-11T00:00:00Z"),
                 PageRequest.of(0, 1));
 
-        assertEquals(List.of(LATEST_METRIC_ID, OLDEST_METRIC_ID),
+        assertEquals(List.of(latestMetricId, oldestMetricId),
                 allEntries.stream().map(BodyMetricEntryEntity::getMetricId).toList());
-        assertEquals(List.of(LATEST_METRIC_ID),
+        assertEquals(List.of(latestMetricId),
                 fromOnly.stream().map(BodyMetricEntryEntity::getMetricId).toList());
-        assertEquals(List.of(OLDEST_METRIC_ID),
+        assertEquals(List.of(oldestMetricId),
                 toOnly.stream().map(BodyMetricEntryEntity::getMetricId).toList());
-        assertEquals(List.of(LATEST_METRIC_ID),
+        assertEquals(List.of(latestMetricId),
                 bounded.stream().map(BodyMetricEntryEntity::getMetricId).toList());
     }
 
@@ -86,17 +105,17 @@ class BodyMetricEntryRepositoryPostgresIT {
     void shouldReturnTrendSourceWhenDateRangeIsNullableOnPostgres() {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
 
-        List<BodyMetricEntryEntity> allEntries = bodyMetricEntryRepository.findTrendSource(ALICE_USER_ID, null, null);
+        List<BodyMetricEntryEntity> allEntries = bodyMetricEntryRepository.findTrendSource(userId, null, null);
         List<BodyMetricEntryEntity> bounded = bodyMetricEntryRepository.findTrendSource(
-                ALICE_USER_ID,
+                userId,
                 Instant.parse("2026-06-06T00:00:00Z"),
                 Instant.parse("2026-06-11T00:00:00Z"));
 
         assertIterableEquals(
-                List.of(OLDEST_METRIC_ID, LATEST_METRIC_ID),
+                List.of(oldestMetricId, latestMetricId),
                 allEntries.stream().map(BodyMetricEntryEntity::getMetricId).toList());
         assertIterableEquals(
-                List.of(LATEST_METRIC_ID),
+                List.of(latestMetricId),
                 bounded.stream().map(BodyMetricEntryEntity::getMetricId).toList());
     }
 }

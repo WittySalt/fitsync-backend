@@ -130,11 +130,11 @@ class GoalProgressEvaluatorTests {
     }
 
     @Test
-    void workoutFrequencyUsesRollingSevenDayCountAndPace() {
+    void workoutFrequencyCountsTheWeekFromMondayAndChecksThePace() {
         AnalyticsUserGoalProgressEntity goal = goal(GoalProgressEvaluator.WORKOUT_FREQUENCY, "4.00");
         whenActiveGoals(Set.of(GoalProgressEvaluator.WORKOUT_FREQUENCY), goal);
         when(dailyWorkoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
-                USER_ID, TODAY.minusDays(6), TODAY))
+                USER_ID, TODAY.minusDays(3), TODAY))
                 .thenReturn(List.of(workout(TODAY.minusDays(2), 1), workout(TODAY, 2)));
 
         evaluator.recompute(USER_ID, Set.of(GoalProgressEvaluator.WORKOUT_FREQUENCY), TODAY);
@@ -150,7 +150,7 @@ class GoalProgressEvaluatorTests {
         AnalyticsUserGoalProgressEntity goal = goal(GoalProgressEvaluator.WORKOUT_FREQUENCY, "4.00");
         whenActiveGoals(Set.of(GoalProgressEvaluator.WORKOUT_FREQUENCY), goal);
         when(dailyWorkoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
-                USER_ID, TODAY.minusDays(6), TODAY))
+                USER_ID, TODAY.minusDays(3), TODAY))
                 .thenReturn(List.of(workout(TODAY, 1)));
 
         evaluator.recompute(USER_ID, Set.of(GoalProgressEvaluator.WORKOUT_FREQUENCY), TODAY);

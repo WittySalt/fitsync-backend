@@ -2,6 +2,7 @@ package com.fitsync.user;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -26,6 +27,8 @@ import org.junit.jupiter.api.Test;
 import com.fitsync.user.entity.UserProfileEntity;
 import com.fitsync.user.messaging.OutboxEventStatus;
 import com.fitsync.user.messaging.repository.OutboxEventRepository;
+import com.fitsync.user.domain.GoalStatus;
+import com.fitsync.user.repository.UserGoalRepository;
 import com.fitsync.user.repository.UserProfileRepository;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -51,6 +54,9 @@ class UserProfileTests {
 
     @Autowired
     private OutboxEventRepository outboxEventRepository;
+
+    @Autowired
+    private UserGoalRepository userGoalRepository;
 
     @BeforeEach
     void clearOutbox() {
@@ -1128,6 +1134,49 @@ class UserProfileTests {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"))
                 .andExpect(jsonPath("$.message").value("Access is denied"));
+    }
+
+    @Test
+    void internalRelayRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/outbox/publish")
+                        .param("batchSize", "10"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void goalReconcileRejectsOrdinaryUserRole() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/goals/reconcile")
+                        .with(user("plain-user").roles("USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void goalReconcileRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/goals/reconcile"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void adminGoalReconcileRepublishesEveryActiveGoal() throws Exception {
+        String token = tokenFor("reconcile@example.com", "Reconcile User");
+        mockMvc.perform(put("/api/v1/users/me/goals/WEIGHT")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "targetValue": 70.0,
+                                  "targetUnit": "kg",
+                                  "status": "ACTIVE"
+                                }
+                                """))
+                .andExpect(status().isOk());
+        int activeGoals = userGoalRepository.findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus.ACTIVE).size();
+
+        mockMvc.perform(post("/api/v1/internal/goals/reconcile")
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.publishedCount").value(activeGoals));
+        assertTrue(activeGoals >= 1);
     }
 
     private String tokenFor(String email, String displayName) {

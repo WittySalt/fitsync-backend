@@ -31,4 +31,9 @@ public class AuthAccountLifecycleController {
                                                         @Valid @RequestBody RequestAccountDeletionRequest request) {
         return currentUserService.requestAccountDeletion(authentication, request);
     }
+
+    @PostMapping("/cancel")
+    public AccountDeletionRequestStatusResponse cancel(Authentication authentication) {
+        return currentUserService.cancelAccountDeletion(authentication);
+    }
 }

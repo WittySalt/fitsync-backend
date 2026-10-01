@@ -1,10 +1,12 @@
 package com.fitsync.backend.controller;
 
+import com.fitsync.backend.config.LocalAuthProperties;
 import com.fitsync.backend.dto.AuthResponse;
 import com.fitsync.backend.dto.CurrentUserResponse;
 import com.fitsync.backend.dto.LoginRequest;
 import com.fitsync.backend.dto.RegisterRequest;
 import com.fitsync.backend.entity.AppUser;
+import com.fitsync.backend.exception.NotFoundException;
 import com.fitsync.backend.service.AuthService;
 import com.fitsync.backend.service.CurrentUserService;
 import jakarta.validation.Valid;
@@ -23,20 +25,26 @@ public class AuthController {
 
     private final AuthService authService;
     private final CurrentUserService currentUserService;
+    private final LocalAuthProperties localAuthProperties;
 
-    public AuthController(AuthService authService, CurrentUserService currentUserService) {
+    public AuthController(AuthService authService,
+                          CurrentUserService currentUserService,
+                          LocalAuthProperties localAuthProperties) {
         this.authService = authService;
         this.currentUserService = currentUserService;
+        this.localAuthProperties = localAuthProperties;
     }
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
+        requireLocalAccounts();
         return authService.register(request);
     }
 
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
+        requireLocalAccounts();
         return authService.login(request);
     }
 
@@ -49,5 +57,13 @@ public class AuthController {
     @GetMapping("/me")
     public CurrentUserResponse me(Authentication authentication) {
         return currentUserService.getCurrentUser(authentication);
+    }
+
+    // People sign in through Cognito, so password accounts answer as if the routes did not exist unless a
+    // local environment switches them on.
+    private void requireLocalAccounts() {
+        if (!localAuthProperties.localAccountsEnabled()) {
+            throw new NotFoundException("Not found");
+        }
     }
 }

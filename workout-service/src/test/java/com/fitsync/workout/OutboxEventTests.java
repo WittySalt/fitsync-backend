@@ -82,6 +82,13 @@ class OutboxEventTests {
     }
 
     @Test
+    void relayRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/outbox/publish")
+                        .param("batchSize", "10"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void adminCanRelayPendingOutboxEvents() throws Exception {
         OutboxEventEntity event = new OutboxEventEntity();
         event.setEventId(UUID.randomUUID());

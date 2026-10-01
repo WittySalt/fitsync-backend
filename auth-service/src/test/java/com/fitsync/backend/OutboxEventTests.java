@@ -18,7 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = "fitsync.auth.local-accounts-enabled=true")
 @AutoConfigureMockMvc
 class OutboxEventTests {
 
@@ -105,6 +105,21 @@ class OutboxEventTests {
         mockMvc.perform(get("/api/v1/internal/outbox/pending")
                         .with(user("someone").roles("USER")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void relayRejectsOrdinaryUserRole() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/outbox/publish")
+                        .with(user("someone").roles("USER"))
+                        .param("batchSize", "10"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void relayRejectsMissingAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/internal/outbox/publish")
+                        .param("batchSize", "10"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
