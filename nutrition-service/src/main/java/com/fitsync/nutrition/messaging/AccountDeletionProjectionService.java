@@ -4,8 +4,6 @@ import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
-import com.fitsync.nutrition.entity.MealItemEntity;
-import com.fitsync.nutrition.entity.MealLogEntity;
 import com.fitsync.nutrition.entity.MealTemplateEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.repository.CustomFoodRepository;
@@ -15,8 +13,6 @@ import com.fitsync.nutrition.repository.FoodFavoriteRepository;
 import com.fitsync.nutrition.repository.FoodNutrientDetailRepository;
 import com.fitsync.nutrition.repository.FoodNutrientProfileRepository;
 import com.fitsync.nutrition.repository.FoodServingRepository;
-import com.fitsync.nutrition.repository.MealItemNutrientDetailRepository;
-import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealLogRepository;
 import com.fitsync.nutrition.repository.MealTemplateItemRepository;
 import com.fitsync.nutrition.repository.MealTemplateRepository;
@@ -32,8 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountDeletionProjectionService {
 
     private final MealLogRepository mealLogRepository;
-    private final MealItemRepository mealItemRepository;
-    private final MealItemNutrientDetailRepository mealItemNutrientDetailRepository;
     private final RecipeRepository recipeRepository;
     private final RecipeIngredientRepository recipeIngredientRepository;
     private final MealTemplateRepository mealTemplateRepository;
@@ -50,8 +44,6 @@ public class AccountDeletionProjectionService {
     private final NutritionTargetRepository nutritionTargetRepository;
 
     public AccountDeletionProjectionService(MealLogRepository mealLogRepository,
-                                            MealItemRepository mealItemRepository,
-                                            MealItemNutrientDetailRepository mealItemNutrientDetailRepository,
                                             RecipeRepository recipeRepository,
                                             RecipeIngredientRepository recipeIngredientRepository,
                                             MealTemplateRepository mealTemplateRepository,
@@ -67,8 +59,6 @@ public class AccountDeletionProjectionService {
                                             NutritionPreferenceProjectionRepository nutritionPreferenceProjectionRepository,
                                             NutritionTargetRepository nutritionTargetRepository) {
         this.mealLogRepository = mealLogRepository;
-        this.mealItemRepository = mealItemRepository;
-        this.mealItemNutrientDetailRepository = mealItemNutrientDetailRepository;
         this.recipeRepository = recipeRepository;
         this.recipeIngredientRepository = recipeIngredientRepository;
         this.mealTemplateRepository = mealTemplateRepository;
@@ -101,15 +91,11 @@ public class AccountDeletionProjectionService {
         nutritionTargetRepository.deleteById(userId);
     }
 
+    /** Removes every meal row of the user, deleted ones included, together with its items and nutrient details. */
     private void deleteMeals(UUID userId) {
-        List<MealLogEntity> meals = mealLogRepository.findByUserIdOrderByConsumedAtDesc(userId);
-        for (MealLogEntity meal : meals) {
-            for (MealItemEntity item : mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(meal.getMealId())) {
-                mealItemNutrientDetailRepository.deleteByMealItemId(item.getMealItemId());
-            }
-            mealItemRepository.deleteByMealId(meal.getMealId());
-        }
-        mealLogRepository.deleteByUserId(userId);
+        mealLogRepository.purgeItemDetailsByUserId(userId);
+        mealLogRepository.purgeItemsByUserId(userId);
+        mealLogRepository.purgeByUserId(userId);
     }
 
     private void deleteRecipes(UUID userId) {

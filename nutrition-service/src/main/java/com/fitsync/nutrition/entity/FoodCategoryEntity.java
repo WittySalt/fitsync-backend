@@ -43,6 +43,9 @@ public class FoodCategoryEntity extends BaseAuditableEntity {
     @Column(name = "active", nullable = false)
     private boolean active;
 
+    @Column(name = "food_group", nullable = false, length = 20)
+    private String foodGroup = "OTHER";
+
     public UUID getCategoryId() {
         return categoryId;
     }
@@ -105,5 +108,13 @@ public class FoodCategoryEntity extends BaseAuditableEntity {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public String getFoodGroup() {
+        return foodGroup;
+    }
+
+    public void setFoodGroup(String foodGroup) {
+        this.foodGroup = foodGroup;
     }
 }

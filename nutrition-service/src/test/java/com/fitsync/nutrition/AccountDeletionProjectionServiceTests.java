@@ -9,8 +9,6 @@ import java.util.List;
 import java.util.UUID;
 
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
-import com.fitsync.nutrition.entity.MealItemEntity;
-import com.fitsync.nutrition.entity.MealLogEntity;
 import com.fitsync.nutrition.entity.MealTemplateEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.messaging.AccountDeletionProjectionService;
@@ -21,8 +19,6 @@ import com.fitsync.nutrition.repository.FoodFavoriteRepository;
 import com.fitsync.nutrition.repository.FoodNutrientDetailRepository;
 import com.fitsync.nutrition.repository.FoodNutrientProfileRepository;
 import com.fitsync.nutrition.repository.FoodServingRepository;
-import com.fitsync.nutrition.repository.MealItemNutrientDetailRepository;
-import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealLogRepository;
 import com.fitsync.nutrition.repository.MealTemplateItemRepository;
 import com.fitsync.nutrition.repository.MealTemplateRepository;
@@ -40,34 +36,26 @@ class AccountDeletionProjectionServiceTests {
     void deletesUserNutritionDataAndChildRows() {
         Fixtures fixtures = new Fixtures();
         UUID userId = UUID.randomUUID();
-        UUID mealId = UUID.randomUUID();
-        UUID mealItemId = UUID.randomUUID();
         UUID recipeId = UUID.randomUUID();
         UUID templateId = UUID.randomUUID();
         UUID foodId = UUID.randomUUID();
-        MealLogEntity meal = new MealLogEntity();
-        meal.setMealId(mealId);
-        MealItemEntity mealItem = new MealItemEntity();
-        mealItem.setMealItemId(mealItemId);
         MealTemplateEntity template = new MealTemplateEntity();
         template.setTemplateId(templateId);
         RecipeEntity recipe = new RecipeEntity();
         recipe.setRecipeId(recipeId);
         FoodCatalogItemEntity food = new FoodCatalogItemEntity();
         food.setFoodId(foodId);
-        when(fixtures.mealLogRepository.findByUserIdOrderByConsumedAtDesc(userId)).thenReturn(List.of(meal));
-        when(fixtures.mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(mealId)).thenReturn(List.of(mealItem));
         when(fixtures.recipeRepository.findByUserIdOrderByNameAsc(userId)).thenReturn(List.of(recipe));
         when(fixtures.mealTemplateRepository.findByUserIdOrderByNameAsc(userId)).thenReturn(List.of(template));
         when(fixtures.foodCatalogItemRepository.findByOwnerUserId(userId)).thenReturn(List.of(food));
 
         fixtures.service.deleteUserData(userId);
 
-        InOrder mealOrder = inOrder(fixtures.mealItemNutrientDetailRepository,
-                fixtures.mealItemRepository, fixtures.mealLogRepository);
-        mealOrder.verify(fixtures.mealItemNutrientDetailRepository).deleteByMealItemId(mealItemId);
-        mealOrder.verify(fixtures.mealItemRepository).deleteByMealId(mealId);
-        mealOrder.verify(fixtures.mealLogRepository).deleteByUserId(userId);
+        // Meals go through native purges so that soft-deleted rows are removed as well.
+        InOrder mealOrder = inOrder(fixtures.mealLogRepository);
+        mealOrder.verify(fixtures.mealLogRepository).purgeItemDetailsByUserId(userId);
+        mealOrder.verify(fixtures.mealLogRepository).purgeItemsByUserId(userId);
+        mealOrder.verify(fixtures.mealLogRepository).purgeByUserId(userId);
         verify(fixtures.recipeIngredientRepository).deleteByRecipeId(recipeId);
         verify(fixtures.recipeRepository).deleteAll(List.of(recipe));
         verify(fixtures.mealTemplateItemRepository).deleteByTemplateId(templateId);
@@ -87,9 +75,6 @@ class AccountDeletionProjectionServiceTests {
 
     private static final class Fixtures {
         private final MealLogRepository mealLogRepository = mock(MealLogRepository.class);
-        private final MealItemRepository mealItemRepository = mock(MealItemRepository.class);
-        private final MealItemNutrientDetailRepository mealItemNutrientDetailRepository =
-                mock(MealItemNutrientDetailRepository.class);
         private final RecipeRepository recipeRepository = mock(RecipeRepository.class);
         private final RecipeIngredientRepository recipeIngredientRepository = mock(RecipeIngredientRepository.class);
         private final MealTemplateRepository mealTemplateRepository = mock(MealTemplateRepository.class);
@@ -110,8 +95,6 @@ class AccountDeletionProjectionServiceTests {
 
         private final AccountDeletionProjectionService service = new AccountDeletionProjectionService(
                 mealLogRepository,
-                mealItemRepository,
-                mealItemNutrientDetailRepository,
                 recipeRepository,
                 recipeIngredientRepository,
                 mealTemplateRepository,

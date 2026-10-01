@@ -42,6 +42,9 @@ public class FoodNutrientProfileEntity extends BaseEffectiveEntity implements Nu
     @Column(name = "cholesterol_mg", precision = 10, scale = 2)
     private BigDecimal cholesterolMg;
 
+    @Column(name = "water_g", precision = 10, scale = 2)
+    private BigDecimal waterG;
+
     public UUID getNutrientProfileId() {
         return nutrientProfileId;
     }
@@ -114,5 +117,13 @@ public class FoodNutrientProfileEntity extends BaseEffectiveEntity implements Nu
 
     public void setCholesterolMg(BigDecimal cholesterolMg) {
         this.cholesterolMg = cholesterolMg;
+    }
+
+    public BigDecimal getWaterG() {
+        return waterG;
+    }
+
+    public void setWaterG(BigDecimal waterG) {
+        this.waterG = waterG;
     }
 }
