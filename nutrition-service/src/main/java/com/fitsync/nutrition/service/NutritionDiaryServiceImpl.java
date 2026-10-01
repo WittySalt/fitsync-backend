@@ -20,6 +20,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import com.fitsync.nutrition.client.PersonBasics;
+import com.fitsync.nutrition.client.PersonFacts;
 import com.fitsync.nutrition.client.PersonLookup;
 import com.fitsync.nutrition.domain.MealType;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
@@ -175,7 +176,8 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         BigDecimal targetCarbs = target == null ? null : target.getCarbTargetGrams();
         BigDecimal targetFat = target == null ? null : target.getFatTargetGrams();
 
-        PersonReferences references = referenceService.forPerson(personLookup.basics());
+        PersonFacts facts = personLookup.facts(userId);
+        PersonReferences references = referenceService.forPerson(facts.basics());
         Map<String, NutrientEntity> nutrients = loadNutrients();
         BigDecimal fiberTarget = references.target(FIBER);
         BigDecimal sugarLimit = references.limit(SUGAR);
@@ -219,7 +221,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                 waterFromDrinks,
                 scaleTwo(sugarFromDrinks),
                 balance,
-                proteinByMeal(proteinByType));
+                proteinByMeal(proteinByType, facts.weightKg()));
     }
 
     private NutrientBalanceView balanceLine(String code, String kind, BigDecimal amount, BigDecimal reference,
@@ -247,8 +249,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                 top);
     }
 
-    private ProteinByMealView proteinByMeal(Map<MealType, BigDecimal> proteinByType) {
-        BigDecimal weight = personLookup.latestWeightKg();
+    private ProteinByMealView proteinByMeal(Map<MealType, BigDecimal> proteinByType, BigDecimal weight) {
         int low = PROTEIN_LOW_DEFAULT_GRAMS;
         int high = PROTEIN_HIGH_DEFAULT_GRAMS;
         BigDecimal reportedWeight = null;
@@ -319,7 +320,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
 
         NutritionTargetEntity target = nutritionTargetRepository.findById(userId).orElse(null);
         Integer targetCalories = target == null ? null : target.getCalorieTarget();
-        PersonReferences references = referenceService.forPerson(personLookup.basics());
+        PersonReferences references = referenceService.forPerson(personLookup.facts(userId).basics());
 
         List<RangeDayView> result = new ArrayList<>();
         for (int offset = 0; offset < days; offset++) {
@@ -361,9 +362,10 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         }
         int daysLogged = loggedDates.size();
 
-        PersonBasics basics = personLookup.basics();
+        PersonFacts facts = personLookup.facts(userId);
+        PersonBasics basics = facts.basics();
         PersonReferences references = referenceService.forPerson(basics);
-        String diet = personLookup.dietaryPattern();
+        String diet = facts.dietaryPattern();
         List<String> focusCodes = diet != null && FOCUS_DIETS.contains(diet) ? FOCUS_CODES : List.of();
 
         List<NutrientEntity> listed = new ArrayList<>();

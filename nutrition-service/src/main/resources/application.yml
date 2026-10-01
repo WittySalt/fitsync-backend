@@ -67,10 +67,6 @@ security:
     expiration: ${JWT_EXPIRATION:PT2H}
 
 fitsync:
-  nutrition:
-    # user-service holds the person's sex, age, weight and dietary pattern; the Diary reads them per request.
-    user-service:
-      base-url: ${FITSYNC_NUTRITION_USER_BASE_URL:http://localhost:8081}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:
@@ -84,6 +80,10 @@ fitsync:
         enabled: ${KAFKA_GOAL_UPDATED_LISTENER_ENABLED:false}
       user-preferences-updated:
         enabled: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
+      user-profile-updated:
+        enabled: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:false}
+      body-metrics-recorded:
+        enabled: ${KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED:false}
       account-deleted:
         enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}
   outbox:

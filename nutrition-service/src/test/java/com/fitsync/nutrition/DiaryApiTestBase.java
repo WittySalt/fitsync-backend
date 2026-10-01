@@ -13,6 +13,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 import com.fitsync.nutrition.client.PersonBasics;
+import com.fitsync.nutrition.client.PersonFacts;
 import com.fitsync.nutrition.client.PersonLookup;
 import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.FoodCatalogSource;
@@ -110,13 +111,11 @@ abstract class DiaryApiTestBase {
         personIs(null, null, null, null);
     }
 
-    /** Sets what user-service would say about the person: sex, age, latest weight in kg and dietary pattern. */
+    /** Sets what the projection would say about the person: sex, age, latest weight in kg and dietary pattern. */
     protected void personIs(String sex, Integer age, String weightKg, String dietaryPattern) {
-        org.mockito.Mockito.when(personLookup.basics())
-                .thenReturn(sex == null && age == null ? PersonBasics.unknown() : new PersonBasics(sex, age));
-        org.mockito.Mockito.when(personLookup.latestWeightKg())
-                .thenReturn(weightKg == null ? null : new BigDecimal(weightKg));
-        org.mockito.Mockito.when(personLookup.dietaryPattern()).thenReturn(dietaryPattern);
+        PersonBasics basics = sex == null && age == null ? PersonBasics.unknown() : new PersonBasics(sex, age);
+        org.mockito.Mockito.when(personLookup.facts(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new PersonFacts(basics, weightKg == null ? null : new BigDecimal(weightKg), dietaryPattern));
     }
 
     protected void ensureCategory(String code, String foodGroup) {

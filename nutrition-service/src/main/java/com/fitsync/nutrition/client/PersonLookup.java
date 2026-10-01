@@ -1,20 +1,12 @@
 package com.fitsync.nutrition.client;
 
-import java.math.BigDecimal;
+import java.util.UUID;
 
 /**
- * Reads the facts about the signed-in person that live in user-service. None of these methods throws: a value
- * that cannot be read is returned as unknown, so that the nutrition request itself never fails because of
- * another service.
+ * Reads the facts about a person that user-service owns and sends as events. The method never throws: a fact
+ * that is not known is returned as unknown, so that a nutrition request never fails because of it.
  */
 public interface PersonLookup {
 
-    /** Sex and age of the person, each null when unknown. */
-    PersonBasics basics();
-
-    /** The most recent weight in kilograms, or null when there is none. */
-    BigDecimal latestWeightKg();
-
-    /** The dietary pattern code such as VEGETARIAN, or null when there is none. */
-    String dietaryPattern();
+    PersonFacts facts(UUID userId);
 }

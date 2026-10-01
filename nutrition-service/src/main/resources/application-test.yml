@@ -30,8 +30,5 @@ security:
     expiration: PT1H
 
 fitsync:
-  nutrition:
-    user-service:
-      enabled: false
   kafka:
     enabled: false
