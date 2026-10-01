@@ -4,7 +4,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * One day of a range summary. A day with no meals has logged false and null flags, and its amounts are zero.
+ * One day of a range summary. A day with no meals has logged false and null amounts and flags. On a logged day, an amount that no meal carries a value for is
+ * null together with its flag, because unknown is not zero.
  * Each flag compares the day's amount with the person's reference: Met for a target reached, Within for a limit
  * not passed.
  */

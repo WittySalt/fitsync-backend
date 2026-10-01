@@ -125,11 +125,12 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         BigDecimal protein = BigDecimal.ZERO;
         BigDecimal carbs = BigDecimal.ZERO;
         BigDecimal fat = BigDecimal.ZERO;
-        BigDecimal fiber = BigDecimal.ZERO;
-        BigDecimal sugar = BigDecimal.ZERO;
-        BigDecimal sodium = BigDecimal.ZERO;
-        BigDecimal saturatedFat = BigDecimal.ZERO;
-        BigDecimal potassium = BigDecimal.ZERO;
+        // These five stay null until an item carries a value, so that unknown is not reported as zero.
+        BigDecimal fiber = null;
+        BigDecimal sugar = null;
+        BigDecimal sodium = null;
+        BigDecimal saturatedFat = null;
+        BigDecimal potassium = null;
         BigDecimal sugarFromDrinks = BigDecimal.ZERO;
         int waterFromDrinks = 0;
         Map<MealType, BigDecimal> proteinByType = new EnumMap<>(MealType.class);
@@ -143,12 +144,12 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
             protein = protein.add(orZero(row.getProteinGrams()));
             carbs = carbs.add(orZero(row.getCarbsGrams()));
             fat = fat.add(orZero(row.getFatGrams()));
-            fiber = fiber.add(orZero(row.getFiberGrams()));
-            sugar = sugar.add(orZero(row.getSugarGrams()));
-            sodium = sodium.add(orZero(row.getSodiumMg()));
-            saturatedFat = saturatedFat.add(orZero(row.getSaturatedFatGrams()));
-            BigDecimal itemPotassium = potassiumByItem.getOrDefault(row.getMealItemId(), BigDecimal.ZERO);
-            potassium = potassium.add(itemPotassium);
+            fiber = addKnown(fiber, row.getFiberGrams());
+            sugar = addKnown(sugar, row.getSugarGrams());
+            sodium = addKnown(sodium, row.getSodiumMg());
+            saturatedFat = addKnown(saturatedFat, row.getSaturatedFatGrams());
+            BigDecimal itemPotassium = potassiumByItem.get(row.getMealItemId());
+            potassium = addKnown(potassium, itemPotassium);
             waterFromDrinks += row.getWaterMl() == null ? 0 : row.getWaterMl();
             if (row.getCategoryCode() != null && FOOD_GROUP_DRINKS.equals(foodGroups.get(row.getCategoryCode()))) {
                 sugarFromDrinks = sugarFromDrinks.add(orZero(row.getSugarGrams()));
@@ -203,17 +204,17 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                 targetCarbs == null ? null : targetCarbs.subtract(carbs),
                 targetFat == null ? null : targetFat.subtract(fat),
                 mealIds.size(),
-                scaleTwo(fiber),
-                scaleTwo(sugar),
-                scaleTwo(sodium),
+                scaleTwo(orZero(fiber)),
+                scaleTwo(orZero(sugar)),
+                scaleTwo(orZero(sodium)),
                 fiberTarget,
                 sugarLimit,
                 sodiumLimit,
-                reaches(fiber, fiberTarget),
-                staysWithin(sugar, sugarLimit),
-                staysWithin(sodium, sodiumLimit),
-                scaleTwo(saturatedFat),
-                scaleTwo(potassium),
+                reaches(orZero(fiber), fiberTarget),
+                staysWithin(orZero(sugar), sugarLimit),
+                staysWithin(orZero(sodium), sodiumLimit),
+                scaleTwoOrNull(saturatedFat),
+                scaleTwoOrNull(potassium),
                 plainWaterMl,
                 waterFromDrinks,
                 scaleTwo(sugarFromDrinks),
@@ -225,6 +226,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                                             Map<String, NutrientEntity> nutrients,
                                             Map<String, Map<String, SourceTotal>> sources) {
         NutrientEntity nutrient = nutrients.get(code);
+        boolean known = amount != null;
         boolean isTarget = KIND_TARGET.equals(kind);
         List<TopSourceView> top = sources.getOrDefault(code, Map.of()).values().stream()
                 .sorted(Comparator.comparing((SourceTotal source) -> source.amount).reversed()
@@ -236,12 +238,12 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                 code,
                 nutrient == null ? code : nutrient.getDisplayName(),
                 kind,
-                scaleTwo(amount),
+                scaleTwoOrNull(amount),
                 nutrient == null ? null : nutrient.getUnit(),
                 reference,
-                shareOf(amount, reference),
-                isTarget && reaches(amount, reference),
-                !isTarget && reference != null && amount.compareTo(reference) > 0,
+                known ? shareOf(amount, reference) : null,
+                known ? isTarget && reaches(amount, reference) : null,
+                known ? !isTarget && reference != null && amount.compareTo(reference) > 0 : null,
                 top);
     }
 
@@ -303,15 +305,15 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
             DayAccumulator day = byDay.computeIfAbsent(localDate(meal.getConsumedAt(), zone), d -> new DayAccumulator());
             day.meals++;
             day.calories += meal.getCalories() == null ? 0 : meal.getCalories().intValue();
-            day.fiber = day.fiber.add(orZero(meal.getFiberGrams()));
-            day.sugar = day.sugar.add(orZero(meal.getSugarGrams()));
-            day.sodium = day.sodium.add(orZero(meal.getSodiumMg()));
-            day.saturatedFat = day.saturatedFat.add(orZero(meal.getSaturatedFatGrams()));
+            day.fiber = addKnown(day.fiber, meal.getFiberGrams());
+            day.sugar = addKnown(day.sugar, meal.getSugarGrams());
+            day.sodium = addKnown(day.sodium, meal.getSodiumMg());
+            day.saturatedFat = addKnown(day.saturatedFat, meal.getSaturatedFatGrams());
         }
         for (MealNutrientTotalRow row : mealQueries.findMealNutrientTotals(userId, start, end, POTASSIUM)) {
             DayAccumulator day = byDay.get(localDate(row.getConsumedAt(), zone));
             if (day != null) {
-                day.potassium = day.potassium.add(orZero(row.getTotal()));
+                day.potassium = addKnown(day.potassium, row.getTotal());
             }
         }
 
@@ -325,18 +327,17 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
             DayAccumulator day = byDay.get(date);
             if (day == null) {
                 result.add(new RangeDayView(date, false, 0, 0, targetCalories,
-                        scaleTwo(BigDecimal.ZERO), scaleTwo(BigDecimal.ZERO), scaleTwo(BigDecimal.ZERO),
-                        scaleTwo(BigDecimal.ZERO), scaleTwo(BigDecimal.ZERO), null, null, null, null, null));
+                        null, null, null, null, null, null, null, null, null, null));
                 continue;
             }
             result.add(new RangeDayView(date, true, day.meals, day.calories, targetCalories,
-                    scaleTwo(day.fiber), scaleTwo(day.potassium), scaleTwo(day.sugar),
-                    scaleTwo(day.saturatedFat), scaleTwo(day.sodium),
-                    reaches(day.fiber, references.target(FIBER)),
-                    reaches(day.potassium, references.target(POTASSIUM)),
-                    staysWithin(day.sugar, references.limit(SUGAR)),
-                    staysWithin(day.saturatedFat, references.limit(SAT_FAT)),
-                    staysWithin(day.sodium, references.limit(SODIUM))));
+                    scaleTwoOrNull(day.fiber), scaleTwoOrNull(day.potassium), scaleTwoOrNull(day.sugar),
+                    scaleTwoOrNull(day.saturatedFat), scaleTwoOrNull(day.sodium),
+                    day.fiber == null ? null : reaches(day.fiber, references.target(FIBER)),
+                    day.potassium == null ? null : reaches(day.potassium, references.target(POTASSIUM)),
+                    day.sugar == null ? null : staysWithin(day.sugar, references.limit(SUGAR)),
+                    day.saturatedFat == null ? null : staysWithin(day.saturatedFat, references.limit(SAT_FAT)),
+                    day.sodium == null ? null : staysWithin(day.sodium, references.limit(SODIUM))));
         }
         return new RangeSummaryView(from, to, result);
     }
@@ -375,17 +376,20 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
 
         Map<String, BigDecimal> totals = new HashMap<>();
         for (NutrientTotalRow row : mealQueries.findNutrientTotals(userId, start, end, codes)) {
-            totals.put(row.getNutrientCode(), orZero(row.getTotal()));
+            if (row.getTotal() != null) {
+                totals.put(row.getNutrientCode(), row.getTotal());
+            }
         }
         Map<String, String> richest = richestUsualFoods(userId, to, zone, codes);
 
         List<NutrientSummaryItemView> items = new ArrayList<>();
         for (NutrientEntity nutrient : listed) {
             String code = nutrient.getCode();
-            BigDecimal average = daysLogged == 0
-                    ? BigDecimal.ZERO
-                    : totals.getOrDefault(code, BigDecimal.ZERO)
-                            .divide(BigDecimal.valueOf(daysLogged), 2, RoundingMode.HALF_UP);
+            BigDecimal total = totals.get(code);
+            boolean known = daysLogged > 0 && total != null;
+            BigDecimal average = known
+                    ? total.divide(BigDecimal.valueOf(daysLogged), 2, RoundingMode.HALF_UP)
+                    : null;
             BigDecimal reference = references.target(code);
             BigDecimal upper = references.upper(code);
             items.add(new NutrientSummaryItemView(
@@ -395,10 +399,10 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                     nutrient.getUnit(),
                     average,
                     reference,
-                    shareOf(average, reference),
-                    daysLogged > 0 && reaches(average, reference),
+                    known ? shareOf(average, reference) : null,
+                    known ? reaches(average, reference) : null,
                     upper,
-                    upper != null && average.compareTo(upper) > 0,
+                    known ? upper != null && average.compareTo(upper) > 0 : null,
                     richest.get(code)));
         }
         items.sort(Comparator
@@ -520,6 +524,18 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         return value.setScale(2, RoundingMode.HALF_UP);
     }
 
+    private static BigDecimal scaleTwoOrNull(BigDecimal value) {
+        return value == null ? null : scaleTwo(value);
+    }
+
+    /** Adds a value that may be unknown to a total that may be unknown; the result is unknown only if both are. */
+    private static BigDecimal addKnown(BigDecimal total, BigDecimal value) {
+        if (value == null) {
+            return total;
+        }
+        return total == null ? value : total.add(value);
+    }
+
     private static BigDecimal orZero(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }
@@ -560,15 +576,15 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         }
     }
 
-    /** A day of a range, summed from its meals. */
+    /** A day of a range, summed from its meals. An amount stays null while no meal of the day carries it. */
     private static final class DayAccumulator {
         private int meals;
         private int calories;
-        private BigDecimal fiber = BigDecimal.ZERO;
-        private BigDecimal potassium = BigDecimal.ZERO;
-        private BigDecimal sugar = BigDecimal.ZERO;
-        private BigDecimal saturatedFat = BigDecimal.ZERO;
-        private BigDecimal sodium = BigDecimal.ZERO;
+        private BigDecimal fiber;
+        private BigDecimal potassium;
+        private BigDecimal sugar;
+        private BigDecimal saturatedFat;
+        private BigDecimal sodium;
     }
 
     /** A food of the usual-foods window: its name, how many items it has and the nutrient amounts on them. */

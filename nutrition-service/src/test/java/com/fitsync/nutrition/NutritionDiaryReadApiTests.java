@@ -211,9 +211,60 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.mealCount").value(0))
                 .andExpect(jsonPath("$.totalCalories").value(0))
                 .andExpect(jsonPath("$.balance.length()").value(5))
-                .andExpect(jsonPath("$.balance[0].amount").value(0.0))
+                .andExpect(jsonPath("$.balance[0].amount").value(nullValue()))
+                .andExpect(jsonPath("$.balance[0].met").value(nullValue()))
                 .andExpect(jsonPath("$.balance[0].topSources.length()").value(0))
                 .andExpect(jsonPath("$.waterFromDrinksMl").value(0));
+    }
+
+    /** A day of one quick add, like a meal logged before the snapshot existed: no sat fat, no vitamins. */
+    private String logQuickAddOnly(String token, String consumedAt) throws Exception {
+        mockMvc.perform(post(BASE + "/meals/quick-add").contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"name\": \"Old meal\", \"calories\": 500, \"consumedAt\": \"" + consumedAt + "\"}"))
+                .andExpect(status().isCreated());
+        return token;
+    }
+
+    @Test
+    void anUnknownNutrientIsNullAndNotZeroInTheDailySummary() throws Exception {
+        personIs("MALE", 30, null, null);
+        String token = logQuickAddOnly(tokenFor("unknown-day@example.com"), "2026-06-11T12:00:00Z");
+
+        mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mealCount").value(1))
+                .andExpect(jsonPath("$.totalSaturatedFatGrams").value(nullValue()))
+                .andExpect(jsonPath("$.totalPotassiumMg").value(nullValue()))
+                .andExpect(jsonPath("$.totalFiberGrams").value(0.0))
+                .andExpect(jsonPath("$.balance[1].code").value("POTASSIUM"))
+                .andExpect(jsonPath("$.balance[1].amount").value(nullValue()))
+                .andExpect(jsonPath("$.balance[1].share").value(nullValue()))
+                .andExpect(jsonPath("$.balance[1].met").value(nullValue()))
+                .andExpect(jsonPath("$.balance[1].over").value(nullValue()))
+                .andExpect(jsonPath("$.balance[3].code").value("SAT_FAT"))
+                .andExpect(jsonPath("$.balance[3].amount").value(nullValue()))
+                .andExpect(jsonPath("$.balance[3].share").value(nullValue()))
+                .andExpect(jsonPath("$.balance[3].met").value(nullValue()))
+                .andExpect(jsonPath("$.balance[3].over").value(nullValue()));
+    }
+
+    @Test
+    void aPartialDayStillSumsTheItemsThatCarryTheNutrient() throws Exception {
+        personIs("MALE", 30, null, null);
+        String token = tokenFor("partial-day@example.com");
+        logMeal(token, "BREAKFAST", oats, "2026-06-11T08:00:00Z");
+        logQuickAddOnly(token, "2026-06-11T12:00:00Z");
+
+        mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
+                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                .andExpect(jsonPath("$.totalPotassiumMg").value(429.0))
+                .andExpect(jsonPath("$.totalSaturatedFatGrams").value(1.2))
+                .andExpect(jsonPath("$.balance[1].amount").value(429.0))
+                .andExpect(jsonPath("$.balance[1].met").value(false))
+                .andExpect(jsonPath("$.balance[3].amount").value(1.2))
+                .andExpect(jsonPath("$.balance[3].over").value(false));
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -299,6 +350,21 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.days[2].potassiumMg").value(729.0))
                 .andExpect(jsonPath("$.days[2].sodiumMg").value(2414.92))
                 .andExpect(jsonPath("$.days[2].sodiumWithin").value(false));
+    }
+
+    @Test
+    void rangeSummaryLeavesAnUnknownAmountAndItsFlagNullOnALoggedDay() throws Exception {
+        personIs("MALE", 30, null, null);
+        String token = logQuickAddOnly(tokenFor("range-unknown@example.com"), "2026-06-11T12:00:00Z");
+
+        mockMvc.perform(get(BASE + "/summary/range").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-11").param("to", "2026-06-11").param("timezone", "UTC"))
+                .andExpect(jsonPath("$.days[0].logged").value(true))
+                .andExpect(jsonPath("$.days[0].totalCalories").value(500))
+                .andExpect(jsonPath("$.days[0].potassiumMg").value(nullValue()))
+                .andExpect(jsonPath("$.days[0].potassiumMet").value(nullValue()))
+                .andExpect(jsonPath("$.days[0].saturatedFatGrams").value(nullValue()))
+                .andExpect(jsonPath("$.days[0].saturatedFatWithin").value(nullValue()));
     }
 
     @Test
@@ -394,29 +460,32 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.coverage.itemsLogged").value(4))
                 .andExpect(jsonPath("$.coverage.itemsWithoutNutrients").value(1))
                 .andExpect(jsonPath("$.nutrients.length()").value(7))
-                .andExpect(jsonPath("$.nutrients[0].code").value("VIT_D"))
-                .andExpect(jsonPath("$.nutrients[0].averageAmount").value(0.0))
-                .andExpect(jsonPath("$.nutrients[0].richestUsualFood").value(nullValue()))
-                .andExpect(jsonPath("$.nutrients[3].code").value("CALCIUM"))
-                .andExpect(jsonPath("$.nutrients[3].averageAmount").value(99.0))
-                .andExpect(jsonPath("$.nutrients[3].share").value(0.099))
-                .andExpect(jsonPath("$.nutrients[4].code").value("MAGNESIUM"))
-                .andExpect(jsonPath("$.nutrients[4].share").value(0.198))
-                .andExpect(jsonPath("$.nutrients[5].code").value("VIT_C"))
-                .andExpect(jsonPath("$.nutrients[5].averageAmount").value(28.0))
-                .andExpect(jsonPath("$.nutrients[5].reference").value(90.0))
-                .andExpect(jsonPath("$.nutrients[5].share").value(0.311))
-                .andExpect(jsonPath("$.nutrients[5].met").value(false))
-                .andExpect(jsonPath("$.nutrients[5].upperLimit").value(2000.0))
-                .andExpect(jsonPath("$.nutrients[5].aboveUpperLimit").value(false))
-                .andExpect(jsonPath("$.nutrients[5].richestUsualFood").value("Spinach"))
-                .andExpect(jsonPath("$.nutrients[6].code").value("IRON"))
-                .andExpect(jsonPath("$.nutrients[6].kind").value("MINERAL"))
-                .andExpect(jsonPath("$.nutrients[6].unit").value("mg"))
-                .andExpect(jsonPath("$.nutrients[6].averageAmount").value(4.2))
-                .andExpect(jsonPath("$.nutrients[6].reference").value(8.0))
-                .andExpect(jsonPath("$.nutrients[6].share").value(0.525))
-                .andExpect(jsonPath("$.nutrients[6].richestUsualFood").value("Beef"));
+                .andExpect(jsonPath("$.nutrients[0].code").value("CALCIUM"))
+                .andExpect(jsonPath("$.nutrients[0].averageAmount").value(99.0))
+                .andExpect(jsonPath("$.nutrients[0].share").value(0.099))
+                .andExpect(jsonPath("$.nutrients[1].code").value("MAGNESIUM"))
+                .andExpect(jsonPath("$.nutrients[1].share").value(0.198))
+                .andExpect(jsonPath("$.nutrients[2].code").value("VIT_C"))
+                .andExpect(jsonPath("$.nutrients[2].averageAmount").value(28.0))
+                .andExpect(jsonPath("$.nutrients[2].reference").value(90.0))
+                .andExpect(jsonPath("$.nutrients[2].share").value(0.311))
+                .andExpect(jsonPath("$.nutrients[2].met").value(false))
+                .andExpect(jsonPath("$.nutrients[2].upperLimit").value(2000.0))
+                .andExpect(jsonPath("$.nutrients[2].aboveUpperLimit").value(false))
+                .andExpect(jsonPath("$.nutrients[2].richestUsualFood").value("Spinach"))
+                .andExpect(jsonPath("$.nutrients[3].code").value("IRON"))
+                .andExpect(jsonPath("$.nutrients[3].kind").value("MINERAL"))
+                .andExpect(jsonPath("$.nutrients[3].unit").value("mg"))
+                .andExpect(jsonPath("$.nutrients[3].averageAmount").value(4.2))
+                .andExpect(jsonPath("$.nutrients[3].reference").value(8.0))
+                .andExpect(jsonPath("$.nutrients[3].share").value(0.525))
+                .andExpect(jsonPath("$.nutrients[3].richestUsualFood").value("Beef"))
+                .andExpect(jsonPath("$.nutrients[4].code").value("VIT_D"))
+                .andExpect(jsonPath("$.nutrients[4].averageAmount").value(nullValue()))
+                .andExpect(jsonPath("$.nutrients[4].share").value(nullValue()))
+                .andExpect(jsonPath("$.nutrients[4].met").value(nullValue()))
+                .andExpect(jsonPath("$.nutrients[4].aboveUpperLimit").value(nullValue()))
+                .andExpect(jsonPath("$.nutrients[4].richestUsualFood").value(nullValue()));
     }
 
     @Test
@@ -457,8 +526,8 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                         .param("from", "2026-05-01").param("to", "2026-05-03"))
                 .andExpect(jsonPath("$.daysLogged").value(0))
                 .andExpect(jsonPath("$.coverage.itemsLogged").value(0))
-                .andExpect(jsonPath("$.nutrients[0].averageAmount").value(0.0))
-                .andExpect(jsonPath("$.nutrients[0].met").value(false));
+                .andExpect(jsonPath("$.nutrients[0].averageAmount").value(nullValue()))
+                .andExpect(jsonPath("$.nutrients[0].met").value(nullValue()));
     }
 
     @Test
