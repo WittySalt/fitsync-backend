@@ -43,6 +43,11 @@ import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.LiftProgressView;
 import com.fitsync.workout.dto.MostTrainedView;
+import com.fitsync.workout.dto.MonthlyDayView;
+import com.fitsync.workout.dto.MonthlyMuscleView;
+import com.fitsync.workout.dto.MonthlyTotalsView;
+import com.fitsync.workout.dto.MonthlyTrainingInsightView;
+import com.fitsync.workout.dto.MonthlyWeekView;
 import com.fitsync.workout.dto.TrainingPageInsightView;
 import com.fitsync.workout.dto.TrainingRecordView;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
@@ -72,6 +77,7 @@ import com.fitsync.workout.messaging.repository.OutboxEventRepository;
 import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.service.ExerciseCatalogImportService;
 import com.fitsync.workout.service.ExerciseService;
+import com.fitsync.workout.service.MonthlyTrainingInsightService;
 import com.fitsync.workout.service.TrainingPageInsightService;
 import com.fitsync.workout.service.WeeklyTrainingInsightService;
 import com.fitsync.workout.service.WorkoutService;
@@ -128,6 +134,9 @@ class WorkoutControllerTests {
 
     @MockBean
     private TrainingPageInsightService trainingPageInsightService;
+
+    @MockBean
+    private MonthlyTrainingInsightService monthlyTrainingInsightService;
 
     @MockBean
     private JwtService jwtService;
@@ -317,6 +326,108 @@ class WorkoutControllerTests {
                         .with(authentication(authToken(principal)))
                         .param("date", "yesterday"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldRequireAuthenticationForMonthlyTrainingInsight() throws Exception {
+        mockMvc.perform(get("/api/v1/workouts/insights/monthly"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldReturnMonthlyTrainingInsightForAuthenticatedUser() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        MonthlyTrainingInsightView response = new MonthlyTrainingInsightView(
+                "Asia/Singapore",
+                "2026-09",
+                LocalDate.parse("2026-09-01"),
+                LocalDate.parse("2026-09-30"),
+                LocalDate.parse("2026-10-01"),
+                LocalDate.parse("2026-08-03"),
+                List.of(new MonthlyDayView(LocalDate.parse("2026-09-03"), SessionKind.CARDIO, "Cardio", 1, 35,
+                        List.of(MuscleGroup.CARDIO), false)),
+                List.of(new MonthlyWeekView(LocalDate.parse("2026-08-31"), LocalDate.parse("2026-09-06"),
+                        4, 195, 2, 1, 0, 1, true)),
+                new MonthlyTotalsView(16, 780, 3, 3),
+                new MonthlyTotalsView(15, 720, 2, 2),
+                List.of(new MonthlyMuscleView(MuscleGroup.CHEST, "Chest", 8)));
+
+        when(monthlyTrainingInsightService.getMonthlyTrainingInsight(
+                        eq(principal), eq("Asia/Singapore"), eq("2026-09")))
+                .thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/workouts/insights/monthly")
+                        .with(authentication(authToken(principal)))
+                        .param("timezone", "Asia/Singapore")
+                        .param("month", "2026-09"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timezone").value("Asia/Singapore"))
+                .andExpect(jsonPath("$.month").value("2026-09"))
+                .andExpect(jsonPath("$.monthStart").value("2026-09-01"))
+                .andExpect(jsonPath("$.monthEnd").value("2026-09-30"))
+                .andExpect(jsonPath("$.referenceDate").value("2026-10-01"))
+                .andExpect(jsonPath("$.firstSessionDate").value("2026-08-03"))
+                .andExpect(jsonPath("$.days[0].date").value("2026-09-03"))
+                .andExpect(jsonPath("$.days[0].kind").value("CARDIO"))
+                .andExpect(jsonPath("$.days[0].label").value("Cardio"))
+                .andExpect(jsonPath("$.days[0].sessions").value(1))
+                .andExpect(jsonPath("$.days[0].minutes").value(35))
+                .andExpect(jsonPath("$.days[0].muscles[0]").value("CARDIO"))
+                .andExpect(jsonPath("$.days[0].record").value(false))
+                .andExpect(jsonPath("$.weeks[0].weekStart").value("2026-08-31"))
+                .andExpect(jsonPath("$.weeks[0].weekEnd").value("2026-09-06"))
+                .andExpect(jsonPath("$.weeks[0].strengthSessions").value(2))
+                .andExpect(jsonPath("$.weeks[0].cardioSessions").value(1))
+                .andExpect(jsonPath("$.weeks[0].mobilitySessions").value(0))
+                .andExpect(jsonPath("$.weeks[0].sportSessions").value(1))
+                .andExpect(jsonPath("$.weeks[0].complete").value(true))
+                .andExpect(jsonPath("$.totals.sessions").value(16))
+                .andExpect(jsonPath("$.totals.minutes").value(780))
+                .andExpect(jsonPath("$.totals.records").value(3))
+                .andExpect(jsonPath("$.totals.longestStreakDays").value(3))
+                .andExpect(jsonPath("$.previousTotals.sessions").value(15))
+                .andExpect(jsonPath("$.muscles[0].group").value("CHEST"))
+                .andExpect(jsonPath("$.muscles[0].label").value("Chest"))
+                .andExpect(jsonPath("$.muscles[0].sessions").value(8));
+    }
+
+    @Test
+    void shouldReturnBadRequestForFutureOrMalformedMonth() throws Exception {
+        CurrentUserPrincipal principal = principal();
+
+        when(monthlyTrainingInsightService.getMonthlyTrainingInsight(any(), any(), eq("2099-01")))
+                .thenThrow(new IllegalArgumentException("The month cannot be after the current month."));
+        when(monthlyTrainingInsightService.getMonthlyTrainingInsight(any(), any(), eq("2026-9")))
+                .thenThrow(new IllegalArgumentException("The month must be given as YYYY-MM."));
+
+        mockMvc.perform(get("/api/v1/workouts/insights/monthly")
+                        .with(authentication(authToken(principal)))
+                        .param("month", "2099-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The month cannot be after the current month."));
+        mockMvc.perform(get("/api/v1/workouts/insights/monthly")
+                        .with(authentication(authToken(principal)))
+                        .param("month", "2026-9"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The month must be given as YYYY-MM."));
+        mockMvc.perform(get("/api/v1/workouts/insights/monthly")
+                        .with(authentication(authToken(principal)))
+                        .param("month", "2026-09-01"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldReturnBadRequestForInvalidTimezoneOnMonthlyInsight() throws Exception {
+        CurrentUserPrincipal principal = principal();
+
+        when(monthlyTrainingInsightService.getMonthlyTrainingInsight(any(), eq("Not/AZone"), any()))
+                .thenThrow(new IllegalArgumentException("The timezone is not a recognised zone id."));
+
+        mockMvc.perform(get("/api/v1/workouts/insights/monthly")
+                        .with(authentication(authToken(principal)))
+                        .param("timezone", "Not/AZone"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The timezone is not a recognised zone id."));
     }
 
     @Test

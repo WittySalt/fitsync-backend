@@ -59,4 +59,15 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
                                                                           @Param("statuses") List<WorkoutSessionStatus> statuses,
                                                                           @Param("from") Instant from,
                                                                           @Param("to") Instant to);
+
+    // The earliest moment any completed session of the user is dated by, using the same
+    // completedAt-then-startedAt rule the insights use to place a session on a day. The parameters
+    // are never null, and the result is null when the user has no completed session.
+    @Query("""
+            select min(coalesce(session.completedAt, session.startedAt)) from WorkoutSessionEntity session
+            where session.userId = :userId
+              and session.status = :status
+            """)
+    Instant findEarliestDatingInstant(@Param("userId") UUID userId,
+                                      @Param("status") WorkoutSessionStatus status);
 }
