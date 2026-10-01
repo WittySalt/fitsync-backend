@@ -424,7 +424,8 @@ final class WeekByDayCalculator {
         return primaryCompletedSession(sessionsOn(sessions, date));
     }
 
-    private static Optional<SessionSnapshot> primaryCompletedSession(List<SessionSnapshot> daySessions) {
+    /** The completed session that names a day: the longest one, ties broken by the earliest start. */
+    static Optional<SessionSnapshot> primaryCompletedSession(List<SessionSnapshot> daySessions) {
         SessionSnapshot best = null;
         for (SessionSnapshot session : daySessions) {
             if (session.status() != WorkoutSessionStatus.COMPLETED) {
@@ -474,7 +475,7 @@ final class WeekByDayCalculator {
         return kind == DayKind.STRENGTH || kind == DayKind.CARDIO || kind == DayKind.MOBILITY || kind == DayKind.SPORT;
     }
 
-    private static DayKind trainingKind(SessionKind kind) {
+    static DayKind trainingKind(SessionKind kind) {
         return switch (kind) {
             case STRENGTH -> DayKind.STRENGTH;
             case CARDIO -> DayKind.CARDIO;
@@ -483,7 +484,7 @@ final class WeekByDayCalculator {
         };
     }
 
-    private static String kindLabel(DayKind kind, SportActivity activity) {
+    static String kindLabel(DayKind kind, SportActivity activity) {
         return switch (kind) {
             case STRENGTH -> "Strength";
             case CARDIO -> "Cardio";

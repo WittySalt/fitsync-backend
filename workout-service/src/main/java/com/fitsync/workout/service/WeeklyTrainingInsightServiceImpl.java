@@ -356,7 +356,9 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         return groups;
     }
 
-    private Set<MuscleGroup> trainedMuscleGroups(WorkoutSessionEntity session) {
+    /** The primary muscle groups of the exercises a session logged, in enum order. Shared with the
+     * monthly insight so both describe a session's muscles the same way. */
+    static Set<MuscleGroup> trainedMuscleGroups(WorkoutSessionEntity session) {
         Set<MuscleGroup> groups = EnumSet.noneOf(MuscleGroup.class);
         for (WorkoutExerciseLogEntity log : session.getExercises()) {
             groups.add(log.getExercise().getPrimaryMuscleGroup());
