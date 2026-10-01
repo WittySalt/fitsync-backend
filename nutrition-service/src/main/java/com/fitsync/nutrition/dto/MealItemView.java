@@ -25,7 +25,12 @@ public record MealItemView(
         BigDecimal fiberGrams,
         BigDecimal sugarGrams,
         BigDecimal sodiumMg,
-        List<NutrientDetailView> nutrientDetails) {
+        List<NutrientDetailView> nutrientDetails,
+        String categoryCode,
+        String foodGroup,
+        BigDecimal gramsConsumed,
+        Integer waterMl,
+        BigDecimal saturatedFatGrams) {
 
     public MealItemView {
         nutrientDetails = nutrientDetails == null ? List.of() : List.copyOf(nutrientDetails);
