@@ -12,6 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -864,7 +865,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         Instant lastSet = entity.getExercises().stream()
                 .flatMap(exercise -> exercise.getSets().stream())
                 .map(WorkoutExerciseSetLogEntity::getUpdatedAt)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
                 .orElse(null);
         Instant completedAt = lastSet != null && lastSet.isAfter(entity.getStartedAt()) ? lastSet : entity.getEndedAt();
@@ -1273,6 +1274,11 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setStartedAt(request.startedAt());
         entity.setCompletedAt(request.completedAt());
         entity.setDurationMinutes(request.durationMinutes());
+        // An estimate stays one only while the value is unchanged; a value the person typed is theirs.
+        entity.setCaloriesEstimated(entity.isCaloriesEstimated()
+                && Objects.equals(entity.getCaloriesBurned(), request.caloriesBurned()));
+        entity.setEffortEstimated(entity.isEffortEstimated()
+                && Objects.equals(entity.getPerceivedExertion(), request.perceivedExertion()));
         entity.setCaloriesBurned(request.caloriesBurned());
         entity.setPerceivedExertion(request.perceivedExertion());
         entity.setNotes(request.notes());
@@ -1420,12 +1426,32 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void replaceSessionExercises(UUID userId, WorkoutSessionEntity session, List<WorkoutExerciseLogInput> inputs) {
+        // The rest taken after a set is measured by the exercise screen, never typed, so an edit that
+        // rebuilds the sets keeps it for the same exercise and set number.
+        Map<String, Integer> restTaken = new LinkedHashMap<>();
+        for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
+            for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
+                if (set.getRestTakenSeconds() != null && exercise.getExercise() != null) {
+                    restTaken.putIfAbsent(exercise.getExercise().getExerciseId() + "#" + set.getSetNumber(), set.getRestTakenSeconds());
+                }
+            }
+        }
+        boolean hadExisting = !session.getExercises().isEmpty();
         session.getExercises().clear();
+        if (hadExisting && session.getSessionId() != null && workoutSessionRepository.existsById(session.getSessionId())) {
+            // As for plans: run the removals before the new rows go in, or a new (session, sequence)
+            // row collides with the old one still in the table.
+            workoutSessionRepository.flush();
+        }
         if (inputs == null) {
             return;
         }
         for (WorkoutExerciseLogInput input : inputs.stream().sorted(java.util.Comparator.comparing(WorkoutExerciseLogInput::sequence)).toList()) {
-            session.getExercises().add(toSessionExerciseLog(userId, session, input, true));
+            WorkoutExerciseLogEntity exercise = toSessionExerciseLog(userId, session, input, true);
+            for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
+                set.setRestTakenSeconds(restTaken.get(input.exerciseId() + "#" + set.getSetNumber()));
+            }
+            session.getExercises().add(exercise);
         }
     }
 

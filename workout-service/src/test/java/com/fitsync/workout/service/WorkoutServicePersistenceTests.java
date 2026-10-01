@@ -2702,6 +2702,30 @@ class WorkoutServicePersistenceTests {
         }
 
         @Test
+        void dropsTheEstimateMarkOfAValueThePersonChangesAndKeepsTheOtherAndTheRestTaken() {
+            WorkoutSessionView started = startedWithTwoSets();
+            doFirstSet(started);
+            workoutService.recordRestTaken(currentUser, started.sessionId(), started.exercises().get(0).exerciseLogId(), 1,
+                    new SetRestRequest(50));
+            WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
+
+            WorkoutSessionView edited = workoutService.updateSession(currentUser, completed.sessionId(), new UpsertWorkoutSessionRequest(
+                    completed.planId(), completed.name(), completed.workoutType(), completed.status(), completed.source(),
+                    completed.startedAt(), completed.completedAt(), completed.durationMinutes(), 250,
+                    completed.perceivedExertion(), null,
+                    completed.exercises().stream().map(log -> new WorkoutExerciseLogInput(log.exerciseId(), log.sequence(),
+                            null, null, null, null, null, null, null, null,
+                            log.sets().stream().map(set -> new WorkoutExerciseSetLogInput(set.setNumber(), set.reps(), set.weightKg(),
+                                    set.durationSeconds(), set.distanceKm(), set.restSeconds(), set.perceivedExertion(), set.notes())).toList(),
+                            log.tempoSeconds())).toList()));
+
+            assertEquals(250, edited.caloriesBurned());
+            assertFalse(edited.caloriesEstimated());
+            assertTrue(edited.effortEstimated());
+            assertEquals(50, edited.exercises().get(0).sets().get(0).restTakenSeconds());
+        }
+
+        @Test
         void recordsTheRestTakenAfterADoneSetOnly() {
             WorkoutSessionView started = startedWithTwoSets();
             UUID logId = started.exercises().get(0).exerciseLogId();
