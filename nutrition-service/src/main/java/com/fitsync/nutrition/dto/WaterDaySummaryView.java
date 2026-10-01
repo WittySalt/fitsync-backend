@@ -7,10 +7,18 @@ public record WaterDaySummaryView(
         LocalDate date,
         String timezone,
         Integer totalMl,
-        List<WaterLogView> entries) {
+        List<WaterLogView> entries,
+        Integer fromDrinksMl,
+        List<DrinkWaterEntryView> drinkEntries) {
 
     public WaterDaySummaryView {
         entries = entries == null ? List.of() : List.copyOf(entries);
+        drinkEntries = drinkEntries == null ? List.of() : List.copyOf(drinkEntries);
+    }
+
+    @Override
+    public List<DrinkWaterEntryView> drinkEntries() {
+        return List.copyOf(drinkEntries);
     }
 
     @Override

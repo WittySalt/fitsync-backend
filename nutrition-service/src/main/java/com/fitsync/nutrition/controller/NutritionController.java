@@ -17,7 +17,9 @@ import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
 import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
+import com.fitsync.nutrition.dto.NutrientSummaryView;
 import com.fitsync.nutrition.dto.NutritionPageInsightView;
+import com.fitsync.nutrition.dto.RangeSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchCriteria;
@@ -32,6 +34,7 @@ import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import com.fitsync.nutrition.service.NutritionDiaryService;
 import com.fitsync.nutrition.service.NutritionPageInsightService;
 import com.fitsync.nutrition.service.NutritionService;
 import com.fitsync.nutrition.service.UsualMealsService;
@@ -64,13 +67,16 @@ public class NutritionController {
     private final NutritionService nutritionService;
     private final NutritionPageInsightService nutritionPageInsightService;
     private final UsualMealsService usualMealsService;
+    private final NutritionDiaryService nutritionDiaryService;
 
     public NutritionController(NutritionService nutritionService,
                                NutritionPageInsightService nutritionPageInsightService,
-                               UsualMealsService usualMealsService) {
+                               UsualMealsService usualMealsService,
+                               NutritionDiaryService nutritionDiaryService) {
         this.nutritionService = nutritionService;
         this.nutritionPageInsightService = nutritionPageInsightService;
         this.usualMealsService = usualMealsService;
+        this.nutritionDiaryService = nutritionDiaryService;
     }
 
     @PostMapping("/meals")
@@ -175,6 +181,22 @@ public class NutritionController {
                                                   @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
                                                   @RequestParam(required = false) String timezone) {
         return nutritionService.getDailySummary(currentPrincipal(authentication), date, timezone);
+    }
+
+    @GetMapping("/summary/range")
+    public RangeSummaryView rangeSummary(Authentication authentication,
+                                         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                         @RequestParam(required = false) String timezone) {
+        return nutritionDiaryService.getRangeSummary(currentPrincipal(authentication), from, to, timezone);
+    }
+
+    @GetMapping("/nutrients/summary")
+    public NutrientSummaryView nutrientSummary(Authentication authentication,
+                                               @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                               @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                               @RequestParam(required = false) String timezone) {
+        return nutritionDiaryService.getNutrientSummary(currentPrincipal(authentication), from, to, timezone);
     }
 
     @GetMapping("/insights/page")

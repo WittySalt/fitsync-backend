@@ -67,6 +67,10 @@ security:
     expiration: ${JWT_EXPIRATION:PT2H}
 
 fitsync:
+  nutrition:
+    # user-service holds the person's sex, age, weight and dietary pattern; the Diary reads them per request.
+    user-service:
+      base-url: ${FITSYNC_NUTRITION_USER_BASE_URL:http://localhost:8081}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

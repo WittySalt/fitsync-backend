@@ -40,6 +40,7 @@ import com.fitsync.nutrition.dto.MealTemplateItemView;
 import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
+import com.fitsync.nutrition.dto.DrinkWaterEntryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchCriteria;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
@@ -73,7 +74,6 @@ import com.fitsync.nutrition.entity.MealItemNutrientDetailEntity;
 import com.fitsync.nutrition.entity.MealLogEntity;
 import com.fitsync.nutrition.entity.MealTemplateEntity;
 import com.fitsync.nutrition.entity.MealTemplateItemEntity;
-import com.fitsync.nutrition.entity.NutritionTargetEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.entity.RecipeIngredientEntity;
 import com.fitsync.nutrition.entity.WaterLogEntity;
@@ -94,7 +94,6 @@ import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealLogRepository;
 import com.fitsync.nutrition.repository.MealTemplateItemRepository;
 import com.fitsync.nutrition.repository.MealTemplateRepository;
-import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import com.fitsync.nutrition.repository.RecipeIngredientRepository;
 import com.fitsync.nutrition.repository.RecipeRepository;
 import com.fitsync.nutrition.repository.WaterLogRepository;
@@ -120,11 +119,6 @@ public class NutritionServiceImpl implements NutritionService {
     private static final int LOGGED_FOOD_DEFAULT_LIMIT = 20;
     private static final int LOGGED_FOOD_MAX_LIMIT = 50;
     private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
-    // Daily micronutrient reference values (general adult DRI/WHO/DGA): fiber target,
-    // free-sugar upper limit, sodium upper limit.
-    private static final BigDecimal FIBER_TARGET_GRAMS = new BigDecimal("28");
-    private static final BigDecimal SUGAR_LIMIT_GRAMS = new BigDecimal("50");
-    private static final BigDecimal SODIUM_LIMIT_MG = new BigDecimal("2300");
     private static final long EXPORT_MAX_DAYS = 370;
     private static final String FOOD_GROUP_OTHER = "OTHER";
 
@@ -133,7 +127,6 @@ public class NutritionServiceImpl implements NutritionService {
     private final MealItemRepository mealItemRepository;
     private final MealItemNutrientDetailRepository mealItemNutrientDetailRepository;
     private final CustomFoodRepository customFoodRepository;
-    private final NutritionTargetRepository nutritionTargetRepository;
     private final FoodCatalogItemRepository foodCatalogItemRepository;
     private final FoodCategoryRepository foodCategoryRepository;
     private final FoodBrandRepository foodBrandRepository;
@@ -149,13 +142,13 @@ public class NutritionServiceImpl implements NutritionService {
     private final WaterLogRepository waterLogRepository;
     private final ExternalFoodSource externalFoodSource;
     private final TransactionTemplate transactionTemplate;
+    private final NutritionDiaryService nutritionDiaryService;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
                                 MealItemRepository mealItemRepository,
                                 MealItemNutrientDetailRepository mealItemNutrientDetailRepository,
                                 CustomFoodRepository customFoodRepository,
-                                NutritionTargetRepository nutritionTargetRepository,
                                 FoodCatalogItemRepository foodCatalogItemRepository,
                                 FoodCategoryRepository foodCategoryRepository,
                                 FoodBrandRepository foodBrandRepository,
@@ -170,13 +163,13 @@ public class NutritionServiceImpl implements NutritionService {
                                 MealTemplateItemRepository mealTemplateItemRepository,
                                 WaterLogRepository waterLogRepository,
                                 ExternalFoodSource externalFoodSource,
-                                PlatformTransactionManager transactionManager) {
+                                PlatformTransactionManager transactionManager,
+                                NutritionDiaryService nutritionDiaryService) {
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
         this.mealItemNutrientDetailRepository = mealItemNutrientDetailRepository;
         this.customFoodRepository = customFoodRepository;
-        this.nutritionTargetRepository = nutritionTargetRepository;
         this.foodCatalogItemRepository = foodCatalogItemRepository;
         this.foodCategoryRepository = foodCategoryRepository;
         this.foodBrandRepository = foodBrandRepository;
@@ -192,6 +185,7 @@ public class NutritionServiceImpl implements NutritionService {
         this.waterLogRepository = waterLogRepository;
         this.externalFoodSource = externalFoodSource;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.nutritionDiaryService = nutritionDiaryService;
     }
 
     @Override
@@ -420,60 +414,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional(readOnly = true)
     public DailyNutritionSummaryView getDailySummary(CurrentUserPrincipal principal, LocalDate date, String timezone) {
-        ZoneId zoneId = resolveZone(timezone);
-        Instant from = date.atStartOfDay(zoneId).toInstant();
-        Instant to = date.plusDays(1).atStartOfDay(zoneId).minusNanos(1).toInstant();
-        List<MealLogEntity> meals = mealLogRepository
-                .findByUserIdAndConsumedAtGreaterThanEqualAndConsumedAtLessThanEqualOrderByConsumedAtDesc(principal.userId(), from, to);
-
-        int totalCalories = 0;
-        BigDecimal totalProtein = BigDecimal.ZERO;
-        BigDecimal totalCarbs = BigDecimal.ZERO;
-        BigDecimal totalFat = BigDecimal.ZERO;
-        BigDecimal totalFiber = BigDecimal.ZERO;
-        BigDecimal totalSugar = BigDecimal.ZERO;
-        BigDecimal totalSodium = BigDecimal.ZERO;
-        for (MealLogEntity meal : meals) {
-            Totals totals = calculateTotals(mealItemRepository.findByMealIdOrderByDateTimeCreatedAsc(meal.getMealId()));
-            totalCalories += totals.totalCalories();
-            totalProtein = totalProtein.add(totals.totalProteinGrams());
-            totalCarbs = totalCarbs.add(totals.totalCarbsGrams());
-            totalFat = totalFat.add(totals.totalFatGrams());
-            totalFiber = totalFiber.add(totals.totalFiberGrams());
-            totalSugar = totalSugar.add(totals.totalSugarGrams());
-            totalSodium = totalSodium.add(totals.totalSodiumMg());
-        }
-        NutritionTargetEntity target = nutritionTargetRepository.findById(principal.userId()).orElse(null);
-        Integer targetCalories = target == null ? null : target.getCalorieTarget();
-        BigDecimal targetProtein = target == null ? null : target.getProteinTarget();
-        BigDecimal targetCarbs = target == null ? null : target.getCarbTargetGrams();
-        BigDecimal targetFat = target == null ? null : target.getFatTargetGrams();
-
-        return new DailyNutritionSummaryView(
-                date,
-                zoneId.getId(),
-                totalCalories,
-                totalProtein,
-                totalCarbs,
-                totalFat,
-                targetCalories,
-                targetProtein,
-                targetCarbs,
-                targetFat,
-                targetCalories == null ? null : targetCalories - totalCalories,
-                targetProtein == null ? null : targetProtein.subtract(totalProtein),
-                targetCarbs == null ? null : targetCarbs.subtract(totalCarbs),
-                targetFat == null ? null : targetFat.subtract(totalFat),
-                meals.size(),
-                scaleTwo(totalFiber),
-                scaleTwo(totalSugar),
-                scaleTwo(totalSodium),
-                FIBER_TARGET_GRAMS,
-                SUGAR_LIMIT_GRAMS,
-                SODIUM_LIMIT_MG,
-                totalFiber.compareTo(FIBER_TARGET_GRAMS) >= 0,
-                totalSugar.compareTo(SUGAR_LIMIT_GRAMS) <= 0,
-                totalSodium.compareTo(SODIUM_LIMIT_MG) <= 0);
+        return nutritionDiaryService.getDailySummary(principal, date, timezone);
     }
 
     @Override
@@ -1009,8 +950,10 @@ public class NutritionServiceImpl implements NutritionService {
                 .findByUserIdAndLoggedAtGreaterThanEqualAndLoggedAtLessThanEqualOrderByLoggedAtAsc(
                         principal.userId(), from, to);
         int total = entries.stream().mapToInt(entry -> defaultInteger(entry.getAmountMl())).sum();
+        List<DrinkWaterEntryView> drinks = nutritionDiaryService.listDrinkWater(principal.userId(), from, to.plusNanos(1));
+        int fromDrinks = drinks.stream().mapToInt(drink -> defaultInteger(drink.waterMl())).sum();
         return new WaterDaySummaryView(date, zone.getId(), total,
-                entries.stream().map(this::toWaterLogView).toList());
+                entries.stream().map(this::toWaterLogView).toList(), fromDrinks, drinks);
     }
 
     @Override
