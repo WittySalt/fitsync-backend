@@ -892,6 +892,33 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
     }
 
     @Test
+    void proteinSortRanksByProteinPerServingHighestFirstWithTagsPagingAndNoFit() throws Exception {
+        String token = tokenFor("protein-a@example.com");
+
+        // Per serving: chicken bowl 36.45 g, lentil salad 9.7 g, milk porridge 9.1 g.
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "protein"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.content[0].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.content[1].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.content[2].name").value("Milk porridge"))
+                .andExpect(jsonPath("$.fit").doesNotExist());
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "protein").param("size", "1").param("page", "1"))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "protein").param("tag", "HIGH_FIBRE"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "newest"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("sort must be name, fit or protein"));
+    }
+
+    @Test
     void anUnknownSortIsRejectedAndTheDefaultOrderHasNoFit() throws Exception {
         String token = tokenFor("fit-f@example.com");
 

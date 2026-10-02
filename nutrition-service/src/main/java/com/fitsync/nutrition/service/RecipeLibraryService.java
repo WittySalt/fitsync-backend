@@ -70,6 +70,7 @@ public class RecipeLibraryService {
     static final String SCOPE_RECENT = "recent";
     static final String SORT_NAME = "name";
     static final String SORT_FIT = "fit";
+    static final String SORT_PROTEIN = "protein";
     static final int RECENT_LIMIT = 10;
     // More rows than the limit are read so that recipes that are no longer visible do not shorten the list.
     private static final int RECENT_FETCH = 50;
@@ -138,9 +139,9 @@ public class RecipeLibraryService {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         Sort order = Sort.by(Sort.Order.asc("name").ignoreCase(), Sort.Order.asc("recipeId"));
-        if (SORT_FIT.equals(normalizedSort)) {
-            return listByFit(principal, normalizedScope, specification, requiredTag, timezone, pageNumber, pageSize,
-                    order);
+        if (!SORT_NAME.equals(normalizedSort)) {
+            return listRanked(principal, normalizedScope, specification, requiredTag, normalizedSort, timezone,
+                    pageNumber, pageSize, order);
         }
         if (requiredTag != null) {
             return listWithTag(userId, normalizedScope, specification, requiredTag, pageNumber, pageSize, order);
@@ -186,14 +187,16 @@ public class RecipeLibraryService {
     }
 
     /**
-     * Ranks every recipe the filters let through by how well one serving fits what is left of today and pages
-     * over that order. The recipes are read in batches and scored in memory, which is fine for a library of a
+     * Ranks every recipe the filters let through, by how well one serving fits what is left of today or by the
+     * protein in one serving, and pages over that order. The recipes are read in batches and scored in memory, which is fine for a library of a
      * few hundred recipes, and nothing that depends on the caller is kept between requests.
      */
-    private Page<RecipeListItemView> listByFit(CurrentUserPrincipal principal, String scope,
-                                               Specification<RecipeEntity> specification, String tagLabel,
-                                               String timezone, int pageNumber, int pageSize, Sort order) {
-        FitToday today = fitToday(principal, timezone);
+    private Page<RecipeListItemView> listRanked(CurrentUserPrincipal principal, String scope,
+                                                Specification<RecipeEntity> specification, String tagLabel,
+                                                String sortMode, String timezone, int pageNumber, int pageSize,
+                                                Sort order) {
+        boolean byFit = SORT_FIT.equals(sortMode);
+        FitToday today = byFit ? fitToday(principal, timezone) : null;
         List<ScoredRecipe> scored = new ArrayList<>();
         int batch = 0;
         Page<RecipeEntity> candidates;
@@ -205,12 +208,20 @@ public class RecipeLibraryService {
                 if (tagLabel != null && !computation.tags().contains(tagLabel)) {
                     continue;
                 }
-                RecipeFitScorer.Serving serving = new RecipeFitScorer.Serving(computation.kcalPerServing(),
-                        computation.proteinPerServing(), nutrientAmount(computation, today.context().nutrientCode()));
-                scored.add(new ScoredRecipe(recipe, computation, RecipeFitScorer.rank(today.context(), serving)));
+                RecipeFitScorer.Rank rank = null;
+                if (byFit) {
+                    RecipeFitScorer.Serving serving = new RecipeFitScorer.Serving(computation.kcalPerServing(),
+                            computation.proteinPerServing(),
+                            nutrientAmount(computation, today.context().nutrientCode()));
+                    rank = RecipeFitScorer.rank(today.context(), serving);
+                }
+                scored.add(new ScoredRecipe(recipe, computation, rank));
             }
         } while (candidates.hasNext());
-        scored.sort(Comparator.comparing(ScoredRecipe::rank, RecipeFitScorer.Rank.BEST_FIRST)
+        Comparator<ScoredRecipe> first = byFit
+                ? Comparator.comparing(ScoredRecipe::rank, RecipeFitScorer.Rank.BEST_FIRST)
+                : Comparator.comparing((ScoredRecipe item) -> item.computation().proteinPerServing()).reversed();
+        scored.sort(first
                 .thenComparing(item -> item.recipe().getName(), String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(item -> item.recipe().getRecipeId()));
         long from = (long) pageNumber * pageSize;
@@ -220,7 +231,9 @@ public class RecipeLibraryService {
         List<RecipeListItemView> content = slice.stream()
                 .map(item -> toListItem(item.recipe(), item.computation(), saved.contains(item.recipe().getRecipeId())))
                 .toList();
-        return new RecipeFitPage(content, PageRequest.of(pageNumber, pageSize), scored.size(), today.view());
+        PageRequest paging = PageRequest.of(pageNumber, pageSize);
+        return byFit ? new RecipeFitPage(content, paging, scored.size(), today.view())
+                : new PageImpl<>(content, paging, scored.size());
     }
 
     /** The amount of one nutrient in one serving, or null when the recipe has none of it or no nutrient is asked for. */
@@ -582,7 +595,7 @@ public class RecipeLibraryService {
         return "";
     }
 
-    /** The sort is the name order, which is the default, or the fit for today. */
+    /** The sort is the name order, which is the default, the fit for today, or the protein per serving. */
     private static String normalizeSort(String sort) {
         if (sort == null || sort.isBlank() || SORT_NAME.equalsIgnoreCase(sort.trim())) {
             return SORT_NAME;
@@ -590,6 +603,9 @@ public class RecipeLibraryService {
         if (SORT_FIT.equalsIgnoreCase(sort.trim())) {
             return SORT_FIT;
         }
-        throw new BadRequestException("sort must be name or fit");
+        if (SORT_PROTEIN.equalsIgnoreCase(sort.trim())) {
+            return SORT_PROTEIN;
+        }
+        throw new BadRequestException("sort must be name, fit or protein");
     }
 }
