@@ -390,6 +390,23 @@ class CoachOrchestratorTests {
     }
 
     @Test
+    @DisplayName("a recipe id adds the recipe line after the surface line, and only then")
+    void includesTheRecipeLineOnlyWhenARecipeIdIsSet() {
+        String id = "6c6a1ac5-5b6b-584e-9e3f-40e36949cdfb";
+        List<String> prompts = new ArrayList<>();
+        CoachOrchestrator orchestrator = orchestratorCapturingUserPrompts(prompts, "{\"answer\":\"ok\"}");
+
+        orchestrator.answer(CONTEXT, "Is this a good dinner?", List.of(),
+                new TurnContext(CoachSurface.NUTRITION, null, id));
+        orchestrator.answer(CONTEXT, "Is this a good dinner?", List.of(), TurnContext.ofSurface(CoachSurface.NUTRITION));
+
+        assertThat(prompts.get(0)).contains("The user is on the Nutrition page.")
+                .contains("The user is asking about the recipe with id " + id + ". Read it with readRecipe before "
+                        + "answering, and suggest other recipes only from searchRecipes.");
+        assertThat(prompts.get(1)).doesNotContain("recipe with id");
+    }
+
+    @Test
     @DisplayName("with neither a surface nor a pinned reading, the prompt is exactly what it was before")
     void promptIsUnchangedWithNoContext() {
         List<String> prompts = new ArrayList<>();
@@ -437,6 +454,24 @@ class CoachOrchestratorTests {
                 new TurnContext(CoachSurface.WORKOUT, pinnedReading));
 
         assertThat(systemPrompts.get(0)).doesNotContain("readPinnedReading");
+    }
+
+    @Test
+    @DisplayName("the system prompt says a recipe may be suggested only from a searchRecipes result")
+    void thePromptLimitsRecipeSuggestionsToSearchResults() {
+        List<String> systemPrompts = new ArrayList<>();
+        ClaudeClient scripted = (system, user) -> {
+            systemPrompts.add(system);
+            return "{\"answer\":\"ok\"}";
+        };
+        CoachOrchestrator orchestrator = new CoachOrchestrator(
+                providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
+                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor(),
+                new AnswerValidator(), calendar());
+
+        orchestrator.answer(CONTEXT, "anything at all", List.of());
+
+        assertThat(systemPrompts.get(0)).contains("only when it came from a searchRecipes result");
     }
 
     // --- answer validation, which now runs on every chat answer, not only on the pinned reading ---

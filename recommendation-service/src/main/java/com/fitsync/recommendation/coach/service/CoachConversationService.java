@@ -181,7 +181,8 @@ public class CoachConversationService {
                         String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));
             }
         }
-        return new ResolvedContext(new TurnContext(messageContext.surface(), pinnedReading), pinnedReadingId);
+        return new ResolvedContext(new TurnContext(messageContext.surface(), pinnedReading, messageContext.recipeId()),
+                pinnedReadingId);
     }
 
     /** The pages that show a reading; every other page has nothing a message could be pinned to. */

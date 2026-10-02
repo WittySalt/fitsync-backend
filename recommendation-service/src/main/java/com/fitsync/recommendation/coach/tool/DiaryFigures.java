@@ -238,12 +238,12 @@ final class DiaryFigures {
         return node.isNumber() ? Long.valueOf(Math.round(node.asDouble())) : null;
     }
 
-    private static String percent(JsonNode share) {
+    static String percent(JsonNode share) {
         return share.isNumber() ? Long.toString(Math.round(share.asDouble() * 100)) : null;
     }
 
     /** One decimal with a trailing zero dropped, as the other tools write grams, or null when absent. */
-    private static String number(JsonNode node) {
+    static String number(JsonNode node) {
         if (!node.isNumber()) {
             return null;
         }

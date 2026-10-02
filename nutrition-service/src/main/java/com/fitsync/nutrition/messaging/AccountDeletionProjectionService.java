@@ -101,6 +101,7 @@ public class AccountDeletionProjectionService {
     /** Removes every recipe row of the user, deleted ones included, together with its steps and ingredients, and the recipes the user saved. */
     private void deleteRecipes(UUID userId) {
         recipeFavoriteRepository.deleteByUserId(userId);
+        recipeRepository.purgeCooksByUserId(userId);
         recipeRepository.purgeStepsByUserId(userId);
         recipeRepository.purgeIngredientsByUserId(userId);
         recipeRepository.purgeByUserId(userId);

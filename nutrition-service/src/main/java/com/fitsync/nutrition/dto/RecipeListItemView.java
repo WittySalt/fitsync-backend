@@ -1,10 +1,14 @@
 package com.fitsync.nutrition.dto;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/** One recipe on a list page: what a card needs, with nutrition per serving. */
+/**
+ * One recipe on a list page: what a card needs, with nutrition per serving. lastCookedAt is set only on the
+ * "recent" scope, the time of the newest meal the caller logged from the recipe, and is null everywhere else.
+ */
 public record RecipeListItemView(
         UUID id,
         String name,
@@ -16,10 +20,12 @@ public record RecipeListItemView(
         BigDecimal servings,
         Integer kcalPerServing,
         BigDecimal proteinGramsPerServing,
+        BigDecimal fatGramsPerServing,
         List<String> tags,
         List<String> dietFlags,
         List<String> topFoodGroups,
-        boolean favorite) {
+        boolean favorite,
+        Instant lastCookedAt) {
 
     public RecipeListItemView {
         tags = tags == null ? List.of() : List.copyOf(tags);
