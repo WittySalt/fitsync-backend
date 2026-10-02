@@ -1336,7 +1336,8 @@ class UserProfileTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.referenceProfilesPublished").value(userProfileRepository.count()))
                 .andExpect(jsonPath("$.preferencesPublished").isNumber())
-                .andExpect(jsonPath("$.bodyMetricsPublished").isNumber());
+                .andExpect(jsonPath("$.bodyMetricsPublished").isNumber())
+                .andExpect(jsonPath("$.energyProfilesPublished").isNumber());
 
         var events = outboxEventRepository.findAll();
         assertTrue(events.stream().anyMatch(event -> "NutritionReferenceProfileUpdated".equals(event.getEventType())
@@ -1350,6 +1351,9 @@ class UserProfileTests {
                 .toList();
         assertEquals(1, weights.size());
         assertTrue(weights.get(0).getPayload().contains("80.5"));
+        assertTrue(events.stream().anyMatch(event -> "EnergyProfileComputed".equals(event.getEventType())
+                && factsUserId.equals(event.getUserId())
+                && event.getPayload().contains("\"estimated\":false")));
     }
 
     private static String preferencesJson(String nutritionExtra) {

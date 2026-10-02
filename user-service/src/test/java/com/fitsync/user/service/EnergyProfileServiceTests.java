@@ -54,6 +54,7 @@ class EnergyProfileServiceTests {
         assertThat(payload.tdeeCalories()).isEqualTo(2812);
         assertThat(payload.activityLevel()).isEqualTo("MODERATELY_ACTIVE");
         assertThat(payload.computedAt()).isEqualTo(Instant.parse("2026-07-06T12:00:00Z"));
+        assertThat(payload.estimated()).isFalse();
     }
 
     @Test
@@ -68,6 +69,7 @@ class EnergyProfileServiceTests {
         assertThat(payload.bmrCalories()).isEqualTo(1731);
         assertThat(payload.tdeeCalories()).isEqualTo(2424);
         assertThat(payload.activityLevel()).isNull();
+        assertThat(payload.estimated()).isTrue();
     }
 
     @Test
@@ -81,6 +83,24 @@ class EnergyProfileServiceTests {
         service.publishEnergyProfile(userId);
 
         verify(publisher, never()).publish(anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void flagsEstimatedWhenOnlyAgeOrOnlySexFellBackAndReportsPublishing() {
+        givenLatestWeight("82.50");
+
+        givenProfile(profile(Gender.MALE, null, "181.5", null));
+        assertThat(service.publishEnergyProfile(userId)).isTrue();
+        assertThat(publishedPayload().estimated()).isTrue();
+
+        org.mockito.Mockito.clearInvocations(publisher);
+        givenProfile(profile(Gender.NON_BINARY, LocalDate.parse("1996-07-01"), "181.5", null));
+        service.publishEnergyProfile(userId);
+        assertThat(publishedPayload().estimated()).isTrue();
+
+        givenProfile(profile(Gender.FEMALE, LocalDate.parse("1990-01-01"), null, null));
+        org.mockito.Mockito.clearInvocations(publisher);
+        assertThat(service.publishEnergyProfile(userId)).isFalse();
     }
 
     private void givenProfile(UserProfileEntity profile) {

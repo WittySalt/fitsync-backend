@@ -675,7 +675,7 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * Publishes the nutrition reference profile, the preferences and the latest weight of every user once, so that a service that
+     * Publishes the nutrition reference profile, the preferences, the latest weight and the energy profile of every user once, so that a service that
      * started keeping a projection of them after those users last changed anything gets its rows filled. A user
      * without a stored row or a weight is skipped for that event.
      */
@@ -685,6 +685,7 @@ public class UserServiceImpl implements UserService {
         int referenceProfiles = 0;
         int preferences = 0;
         int bodyMetrics = 0;
+        int energyProfiles = 0;
         Page<UserProfileEntity> page;
         int pageNumber = 0;
         do {
@@ -711,9 +712,12 @@ public class UserServiceImpl implements UserService {
                     publishBodyMetricsRecordedEvent(userId, latest);
                     bodyMetrics++;
                 }
+                if (energyProfileService.publishEnergyProfile(userId)) {
+                    energyProfiles++;
+                }
             }
         } while (page.hasNext());
-        return new PersonFactsReconcileResponse(referenceProfiles, preferences, bodyMetrics);
+        return new PersonFactsReconcileResponse(referenceProfiles, preferences, bodyMetrics, energyProfiles);
     }
 
     @Override
