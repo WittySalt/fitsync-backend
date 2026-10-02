@@ -11,6 +11,7 @@ import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
+import com.fitsync.analytics.dto.AnalyticsEnergyWeeklyResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
@@ -20,6 +21,7 @@ import com.fitsync.analytics.dto.AnalyticsWorkoutSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import com.fitsync.analytics.security.JwtService;
+import com.fitsync.analytics.service.AnalyticsEnergyService;
 import com.fitsync.analytics.service.AnalyticsService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +33,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -50,6 +54,9 @@ class AnalyticsControllerTests {
 
     @MockBean
     private JwtService jwtService;
+
+    @MockBean
+    private AnalyticsEnergyService analyticsEnergyService;
 
     @Test
     void shouldRequireAuthenticationForDashboard() throws Exception {
@@ -357,6 +364,45 @@ class AnalyticsControllerTests {
         mockMvc.perform(get("/api/v1/analytics/reports/weekly")
                         .with(authentication(authToken(principal())))
                         .param("weekStart", "not-a-date"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void energyWeeklyRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/energy/weekly"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void energyWeeklyUsesTheCallerFromTheTokenOnly() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        LocalDate monday = LocalDate.parse("2026-09-28");
+        when(analyticsEnergyService.getWeekly(eq(principal.userId()), eq(monday), eq("Asia/Singapore")))
+                .thenReturn(new AnalyticsEnergyWeeklyResponse(monday, monday.plusDays(6), "TOO_FEW_DAYS", 1, 1700,
+                        true, 1.2, null, null, null, List.of(), List.of()));
+
+        mockMvc.perform(get("/api/v1/analytics/energy/weekly")
+                        .with(authentication(authToken(principal)))
+                        .param("weekStart", "2026-09-28")
+                        .param("timezone", "Asia/Singapore")
+                        .param("userId", UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("TOO_FEW_DAYS"))
+                .andExpect(jsonPath("$.bmrKcal").value(1700))
+                .andExpect(jsonPath("$.bmrEstimated").value(true))
+                .andExpect(jsonPath("$.restingFactor").value(1.2));
+        verify(analyticsEnergyService).getWeekly(principal.userId(), monday, "Asia/Singapore");
+    }
+
+    @Test
+    void energyWeeklyRejectsMalformedWeekStartAndOverlongTimezone() throws Exception {
+        mockMvc.perform(get("/api/v1/analytics/energy/weekly")
+                        .with(authentication(authToken(principal())))
+                        .param("weekStart", "not-a-date"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/analytics/energy/weekly")
+                        .with(authentication(authToken(principal())))
+                        .param("timezone", "x".repeat(65)))
                 .andExpect(status().isBadRequest());
     }
 

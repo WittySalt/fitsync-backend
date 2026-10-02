@@ -36,6 +36,8 @@ class RecipeStepAnalyzerTests {
         assertEquals("Salt", RecipeStepAnalyzer.ingredientName("Pinch of Salt"));
         assertEquals("Cream of tartar", RecipeStepAnalyzer.ingredientName("Cream of tartar"));
         assertEquals("Avocado", RecipeStepAnalyzer.ingredientName("2 large Avocado"));
+        assertEquals("red snapper", RecipeStepAnalyzer.ingredientName("2 pounds red snapper"));
+        assertEquals("Cheddar", RecipeStepAnalyzer.ingredientName("8 ounces Cheddar"));
         assertEquals("", RecipeStepAnalyzer.ingredientName(null));
     }
 

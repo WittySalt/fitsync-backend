@@ -33,6 +33,10 @@ public class AnalyticsUserDailyWorkoutEntity extends BaseAuditableEntity {
     @Column(name = "total_calories_burned", nullable = false)
     private Integer totalCaloriesBurned;
 
+    // Part of total_calories_burned that the server estimated; the day counts as estimated when above zero.
+    @Column(name = "estimated_calories_burned", nullable = false)
+    private Integer estimatedCaloriesBurned = 0;
+
     @Column(name = "total_exercise_count", nullable = false)
     private Integer totalExerciseCount;
 
@@ -83,6 +87,14 @@ public class AnalyticsUserDailyWorkoutEntity extends BaseAuditableEntity {
 
     public void setTotalCaloriesBurned(Integer totalCaloriesBurned) {
         this.totalCaloriesBurned = totalCaloriesBurned;
+    }
+
+    public Integer getEstimatedCaloriesBurned() {
+        return estimatedCaloriesBurned;
+    }
+
+    public void setEstimatedCaloriesBurned(Integer estimatedCaloriesBurned) {
+        this.estimatedCaloriesBurned = estimatedCaloriesBurned;
     }
 
     public Integer getTotalExerciseCount() {

@@ -33,6 +33,9 @@ public class AnalyticsWorkoutContributionEntity extends BaseAuditableEntity {
     @Column(name = "exercise_count")
     private Integer exerciseCount;
 
+    @Column(name = "calories_estimated", nullable = false)
+    private boolean caloriesEstimated;
+
     @Column(name = "last_applied_at", nullable = false)
     private Instant lastAppliedAt;
 
@@ -82,6 +85,14 @@ public class AnalyticsWorkoutContributionEntity extends BaseAuditableEntity {
 
     public void setExerciseCount(Integer exerciseCount) {
         this.exerciseCount = exerciseCount;
+    }
+
+    public boolean isCaloriesEstimated() {
+        return caloriesEstimated;
+    }
+
+    public void setCaloriesEstimated(boolean caloriesEstimated) {
+        this.caloriesEstimated = caloriesEstimated;
     }
 
     public Instant getLastAppliedAt() {

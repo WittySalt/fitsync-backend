@@ -28,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class MealNutritionProjectionService {
 
+    private static final int MEAL_TYPE_MAX_LENGTH = 20;
+
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsMealContributionRepository mealContributionRepository;
     private final AnalyticsUserDailyNutritionRepository dailyNutritionRepository;
@@ -58,6 +60,7 @@ public class MealNutritionProjectionService {
     @Transactional
     public void upsertMeal(FitSyncDomainEvent<?> event,
                            UUID mealId,
+                           String mealType,
                            Instant consumedAt,
                            Integer totalCalories,
                            BigDecimal totalProteinGrams,
@@ -87,6 +90,7 @@ public class MealNutritionProjectionService {
         newContribution.setMealId(mealId);
         newContribution.setUserId(event.userId());
         newContribution.setActivityDate(newDate);
+        newContribution.setMealType(normalizeMealType(mealType));
         newContribution.setTotalCalories(totalCalories);
         newContribution.setTotalProteinGrams(totalProteinGrams);
         newContribution.setTotalCarbsGrams(totalCarbsGrams);
@@ -184,6 +188,15 @@ public class MealNutritionProjectionService {
             }
         }
         daily.setFoodGroupCalories(writeGroups(aggregate));
+    }
+
+    /** Keeps the meal type as sent, upper-cased and capped; blank means unknown and stays null. */
+    private static String normalizeMealType(String mealType) {
+        if (mealType == null || mealType.isBlank()) {
+            return null;
+        }
+        String normalized = mealType.trim().toUpperCase(java.util.Locale.ROOT);
+        return normalized.length() > MEAL_TYPE_MAX_LENGTH ? normalized.substring(0, MEAL_TYPE_MAX_LENGTH) : normalized;
     }
 
     private static String writeGroups(Map<String, Integer> groups) {

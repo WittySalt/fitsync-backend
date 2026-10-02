@@ -11,5 +11,7 @@ public interface AnalyticsMealContributionRepository extends JpaRepository<Analy
 
     List<AnalyticsMealContributionEntity> findByUserIdAndActivityDate(UUID userId, LocalDate activityDate);
 
+    List<AnalyticsMealContributionEntity> findByUserIdAndActivityDateBetween(UUID userId, LocalDate from, LocalDate to);
+
     void deleteByUserId(UUID userId);
 }

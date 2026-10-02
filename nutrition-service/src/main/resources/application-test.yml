@@ -30,5 +30,8 @@ security:
     expiration: PT1H
 
 fitsync:
+  nutrition:
+    # The richest-foods cache is off in tests, which replace the catalogue between cases.
+    richest-cache-ttl: PT0S
   kafka:
     enabled: false

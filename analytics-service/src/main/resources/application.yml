@@ -105,6 +105,8 @@ fitsync:
         enabled: ${KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED:false}
       user-preferences-updated:
         enabled: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
+      energy-profile-computed:
+        enabled: ${KAFKA_ANALYTICS_ENERGY_PROFILE_LISTENER_ENABLED:false}
       user-profile-updated:
         enabled: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:false}
       account-deleted:

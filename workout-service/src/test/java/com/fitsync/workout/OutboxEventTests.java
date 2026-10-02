@@ -73,6 +73,39 @@ class OutboxEventTests {
     }
 
     @Test
+    void loggedEventCarriesCaloriesEstimatedFalseWhenTheCaloriesWereGiven() throws Exception {
+        postCompletedCardio(", \"caloriesBurned\": 280");
+
+        assertThat(outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING))
+                .anySatisfy(event -> {
+                    assertThat(event.getEventType()).isEqualTo("WorkoutLogged");
+                    assertThat(event.getPayload()).contains("\"caloriesEstimated\":false");
+                });
+    }
+
+
+    private void postCompletedCardio(String caloriesField) throws Exception {
+        mockMvc.perform(post("/api/v1/workouts/sessions")
+                        .with(authentication(TestJwt.authentication("USER")))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "planId": null,
+                                  "name": "Estimate Workout",
+                                  "workoutType": "CARDIO",
+                                  "status": "COMPLETED",
+                                  "source": "MANUAL",
+                                  "startedAt": "2026-06-11T10:00:00Z",
+                                  "completedAt": "2026-06-11T10:30:00Z",
+                                  "durationMinutes": 30%s,
+                                  "exercises": []
+                                }
+                                """.formatted(caloriesField)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
     void userCannotRelayPendingOutboxEvents() throws Exception {
         mockMvc.perform(post("/api/v1/internal/outbox/publish")
                         .with(authentication(TestJwt.authentication("USER")))

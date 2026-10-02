@@ -8,5 +8,6 @@
   "durationMinutes": 45,
   "caloriesBurned": 360,
   "exerciseCount": 1,
-  "source": "DEVICE"
+  "source": "DEVICE",
+  "caloriesEstimated": true
 }

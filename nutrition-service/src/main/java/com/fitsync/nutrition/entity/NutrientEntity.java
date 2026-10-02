@@ -6,7 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/** One tracked nutrient: its code, unit, the USDA number the seed maps on, and whether the Diary shows it. */
+/** One tracked nutrient: its code, unit, the USDA number the seed maps on, whether the Diary shows it, and where the all-nutrients table places it (group, symbol, atomic number, order). */
 @Entity
 @Table(name = "nutrients")
 public class NutrientEntity extends BaseAuditableEntity {
@@ -32,6 +32,18 @@ public class NutrientEntity extends BaseAuditableEntity {
 
     @Column(name = "shown_in_diary", nullable = false)
     private boolean shownInDiary;
+
+    @Column(name = "group_code", length = 20)
+    private String groupCode;
+
+    @Column(name = "symbol", length = 4)
+    private String symbol;
+
+    @Column(name = "atomic_number")
+    private Integer atomicNumber;
+
+    @Column(name = "display_order", nullable = false)
+    private int displayOrder;
 
     public String getCode() {
         return code;
@@ -87,5 +99,37 @@ public class NutrientEntity extends BaseAuditableEntity {
 
     public void setShownInDiary(boolean shownInDiary) {
         this.shownInDiary = shownInDiary;
+    }
+
+    public String getGroupCode() {
+        return groupCode;
+    }
+
+    public void setGroupCode(String groupCode) {
+        this.groupCode = groupCode;
+    }
+
+    public String getSymbol() {
+        return symbol;
+    }
+
+    public void setSymbol(String symbol) {
+        this.symbol = symbol;
+    }
+
+    public Integer getAtomicNumber() {
+        return atomicNumber;
+    }
+
+    public void setAtomicNumber(Integer atomicNumber) {
+        this.atomicNumber = atomicNumber;
+    }
+
+    public int getDisplayOrder() {
+        return displayOrder;
+    }
+
+    public void setDisplayOrder(int displayOrder) {
+        this.displayOrder = displayOrder;
     }
 }

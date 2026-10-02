@@ -14,6 +14,7 @@ import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
 import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
+import com.fitsync.analytics.repository.AnalyticsUserEnergyProfileRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -33,6 +34,7 @@ public class AccountDeletionProjectionService {
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsUserStreakRollupRepository streakRollupRepository;
     private final AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository;
+    private final AnalyticsUserEnergyProfileRepository energyProfileRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final Clock clock;
 
@@ -46,6 +48,7 @@ public class AccountDeletionProjectionService {
                                             AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                             AnalyticsUserStreakRollupRepository streakRollupRepository,
                                             AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository,
+                                            AnalyticsUserEnergyProfileRepository energyProfileRepository,
                                             AnalyticsCacheInvalidationService cacheInvalidationService,
                                             Clock clock) {
         this.processedEventRepository = processedEventRepository;
@@ -58,6 +61,7 @@ public class AccountDeletionProjectionService {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
         this.streakRollupRepository = streakRollupRepository;
         this.workoutRecordsRepository = workoutRecordsRepository;
+        this.energyProfileRepository = energyProfileRepository;
         this.cacheInvalidationService = cacheInvalidationService;
         this.clock = clock;
     }
@@ -78,6 +82,7 @@ public class AccountDeletionProjectionService {
         dashboardSnapshotRepository.deleteById(userId);
         streakRollupRepository.deleteById(userId);
         workoutRecordsRepository.deleteById(userId);
+        energyProfileRepository.deleteByUserId(userId);
         processedEventRepository.deleteByUserId(userId);
         recordProcessedEvent(event);
         cacheInvalidationService.evictForUser(userId);

@@ -333,6 +333,17 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Energy this week: same Spring constructor-injection noise as the other analytics services. -->
+    <Match>
+        <Class name="com.fitsync.analytics.service.AnalyticsEnergyService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.messaging.EnergyProfileComputedEventConsumerImpl"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <Match>
         <Class name="com.fitsync.analytics.service.AnalyticsWeeklyRecapService"/>
         <Bug pattern="EI_EXPOSE_REP2"/>

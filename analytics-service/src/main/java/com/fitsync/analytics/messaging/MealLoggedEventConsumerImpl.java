@@ -20,6 +20,7 @@ public class MealLoggedEventConsumerImpl implements DomainEventConsumer<MealLogg
         projectionService.upsertMeal(
                 event,
                 payload == null ? null : payload.mealId(),
+                payload == null ? null : payload.mealType(),
                 payload == null ? null : payload.consumedAt(),
                 payload == null ? null : payload.totalCalories(),
                 payload == null ? null : payload.totalProteinGrams(),

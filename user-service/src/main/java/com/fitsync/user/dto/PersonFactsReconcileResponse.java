@@ -4,6 +4,7 @@ package com.fitsync.user.dto;
 public record PersonFactsReconcileResponse(
         int referenceProfilesPublished,
         int preferencesPublished,
-        int bodyMetricsPublished
+        int bodyMetricsPublished,
+        int energyProfilesPublished
 ) {
 }

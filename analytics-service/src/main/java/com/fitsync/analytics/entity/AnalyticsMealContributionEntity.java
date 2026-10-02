@@ -48,6 +48,19 @@ public class AnalyticsMealContributionEntity extends BaseAuditableEntity {
     @Column(name = "food_group_calories", length = 400)
     private String foodGroupCalories;
 
+    // BREAKFAST, LUNCH, DINNER, SNACK, SUPPER or OTHER as sent on the event. Null on rows written before
+    // the type was kept; the energy split counts those as "other".
+    @Column(name = "meal_type", length = 20)
+    private String mealType;
+
+    public String getMealType() {
+        return mealType;
+    }
+
+    public void setMealType(String mealType) {
+        this.mealType = mealType;
+    }
+
     public UUID getMealId() {
         return mealId;
     }

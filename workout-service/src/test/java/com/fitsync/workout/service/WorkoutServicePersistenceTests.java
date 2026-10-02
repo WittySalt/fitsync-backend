@@ -2787,6 +2787,9 @@ class WorkoutServicePersistenceTests {
             WorkoutSessionView completed = workoutService.completeSession(currentUser, started.sessionId(), null);
 
             assertEquals(completed.completedAt(), completed.endedAt());
+            assertTrue(outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).stream()
+                    .anyMatch(event -> "WorkoutLogged".equals(event.getEventType())
+                            && event.getPayload().contains("\"caloriesEstimated\":true")));
             assertEquals(180, completed.caloriesBurned());
             assertTrue(completed.caloriesEstimated());
             assertTrue(completed.effortEstimated());
@@ -2835,6 +2838,9 @@ class WorkoutServicePersistenceTests {
                             log.tempoSeconds())).toList()));
 
             assertEquals(250, edited.caloriesBurned());
+            assertTrue(outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING).stream()
+                    .anyMatch(event -> "WorkoutUpdated".equals(event.getEventType())
+                            && event.getPayload().contains("\"caloriesEstimated\":false")));
             assertFalse(edited.caloriesEstimated());
             assertTrue(edited.effortEstimated());
             assertEquals(50, edited.exercises().get(0).sets().get(0).restTakenSeconds());

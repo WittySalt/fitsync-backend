@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.DrinkWaterEntryView;
+import com.fitsync.nutrition.dto.NutrientPageView;
 import com.fitsync.nutrition.dto.NutrientSummaryView;
 import com.fitsync.nutrition.dto.RangeSummaryView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
@@ -27,6 +28,22 @@ public interface NutritionDiaryService {
     RangeSummaryView getRangeSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to, String timezone);
 
     /** Vitamin and mineral averages over the logged days from {@code from} to {@code to}, at most 31 days. */
+    default NutrientSummaryView getNutrientSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to,
+                                                   String timezone) {
+        return getNutrientSummary(principal, from, to, timezone, "diary");
+    }
+
+    /**
+     * The same, for scope "diary" (the nutrients the Diary shows) or "all" (every nutrient that has a group
+     * and a reference, in table order). Any other scope is a bad request.
+     */
     NutrientSummaryView getNutrientSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to,
-                                           String timezone);
+                                           String timezone, String scope);
+
+    /**
+     * The page of one nutrient over a range of at most 31 days (default the last seven, ending today in the
+     * timezone of the request). An unknown code is a 404.
+     */
+    NutrientPageView getNutrientPage(CurrentUserPrincipal principal, String code, LocalDate from, LocalDate to,
+                                     String timezone);
 }

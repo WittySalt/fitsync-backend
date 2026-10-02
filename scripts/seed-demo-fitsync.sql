@@ -1135,15 +1135,15 @@ end $$;
 insert into analytics.analytics_meal_contributions
     (meal_id, user_id, activity_date, total_calories, total_protein_grams,
      total_carbs_grams, total_fat_grams, item_count, last_applied_at,
-     date_time_created, date_time_updated, created_by, updated_by, version)
+     date_time_created, date_time_updated, created_by, updated_by, version, meal_type)
 select
     ml.meal_id, ml.user_id, (ml.consumed_at at time zone c.tz)::date,
     sum(mi.calories)::int, sum(mi.protein_grams), sum(mi.carbs_grams), sum(mi.fat_grams),
-    count(mi.meal_item_id)::int, now(), now(), now(), 'demo-seed', 'demo-seed', 0
+    count(mi.meal_item_id)::int, now(), now(), now(), 'demo-seed', 'demo-seed', 0, ml.meal_type
 from demo_config c
 join nutrition.meal_logs ml on ml.user_id = c.user_id and ml.created_by = 'demo-seed'
 join nutrition.meal_items mi on mi.meal_id = ml.meal_id
-group by ml.meal_id, ml.user_id, (ml.consumed_at at time zone c.tz)::date;
+group by ml.meal_id, ml.user_id, ml.meal_type, (ml.consumed_at at time zone c.tz)::date;
 
 -- 6b. daily nutrition roll-up (targets + adherence)
 insert into analytics.analytics_user_daily_nutrition

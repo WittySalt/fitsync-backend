@@ -2,6 +2,7 @@ package com.fitsync.nutrition.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -27,7 +28,11 @@ import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.DrinkWaterEntryView;
 import com.fitsync.nutrition.dto.NutrientBalanceView;
 import com.fitsync.nutrition.dto.NutrientCoverageView;
+import com.fitsync.nutrition.dto.NutrientAmountRowView;
 import com.fitsync.nutrition.dto.NutrientDayView;
+import com.fitsync.nutrition.dto.NutrientPageView;
+import com.fitsync.nutrition.dto.NutrientRichFoodView;
+import com.fitsync.nutrition.dto.NutrientSourceView;
 import com.fitsync.nutrition.dto.NutrientSummaryItemView;
 import com.fitsync.nutrition.dto.NutrientSummaryView;
 import com.fitsync.nutrition.dto.ProteinByMealView;
@@ -53,6 +58,7 @@ import com.fitsync.nutrition.repository.WaterLogRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutrientReferenceService.PersonReferences;
 import com.fitsync.web.error.BadRequestException;
+import com.fitsync.web.error.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,6 +77,12 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
     private static final String SODIUM = "SODIUM";
     private static final String KIND_TARGET = "TARGET";
     private static final String KIND_LIMIT = "LIMIT";
+    private static final String SCOPE_DIARY = "diary";
+    private static final String SCOPE_ALL = "all";
+    private static final int PAGE_SOURCES = 5;
+    private static final int DEFAULT_PAGE_DAYS = 7;
+    // Fibre, sugar, sodium and saturated fat are columns of the meal item, not snapshotted nutrient rows.
+    private static final Set<String> COLUMN_CODES = Set.of(FIBER, SUGAR, SODIUM, SAT_FAT);
     private static final List<String> FOCUS_CODES = List.of("VIT_B12", "IRON", "ZINC");
     private static final Set<String> FOCUS_DIETS = Set.of("VEGETARIAN", "VEGAN");
     private static final List<MealType> PROTEIN_MEAL_ORDER = List.of(
@@ -88,6 +100,8 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
     private final NutrientRepository nutrientRepository;
     private final NutrientReferenceService referenceService;
     private final PersonLookup personLookup;
+    private final NutrientPageSupport pageSupport;
+    private final Clock clock;
 
     public NutritionDiaryServiceImpl(MealNutritionQueryRepository mealQueries,
                                      NutritionTargetRepository nutritionTargetRepository,
@@ -95,7 +109,9 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                                      FoodCategoryRepository foodCategoryRepository,
                                      NutrientRepository nutrientRepository,
                                      NutrientReferenceService referenceService,
-                                     PersonLookup personLookup) {
+                                     PersonLookup personLookup,
+                                     NutrientPageSupport pageSupport,
+                                     Clock clock) {
         this.mealQueries = mealQueries;
         this.nutritionTargetRepository = nutritionTargetRepository;
         this.waterLogRepository = waterLogRepository;
@@ -103,6 +119,8 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         this.nutrientRepository = nutrientRepository;
         this.referenceService = referenceService;
         this.personLookup = personLookup;
+        this.pageSupport = pageSupport;
+        this.clock = clock;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -273,7 +291,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
             return;
         }
         sources.computeIfAbsent(nutrientCode, ignored -> new LinkedHashMap<>())
-                .computeIfAbsent(foodKey(row), ignored -> new SourceTotal(row.getFoodName()))
+                .computeIfAbsent(foodKey(row), ignored -> new SourceTotal(row.getFoodName(), row.getCategoryCode()))
                 .add(amount);
     }
 
@@ -351,80 +369,247 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
     @Override
     @Transactional(readOnly = true)
     public NutrientSummaryView getNutrientSummary(CurrentUserPrincipal principal, LocalDate from, LocalDate to,
-                                                  String timezone) {
+                                                  String timezone, String scope) {
+        boolean all = parseScope(scope);
         ZoneId zone = resolveZone(timezone);
         int days = validateRange(from, to);
         Instant start = from.atStartOfDay(zone).toInstant();
         Instant end = to.plusDays(1).atStartOfDay(zone).toInstant();
         UUID userId = principal.userId();
 
-        Set<LocalDate> loggedDates = new HashSet<>();
-        for (MealTotalsRow meal : mealQueries.findMealTotals(userId, start, end)) {
-            loggedDates.add(localDate(meal.getConsumedAt(), zone));
-        }
+        Set<LocalDate> loggedDates = loggedDates(userId, start, end, zone);
         int daysLogged = loggedDates.size();
 
         PersonFacts facts = personLookup.facts(userId);
         PersonBasics basics = facts.basics();
         PersonReferences references = referenceService.forPerson(basics);
         String diet = facts.dietaryPattern();
-        List<String> focusCodes = diet != null && FOCUS_DIETS.contains(diet) ? FOCUS_CODES : List.of();
+        List<String> focusCodes = !all && diet != null && FOCUS_DIETS.contains(diet) ? FOCUS_CODES : List.of();
 
         List<NutrientEntity> listed = new ArrayList<>();
         for (NutrientEntity nutrient : nutrientRepository.findAllByOrderBySortOrderAsc()) {
-            if (nutrient.isShownInDiary() || focusCodes.contains(nutrient.getCode())) {
+            boolean include = all
+                    ? nutrient.getGroupCode() != null
+                    : nutrient.isShownInDiary() || focusCodes.contains(nutrient.getCode());
+            if (include) {
                 listed.add(nutrient);
             }
         }
+        if (all) {
+            listed.sort(Comparator.comparingInt(NutrientEntity::getDisplayOrder));
+        }
         List<String> codes = listed.stream().map(NutrientEntity::getCode).toList();
 
-        Map<String, BigDecimal> totals = new HashMap<>();
-        for (NutrientTotalRow row : mealQueries.findNutrientTotals(userId, start, end, codes)) {
-            if (row.getTotal() != null) {
-                totals.put(row.getNutrientCode(), row.getTotal());
-            }
-        }
-        Map<String, String> richest = richestUsualFoods(userId, to, zone, codes);
-        Map<String, Map<LocalDate, BigDecimal>> dailyTotals = new HashMap<>();
-        for (MealCodeTotalRow row : mealQueries.findNutrientTotalsByMeal(userId, start, end, codes)) {
-            if (row.getTotal() != null) {
-                dailyTotals.computeIfAbsent(row.getNutrientCode(), key -> new HashMap<>())
-                        .merge(localDate(row.getConsumedAt(), zone), row.getTotal(), BigDecimal::add);
-            }
-        }
+        NutrientAmounts amounts = loadAmounts(userId, start, end, zone, codes);
+        Map<String, String> richest = richestUsualFoods(userId, to, zone,
+                codes.stream().filter(code -> !COLUMN_CODES.contains(code)).toList());
 
         List<NutrientSummaryItemView> items = new ArrayList<>();
         for (NutrientEntity nutrient : listed) {
             String code = nutrient.getCode();
-            BigDecimal total = totals.get(code);
-            boolean known = daysLogged > 0 && total != null;
-            BigDecimal average = known
-                    ? total.divide(BigDecimal.valueOf(daysLogged), 2, RoundingMode.HALF_UP)
-                    : null;
-            BigDecimal reference = references.target(code);
-            BigDecimal upper = references.upper(code);
-            items.add(new NutrientSummaryItemView(
-                    code,
-                    nutrient.getDisplayName(),
-                    nutrient.getKind(),
-                    nutrient.getUnit(),
-                    average,
-                    reference,
-                    known ? shareOf(average, reference) : null,
-                    known ? reaches(average, reference) : null,
-                    upper,
-                    known ? upper != null && average.compareTo(upper) > 0 : null,
-                    richest.get(code),
-                    dayEntries(from, to, loggedDates, dailyTotals.getOrDefault(code, Map.of()), reference)));
+            items.add(summaryItem(nutrient, amounts.totals().get(code), daysLogged, references, richest.get(code),
+                    from, to, loggedDates, amounts.daily().getOrDefault(code, Map.of())));
         }
-        items.sort(Comparator
-                .comparingInt((NutrientSummaryItemView item) -> focusOrder(focusCodes, item.code()))
-                .thenComparing(NutrientSummaryItemView::share, Comparator.nullsLast(Comparator.naturalOrder())));
+        if (!all) {
+            items.sort(Comparator
+                    .comparingInt((NutrientSummaryItemView item) -> focusOrder(focusCodes, item.code()))
+                    .thenComparing(NutrientSummaryItemView::share, Comparator.nullsLast(Comparator.naturalOrder())));
+        }
 
         NutrientCoverageView coverage = new NutrientCoverageView(
                 mealQueries.countItems(userId, start, end),
                 mealQueries.countItemsWithoutNutrients(userId, start, end));
         return new NutrientSummaryView(from, to, days, daysLogged, references.label(), references.range(), focusCodes, coverage, items);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // One nutrient page
+
+    @Override
+    @Transactional(readOnly = true)
+    public NutrientPageView getNutrientPage(CurrentUserPrincipal principal, String code, LocalDate from, LocalDate to,
+                                            String timezone) {
+        NutrientEntity nutrient = nutrientRepository.findById(code)
+                .orElseThrow(() -> new ResourceNotFoundException("Nutrient not found"));
+        ZoneId zone = resolveZone(timezone);
+        LocalDate last = to != null ? to : LocalDate.ofInstant(clock.instant(), zone);
+        LocalDate first = from != null ? from : last.minusDays(DEFAULT_PAGE_DAYS - 1L);
+        int days = validateRange(first, last);
+        Instant start = first.atStartOfDay(zone).toInstant();
+        Instant end = last.plusDays(1).atStartOfDay(zone).toInstant();
+        UUID userId = principal.userId();
+
+        Set<LocalDate> loggedDates = loggedDates(userId, start, end, zone);
+        int daysLogged = loggedDates.size();
+        PersonBasics basics = personLookup.facts(userId).basics();
+        PersonReferences references = referenceService.forPerson(basics);
+
+        NutrientAmounts amounts = loadAmounts(userId, start, end, zone, List.of(code));
+        NutrientSummaryItemView item = summaryItem(nutrient, amounts.totals().get(code), daysLogged, references, null,
+                first, last, loggedDates, amounts.daily().getOrDefault(code, Map.of()));
+        List<NutrientAmountRowView> amountRows = pageSupport.amounts(code, basics);
+        // Fibre, sugar, sodium and saturated fat are not snapshotted per food in the catalogue, so they have none.
+        List<NutrientRichFoodView> richest = COLUMN_CODES.contains(code) ? List.of() : pageSupport.richest(code);
+
+        return new NutrientPageView(
+                code, nutrient.getDisplayName(), nutrient.getUnit(), nutrient.getGroupCode(), nutrient.getSymbol(),
+                nutrient.getAtomicNumber(), first, last, days, daysLogged,
+                item.averageAmount(), item.reference(), item.share(), item.met(), item.upperLimit(),
+                item.aboveUpperLimit(), pageLabel(references.label()), item.days(),
+                sourcesOf(userId, start, end, code, daysLogged), amountRows, richest, pageSupport.guide(code));
+    }
+
+    /** "for male ranges, aged 19 to 30" read as "Male ranges, aged 19 to 30". */
+    private static String pageLabel(String label) {
+        String text = label.startsWith("for ") ? label.substring("for ".length()) : label;
+        return text.substring(0, 1).toUpperCase(Locale.ROOT) + text.substring(1);
+    }
+
+    /**
+     * The foods the person ate in the range that gave the nutrient, biggest first. The amount is per logged day,
+     * so the amounts add up to the average, and the share is the food part of everything eaten of the nutrient.
+     */
+    private List<NutrientSourceView> sourcesOf(UUID userId, Instant start, Instant end, String code, int daysLogged) {
+        boolean fromColumn = COLUMN_CODES.contains(code);
+        Map<UUID, BigDecimal> detailByItem = new HashMap<>();
+        if (!fromColumn) {
+            for (NutrientDetailRow detail : mealQueries.findNutrientDetailRows(userId, start, end, List.of(code))) {
+                detailByItem.merge(detail.getMealItemId(), orZero(detail.getAmount()), BigDecimal::add);
+            }
+        }
+        Map<String, SourceTotal> byFood = new LinkedHashMap<>();
+        BigDecimal grandTotal = BigDecimal.ZERO;
+        for (DiaryItemRow row : mealQueries.findDiaryItemRows(userId, start, end)) {
+            if (row.getMealItemId() == null) {
+                continue;
+            }
+            BigDecimal amount = fromColumn ? columnAmount(code, row) : detailByItem.get(row.getMealItemId());
+            if (amount == null || amount.signum() <= 0) {
+                continue;
+            }
+            byFood.computeIfAbsent(foodKey(row), ignored -> new SourceTotal(row.getFoodName(), row.getCategoryCode()))
+                    .add(amount);
+            grandTotal = grandTotal.add(amount);
+        }
+        if (byFood.isEmpty() || daysLogged == 0) {
+            return List.of();
+        }
+        Map<String, String> foodGroups = loadFoodGroups();
+        BigDecimal total = grandTotal;
+        return byFood.values().stream()
+                .sorted(Comparator.comparing((SourceTotal source) -> source.amount).reversed()
+                        .thenComparing(source -> source.foodName, Comparator.nullsLast(String::compareTo)))
+                .limit(PAGE_SOURCES)
+                .map(source -> new NutrientSourceView(
+                        source.foodName,
+                        source.categoryCode == null ? null : foodGroups.get(source.categoryCode),
+                        source.categoryCode,
+                        source.amount.divide(BigDecimal.valueOf(daysLogged), 2, RoundingMode.HALF_UP),
+                        source.amount.divide(total, 3, RoundingMode.HALF_UP)))
+                .toList();
+    }
+
+    private static boolean parseScope(String scope) {
+        if (scope == null || SCOPE_DIARY.equals(scope)) {
+            return false;
+        }
+        if (SCOPE_ALL.equals(scope)) {
+            return true;
+        }
+        throw new BadRequestException("scope must be diary or all");
+    }
+
+    private Set<LocalDate> loggedDates(UUID userId, Instant start, Instant end, ZoneId zone) {
+        Set<LocalDate> loggedDates = new HashSet<>();
+        for (MealTotalsRow meal : mealQueries.findMealTotals(userId, start, end)) {
+            loggedDates.add(localDate(meal.getConsumedAt(), zone));
+        }
+        return loggedDates;
+    }
+
+    /** The range total and the per-day totals of each code, the vitamins and minerals from their snapshot rows. */
+    private NutrientAmounts loadAmounts(UUID userId, Instant start, Instant end, ZoneId zone, List<String> codes) {
+        Map<String, BigDecimal> totals = new HashMap<>();
+        Map<String, Map<LocalDate, BigDecimal>> dailyTotals = new HashMap<>();
+        List<String> snapshotCodes = codes.stream().filter(code -> !COLUMN_CODES.contains(code)).toList();
+        List<String> columnCodes = codes.stream().filter(COLUMN_CODES::contains).toList();
+        if (!snapshotCodes.isEmpty()) {
+            for (NutrientTotalRow row : mealQueries.findNutrientTotals(userId, start, end, snapshotCodes)) {
+                if (row.getTotal() != null) {
+                    totals.put(row.getNutrientCode(), row.getTotal());
+                }
+            }
+            for (MealCodeTotalRow row : mealQueries.findNutrientTotalsByMeal(userId, start, end, snapshotCodes)) {
+                if (row.getTotal() != null) {
+                    dailyTotals.computeIfAbsent(row.getNutrientCode(), key -> new HashMap<>())
+                            .merge(localDate(row.getConsumedAt(), zone), row.getTotal(), BigDecimal::add);
+                }
+            }
+        }
+        if (!columnCodes.isEmpty()) {
+            for (DiaryItemRow row : mealQueries.findDiaryItemRows(userId, start, end)) {
+                if (row.getMealItemId() == null) {
+                    continue;
+                }
+                for (String code : columnCodes) {
+                    BigDecimal amount = columnAmount(code, row);
+                    if (amount != null) {
+                        totals.merge(code, amount, BigDecimal::add);
+                        dailyTotals.computeIfAbsent(code, key -> new HashMap<>())
+                                .merge(localDate(row.getConsumedAt(), zone), amount, BigDecimal::add);
+                    }
+                }
+            }
+        }
+        return new NutrientAmounts(totals, dailyTotals);
+    }
+
+    private static BigDecimal columnAmount(String code, DiaryItemRow row) {
+        return switch (code) {
+            case FIBER -> row.getFiberGrams();
+            case SUGAR -> row.getSugarGrams();
+            case SODIUM -> row.getSodiumMg();
+            case SAT_FAT -> row.getSaturatedFatGrams();
+            default -> null;
+        };
+    }
+
+    private static NutrientSummaryItemView summaryItem(NutrientEntity nutrient, BigDecimal total, int daysLogged,
+                                                       PersonReferences references, String richestUsualFood,
+                                                       LocalDate from, LocalDate to, Set<LocalDate> loggedDates,
+                                                       Map<LocalDate, BigDecimal> dailyAmounts) {
+        String code = nutrient.getCode();
+        boolean known = daysLogged > 0 && total != null;
+        BigDecimal average = known
+                ? total.divide(BigDecimal.valueOf(daysLogged), 2, RoundingMode.HALF_UP)
+                : null;
+        BigDecimal target = references.target(code);
+        BigDecimal limit = target == null ? references.limit(code) : null;
+        boolean isLimit = limit != null;
+        BigDecimal reference = isLimit ? limit : target;
+        BigDecimal upper = references.upper(code);
+        Boolean met = null;
+        Boolean above = null;
+        if (known) {
+            met = isLimit ? average.compareTo(limit) <= 0 : reaches(average, reference);
+            above = isLimit ? average.compareTo(limit) > 0 : upper != null && average.compareTo(upper) > 0;
+        }
+        return new NutrientSummaryItemView(
+                code,
+                nutrient.getDisplayName(),
+                nutrient.getKind(),
+                nutrient.getGroupCode(),
+                nutrient.getSymbol(),
+                nutrient.getAtomicNumber(),
+                nutrient.getUnit(),
+                average,
+                reference,
+                known ? shareOf(average, reference) : null,
+                met,
+                upper,
+                above,
+                richestUsualFood,
+                dayEntries(from, to, loggedDates, dailyAmounts, reference));
     }
 
     private static List<NutrientDayView> dayEntries(LocalDate from, LocalDate to, Set<LocalDate> loggedDates,
@@ -589,15 +774,21 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
     /** A food with the amount it gave, merged over all the items of that food. */
     private static final class SourceTotal {
         private final String foodName;
+        private final String categoryCode;
         private BigDecimal amount = BigDecimal.ZERO;
 
-        private SourceTotal(String foodName) {
+        private SourceTotal(String foodName, String categoryCode) {
             this.foodName = foodName;
+            this.categoryCode = categoryCode;
         }
 
         private void add(BigDecimal value) {
             amount = amount.add(value);
         }
+    }
+
+    /** The range totals and the per-day totals of some nutrients, by code. */
+    private record NutrientAmounts(Map<String, BigDecimal> totals, Map<String, Map<LocalDate, BigDecimal>> daily) {
     }
 
     /** A day of a range, summed from its meals. An amount stays null while no meal of the day carries it. */

@@ -71,18 +71,22 @@ public class EnergyProfileService {
         this.clock = clock;
     }
 
-    /** Recompute and publish for a user; a no-op while height or weight is unknown. */
-    public void publishEnergyProfile(UUID userId) {
+    /**
+     * Recompute and publish for a user; a no-op while height or weight is unknown.
+     *
+     * @return true when an event was published
+     */
+    public boolean publishEnergyProfile(UUID userId) {
         Optional<UserProfileEntity> maybeProfile = userProfileRepository.findById(userId);
         if (maybeProfile.isEmpty() || maybeProfile.get().getHeightCm() == null) {
-            return;
+            return false;
         }
         UserProfileEntity profile = maybeProfile.get();
         BigDecimal weightKg = bodyMetricEntryRepository.findTopByUserIdOrderByMeasuredAtDesc(userId)
                 .map(BodyMetricEntryEntity::getWeightKg)
                 .orElse(null);
         if (weightKg == null) {
-            return;
+            return false;
         }
 
         Instant now = Instant.now(clock);
@@ -91,6 +95,7 @@ public class EnergyProfileService {
                 - 5.0 * ageYears(profile.getBirthDate(), now)
                 + sexConstant(profile.getGender());
         double tdee = bmr * activityFactor(profile.getActivityLevel());
+        boolean estimated = !hasRealAge(profile.getBirthDate(), now) || !hasDisclosedSex(profile.getGender());
 
         domainEventPublisher.publish(USER_EVENTS_TOPIC, "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "EnergyProfileComputed", 1, now, SOURCE, userId,
@@ -98,7 +103,18 @@ public class EnergyProfileService {
                         (int) Math.round(bmr),
                         (int) Math.round(tdee),
                         profile.getActivityLevel() == null ? null : profile.getActivityLevel().name(),
-                        now)));
+                        now,
+                        estimated)));
+        return true;
+    }
+
+    private boolean hasRealAge(LocalDate birthDate, Instant now) {
+        return birthDate != null
+                && Period.between(birthDate, LocalDate.ofInstant(now, clock.getZone())).getYears() > 0;
+    }
+
+    private static boolean hasDisclosedSex(Gender gender) {
+        return gender == Gender.MALE || gender == Gender.FEMALE;
     }
 
     private int ageYears(LocalDate birthDate, Instant now) {
