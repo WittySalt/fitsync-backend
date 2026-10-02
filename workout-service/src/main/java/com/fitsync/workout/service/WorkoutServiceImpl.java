@@ -2040,7 +2040,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                         payload.durationMinutes(),
                         payload.caloriesBurned(),
                         payload.exerciseCount(),
-                        payload.source())));
+                        payload.source(),
+                        payload.caloriesEstimated())));
     }
 
     private String workoutEventsTopic() {
@@ -2058,7 +2059,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                 session.getDurationMinutes(),
                 session.getCaloriesBurned(),
                 session.getExercises().size(),
-                session.getSource().name());
+                session.getSource().name(),
+                session.isCaloriesEstimated());
     }
 
     /**
