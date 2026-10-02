@@ -5,8 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fitsync.nutrition.dto.RecipeStepTimerView;
 import com.fitsync.nutrition.service.RecipeStepAnalyzer.IngredientRef;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /** Step texts copied from the V902 TheMealDB seed, checked for sensible output. */
@@ -121,5 +131,38 @@ class RecipeStepAnalyzerSeedFixtureTests {
         assertEquals(List.of(prawns.id()), used.get(0));
         assertEquals(List.of(oil.id(), onion.id()), used.get(1));
         assertEquals(List.of(feta.id()), used.get(2));
+    }
+
+    /** The words that must never start a short ingredient name. */
+    private static final List<String> NOISE_START = List.of("chopped", "finely", "roughly", "diced", "sliced", "peeled",
+            "crushed", "minced", "grated", "ground", "fresh", "freshly", "beaten", "softened", "melted", "cubed",
+            "shredded", "toasted", "cooked", "drained", "rinsed", "halved", "quartered", "to serve", "to garnish",
+            "for garnish", "for frying", "to taste", "a handful of", "a pinch of");
+
+    @Test
+    void noSeedIngredientNameStartsWithAPreparationOrUseWord() throws IOException {
+        Path seed = Path.of("src/main/resources/db/seed/V902__themealdb_system_recipes.sql");
+        Pattern line = Pattern.compile(",\\d+\\.\\d+,'((?:[^']|'')*)',(?:null|\\d+\\.\\d+),\\d+,timestamp");
+        Set<String> texts = new TreeSet<>();
+        for (String row : Files.readAllLines(seed, StandardCharsets.UTF_8)) {
+            if (row.startsWith("('") && !row.contains("insert")) {
+                Matcher match = line.matcher(row);
+                if (match.find() && row.contains("'themealdb-import'")) {
+                    texts.add(match.group(1).replace("''", "'"));
+                }
+            }
+        }
+        assertTrue(texts.size() > 1000, "ingredient lines found: " + texts.size());
+        List<String> offenders = new ArrayList<>();
+        for (String text : texts) {
+            String name = RecipeStepAnalyzer.ingredientName(text);
+            String lower = name.toLowerCase(Locale.ROOT);
+            for (String noise : NOISE_START) {
+                if (lower.equals(noise) || lower.startsWith(noise + " ")) {
+                    offenders.add(text + " -> " + name);
+                }
+            }
+        }
+        assertTrue(offenders.isEmpty(), "names that still start with a noise word: " + offenders);
     }
 }

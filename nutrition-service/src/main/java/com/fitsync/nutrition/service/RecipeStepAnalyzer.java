@@ -61,6 +61,23 @@ public final class RecipeStepAnalyzer {
                     + "|bunch|cloves?|cans?|tins?|pack(?:et)?|slices?|pieces?|sticks?|sprigs?|large|medium|small|of",
             FLAGS);
 
+    /** Words that say how an ingredient is prepared; they are not part of its name. */
+    private static final String PREPARATION_WORDS = "chopped|finely|roughly|coarsely|thinly|thickly|diced|sliced|peeled"
+            + "|crushed|minced|grated|ground|fresh|freshly|beaten|softened|melted|cubed|shredded|toasted|cooked|drained"
+            + "|rinsed|halved|quartered|trimmed|torn|mashed|pitted|deseeded|seeded|dried|chilled|sifted|crumbled"
+            + "|lightly|julienned|skinned|boned|boneless|skinless";
+    /** Phrases that say how an ingredient is used or how much of it is meant; they are not part of its name. */
+    private static final String USE_PHRASES = "to serve|to garnish|for garnish|for the garnish|for frying|for serving"
+            + "|to taste|to fry|to drizzle|a handful of|a pinch of|a splash of|a dash of|handful of|pinch of"
+            + "|large handful|small handful|handfull|handful|splash|drizzle|sprinkling|spinkling|topping|garnish"
+            + "|to decorate|for decoration|for dusting|for brushing|for greasing|for sprinkling";
+    private static final String NOISE = "(?:" + USE_PHRASES + "|" + PREPARATION_WORDS + ")";
+    private static final String SEPARATOR = "[\\s,;:\\-]";
+    private static final Pattern LEADING_NOISE = Pattern.compile(
+            "^(?:" + NOISE + "(?=" + SEPARATOR + "|$)" + SEPARATOR + "*)+", FLAGS);
+    private static final Pattern TRAILING_NOISE = Pattern.compile(
+            "(?:" + SEPARATOR + "+" + NOISE + ")+" + SEPARATOR + "*$", FLAGS);
+
     private RecipeStepAnalyzer() {
     }
 
@@ -78,7 +95,21 @@ public final class RecipeStepAnalyzer {
         while (counted.find()) {
             cut = counted.end();
         }
-        return IngredientMatcher.wordOf(cut < 0 ? text : text.substring(cut)).strip();
+        String name = IngredientMatcher.wordOf(cut < 0 ? text : text.substring(cut)).strip();
+        // A preparation or use word can sit in front of a measure or behind another one, so the two cleanups
+        // repeat until the text no longer changes.
+        String previous;
+        do {
+            previous = name;
+            String withoutLeading = LEADING_NOISE.matcher(name).replaceFirst("").strip();
+            String withoutTrailing = TRAILING_NOISE.matcher(withoutLeading).replaceFirst("").strip();
+            name = IngredientMatcher.wordOf(withoutTrailing).strip();
+            if (name.isEmpty()) {
+                // Nothing but noise words was written, so the line keeps its text rather than going blank.
+                return previous;
+            }
+        } while (!name.equals(previous));
+        return name;
     }
 
     /** The first sentence of the step, cut at a clause boundary to at most 60 characters, never empty. */

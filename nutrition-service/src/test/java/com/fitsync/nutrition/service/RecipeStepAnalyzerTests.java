@@ -39,6 +39,30 @@ class RecipeStepAnalyzerTests {
         assertEquals("", RecipeStepAnalyzer.ingredientName(null));
     }
 
+    @Test
+    void ingredientNameDropsPreparationAndUseWords() {
+        assertEquals("Onion", RecipeStepAnalyzer.ingredientName("1 Chopped Onion"));
+        assertEquals("Garlic", RecipeStepAnalyzer.ingredientName("2 cloves peeled crushed Garlic"));
+        assertEquals("Basil Leaves", RecipeStepAnalyzer.ingredientName("To serve Basil Leaves"));
+        assertEquals("Red Onions", RecipeStepAnalyzer.ingredientName("2 finely sliced Red Onions"));
+        assertEquals("Parsley", RecipeStepAnalyzer.ingredientName("Large handful Parsley"));
+        assertEquals("Oil", RecipeStepAnalyzer.ingredientName("For frying Oil"));
+        assertEquals("Onion", RecipeStepAnalyzer.ingredientName("1 Onion, finely chopped"));
+        assertEquals("Cinnamon", RecipeStepAnalyzer.ingredientName("Pinch Ground Cinnamon"));
+        assertEquals("Salt", RecipeStepAnalyzer.ingredientName("Salt to taste"));
+    }
+
+    @Test
+    void ingredientNameKeepsTheLineWhenOnlyNoiseWordsAreWritten() {
+        assertEquals("Garnish", RecipeStepAnalyzer.ingredientName("Garnish"));
+    }
+
+    @Test
+    void stepMatchingStillFindsIngredientsWrittenWithPreparationWords() {
+        IngredientRef onion = ingredient("Onions, raw", "1 finely sliced Red Onions");
+        assertEquals(List.of(List.of(onion.id())), match(List.of("Fry the red onions until soft."), onion));
+    }
+
     // titles
 
     @Test
