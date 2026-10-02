@@ -924,7 +924,13 @@ public class WorkoutServiceImpl implements WorkoutService {
         validateExerciseLog(request);
         WorkoutSessionEntity session = findSession(currentUser.userId(), sessionId);
         validateLiveEditable(session);
-        session.getExercises().removeIf(exercise -> exercise.getExercise().getExerciseId().equals(request.exerciseId()));
+        boolean replaced = session.getExercises()
+                .removeIf(exercise -> exercise.getExercise().getExerciseId().equals(request.exerciseId()));
+        if (replaced) {
+            // Hibernate writes inserts before orphan deletes, so the replaced row is removed first or the new
+            // row collides with it on the (session, sequence) unique index.
+            workoutSessionRepository.flush();
+        }
         session.getExercises().add(toSessionExerciseLog(currentUser.userId(), session, request, true));
         validateSessionExerciseSequences(session);
         deriveSessionMetrics(session);

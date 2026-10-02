@@ -532,12 +532,18 @@ public class RecipeLibraryService {
                         .map(item -> new RecipeStepAnalyzer.IngredientRef(item.ingredientId(), item.foodName(),
                                 item.displayText()))
                         .toList());
+        Map<UUID, String> shortNames = new HashMap<>();
+        for (RecipeDetailIngredientView ingredient : ingredients) {
+            shortNames.put(ingredient.ingredientId(), ingredient.name());
+        }
         List<RecipeStepView> steps = new ArrayList<>();
         for (int i = 0; i < stepRows.size(); i++) {
             RecipeStepEntity step = stepRows.get(i);
+            String mainIngredient = usedIngredients.get(i).isEmpty()
+                    ? null : shortNames.get(usedIngredients.get(i).get(0));
             steps.add(new RecipeStepView(step.getStepNumber(), step.getText(),
                     RecipeStepAnalyzer.title(step.getText(), step.getStepNumber()),
-                    usedIngredients.get(i), RecipeStepAnalyzer.timers(step.getText())));
+                    usedIngredients.get(i), RecipeStepAnalyzer.timers(step.getText(), step.getStepNumber(), mainIngredient)));
         }
         boolean shared = recipe.getScope() == RecipeScope.SYSTEM;
         boolean favorite = shared && favoriteRepository.findByUserIdAndRecipeId(userId, recipe.getRecipeId()).isPresent();

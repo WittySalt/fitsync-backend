@@ -3,10 +3,12 @@ package com.fitsync.nutrition.service;
 import com.fitsync.nutrition.dto.RecipeStepTimerView;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -47,9 +49,17 @@ public final class RecipeStepAnalyzer {
             FLAGS);
     private static final Pattern COOKING_VERB = Pattern.compile(
             "\\b(?:cook|fry|fried|frying|bake|baked|baking|roast|simmer|boil|grill|rest|chill|steam|saut|stir|blend"
-                    + "|knead|marinat|toast)\\w*", FLAGS);
+                    + "|knead|marinat|toast|brown|sear|poach|braise|broil)\\w*", FLAGS);
     private static final Pattern EACH_SIDE = Pattern.compile(
             "\\beach side\\b|\\bper side\\b|\\bon both sides\\b|\\beach\\b[^.!?]*\\bside\\b", FLAGS);
+    /** "until crispy on both sides" says when the food is done, not that it is turned halfway. */
+    private static final Pattern DONENESS_BOTH_SIDES = Pattern.compile(
+            "\\b(?:until|till)\\b[^,;]*\\bon both sides\\b", FLAGS);
+    private static final Pattern ING_FORM = Pattern.compile(".+ing", FLAGS);
+    private static final int LABEL_MAX = 32;
+    private static final int LABEL_PHRASE_WORDS = 4;
+    private static final Set<String> LABEL_STOP_WORDS = Set.of("in", "until", "till", "for", "over", "on", "at", "with",
+            "into", "to", "about", "and", "then", "or", "from", "by", "while", "so");
     private static final Pattern LEADING_QUANTITY = Pattern.compile(
             "^(?:\\d+(?:[./]\\d+)?\\s?" + FRACTION + "?|" + FRACTION + ")(?:\\s?(?:g|kg|mg|ml|l|oz|lb|lbs)\\b)?\\s*",
             FLAGS);
@@ -170,8 +180,16 @@ public final class RecipeStepAnalyzer {
         return result;
     }
 
-    /** The durations of 30 seconds to 3 hours written in cooking sentences of the step. */
+    /** The durations of 30 seconds to 3 hours written in cooking sentences of the step, labelled as in step 1. */
     public static List<RecipeStepTimerView> timers(String text) {
+        return timers(text, 1, null);
+    }
+
+    /**
+     * The durations of 30 seconds to 3 hours written in cooking sentences of the step. Each gets a short label of at
+     * most 32 characters; {@code mainIngredient} is the short name of the step's first ingredient, or null.
+     */
+    public static List<RecipeStepTimerView> timers(String text, int stepNumber, String mainIngredient) {
         List<RecipeStepTimerView> timers = new ArrayList<>();
         if (text == null) {
             return timers;
@@ -179,25 +197,130 @@ public final class RecipeStepAnalyzer {
         int from = 0;
         Matcher end = SENTENCE_END.matcher(text);
         while (end.find()) {
-            addTimers(text.substring(from, end.start()), timers);
+            addTimers(text.substring(from, end.start()), timers, text, stepNumber, mainIngredient);
             from = end.end();
         }
-        addTimers(text.substring(from), timers);
-        return timers;
+        addTimers(text.substring(from), timers, text, stepNumber, mainIngredient);
+        return numbered(timers);
     }
 
-    private static void addTimers(String sentence, List<RecipeStepTimerView> timers) {
+    private static void addTimers(String sentence, List<RecipeStepTimerView> timers, String stepText, int stepNumber,
+                                  String mainIngredient) {
         if (!COOKING_VERB.matcher(sentence).find()) {
             return;
         }
-        boolean eachSide = EACH_SIDE.matcher(sentence).find();
+        boolean eachSide = EACH_SIDE.matcher(DONENESS_BOTH_SIDES.matcher(sentence).replaceAll("")).find();
         Matcher match = DURATION.matcher(sentence);
         while (match.find()) {
             int[] range = secondsOf(match);
             if (range != null && range[0] >= MIN_TIMER_SECONDS && range[1] <= MAX_TIMER_SECONDS) {
-                timers.add(new RecipeStepTimerView(range[0], range[1], eachSide, match.group().strip()));
+                String label = label(sentence, match.start(), stepText, stepNumber, mainIngredient);
+                timers.add(new RecipeStepTimerView(range[0], range[1], eachSide, match.group().strip(), label));
             }
         }
+    }
+
+    /** A second timer with the same label as an earlier one in the step gets " · 2", a third " · 3". */
+    private static List<RecipeStepTimerView> numbered(List<RecipeStepTimerView> timers) {
+        List<RecipeStepTimerView> result = new ArrayList<>();
+        Map<String, Integer> seen = new HashMap<>();
+        for (RecipeStepTimerView timer : timers) {
+            int count = seen.merge(timer.label(), 1, Integer::sum);
+            if (count == 1) {
+                result.add(timer);
+            } else {
+                String suffix = " · " + count;
+                String label = cap(timer.label(), LABEL_MAX - suffix.length()) + suffix;
+                result.add(new RecipeStepTimerView(timer.seconds(), timer.maxSeconds(), timer.eachSide(),
+                        timer.phrase(), label));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * What the timer times: the cooking verb and the words after it up to a preposition, a comma or four words;
+     * the verb and the step's main ingredient when nothing follows; then the step title; then "Step N timer".
+     */
+    private static String label(String sentence, int durationStart, String stepText, int stepNumber,
+                                 String mainIngredient) {
+        int begin = 0;
+        int colon = sentence.indexOf(':');
+        if (colon >= 0 && colon < durationStart
+                && COOKING_VERB.matcher(sentence.substring(colon + 1, durationStart)).find()) {
+            begin = colon + 1;
+        }
+        Matcher verbs = COOKING_VERB.matcher(sentence.substring(begin, durationStart));
+        int verbStart = -1;
+        int verbEnd = -1;
+        boolean nearestIsParticiple = true;
+        while (verbs.find()) {
+            // The nearest verb before the time wins, but "stirring" or "turning" does not replace an earlier verb.
+            boolean participle = ING_FORM.matcher(verbs.group()).matches();
+            if (verbStart < 0 || !participle || nearestIsParticiple) {
+                verbStart = begin + verbs.start();
+                verbEnd = begin + verbs.end();
+                nearestIsParticiple = participle;
+            }
+        }
+        if (verbStart < 0) {
+            Matcher any = COOKING_VERB.matcher(sentence);
+            if (any.find()) {
+                verbStart = any.start();
+                verbEnd = any.end();
+            }
+        }
+        if (verbStart >= 0) {
+            String word = capitalise(sentence.substring(verbStart, verbEnd));
+            String phrase = phraseAfter(sentence.substring(verbEnd, Math.max(verbEnd, durationStart)));
+            String label;
+            if (!phrase.isEmpty()) {
+                label = word + " " + phrase;
+            } else if (mainIngredient != null && !mainIngredient.isBlank()) {
+                label = word + " · " + mainIngredient.strip();
+            } else {
+                label = word;
+            }
+            label = cap(label, LABEL_MAX);
+            if (!label.isEmpty()) {
+                return label;
+            }
+        }
+        String title = cap(title(stepText, stepNumber), LABEL_MAX);
+        return title.isEmpty() ? "Step " + stepNumber + " timer" : title;
+    }
+
+    private static String phraseAfter(String rest) {
+        List<String> words = new ArrayList<>();
+        for (String raw : rest.strip().split("\\s+")) {
+            if (raw.isEmpty() || words.size() >= LABEL_PHRASE_WORDS) {
+                break;
+            }
+            String word = raw.replaceAll("[,;:()]+$", "");
+            if (word.isEmpty() || raw.startsWith("(") || LABEL_STOP_WORDS.contains(word.toLowerCase(Locale.ROOT))) {
+                break;
+            }
+            words.add(word);
+            if (raw.length() != word.length()) {
+                break;
+            }
+        }
+        return String.join(" ", words);
+    }
+
+    private static String capitalise(String word) {
+        return word.isEmpty() ? word : word.substring(0, 1).toUpperCase(Locale.ROOT) + word.substring(1);
+    }
+
+    /** The text cut to at most {@code max} characters on a word boundary. */
+    private static String cap(String text, int max) {
+        String clean = text == null ? "" : text.strip();
+        if (clean.length() <= max) {
+            return clean;
+        }
+        int space = clean.lastIndexOf(' ', max);
+        String cut = space > 0 ? clean.substring(0, space) : clean.substring(0, max);
+        return cut.replaceAll("[\\s·,;:-]+$", "");
     }
 
     private static int[] secondsOf(Matcher match) {
