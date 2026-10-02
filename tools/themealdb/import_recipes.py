@@ -356,10 +356,38 @@ def is_liquidish(food):
         or any(w in d for w in LIQUID_WORDS)
 
 
+CAN_GRAMS = 400.0
+CAN_FOODS = ("coconut", "tomato", "chickpea", "bean", "tuna")
+OIL_TBSP_G = 13.5
+
+
+def household_amount(t, name, food, portions):
+    """
+    Cooking notes with no number: "for frying", "to fry" or "drizzle" on an oil is 1 tbsp of that oil; "splash" on
+    a liquid is 15 ml; "knob" on butter is 10 g. "1 can" or "2 tins" of coconut milk, tomatoes, chickpeas, beans
+    or tuna is 400 g each (a standard 400 g can). Returns grams or None when the rule does not apply.
+    """
+    desc = food["desc"].lower()
+    is_oil = food["cat"] == "Fats and Oils" and desc.startswith("oil")
+    if is_oil and re.match(r"^(?:for (?:shallow |deep )?frying|to fry|drizzle\b.*)$", t):
+        return pick_portion(portions, "tbsp") or OIL_TBSP_G
+    if t in ("splash", "a splash", "1 splash") and is_liquidish(food):
+        return 15.0 * (density(portions) or 1.0)
+    if desc.startswith("butter") and re.fullmatch(r"(?:1 |a |one )?knob", t):
+        return 10.0
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(?:can|cans|tin|tins)", t)
+    if m and any(w in desc or w in name.lower() for w in CAN_FOODS):
+        return float(m.group(1)) * CAN_GRAMS
+    return None
+
+
 def measure_to_grams(measure, name, food, portions):
     """Returns (grams, None) on success and (None, reason) when the measure cannot be resolved."""
     t = _norm_measure(measure)
     seasoning = is_seasoning(name, food)
+    special = household_amount(t, name, food, portions)
+    if special is not None:
+        return special, None
     if t in ZERO_PHRASES:
         return (0.0, None) if seasoning else (None, f"vague measure '{t or '(empty)'}' for {name}")
     for word, g in VAGUE_GRAMS.items():
@@ -467,6 +495,9 @@ HEADER = """\
 -- recipe. "Juice of N" (also "zest and juice of N", "juice of 1/2") for lemon, lime or orange is N times the USDA
 -- raw juice weight of one fruit (lemon 48 g, lime 44 g, orange 86 g from food_portion; 45, 30, 85 g when a food
 -- has no such portion), linked to the raw juice food, the zest ignored. "Zest of N" alone is a 2 g garnish.
+-- Cooking notes: "for frying", "to fry" or "drizzle" on a cooking oil is 1 tbsp of that oil (USDA tbsp portion,
+-- else 13.5 g); "splash" on a liquid is 15 ml; "knob" on butter is 10 g. "1 can" or "1 tin" (N cans) of coconut
+-- milk, tomatoes, chickpeas, beans or tuna is 400 g each: a standard 400 g can is assumed.
 -- Counts of a shallot (25 g) or a stalk of lemongrass (15 g) use a typical weight, as USDA has none for them.
 -- A recipe is also skipped when an ingredient has no USDA match, or when its energy per serving is below
 -- {kmin} or above {kmax} kcal.
@@ -693,6 +724,15 @@ def self_test():
     assert split_steps(one) == ["Mix. Stir well. Add milk.", "Heat the pan. Pour it in. Cook for 5 minutes.",
                                 "Serve hot."]
     assert split_steps("1\r\n2\r\n  \r\n") == []
+    oil = {"desc": "Oil, olive, salad or cooking", "cat": "Fats and Oils", "kcal": 884}
+    assert measure_to_grams("For frying", "olive oil", oil, [(1, "tbsp", 13.5)])[0] == 13.5
+    assert measure_to_grams("Drizzle", "oil", oil, [])[0] == 13.5
+    assert abs(measure_to_grams("Splash", "olive oil", oil, [(1, "cup", 216.0)])[0] - 15 * 216 / 236.588) < 0.01
+    butter = {"desc": "Butter, salted", "cat": "Dairy and Egg Products", "kcal": 717}
+    assert measure_to_grams("Knob", "butter", butter, [])[0] == 10.0
+    coco = {"desc": "Nuts, coconut milk, canned", "cat": "Nut and Seed Products", "kcal": 197}
+    assert measure_to_grams("2 cans", "coconut milk", coco, [])[0] == 800.0
+    assert measure_to_grams("1 Can", "onion", onion, port)[0] is None
     assert sql_str("it's") == "'it''s'"
     # supervisor rules: a bare garnish note is 2 g for flavourings only, citrus juice is N times the yield
     chilli = {"desc": "Peppers, hot chili, red, raw", "cat": "Vegetables and Vegetable Products", "kcal": 40}
