@@ -72,6 +72,8 @@ public class RecipeLibraryService {
     static final String SORT_FIT = "fit";
     static final String SORT_PROTEIN = "protein";
     static final int RECENT_LIMIT = 10;
+    // One meal is taken as a third of the daily target when ranking by fit.
+    private static final int MEALS_A_DAY = 3;
     // More rows than the limit are read so that recipes that are no longer visible do not shorten the list.
     private static final int RECENT_FETCH = 50;
     private static final String KIND_VITAMIN = "VITAMIN";
@@ -276,8 +278,10 @@ public class RecipeLibraryService {
         }
         RecipeFitView view = new RecipeFitView(kcalLeft, proteinShort, lowest == null ? null
                 : new RecipeFitView.LowestNutrient(lowest.code(), lowest.displayName()));
+        Integer mealKcal = day.targetCalories() == null || day.targetCalories() <= 0 ? null
+                : Math.round(day.targetCalories() / (float) MEALS_A_DAY);
         RecipeFitScorer.Context context = new RecipeFitScorer.Context(kcalLeft, proteinShort,
-                lowest == null ? null : lowest.code(), lowest == null ? null : lowest.reference());
+                lowest == null ? null : lowest.code(), lowest == null ? null : lowest.reference(), mealKcal);
         return new FitToday(context, view);
     }
 

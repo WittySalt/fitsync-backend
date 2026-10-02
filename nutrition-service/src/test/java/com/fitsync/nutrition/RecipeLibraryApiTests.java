@@ -810,9 +810,10 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
     @Test
     void fitSortPutsServingsUnderTheCaloriesLeftFirstAndClosestFirst() throws Exception {
         String token = tokenFor("fit-a@example.com");
-        targetIs(token, 400, "100");
+        targetIs(token, 1200, "100");
 
-        // Chicken bowl 377 kcal, milk porridge 252 kcal and lentil salad 125 kcal per serving, 400 kcal left.
+        // Chicken bowl 377 kcal, milk porridge 252 kcal and lentil salad 125 kcal per serving. With 1,200 kcal left
+        // one meal is a third of the target, 400 kcal, and the bowl is closest to it.
         mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
                         .param("scope", "library").param("sort", "fit"))
                 .andExpect(status().isOk())
@@ -820,25 +821,25 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.content[0].name").value("Chicken rice bowl"))
                 .andExpect(jsonPath("$.content[1].name").value("Milk porridge"))
                 .andExpect(jsonPath("$.content[2].name").value("Lentil salad"))
-                .andExpect(jsonPath("$.fit.kcalLeft").value(400))
+                .andExpect(jsonPath("$.fit.kcalLeft").value(1200))
                 .andExpect(jsonPath("$.fit.proteinShortGrams").value(100.0))
                 .andExpect(jsonPath("$.fit.lowestNutrient").doesNotExist());
 
-        // With 300 kcal left the chicken bowl is over and goes behind the two that are under.
+        // With a 900 kcal target one meal is 300 kcal, so the porridge is closest and the bowl comes next.
         String second = tokenFor("fit-b@example.com");
-        targetIs(second, 300, "100");
+        targetIs(second, 900, "100");
         mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + second)
                         .param("scope", "library").param("sort", "fit"))
                 .andExpect(jsonPath("$.content[0].name").value("Milk porridge"))
-                .andExpect(jsonPath("$.content[1].name").value("Lentil salad"))
-                .andExpect(jsonPath("$.content[2].name").value("Chicken rice bowl"))
-                .andExpect(jsonPath("$.fit.kcalLeft").value(300));
+                .andExpect(jsonPath("$.content[1].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.content[2].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.fit.kcalLeft").value(900));
     }
 
     @Test
     void fitSortPagesOverTheRankedSetAndKeepsTheOtherFilters() throws Exception {
         String token = tokenFor("fit-c@example.com");
-        targetIs(token, 400, "100");
+        targetIs(token, 1200, "100");
 
         mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
                         .param("scope", "library").param("sort", "fit").param("size", "2").param("page", "1"))
@@ -846,7 +847,7 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.totalPages").value(2))
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].name").value("Lentil salad"))
-                .andExpect(jsonPath("$.fit.kcalLeft").value(400));
+                .andExpect(jsonPath("$.fit.kcalLeft").value(1200));
         mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
                         .param("scope", "library").param("sort", "fit").param("diet", "VEGAN"))
                 .andExpect(jsonPath("$.totalElements").value(1))

@@ -94,4 +94,26 @@ class RecipeFitScorerTests {
         assertEquals(0, rank.tier());
         assertEquals(RecipeFitScorer.MAX_BONUS, rank.score(), 0.0001);
     }
+    @Test
+    void withMuchOfTheDayLeftTheServingNearestOneMealLeadsNotTheOneThatUsesItAllUp() {
+        Context context = new Context(1500, null, null, null, 700);
+        assertEquals(List.of(680, 900, 300, 1450),
+                order(context, serving(1450, "0", null), serving(680, "0", null), serving(300, "0", null),
+                        serving(900, "0", null)));
+    }
+
+    @Test
+    void whenLessThanOneMealIsLeftWhatIsLeftIsTheMeal() {
+        Context context = new Context(400, null, null, null, 700);
+        assertEquals(List.of(380, 250, 500), order(context, serving(500, "0", null), serving(250, "0", null),
+                serving(380, "0", null)));
+    }
+
+    @Test
+    void aServingHighInSugarLosesTheBonusAmount() {
+        Context context = new Context(1500, null, null, null, 700);
+        double plain = RecipeFitScorer.rank(context, new Serving(700, BigDecimal.ZERO, null, false)).score();
+        double sweet = RecipeFitScorer.rank(context, new Serving(700, BigDecimal.ZERO, null, true)).score();
+        assertEquals(RecipeFitScorer.MAX_BONUS, plain - sweet, 0.0001);
+    }
 }
