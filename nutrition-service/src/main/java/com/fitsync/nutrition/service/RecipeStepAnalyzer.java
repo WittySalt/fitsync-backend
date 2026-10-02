@@ -67,7 +67,7 @@ public final class RecipeStepAnalyzer {
     private static final Pattern OF_QUANTITY = Pattern.compile("\\bof\\s+(?=(?:\\d|" + FRACTION + "))", FLAGS);
 
     private static final Pattern MEASURE_WORDS = Pattern.compile(
-            "g|kg|mg|ml|l|cl|dl|oz|lbs?|cups?|tbsp?|tsp|tblsp|tablespoons?|teaspoons?|pinch(?:es)?|dash|handful"
+            "g|kg|mg|ml|l|cl|dl|oz|ounces?|lbs?|pounds?|pints?|quarts?|cups?|tbsp?|tsp|tblsp|tablespoons?|teaspoons?|pinch(?:es)?|dash|handful"
                     + "|bunch|cloves?|cans?|tins?|pack(?:et)?|slices?|pieces?|sticks?|sprigs?|large|medium|small|of",
             FLAGS);
 
