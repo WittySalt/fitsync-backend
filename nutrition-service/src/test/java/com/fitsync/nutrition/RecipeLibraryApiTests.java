@@ -8,13 +8,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 import com.fitsync.nutrition.domain.RecipeScope;
+import com.fitsync.nutrition.entity.NutritionTargetEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.entity.RecipeIngredientEntity;
 import com.fitsync.nutrition.entity.RecipeStepEntity;
 import com.fitsync.nutrition.messaging.AccountDeletionProjectionService;
+import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import com.fitsync.nutrition.repository.RecipeIngredientRepository;
 import com.fitsync.nutrition.repository.RecipeRepository;
 import com.fitsync.nutrition.repository.RecipeStepRepository;
@@ -46,6 +49,9 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
 
     @Autowired
     private AccountDeletionProjectionService accountDeletion;
+
+    @Autowired
+    private NutritionTargetRepository nutritionTargetRepository;
 
     private Seeded chicken;
     private Seeded rice;
@@ -778,6 +784,177 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
         return "{\"name\": \"" + name + "\", \"servings\": " + servings + ", \"ingredients\": ["
                 + "{\"foodCatalogItemId\": \"" + chicken.foodId + "\", \"quantity\": 1, \"grams\": " + chickenGrams
                 + text + "}], \"steps\": " + steps + "}";
+    }
+
+    private void targetIs(String token, int calories, String protein) {
+        NutritionTargetEntity target = new NutritionTargetEntity();
+        target.setUserId(UUID.fromString(userIdOf(token)));
+        target.setCalorieTarget(calories);
+        target.setProteinTarget(new BigDecimal(protein));
+        target.setProjectionUpdatedAt(Instant.now());
+        nutritionTargetRepository.save(target);
+    }
+
+    private String logRecipeNow(String token, UUID recipeId, Instant at) throws Exception {
+        String body = mockMvc.perform(post(BASE + "/meals/from-recipe/" + recipeId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"servings\": 1, \"mealType\": \"DINNER\", \"consumedAt\": \"" + at
+                                + "\", \"timezone\": \"UTC\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.mealId");
+    }
+
+    @Test
+    void fitSortPutsServingsUnderTheCaloriesLeftFirstAndClosestFirst() throws Exception {
+        String token = tokenFor("fit-a@example.com");
+        targetIs(token, 400, "100");
+
+        // Chicken bowl 377 kcal, milk porridge 252 kcal and lentil salad 125 kcal per serving, 400 kcal left.
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "fit"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.content[0].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.content[1].name").value("Milk porridge"))
+                .andExpect(jsonPath("$.content[2].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.fit.kcalLeft").value(400))
+                .andExpect(jsonPath("$.fit.proteinShortGrams").value(100.0))
+                .andExpect(jsonPath("$.fit.lowestNutrient").doesNotExist());
+
+        // With 300 kcal left the chicken bowl is over and goes behind the two that are under.
+        String second = tokenFor("fit-b@example.com");
+        targetIs(second, 300, "100");
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + second)
+                        .param("scope", "library").param("sort", "fit"))
+                .andExpect(jsonPath("$.content[0].name").value("Milk porridge"))
+                .andExpect(jsonPath("$.content[1].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.content[2].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.fit.kcalLeft").value(300));
+    }
+
+    @Test
+    void fitSortPagesOverTheRankedSetAndKeepsTheOtherFilters() throws Exception {
+        String token = tokenFor("fit-c@example.com");
+        targetIs(token, 400, "100");
+
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "fit").param("size", "2").param("page", "1"))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.fit.kcalLeft").value(400));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "fit").param("diet", "VEGAN"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "fit").param("tag", "HIGH_FIBRE"))
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    void fitSortCountsWhatWasEatenTodayAndNamesTheLowestNutrient() throws Exception {
+        String token = tokenFor("fit-d@example.com");
+        personIs("MALE", 30, "70", null);
+        targetIs(token, 2000, "100");
+        Seeded tofu = seedFood("Tofu", "LEGUMES", false, "g", 100, "0.5", null,
+                mapOf("CALCIUM", "300", "IRON", "2"), profile -> profile.setProteinGrams(new BigDecimal("10")))
+                .addServing("100 g", "g", "100", "100");
+        UUID tofuPlate = systemRecipe("Tofu plate", "Vegan", "1", true, ingredient(tofu, "200"));
+        logRecipeNow(token, tofuPlate, Instant.now());
+
+        // One serving of the tofu plate was eaten: 200 kcal, 20 g protein, 600 mg calcium and 4 mg iron.
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "fit"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fit.kcalLeft").value(1800))
+                .andExpect(jsonPath("$.fit.proteinShortGrams").value(80.0))
+                // Calcium is 600 mg of about 1000 and iron 4 mg of about 8 to 11, so iron is the lowest.
+                .andExpect(jsonPath("$.fit.lowestNutrient.code").value("IRON"))
+                .andExpect(jsonPath("$.fit.lowestNutrient.displayName").value("Iron"));
+    }
+
+    @Test
+    void fitSortWithoutATargetFallsBackToTheNameOrderAndHasNoFigures() throws Exception {
+        String token = tokenFor("fit-e@example.com");
+
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "fit"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.content[1].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.fit.kcalLeft").doesNotExist())
+                .andExpect(jsonPath("$.fit.proteinShortGrams").doesNotExist());
+    }
+
+    @Test
+    void anUnknownSortIsRejectedAndTheDefaultOrderHasNoFit() throws Exception {
+        String token = tokenFor("fit-f@example.com");
+
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "newest"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "name"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fit").doesNotExist());
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("sort", "fit").param("timezone", "Not/AZone"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void recentListsTheCallersCookedRecipesNewestFirstWithTheTimeOfTheLastMeal() throws Exception {
+        String token = tokenFor("recent-a@example.com");
+        Instant older = Instant.parse("2026-06-10T18:00:00Z");
+        Instant newer = Instant.parse("2026-06-11T18:00:00Z");
+        logRecipeNow(token, lentilSalad, older);
+        logRecipeNow(token, chickenBowl, newer.minusSeconds(3600));
+        logRecipeNow(token, lentilSalad, newer);
+        // A meal that did not come from a recipe is not a cooked recipe.
+        logMeal(token, chicken, "2026-06-12T12:00:00Z");
+
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token).param("scope", "recent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.content[0].lastCookedAt").value("2026-06-11T18:00:00Z"))
+                .andExpect(jsonPath("$.content[1].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.content[1].lastCookedAt").value("2026-06-11T17:00:00Z"));
+        // Cards of the other scopes carry no cooking time.
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token).param("scope", "library"))
+                .andExpect(jsonPath("$.content[0].lastCookedAt").doesNotExist());
+    }
+
+    @Test
+    void recentIsPrivateLeavesOutDeletedMealsAndRecipesAndStopsAtTen() throws Exception {
+        String token = tokenFor("recent-b@example.com");
+        String other = tokenFor("recent-c@example.com");
+        String removed = logRecipeNow(token, milkPorridge, Instant.parse("2026-06-11T08:00:00Z"));
+        logRecipeNow(token, chickenBowl, Instant.parse("2026-06-11T12:00:00Z"));
+        logRecipeNow(token, lentilSalad, Instant.parse("2026-06-11T13:00:00Z"));
+        mockMvc.perform(delete(BASE + "/meals/{id}", removed).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        jdbcTemplate.update("update recipes set deleted_at = current_timestamp where recipe_id = ?", lentilSalad);
+
+        // Only the chicken bowl is left: the porridge meal is deleted and the lentil salad recipe is deleted.
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token).param("scope", "recent"))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("Chicken rice bowl"));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + other).param("scope", "recent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0));
+        mockMvc.perform(get(RECIPES).param("scope", "recent")).andExpect(status().isUnauthorized());
+        for (int i = 0; i < 12; i++) {
+            UUID extra = systemRecipe("Extra dish " + i, "Misc", "1", true, ingredient(rice, "100"));
+            logRecipeNow(other, extra, Instant.parse("2026-06-11T12:00:00Z").plusSeconds(i));
+        }
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + other).param("scope", "recent"))
+                .andExpect(jsonPath("$.content.length()").value(10))
+                .andExpect(jsonPath("$.content[0].name").value("Extra dish 11"));
     }
 
     private String fromRecipeJson(String servings) {

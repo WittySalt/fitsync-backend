@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import com.fitsync.nutrition.domain.MealType;
 import com.fitsync.nutrition.entity.MealLogEntity;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
@@ -310,4 +311,25 @@ public interface MealNutritionQueryRepository extends Repository<MealLogEntity, 
             """)
     long countItemsWithoutNutrients(@Param("userId") UUID userId, @Param("from") Instant from,
                                     @Param("to") Instant to);
+
+    interface RecentRecipeRow {
+        UUID getRecipeId();
+
+        Instant getLastCookedAt();
+    }
+
+    /**
+     * The recipes the user logged meals from, newest meal first, one row per recipe with the time of its newest
+     * meal. Meals marked as deleted are left out by the entity's own restriction.
+     */
+    @Query("""
+            select i.recipeId as recipeId, max(m.consumedAt) as lastCookedAt
+            from MealLogEntity m, MealItemEntity i
+            where i.mealId = m.mealId
+              and m.userId = :userId
+              and i.recipeId is not null
+            group by i.recipeId
+            order by max(m.consumedAt) desc, i.recipeId asc
+            """)
+    List<RecentRecipeRow> findRecentRecipes(@Param("userId") UUID userId, Pageable pageable);
 }

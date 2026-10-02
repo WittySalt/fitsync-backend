@@ -377,8 +377,9 @@ public class NutritionController {
     }
 
     /**
-     * With a scope (mine, library or favorites) this is a page of recipe cards. Without one it keeps its
-     * earlier shape, the caller's own recipes as a plain list.
+     * With a scope (mine, library, favorites or recent) this is a page of recipe cards. Without one it keeps
+     * its earlier shape, the caller's own recipes as a plain list. sort=fit ranks the cards by how well one
+     * serving fits what is left of today, and timezone says where today is.
      */
     @GetMapping("/recipes")
     public Object recipes(Authentication authentication,
@@ -387,12 +388,15 @@ public class NutritionController {
                           @RequestParam(required = false) String q,
                           @RequestParam(required = false) String diet,
                           @RequestParam(required = false) String tag,
+                          @RequestParam(required = false) String sort,
+                          @RequestParam(required = false) String timezone,
                           @RequestParam(defaultValue = "0") int page,
                           @RequestParam(defaultValue = "20") int size) {
         if (scope == null) {
             return nutritionService.listRecipes(currentPrincipal(authentication));
         }
-        return recipeLibraryService.list(currentPrincipal(authentication), scope, category, q, diet, tag, page, size);
+        return recipeLibraryService.list(currentPrincipal(authentication), scope, category, q, diet, tag, sort,
+                timezone, page, size);
     }
 
     @GetMapping("/recipes/{recipeId}")
