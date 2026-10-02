@@ -111,6 +111,8 @@ public class CoachOrchestrator {
             Say exactly what a number measures, in the words its label uses. A figure for one
             session is not a figure for the week.
             Write nothing in square brackets, except the number of a fact from a pinned reading.
+            You suggest a recipe only when it came from a searchRecipes result. Never name a recipe from
+            memory, and when searchRecipes returned nothing, say that no recipe was found.
             """;
 
     private final ObjectProvider<ClaudeClient> claudeClient;
@@ -314,6 +316,8 @@ public class CoachOrchestrator {
             Say exactly what a number measures, in the words its label uses. A figure for one
             session is not a figure for the week.
             Write nothing in square brackets, except the number of a fact from a pinned reading.
+            You suggest a recipe only when it came from a searchRecipes result. Never name a recipe from
+            memory, and when searchRecipes returned nothing, say that no recipe was found.
 
             Reply with ONE JSON object and nothing else: {"answer":"<text>"}
             """;

@@ -3,6 +3,7 @@ package com.fitsync.recommendation.coach.client;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +35,7 @@ public class NutritionCatalogueClient extends CatalogueClient {
     private static final String MEALS = "/api/v1/nutrition/meals";
     private static final String NUTRIENTS_SUMMARY = "/api/v1/nutrition/nutrients/summary";
     private static final String WATER = "/api/v1/nutrition/water";
+    private static final String RECIPES = "/api/v1/nutrition/recipes";
 
     // A reader is immutable, which a shared ObjectMapper is not.
     private final ObjectReader insightReader;
@@ -80,6 +82,30 @@ public class NutritionCatalogueClient extends CatalogueClient {
         params.put("date", date.toString());
         params.put("timezone", timezone);
         return get(WATER, params, bearerToken);
+    }
+
+    /** One recipe in full, as the caller may see it. Null when it is not visible to the caller or the service cannot be reached. */
+    public String recipe(String bearerToken, UUID recipeId) {
+        return get(RECIPES + "/" + recipeId, params(), bearerToken);
+    }
+
+    /**
+     * One page of the shared recipe library, best fit for today first, optionally narrowed by a name text, a
+     * diet and a card tag. The endpoint has no calorie or protein filter, so a caller that wants one narrows
+     * the cards itself.
+     */
+    public String searchRecipes(String bearerToken, String query, String diet, String tag, String timezone,
+                                int page, int size) {
+        Map<String, Object> params = params();
+        params.put("scope", "library");
+        params.put("sort", "fit");
+        params.put("timezone", timezone);
+        params.put("q", query);
+        params.put("diet", diet);
+        params.put("tag", tag);
+        params.put("page", page);
+        params.put("size", size);
+        return get(RECIPES, params, bearerToken);
     }
 
     /** The caller's meals between two instants, both ends included. */

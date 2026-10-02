@@ -439,6 +439,24 @@ class CoachOrchestratorTests {
         assertThat(systemPrompts.get(0)).doesNotContain("readPinnedReading");
     }
 
+    @Test
+    @DisplayName("the system prompt says a recipe may be suggested only from a searchRecipes result")
+    void thePromptLimitsRecipeSuggestionsToSearchResults() {
+        List<String> systemPrompts = new ArrayList<>();
+        ClaudeClient scripted = (system, user) -> {
+            systemPrompts.add(system);
+            return "{\"answer\":\"ok\"}";
+        };
+        CoachOrchestrator orchestrator = new CoachOrchestrator(
+                providerOf(scripted), new CoachGuardrail(), registry(), new CoachActionParser(objectMapper),
+                properties(), objectMapper, java.util.concurrent.Executors.newSingleThreadExecutor(),
+                new AnswerValidator(), calendar());
+
+        orchestrator.answer(CONTEXT, "anything at all", List.of());
+
+        assertThat(systemPrompts.get(0)).contains("only when it came from a searchRecipes result");
+    }
+
     // --- answer validation, which now runs on every chat answer, not only on the pinned reading ---
 
     @Test
