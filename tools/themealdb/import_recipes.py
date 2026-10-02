@@ -443,7 +443,26 @@ def measure_to_grams(measure, name, food, portions):
 
 _LABEL_ONLY = re.compile(r"^\s*(?:step\s*)?\d+\s*[.:)\-]?\s*$", re.I)
 _LEAD_NUM = re.compile(r"^\s*(?:step\s*\d+\s*[:.\-)]?|\d+\s*[.)])\s+", re.I)
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
+_SENTENCE_END = re.compile(r"([.!?])\s+(?=[A-Z])")
+# a full stop after one of these ends an abbreviation, not a sentence ("approx. Add" stays together)
+_ABBREVIATIONS = {"approx", "ca", "min", "mins", "max", "tbsp", "tsp", "oz", "lb", "lbs", "vs", "etc", "eg", "ie",
+                  "approximately"}
+MAX_STEP_SENTENCES = 2
+
+
+def split_sentences(text):
+    """Split at . ! ? followed by whitespace and a capital letter; never inside 3.5 or after approx."""
+    sentences, start = [], 0
+    for m in _SENTENCE_END.finditer(text):
+        if m.group(1) == ".":
+            words = re.findall(r"[A-Za-z.]+$", text[start:m.start()])
+            last = words[0].replace(".", "").lower() if words else ""
+            if last in _ABBREVIATIONS:
+                continue
+        sentences.append(text[start:m.end(1)].strip())
+        start = m.end()
+    sentences.append(text[start:].strip())
+    return [x for x in sentences if x]
 
 
 def split_steps(instructions):
@@ -455,10 +474,12 @@ def split_steps(instructions):
         line = _LEAD_NUM.sub("", line, count=1).strip()
         if line:
             lines.append(line)
-    if len(lines) == 1:
-        sentences = [s.strip() for s in _SENTENCE_END.split(lines[0]) if s.strip()]
-        return [" ".join(sentences[i:i + 3]) for i in range(0, len(sentences), 3)] or lines
-    return lines
+    steps = []
+    for line in lines:
+        sentences = split_sentences(line)
+        steps.extend(" ".join(sentences[i:i + MAX_STEP_SENTENCES])
+                     for i in range(0, len(sentences), MAX_STEP_SENTENCES))
+    return steps
 
 
 # ------------------------------------------------------------------------------------------- SQL
@@ -721,8 +742,15 @@ def self_test():
     assert split_steps("1. Chop the onion.\r\n2) Fry it.\r\nStep 3: Serve.") == \
         ["Chop the onion.", "Fry it.", "Serve."]
     one = "Mix. Stir well. Add milk. Heat the pan. Pour it in. Cook for 5 minutes. Serve hot."
-    assert split_steps(one) == ["Mix. Stir well. Add milk.", "Heat the pan. Pour it in. Cook for 5 minutes.",
+    assert split_steps(one) == ["Mix. Stir well.", "Add milk. Heat the pan.", "Pour it in. Cook for 5 minutes.",
                                 "Serve hot."]
+    # every paragraph is split, not only a lone one; numbers and abbreviations stay whole
+    assert split_steps("Mix. Stir. Pour.\r\nBake it.") == ["Mix. Stir.", "Pour.", "Bake it."]
+    assert split_steps("Add 3.5 kg of flour. Cook for approx. 5 minutes. Add oil! Is it done? Serve.") == \
+        ["Add 3.5 kg of flour. Cook for approx. 5 minutes.", "Add oil! Is it done?", "Serve."]
+    assert split_steps("Cook for approx. Add the salt. Stir.") == ["Cook for approx. Add the salt. Stir."]
+    # "then" starts in lower case, so "Heat the oil. then add the onion." is one sentence; with "Serve." it makes two, one step.
+    assert split_steps("Heat the oil. then add the onion. Serve.") == ["Heat the oil. then add the onion. Serve."]
     assert split_steps("1\r\n2\r\n  \r\n") == []
     oil = {"desc": "Oil, olive, salad or cooking", "cat": "Fats and Oils", "kcal": 884}
     assert measure_to_grams("For frying", "olive oil", oil, [(1, "tbsp", 13.5)])[0] == 13.5
