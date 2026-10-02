@@ -55,6 +55,9 @@ public class FoodCatalogItemEntity extends BaseEffectiveEntity {
     @Column(name = "default_serving_id")
     private UUID defaultServingId;
 
+    @Column(name = "counts_toward_water", nullable = false)
+    private boolean countsTowardWater;
+
     @Column(name = "verified", nullable = false)
     private boolean verified;
 
@@ -223,5 +226,13 @@ public class FoodCatalogItemEntity extends BaseEffectiveEntity {
 
     public void setDataCompleteness(BigDecimal dataCompleteness) {
         this.dataCompleteness = dataCompleteness;
+    }
+
+    public boolean isCountsTowardWater() {
+        return countsTowardWater;
+    }
+
+    public void setCountsTowardWater(boolean countsTowardWater) {
+        this.countsTowardWater = countsTowardWater;
     }
 }

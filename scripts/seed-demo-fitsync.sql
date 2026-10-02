@@ -437,13 +437,63 @@ where dd.persona <> 'fresh'
   and dd.meal_day
   and (m.workout_only = false or dd.shake_day);
 
--- 3b. meal_items — quantities/macros scaled by demo_days.meal_mult.
+-- 3b. meal_items — every item is linked to a real USDA SR Legacy catalogue food. The quantity is
+--     stored in grams (unit 'g') times demo_days.meal_mult, and calories and macros are recomputed
+--     from the food's nutrient profile for those grams, so the item agrees with what logging the
+--     same food through the app would store. The friendly food_name stays for the screen.
+--     The snapshot columns (grams, saturated fat, water, vitamins) are filled by 3d below.
+create temporary table demo_foods on commit drop as
+select * from (values
+    ('rolled_oats'::text,   'Rolled Oats'::text,           'Cereals, oats, regular and quick, not fortified, dry'::text,                      '60 g'::text),
+    ('banana',              'Banana',                      'Bananas, raw',                                                                    '1 medium (118 g)'),
+    ('greek_yogurt',        'Greek Yogurt',                'Yogurt, Greek, plain, nonfat (Includes foods for USDA''s Food Distribution Program)', '1 cup (170 g)'),
+    ('chicken_breast',      'Grilled Chicken Breast',      'Chicken, broilers or fryers, breast, meat only, cooked, roasted',                 '150 g'),
+    ('white_rice',          'Steamed White Rice',          'Rice, white, long-grain, regular, enriched, cooked',                              '1 bowl (200 g)'),
+    ('mixed_vegetables',    'Stir-fried Vegetables',       'Vegetables, mixed, frozen, cooked, boiled, drained, without salt',                '150 g'),
+    ('almonds',             'Almonds',                     'Nuts, almonds',                                                                   '30 g'),
+    ('apple',               'Apple',                       'Apples, raw, with skin (Includes foods for USDA''s Food Distribution Program)',   '1 medium (182 g)'),
+    ('salmon',              'Baked Salmon',                'Fish, salmon, Atlantic, farmed, cooked, dry heat',                                '150 g'),
+    ('sweet_potato',        'Sweet Potato',                'Sweet potato, cooked, baked in skin, flesh, without salt',                        '200 g'),
+    ('salad',               'Garden Salad',                'Lettuce, cos or romaine, raw',                                                    '120 g'),
+    ('whey_shake',          'Whey Protein Shake',          'Beverages, Protein powder whey based',                                            '1 scoop (35 g)'),
+    ('berries',             'Mixed Berries',               'Blueberries, raw',                                                                '100 g'),
+    ('coffee',              'Coffee',                      'Beverages, coffee, brewed, prepared with tap water',                              '1 mug (240 ml)'),
+    ('black_tea',           'Black Tea',                   'Beverages, tea, black, brewed, prepared with tap water',                          '1 cup (240 ml)'),
+    ('orange_juice',        'Orange Juice',                'Orange juice, raw (Includes foods for USDA''s Food Distribution Program)',        '1 glass (250 ml)')
+) as t(food_key, food_name, catalog_name, snap_label);
+
+-- The catalogue food and the nutrient profile behind each demo food. The profile must be stated per
+-- grams, because the quantities below are grams.
+create temporary table demo_food_basis on commit drop as
+select df.food_key, df.food_name, df.snap_label, f.food_id, f.category_code,
+       p.basis_quantity, p.calories, p.protein_grams, p.carbs_grams, p.fat_grams,
+       p.fiber_grams, p.sugar_grams, p.sodium_mg
+  from demo_foods df
+  join nutrition.food_catalog_items f
+    on f.display_name = df.catalog_name and f.scope = 'GLOBAL' and f.source_dataset = 'USDA_SR'
+  join lateral (
+        select fp.* from nutrition.food_nutrient_profiles fp
+         where fp.food_id = f.food_id and fp.active and fp.basis_quantity > 0
+           and lower(fp.basis_unit) in ('g', 'gram', 'grams')
+         order by fp.date_effective_from desc nulls last, fp.nutrient_profile_id
+         limit 1
+       ) p on true;
+
+do $$
+begin
+    if (select count(*) from demo_food_basis) <> (select count(*) from demo_foods) then
+        raise exception
+            'The USDA catalogue is missing some demo foods (found % of %). Apply the V900 and V901 seeds to the nutrition schema first.',
+            (select count(*) from demo_food_basis), (select count(*) from demo_foods);
+    end if;
+end $$;
+
 insert into nutrition.meal_items
     (meal_item_id, meal_id, custom_food_id, external_food_ref, food_name, brand_name,
      quantity, unit, serving_size, serving_unit, calories, protein_grams, carbs_grams,
      fat_grams, fiber_grams, sugar_grams, sodium_mg, date_time_created, date_time_updated,
      created_by, updated_by, version, food_catalog_item_id, food_serving_id, barcode,
-     snapshot_serving_label)
+     snapshot_serving_label, category_code, source_dataset)
 with meals(code, at_t, workout_only) as (values
     ('BFAST'::text, time '07:30', false),
     ('LUNCH',       time '12:30', false),
@@ -451,45 +501,194 @@ with meals(code, at_t, workout_only) as (values
     ('DINNER',      time '19:00', false),
     ('POSTWO',      time '20:30', true)
 ),
-items(code, slot, food_name, brand_name, quantity, unit, serving_size, serving_unit,
-      calories, protein, carbs, fat, fiber, sugar, sodium, snap_label) as (values
+items(code, slot, food_key, grams) as (values
     -- breakfast
-    ('BFAST'::text, 1, 'Rolled Oats'::text,           'Quaker'::text, 60.00, 'g'::text,     60.00, 'g'::text,     228, 8.00,  40.00, 4.00,  6.00, 1.00,  3.00,  '60 g'::text),
-    ('BFAST', 2, 'Banana',                    null,           1.00,  'piece', 1.00,  'piece', 105, 1.30,  27.00, 0.40,  3.10, 10.00, 1.00,  '1 medium'),
-    ('BFAST', 3, 'Greek Yogurt',              'FAGE',         170.00,'g',     170.00,'g',     120, 18.00, 6.00,  0.00,  0.00, 4.00,  65.00, '1 cup'),
+    ('BFAST'::text, 1, 'rolled_oats'::text,    60.00::numeric),
+    ('BFAST', 2, 'banana',            118.00),
+    ('BFAST', 3, 'greek_yogurt',      170.00),
     -- lunch
-    ('LUNCH', 1, 'Grilled Chicken Breast',    null,           150.00,'g',     150.00,'g',     248, 46.00, 0.00,  5.40,  0.00, 0.00,  92.00, '150 g'),
-    ('LUNCH', 2, 'Steamed White Rice',        null,           200.00,'g',     200.00,'g',     260, 5.00,  56.00, 0.60,  0.80, 0.10,  2.00,  '1 bowl'),
-    ('LUNCH', 3, 'Stir-fried Vegetables',     null,           150.00,'g',     150.00,'g',     90,  3.00,  12.00, 3.50,  5.00, 3.00,  35.00, '150 g'),
+    ('LUNCH', 1, 'chicken_breast',    150.00),
+    ('LUNCH', 2, 'white_rice',        200.00),
+    ('LUNCH', 3, 'mixed_vegetables',  150.00),
     -- afternoon snack
-    ('SNACK', 1, 'Almonds',                   null,           30.00, 'g',     30.00, 'g',     174, 6.00,  6.00,  15.00, 3.50, 1.00,  0.00,  '30 g'),
-    ('SNACK', 2, 'Apple',                     null,           1.00,  'piece', 1.00,  'piece', 95,  0.50,  25.00, 0.30,  4.00, 8.00,  2.00,  '1 medium'),
+    ('SNACK', 1, 'almonds',            30.00),
+    ('SNACK', 2, 'apple',             182.00),
     -- dinner
-    ('DINNER',1, 'Baked Salmon',              null,           150.00,'g',     150.00,'g',     280, 39.00, 0.00,  13.00, 0.00, 0.00,  90.00, '150 g'),
-    ('DINNER',2, 'Sweet Potato',              null,           200.00,'g',     200.00,'g',     180, 4.00,  41.00, 0.30,  6.00, 6.00,  72.00, '200 g'),
-    ('DINNER',3, 'Garden Salad',              null,           120.00,'g',     120.00,'g',     70,  2.00,  8.00,  4.00,  3.00, 2.00,  25.00, '120 g'),
+    ('DINNER',1, 'salmon',            150.00),
+    ('DINNER',2, 'sweet_potato',      200.00),
+    ('DINNER',3, 'salad',             120.00),
     -- post-workout shake (training days only)
-    ('POSTWO',1, 'Whey Protein Shake',        null,           35.00, 'g',     35.00, 'g',     130, 25.00, 4.00,  1.50,  1.00, 1.00,  80.00, '1 scoop'),
-    ('POSTWO',2, 'Mixed Berries',             null,           100.00,'g',     100.00,'g',     57,  0.70,  14.00, 0.30,  2.40, 5.00,  1.00,  '100 g')
+    ('POSTWO',1, 'whey_shake',         35.00),
+    ('POSTWO',2, 'berries',           100.00)
+),
+sized as (
+    select dd.user_id, dd.d, dd.tz, it.code, it.slot, m.at_t, fb.*,
+           round(it.grams * dd.meal_mult, 2) as qty
+      from demo_days dd
+      join items it on true
+      join meals m on m.code = it.code
+      join demo_food_basis fb on fb.food_key = it.food_key
+     where dd.persona <> 'fresh'
+       and dd.d < (select d_today from demo_config)
+       and dd.meal_day
+       and (m.workout_only = false or dd.shake_day)
 )
 select
-    md5(dd.user_id::text || dd.d::text || it.code || it.slot::text)::uuid,
-    md5(dd.user_id::text || dd.d::text || it.code)::uuid,
-    null, null, it.food_name, it.brand_name,
-    round(it.quantity * dd.meal_mult, 2), it.unit, it.serving_size, it.serving_unit,
-    round(it.calories * dd.meal_mult)::int,
-    round(it.protein * dd.meal_mult, 2), round(it.carbs * dd.meal_mult, 2), round(it.fat * dd.meal_mult, 2),
-    round(it.fiber * dd.meal_mult, 2), round(it.sugar * dd.meal_mult, 2), round(it.sodium * dd.meal_mult, 2),
-    (dd.d + m.at_t) at time zone dd.tz,
-    (dd.d + m.at_t) at time zone dd.tz,
-    'demo-seed', 'demo-seed', 0, null, null, null, it.snap_label
+    md5(z.user_id::text || z.d::text || z.code || z.slot::text)::uuid,
+    md5(z.user_id::text || z.d::text || z.code)::uuid,
+    null, null, z.food_name, null,
+    z.qty, 'g', z.qty, 'g',
+    round(z.calories * z.qty / z.basis_quantity)::int,
+    round(z.protein_grams * z.qty / z.basis_quantity, 2),
+    round(z.carbs_grams   * z.qty / z.basis_quantity, 2),
+    round(z.fat_grams     * z.qty / z.basis_quantity, 2),
+    round(z.fiber_grams   * z.qty / z.basis_quantity, 2),
+    round(z.sugar_grams   * z.qty / z.basis_quantity, 2),
+    round(z.sodium_mg     * z.qty / z.basis_quantity, 2),
+    (z.d + z.at_t) at time zone z.tz,
+    (z.d + z.at_t) at time zone z.tz,
+    'demo-seed', 'demo-seed', 0, z.food_id, null, null, z.snap_label, z.category_code, 'USDA_SR'
+from sized z;
+
+-- 3b-2. One drink a day with lunch, rotating coffee, black tea and orange juice, so that the water
+--       that drinks add shows on the Diary. Drinks are not scaled by meal_mult.
+insert into nutrition.meal_items
+    (meal_item_id, meal_id, custom_food_id, external_food_ref, food_name, brand_name,
+     quantity, unit, serving_size, serving_unit, calories, protein_grams, carbs_grams,
+     fat_grams, fiber_grams, sugar_grams, sodium_mg, date_time_created, date_time_updated,
+     created_by, updated_by, version, food_catalog_item_id, food_serving_id, barcode,
+     snapshot_serving_label, category_code, source_dataset)
+with drinks(rot, food_key, grams) as (values
+    (0, 'coffee'::text,       240.00::numeric),
+    (1, 'black_tea',          240.00),
+    (2, 'orange_juice',       250.00)
+)
+select
+    md5(dd.user_id::text || dd.d::text || 'LUNCH' || '4')::uuid,
+    md5(dd.user_id::text || dd.d::text || 'LUNCH')::uuid,
+    null, null, fb.food_name, null,
+    dr.grams, 'g', dr.grams, 'g',
+    round(fb.calories * dr.grams / fb.basis_quantity)::int,
+    round(fb.protein_grams * dr.grams / fb.basis_quantity, 2),
+    round(fb.carbs_grams   * dr.grams / fb.basis_quantity, 2),
+    round(fb.fat_grams     * dr.grams / fb.basis_quantity, 2),
+    round(fb.fiber_grams   * dr.grams / fb.basis_quantity, 2),
+    round(fb.sugar_grams   * dr.grams / fb.basis_quantity, 2),
+    round(fb.sodium_mg     * dr.grams / fb.basis_quantity, 2),
+    (dd.d + time '12:30') at time zone dd.tz,
+    (dd.d + time '12:30') at time zone dd.tz,
+    'demo-seed', 'demo-seed', 0, fb.food_id, null, null, fb.snap_label, fb.category_code, 'USDA_SR'
 from demo_days dd
-join items it on true
-join meals m on m.code = it.code
+join drinks dr on dr.rot = dd.idx % 3
+join demo_food_basis fb on fb.food_key = dr.food_key
 where dd.persona <> 'fresh'
   and dd.d < (select d_today from demo_config)
-  and dd.meal_day
-  and (m.workout_only = false or dd.shake_day);
+  and dd.meal_day;
+
+-- 3d. Snapshot columns. The same fill the stand-alone backfill-nutrition-snapshots.sql script does for
+--     old meals, limited here to this account's meals: grams, saturated fat, water from drinks, the
+--     category and the vitamin and mineral rows, all taken from the catalogue foods linked above.
+-- 3d-1. grams_consumed
+update nutrition.meal_items mi
+   set grams_consumed = x.grams
+  from (
+        select i.meal_item_id,
+               case
+                   when s.grams_equivalent is not null
+                       then round(i.quantity * s.grams_equivalent, 2)
+                   when lower(i.unit) in ('g', 'gram', 'grams')
+                       then round(i.quantity, 2)
+                   when lower(i.unit) = 'ml'
+                       then round(i.quantity * coalesce(f.density_grams_per_ml, 1), 2)
+               end as grams
+          from nutrition.meal_items i
+          left join nutrition.food_servings s on s.serving_id = i.food_serving_id
+          left join nutrition.food_catalog_items f on f.food_id = i.food_catalog_item_id
+         where i.grams_consumed is null
+           and i.meal_id in (select ml.meal_id from nutrition.meal_logs ml
+                              join demo_config c on c.user_id = ml.user_id)
+       ) x
+ where mi.meal_item_id = x.meal_item_id
+   and x.grams is not null;
+
+-- The portion of every catalogue-linked item against its food's nutrient profile: how many times the
+-- profile's basis (for example 100 g) the item holds. A millilitre basis is reached from grams through
+-- the density. This list is rebuilt on every run and dropped at the end.
+create temp table snapshot_scale as
+select i.meal_item_id,
+       i.food_catalog_item_id as food_id,
+       p.saturated_fat_grams,
+       p.water_g,
+       f.category_code,
+       f.counts_toward_water,
+       case
+           when lower(p.basis_unit) in ('g', 'gram', 'grams')
+               then i.grams_consumed / p.basis_quantity
+           when lower(p.basis_unit) = 'ml'
+               then i.grams_consumed / coalesce(f.density_grams_per_ml, 1) / p.basis_quantity
+       end as factor
+  from nutrition.meal_items i
+  join nutrition.food_catalog_items f on f.food_id = i.food_catalog_item_id
+  join lateral (
+        select fp.basis_quantity, fp.basis_unit, fp.saturated_fat_grams, fp.water_g
+          from nutrition.food_nutrient_profiles fp
+         where fp.food_id = f.food_id
+           and fp.active
+           and fp.basis_quantity > 0
+           and (fp.date_effective_from is null or fp.date_effective_from <= current_date)
+           and (fp.date_effective_to is null or fp.date_effective_to >= current_date)
+         order by fp.date_effective_from desc nulls last, fp.nutrient_profile_id
+         limit 1
+       ) p on true
+ where i.grams_consumed is not null
+   and i.meal_id in (select ml.meal_id from nutrition.meal_logs ml
+                              join demo_config c on c.user_id = ml.user_id);
+
+-- 3d-2. saturated fat, water and category
+update nutrition.meal_items mi
+   set saturated_fat_grams = round(s.saturated_fat_grams * s.factor, 2)
+  from snapshot_scale s
+ where mi.meal_item_id = s.meal_item_id
+   and mi.saturated_fat_grams is null
+   and s.saturated_fat_grams is not null
+   and s.factor is not null;
+
+update nutrition.meal_items mi
+   set water_ml = round(s.water_g * s.factor)::int
+  from snapshot_scale s
+ where mi.meal_item_id = s.meal_item_id
+   and mi.water_ml is null
+   and s.counts_toward_water
+   and s.water_g is not null
+   and s.factor is not null;
+
+update nutrition.meal_items mi
+   set category_code = s.category_code
+  from snapshot_scale s
+ where mi.meal_item_id = s.meal_item_id
+   and mi.category_code is null
+   and s.category_code is not null;
+
+-- 3d-3. vitamins and minerals
+insert into nutrition.meal_item_nutrient_details
+    (detail_id, meal_item_id, nutrient_code, display_name, amount, unit, sort_order,
+     date_time_created, date_time_updated, created_by, updated_by, version)
+select md5(s.meal_item_id::text || ':' || d.nutrient_code)::uuid,
+       s.meal_item_id, d.nutrient_code, d.display_name,
+       round(d.amount * s.factor, 2), d.unit, d.sort_order,
+       now(), now(), 'backfill-snapshots', 'backfill-snapshots', 0
+  from snapshot_scale s
+  join nutrition.food_nutrient_details d on d.food_id = s.food_id
+ where s.factor is not null
+   and d.active
+   and (d.date_effective_from is null or d.date_effective_from <= current_date)
+   and (d.date_effective_to is null or d.date_effective_to >= current_date)
+   and not exists (select 1
+                     from nutrition.meal_item_nutrient_details x
+                    where x.meal_item_id = s.meal_item_id)
+on conflict do nothing;
+
+drop table snapshot_scale;
 
 -- 3c. water_logs — four sips per day, ~2.3 L total, for the whole window.
 insert into nutrition.water_logs
@@ -1294,34 +1493,8 @@ cross join lateral (
 ) e
 on conflict do nothing;
 
--- Food-group classification on the meal items, which the live path stamps at log time (SNAP-3).
--- Direct SQL bypasses that. The seeded items are recorded by name rather than linked to the
--- catalog, so the mapping is spelled out here for the foods this script itself authors. It is the
--- curated half of the demo: without it the food-group breakdown is blank and the whole open-data
--- thread, PRs #3 to #6, has nothing to show.
-update nutrition.meal_items mi
-   set category_code = m.code
-  from (values
-        ('Rolled Oats',              'GRAINS'),
-        ('Steamed White Rice',       'GRAINS'),
-        ('Banana',                   'FRUITS'),
-        ('Apple',                    'FRUITS'),
-        ('Mixed Berries',            'FRUITS'),
-        ('Garden Salad',             'VEGETABLES'),
-        ('Stir-fried Vegetables',    'VEGETABLES'),
-        ('Sweet Potato',             'VEGETABLES'),
-        ('Grilled Chicken Breast',   'MEAT_POULTRY'),
-        ('Homemade Chicken Breast',  'MEAT_POULTRY'),
-        ('Baked Salmon',             'SEAFOOD'),
-        ('Greek Yogurt',             'DAIRY'),
-        ('Almonds',                  'NUTS_SEEDS'),
-        ('Whey Protein Shake',       'PROTEIN_SUPPLEMENT')
-       ) as m(food_name, code),
-       nutrition.meal_logs ml,
-       demo_config c
- where mi.meal_id = ml.meal_id
-   and ml.user_id = c.user_id
-   and mi.food_name = m.food_name;
+-- Food-group classification: the seeded items are linked to the USDA catalogue (section 3b), which
+-- gives them their category_code, so the food-group breakdown below needs no mapping by name.
 
 -- Per-day food-group energy, the aggregate AN-1 maintains from MealLogged.foodGroupCalories.
 -- Encoded as CODE=kcal;CODE=kcal, the compact internal format the analytics column already uses.

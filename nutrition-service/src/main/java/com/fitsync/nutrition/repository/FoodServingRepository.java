@@ -33,5 +33,17 @@ public interface FoodServingRepository extends JpaRepository<FoodServingEntity, 
             """)
     java.util.Optional<FoodServingEntity> findActiveByServingId(@Param("servingId") UUID servingId, @Param("onDate") LocalDate onDate);
 
+    @Query("""
+            select s
+            from FoodServingEntity s
+            where s.foodId in :foodIds
+              and s.active = true
+              and (s.dateEffectiveFrom is null or s.dateEffectiveFrom <= :onDate)
+              and (s.dateEffectiveTo is null or s.dateEffectiveTo >= :onDate)
+            order by s.foodId asc, s.sortOrder asc
+            """)
+    List<FoodServingEntity> findActiveByFoodIdIn(
+            @Param("foodIds") Collection<UUID> foodIds, @Param("onDate") LocalDate onDate);
+
     void deleteByFoodIdIn(Collection<UUID> foodIds);
 }

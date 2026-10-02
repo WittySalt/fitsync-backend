@@ -2,6 +2,7 @@ package com.fitsync.nutrition.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 public record DailyNutritionSummaryView(
         LocalDate date,
@@ -27,5 +28,21 @@ public record DailyNutritionSummaryView(
         BigDecimal sodiumLimitMg,
         Boolean fiberTargetMet,
         Boolean sugarWithinLimit,
-        Boolean sodiumWithinLimit) {
+        Boolean sodiumWithinLimit,
+        BigDecimal totalSaturatedFatGrams,
+        BigDecimal totalPotassiumMg,
+        Integer waterMl,
+        Integer waterFromDrinksMl,
+        BigDecimal sugarFromDrinksGrams,
+        List<NutrientBalanceView> balance,
+        ProteinByMealView proteinByMeal) {
+
+    public DailyNutritionSummaryView {
+        balance = balance == null ? List.of() : List.copyOf(balance);
+    }
+
+    @Override
+    public List<NutrientBalanceView> balance() {
+        return List.copyOf(balance);
+    }
 }

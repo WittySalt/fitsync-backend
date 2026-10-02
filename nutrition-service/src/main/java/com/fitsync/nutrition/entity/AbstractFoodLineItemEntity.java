@@ -66,8 +66,31 @@ public abstract class AbstractFoodLineItemEntity extends BaseAuditableEntity imp
     @Column(name = "source_dataset", length = 30)
     private String sourceDataset;
 
+    // The recipe a line item came from, and the servings of it, so the rows of one recipe can be shown together.
+    @Column(name = "recipe_id")
+    private UUID recipeId;
+
+    @Column(name = "recipe_servings", precision = 10, scale = 2)
+    private BigDecimal recipeServings;
+
     @Embedded
     private NutritionFacts nutritionFacts = new NutritionFacts();
+
+    public UUID getRecipeId() {
+        return recipeId;
+    }
+
+    public void setRecipeId(UUID recipeId) {
+        this.recipeId = recipeId;
+    }
+
+    public BigDecimal getRecipeServings() {
+        return recipeServings;
+    }
+
+    public void setRecipeServings(BigDecimal recipeServings) {
+        this.recipeServings = recipeServings;
+    }
 
     public UUID getCustomFoodId() {
         return customFoodId;

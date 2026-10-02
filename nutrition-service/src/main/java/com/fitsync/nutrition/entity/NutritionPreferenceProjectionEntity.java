@@ -1,5 +1,6 @@
 package com.fitsync.nutrition.entity;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -28,6 +29,18 @@ public class NutritionPreferenceProjectionEntity extends BaseAuditableEntity {
 
     @Column(name = "notifications_enabled")
     private boolean notificationsEnabled;
+
+    @Column(name = "reference_sex", length = 10)
+    private String referenceSex;
+
+    @Column(name = "age_band", length = 10)
+    private String ageBand;
+
+    @Column(name = "weight_kg", precision = 6, scale = 2)
+    private BigDecimal weightKg;
+
+    @Column(name = "weight_measured_at")
+    private Instant weightMeasuredAt;
 
     @Column(name = "projection_updated_at", nullable = false)
     private Instant projectionUpdatedAt;
@@ -70,6 +83,38 @@ public class NutritionPreferenceProjectionEntity extends BaseAuditableEntity {
 
     public void setNotificationsEnabled(boolean notificationsEnabled) {
         this.notificationsEnabled = notificationsEnabled;
+    }
+
+    public String getReferenceSex() {
+        return referenceSex;
+    }
+
+    public void setReferenceSex(String referenceSex) {
+        this.referenceSex = referenceSex;
+    }
+
+    public String getAgeBand() {
+        return ageBand;
+    }
+
+    public void setAgeBand(String ageBand) {
+        this.ageBand = ageBand;
+    }
+
+    public BigDecimal getWeightKg() {
+        return weightKg;
+    }
+
+    public void setWeightKg(BigDecimal weightKg) {
+        this.weightKg = weightKg;
+    }
+
+    public Instant getWeightMeasuredAt() {
+        return weightMeasuredAt;
+    }
+
+    public void setWeightMeasuredAt(Instant weightMeasuredAt) {
+        this.weightMeasuredAt = weightMeasuredAt;
     }
 
     public Instant getProjectionUpdatedAt() {

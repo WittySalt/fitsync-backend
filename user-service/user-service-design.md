@@ -835,6 +835,17 @@ Purpose:
 
 - notify downstream services that recommendation-relevant or onboarding-relevant profile facts changed
 
+#### NutritionReferenceProfileUpdated
+
+Topic:
+
+- `user-events`
+
+Purpose:
+
+- give nutrition-service the two derived facts it needs to pick nutrient reference ranges: `referenceSex` (FEMALE, MALE or BLENDED) and `ageBand` ("19-30", "31-50", "51-70", "71+" or null)
+- gender and birth date themselves never leave `user-service`
+
 #### UserPreferencesUpdated
 
 Topic:

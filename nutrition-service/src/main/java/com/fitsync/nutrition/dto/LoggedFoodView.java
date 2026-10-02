@@ -31,5 +31,7 @@ public record LoggedFoodView(
         BigDecimal sugarGrams,
         BigDecimal sodiumMg,
         long timesLogged,
-        Instant lastLoggedAt) {
+        Instant lastLoggedAt,
+        String foodGroup,
+        boolean countsTowardWater) {
 }

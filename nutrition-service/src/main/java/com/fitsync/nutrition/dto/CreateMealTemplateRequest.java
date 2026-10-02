@@ -27,10 +27,17 @@ public record CreateMealTemplateRequest(
         MealType mealType,
         @Size(max = 300) String note,
         UUID fromMealId,
-        List<@Valid MealItemInput> items) {
+        List<@Valid MealItemInput> items,
+        @Size(max = 30) List<@Valid TemplateRecipeInput> recipeItems) {
 
     public CreateMealTemplateRequest {
         items = items == null ? List.of() : List.copyOf(items);
+        recipeItems = recipeItems == null ? List.of() : List.copyOf(recipeItems);
+    }
+
+    @Override
+    public List<TemplateRecipeInput> recipeItems() {
+        return List.copyOf(recipeItems);
     }
 
     @Override

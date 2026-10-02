@@ -17,7 +17,9 @@ import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
 import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
+import com.fitsync.nutrition.dto.NutrientSummaryView;
 import com.fitsync.nutrition.dto.NutritionPageInsightView;
+import com.fitsync.nutrition.dto.RangeSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchCriteria;
@@ -28,12 +30,18 @@ import com.fitsync.nutrition.dto.LogWaterRequest;
 import com.fitsync.nutrition.dto.MealView;
 import com.fitsync.nutrition.dto.QuickAddMealRequest;
 import com.fitsync.nutrition.dto.UsualMealsView;
+import com.fitsync.nutrition.dto.RecipeAddItemsRequest;
+import com.fitsync.nutrition.dto.RecipeDetailView;
+import com.fitsync.nutrition.dto.RecipeMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
+import com.fitsync.nutrition.dto.TemplateRecipeInput;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import com.fitsync.nutrition.service.NutritionDiaryService;
 import com.fitsync.nutrition.service.NutritionPageInsightService;
 import com.fitsync.nutrition.service.NutritionService;
+import com.fitsync.nutrition.service.RecipeLibraryService;
 import com.fitsync.nutrition.service.UsualMealsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -64,13 +72,19 @@ public class NutritionController {
     private final NutritionService nutritionService;
     private final NutritionPageInsightService nutritionPageInsightService;
     private final UsualMealsService usualMealsService;
+    private final NutritionDiaryService nutritionDiaryService;
+    private final RecipeLibraryService recipeLibraryService;
 
     public NutritionController(NutritionService nutritionService,
                                NutritionPageInsightService nutritionPageInsightService,
-                               UsualMealsService usualMealsService) {
+                               UsualMealsService usualMealsService,
+                               NutritionDiaryService nutritionDiaryService,
+                               RecipeLibraryService recipeLibraryService) {
         this.nutritionService = nutritionService;
         this.nutritionPageInsightService = nutritionPageInsightService;
         this.usualMealsService = usualMealsService;
+        this.nutritionDiaryService = nutritionDiaryService;
+        this.recipeLibraryService = recipeLibraryService;
     }
 
     @PostMapping("/meals")
@@ -177,6 +191,22 @@ public class NutritionController {
         return nutritionService.getDailySummary(currentPrincipal(authentication), date, timezone);
     }
 
+    @GetMapping("/summary/range")
+    public RangeSummaryView rangeSummary(Authentication authentication,
+                                         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                         @RequestParam(required = false) String timezone) {
+        return nutritionDiaryService.getRangeSummary(currentPrincipal(authentication), from, to, timezone);
+    }
+
+    @GetMapping("/nutrients/summary")
+    public NutrientSummaryView nutrientSummary(Authentication authentication,
+                                               @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                               @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                               @RequestParam(required = false) String timezone) {
+        return nutritionDiaryService.getNutrientSummary(currentPrincipal(authentication), from, to, timezone);
+    }
+
     @GetMapping("/insights/page")
     public NutritionPageInsightView nutritionPageInsight(Authentication authentication,
                                                          @RequestParam(required = false) String timezone) {
@@ -192,9 +222,10 @@ public class NutritionController {
                                                   @RequestParam(required = false) Boolean verified,
                                                   @RequestParam(required = false) FoodCatalogScope scope,
                                                   @RequestParam(defaultValue = "0") int page,
-                                                  @RequestParam(defaultValue = "20") int size) {
+                                                  @RequestParam(defaultValue = "20") int size,
+                                                  @RequestParam(required = false) String foodGroup) {
         FoodSearchCriteria criteria = new FoodSearchCriteria(
-                q, categoryId, includeSubcategories, brandId, verified, scope, page, size);
+                q, categoryId, includeSubcategories, brandId, verified, scope, page, size, foodGroup);
         return nutritionService.searchFoods(currentPrincipal(authentication), criteria);
     }
 
@@ -205,14 +236,16 @@ public class NutritionController {
 
     @GetMapping("/foods/recent")
     public List<LoggedFoodView> recentFoods(Authentication authentication,
-                                            @RequestParam(defaultValue = "20") int limit) {
-        return nutritionService.listRecentFoods(currentPrincipal(authentication), limit);
+                                            @RequestParam(defaultValue = "20") int limit,
+                                            @RequestParam(required = false) String foodGroup) {
+        return nutritionService.listRecentFoods(currentPrincipal(authentication), limit, foodGroup);
     }
 
     @GetMapping("/foods/frequent")
     public List<LoggedFoodView> frequentFoods(Authentication authentication,
-                                              @RequestParam(defaultValue = "20") int limit) {
-        return nutritionService.listFrequentFoods(currentPrincipal(authentication), limit);
+                                              @RequestParam(defaultValue = "20") int limit,
+                                              @RequestParam(required = false) String foodGroup) {
+        return nutritionService.listFrequentFoods(currentPrincipal(authentication), limit, foodGroup);
     }
 
     @GetMapping("/foods/{foodId}")
@@ -282,6 +315,14 @@ public class NutritionController {
         return nutritionService.getMealTemplate(currentPrincipal(authentication), templateId);
     }
 
+    @PostMapping("/meal-templates/{templateId}/recipe-items")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealTemplateView addRecipeToMealTemplate(Authentication authentication,
+                                                    @PathVariable UUID templateId,
+                                                    @Valid @RequestBody TemplateRecipeInput request) {
+        return nutritionService.addRecipeToMealTemplate(currentPrincipal(authentication), templateId, request);
+    }
+
     @DeleteMapping("/meal-templates/{templateId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteMealTemplate(Authentication authentication, @PathVariable UUID templateId) {
@@ -335,14 +376,63 @@ public class NutritionController {
         return nutritionService.createRecipe(currentPrincipal(authentication), request);
     }
 
+    /**
+     * With a scope (mine, library or favorites) this is a page of recipe cards. Without one it keeps its
+     * earlier shape, the caller's own recipes as a plain list.
+     */
     @GetMapping("/recipes")
-    public List<RecipeView> recipes(Authentication authentication) {
-        return nutritionService.listRecipes(currentPrincipal(authentication));
+    public Object recipes(Authentication authentication,
+                          @RequestParam(required = false) String scope,
+                          @RequestParam(required = false) String category,
+                          @RequestParam(required = false) String q,
+                          @RequestParam(required = false) String diet,
+                          @RequestParam(required = false) String tag,
+                          @RequestParam(defaultValue = "0") int page,
+                          @RequestParam(defaultValue = "20") int size) {
+        if (scope == null) {
+            return nutritionService.listRecipes(currentPrincipal(authentication));
+        }
+        return recipeLibraryService.list(currentPrincipal(authentication), scope, category, q, diet, tag, page, size);
     }
 
     @GetMapping("/recipes/{recipeId}")
-    public RecipeView recipe(Authentication authentication, @PathVariable UUID recipeId) {
-        return nutritionService.getRecipe(currentPrincipal(authentication), recipeId);
+    public RecipeDetailView recipe(Authentication authentication, @PathVariable UUID recipeId) {
+        return recipeLibraryService.detail(currentPrincipal(authentication), recipeId);
+    }
+
+    @PostMapping("/recipes/{recipeId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void favoriteRecipe(Authentication authentication, @PathVariable UUID recipeId) {
+        recipeLibraryService.favorite(currentPrincipal(authentication), recipeId);
+    }
+
+    @DeleteMapping("/recipes/{recipeId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unfavoriteRecipe(Authentication authentication, @PathVariable UUID recipeId) {
+        recipeLibraryService.unfavorite(currentPrincipal(authentication), recipeId);
+    }
+
+    @PostMapping("/recipes/{recipeId}/copy")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RecipeDetailView copyRecipe(Authentication authentication, @PathVariable UUID recipeId) {
+        return recipeLibraryService.copy(currentPrincipal(authentication), recipeId);
+    }
+
+    @PostMapping("/meals/from-recipe/{recipeId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView createMealFromRecipe(Authentication authentication,
+                                         @PathVariable UUID recipeId,
+                                         @Valid @RequestBody RecipeMealRequest request) {
+        return nutritionService.createMealFromRecipe(currentPrincipal(authentication), recipeId, request);
+    }
+
+    @PostMapping("/meals/{mealId}/items/from-recipe/{recipeId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView addRecipeToMeal(Authentication authentication,
+                                    @PathVariable UUID mealId,
+                                    @PathVariable UUID recipeId,
+                                    @Valid @RequestBody RecipeAddItemsRequest request) {
+        return nutritionService.addRecipeToMeal(currentPrincipal(authentication), mealId, recipeId, request);
     }
 
     @PutMapping("/recipes/{recipeId}")

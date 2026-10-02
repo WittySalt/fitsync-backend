@@ -10,5 +10,7 @@ public interface RecipeIngredientRepository extends JpaRepository<RecipeIngredie
 
     List<RecipeIngredientEntity> findByRecipeIdOrderBySortOrderAsc(UUID recipeId);
 
+    List<RecipeIngredientEntity> findByRecipeIdInOrderByRecipeIdAscSortOrderAsc(java.util.Collection<UUID> recipeIds);
+
     void deleteByRecipeId(UUID recipeId);
 }

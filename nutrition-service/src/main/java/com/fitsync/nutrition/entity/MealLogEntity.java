@@ -12,9 +12,12 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "meal_logs")
+// A deleted meal keeps its row and is left out of every read, like a deleted workout session.
+@SQLRestriction("deleted_at is null")
 public class MealLogEntity extends BaseAuditableEntity {
 
     @Id
@@ -43,6 +46,9 @@ public class MealLogEntity extends BaseAuditableEntity {
 
     @Column(name = "note", length = 300)
     private String note;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
     public UUID getMealId() {
         return mealId;
@@ -106,5 +112,13 @@ public class MealLogEntity extends BaseAuditableEntity {
 
     public void setNote(String note) {
         this.note = note;
+    }
+
+    public Instant getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(Instant deletedAt) {
+        this.deletedAt = deletedAt;
     }
 }

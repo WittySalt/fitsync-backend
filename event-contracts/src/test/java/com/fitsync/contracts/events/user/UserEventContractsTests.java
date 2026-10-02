@@ -49,6 +49,19 @@ class UserEventContractsTests {
     }
 
     @Test
+    void shouldExposeNutritionReferenceProfilePayloadFieldsAndAllowNoAgeBand() {
+        NutritionReferenceProfileUpdatedPayload payload =
+                new NutritionReferenceProfileUpdatedPayload("FEMALE", "31-50");
+        NutritionReferenceProfileUpdatedPayload withoutAge =
+                new NutritionReferenceProfileUpdatedPayload("BLENDED", null);
+
+        assertEquals("FEMALE", payload.referenceSex());
+        assertEquals("31-50", payload.ageBand());
+        assertEquals("BLENDED", withoutAge.referenceSex());
+        assertEquals(null, withoutAge.ageBand());
+    }
+
+    @Test
     void shouldExposeAccountDeletedPayloadFields() {
         AccountDeletedPayload payload = new AccountDeletedPayload(
                 Instant.parse("2026-06-25T04:00:00Z"),

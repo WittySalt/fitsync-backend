@@ -80,6 +80,10 @@ fitsync:
         enabled: ${KAFKA_GOAL_UPDATED_LISTENER_ENABLED:false}
       user-preferences-updated:
         enabled: ${KAFKA_USER_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
+      nutrition-reference-profile-updated:
+        enabled: ${KAFKA_NUTRITION_REFERENCE_PROFILE_UPDATED_LISTENER_ENABLED:false}
+      body-metrics-recorded:
+        enabled: ${KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED:false}
       account-deleted:
         enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}
   outbox:

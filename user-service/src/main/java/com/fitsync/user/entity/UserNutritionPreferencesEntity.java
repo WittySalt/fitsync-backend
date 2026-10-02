@@ -6,10 +6,13 @@ import com.fitsync.persistence.entity.BaseAuditableEntity;
 import com.fitsync.user.domain.CalorieTrackingMode;
 import com.fitsync.user.domain.DietaryPreference;
 import com.fitsync.user.domain.MacroPreference;
+import com.fitsync.user.domain.NutrientReferenceRange;
 import com.fitsync.user.entity.converter.CodeEnumConverters;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -39,6 +42,11 @@ public class UserNutritionPreferencesEntity extends BaseAuditableEntity {
     @Column(name = "water_goal_ml")
     private Integer waterGoalMl;
 
+    /** Null means PROFILE, so rows written before the column existed keep following the profile. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "nutrient_reference_range", length = 20)
+    private NutrientReferenceRange nutrientReferenceRange;
+
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public DietaryPreference getDietaryPattern() { return dietaryPattern; }
@@ -49,6 +57,8 @@ public class UserNutritionPreferencesEntity extends BaseAuditableEntity {
     public void setCalorieTrackingMode(CalorieTrackingMode calorieTrackingMode) { this.calorieTrackingMode = calorieTrackingMode; }
     public MacroPreference getMacroPreference() { return macroPreference; }
     public void setMacroPreference(MacroPreference macroPreference) { this.macroPreference = macroPreference; }
+    public NutrientReferenceRange getNutrientReferenceRange() { return nutrientReferenceRange; }
+    public void setNutrientReferenceRange(NutrientReferenceRange nutrientReferenceRange) { this.nutrientReferenceRange = nutrientReferenceRange; }
     public Integer getWaterGoalMl() { return waterGoalMl; }
     public void setWaterGoalMl(Integer waterGoalMl) { this.waterGoalMl = waterGoalMl; }
 }

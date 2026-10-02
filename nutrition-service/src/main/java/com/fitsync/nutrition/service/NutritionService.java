@@ -14,6 +14,7 @@ import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
 import com.fitsync.nutrition.dto.MealTemplateView;
+import com.fitsync.nutrition.dto.TemplateRecipeInput;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
@@ -25,6 +26,8 @@ import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealView;
 import com.fitsync.nutrition.dto.LogWaterRequest;
 import com.fitsync.nutrition.dto.QuickAddMealRequest;
+import com.fitsync.nutrition.dto.RecipeAddItemsRequest;
+import com.fitsync.nutrition.dto.RecipeMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
@@ -77,9 +80,9 @@ public interface NutritionService {
 
     void deleteRecipe(CurrentUserPrincipal principal, UUID recipeId);
 
-    List<LoggedFoodView> listRecentFoods(CurrentUserPrincipal principal, int limit);
+    List<LoggedFoodView> listRecentFoods(CurrentUserPrincipal principal, int limit, String foodGroup);
 
-    List<LoggedFoodView> listFrequentFoods(CurrentUserPrincipal principal, int limit);
+    List<LoggedFoodView> listFrequentFoods(CurrentUserPrincipal principal, int limit, String foodGroup);
 
     FoodDetailView getFood(CurrentUserPrincipal principal, UUID foodId);
 
@@ -103,9 +106,15 @@ public interface NutritionService {
 
     MealTemplateView getMealTemplate(CurrentUserPrincipal principal, UUID templateId);
 
+    MealTemplateView addRecipeToMealTemplate(CurrentUserPrincipal principal, UUID templateId, TemplateRecipeInput input);
+
     void deleteMealTemplate(CurrentUserPrincipal principal, UUID templateId);
 
     MealView createMealFromTemplate(CurrentUserPrincipal principal, UUID templateId, MaterializeTemplateRequest request);
+
+    MealView createMealFromRecipe(CurrentUserPrincipal principal, UUID recipeId, RecipeMealRequest request);
+
+    MealView addRecipeToMeal(CurrentUserPrincipal principal, UUID mealId, UUID recipeId, RecipeAddItemsRequest request);
 
     WaterLogView logWater(CurrentUserPrincipal principal, LogWaterRequest request);
 

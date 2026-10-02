@@ -25,12 +25,15 @@ import org.springframework.data.jpa.domain.Specification;
  */
 public final class FoodCatalogSearchSpecification {
 
+    private static final String FOOD_GROUP_OTHER = "OTHER";
+
     private FoodCatalogSearchSpecification() {
     }
 
     public static Specification<FoodCatalogItemEntity> accessibleSearch(
             UUID userId, String query, LocalDate onDate, String categoryCode, String pathPrefix,
-            UUID brandId, Boolean verified, FoodCatalogScope scope) {
+            UUID brandId, Boolean verified, FoodCatalogScope scope, String foodGroup) {
+        boolean otherGroup = FOOD_GROUP_OTHER.equals(foodGroup);
         return (root, cq, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.isTrue(root.get("active")));
@@ -59,6 +62,22 @@ public final class FoodCatalogSearchSpecification {
                         cb.isTrue(category.get("active")),
                         cb.like(category.<String>get("path"), pathPrefix + "%"));
                 predicates.add(cb.exists(sub));
+            }
+            if (foodGroup != null) {
+                Subquery<Long> sub = cq.subquery(Long.class);
+                Root<FoodCategoryEntity> category = sub.from(FoodCategoryEntity.class);
+                if (otherGroup) {
+                    // OTHER is also where a food lands whose category is missing or not mapped to a group.
+                    sub.select(cb.literal(1L)).where(
+                            cb.equal(category.get("code"), root.get("categoryCode")),
+                            cb.notEqual(category.get("foodGroup"), FOOD_GROUP_OTHER));
+                    predicates.add(cb.not(cb.exists(sub)));
+                } else {
+                    sub.select(cb.literal(1L)).where(
+                            cb.equal(category.get("code"), root.get("categoryCode")),
+                            cb.equal(category.get("foodGroup"), foodGroup));
+                    predicates.add(cb.exists(sub));
+                }
             }
             if (brandId != null) {
                 predicates.add(cb.equal(root.get("brandId"), brandId));

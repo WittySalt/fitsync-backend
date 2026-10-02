@@ -26,10 +26,22 @@ public record CreateRecipeRequest(
         @NotBlank @Size(max = 120) String name,
         @NotNull @DecimalMin(value = "0.0", inclusive = false) BigDecimal servings,
         @Size(max = 300) String note,
-        @NotEmpty List<@Valid RecipeIngredientInput> ingredients) {
+        @NotEmpty List<@Valid RecipeIngredientInput> ingredients,
+        @Size(max = 60) List<@Valid RecipeStepInput> steps) {
 
     public CreateRecipeRequest {
         ingredients = ingredients == null ? List.of() : List.copyOf(ingredients);
+        steps = steps == null ? List.of() : List.copyOf(steps);
+    }
+
+    /** A recipe without a method. */
+    public CreateRecipeRequest(String name, BigDecimal servings, String note, List<RecipeIngredientInput> ingredients) {
+        this(name, servings, note, ingredients, List.of());
+    }
+
+    @Override
+    public List<RecipeStepInput> steps() {
+        return List.copyOf(steps);
     }
 
     @Override

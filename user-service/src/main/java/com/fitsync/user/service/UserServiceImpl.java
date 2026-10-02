@@ -20,6 +20,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
+import com.fitsync.contracts.events.user.NutritionReferenceProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.media.MediaStorageService;
@@ -32,6 +33,7 @@ import com.fitsync.user.domain.GoalType;
 import com.fitsync.user.domain.IntensityPreference;
 import com.fitsync.user.domain.LanguagePreference;
 import com.fitsync.user.domain.MacroPreference;
+import com.fitsync.user.domain.NutrientReferenceRange;
 import com.fitsync.user.domain.MembershipStatus;
 import com.fitsync.user.domain.MembershipTier;
 import com.fitsync.user.domain.NotificationChannel;
@@ -58,6 +60,7 @@ import com.fitsync.user.dto.TrainingPreferencesView;
 import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
+import com.fitsync.user.dto.PersonFactsReconcileResponse;
 import com.fitsync.user.dto.UpsertUserProfileRequest;
 import com.fitsync.user.dto.UserGoalView;
 import com.fitsync.user.dto.UserPreferencesView;
@@ -84,7 +87,9 @@ import com.fitsync.user.repository.UserTrainingPreferencesRepository;
 import com.fitsync.user.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -95,6 +100,7 @@ public class UserServiceImpl implements UserService {
 
     private static final String SOURCE = "user-service";
     private static final String PROGRESS_EVENTS_TOPIC = "progress-events";
+    private static final int RECONCILE_PAGE_SIZE = 200;
     private static final String ACCOUNT_DELETION_REASON_USER_REQUESTED = "USER_REQUESTED";
     private static final String NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE = "NOT_YET_ACTIVE";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
@@ -306,6 +312,10 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserProfileView upsertProfile(CurrentUserPrincipal principal, UpsertUserProfileRequest request) {
         UserProfileEntity entity = getOrCreateProfileEntity(principal);
+        NutrientReferenceRange storedRange = userNutritionPreferencesRepository.findById(principal.userId())
+                .map(UserNutritionPreferencesEntity::getNutrientReferenceRange)
+                .orElse(null);
+        NutritionReferenceProfileDeriver.Derived referenceBefore = deriveReference(entity, storedRange);
         entity.setDisplayName(request.displayName());
         entity.setFirstName(request.firstName());
         entity.setLastName(request.lastName());
@@ -321,6 +331,7 @@ public class UserServiceImpl implements UserService {
         publishProfileUpdated(principal.userId(), saved, List.of("displayName", "firstName", "lastName",
                 "birthDate", "gender", "heightCm", "activityLevel", "timezone", "bio", "onboardingCompleted"));
         energyProfileService.publishEnergyProfile(principal.userId());
+        publishReferenceProfileIfChanged(principal.userId(), referenceBefore, deriveReference(saved, storedRange));
         return toProfileView(saved);
     }
 
@@ -376,6 +387,12 @@ public class UserServiceImpl implements UserService {
         nutrition.setCalorieTrackingMode(request.nutrition().calorieTrackingMode());
         nutrition.setMacroPreference(request.nutrition().macroPreference());
         nutrition.setWaterGoalMl(request.nutrition().waterGoalMl());
+        UserProfileEntity referenceProfile = userProfileRepository.findById(principal.userId()).orElse(null);
+        NutritionReferenceProfileDeriver.Derived referenceBefore =
+                deriveReference(referenceProfile, nutrition.getNutrientReferenceRange());
+        if (request.nutrition().nutrientReferenceRange() != null) {
+            nutrition.setNutrientReferenceRange(request.nutrition().nutrientReferenceRange());
+        }
 
         UserNotificationPreferencesEntity notifications = getOrCreateNotificationPreferencesEntity(principal.userId());
         notifications.setPushEnabled(request.notifications().pushEnabled());
@@ -399,19 +416,9 @@ public class UserServiceImpl implements UserService {
         UserNutritionPreferencesEntity savedNutrition = userNutritionPreferencesRepository.save(nutrition);
         UserNotificationPreferencesEntity savedNotifications =
                 userNotificationPreferencesRepository.save(notifications);
-        domainEventPublisher.publish(
-                "user-events", "UserPreferences", principal.userId().toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "UserPreferencesUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, principal.userId(),
-                new UserPreferencesUpdatedPayload(
-                        savedApp.getPreferredUnits().getCode(),
-                        savedTraining.getWeeklyWorkoutDays(),
-                        savedNutrition.getDietaryPattern() == null
-                                ? null
-                                : savedNutrition.getDietaryPattern().getCode(),
-                        savedNotifications.isPushEnabled() || savedNotifications.isEmailEnabled(),
-                        savedTraining.getEquipmentInventory().stream().map(TrainingEquipment::getCode).toList(),
-                        savedTraining.getFocusAreas().stream().map(TrainingFocusArea::getCode).toList(),
-                        savedApp.getTimezone())));
+        publishPreferencesUpdated(principal.userId(), savedApp, savedTraining, savedNutrition, savedNotifications);
+        publishReferenceProfileIfChanged(principal.userId(), referenceBefore,
+                deriveReference(referenceProfile, savedNutrition.getNutrientReferenceRange()));
         return toPreferencesView(savedApp, savedTraining, savedNutrition, savedNotifications);
     }
 
@@ -667,6 +674,48 @@ public class UserServiceImpl implements UserService {
         return activeGoals.size();
     }
 
+    /**
+     * Publishes the nutrition reference profile, the preferences and the latest weight of every user once, so that a service that
+     * started keeping a projection of them after those users last changed anything gets its rows filled. A user
+     * without a stored row or a weight is skipped for that event.
+     */
+    @Override
+    @Transactional
+    public PersonFactsReconcileResponse republishPersonFacts() {
+        int referenceProfiles = 0;
+        int preferences = 0;
+        int bodyMetrics = 0;
+        Page<UserProfileEntity> page;
+        int pageNumber = 0;
+        do {
+            page = userProfileRepository.findAll(PageRequest.of(pageNumber++, RECONCILE_PAGE_SIZE, Sort.by("userId")));
+            for (UserProfileEntity profile : page.getContent()) {
+                UUID userId = profile.getUserId();
+                UserNutritionPreferencesEntity nutritionForReference =
+                        userNutritionPreferencesRepository.findById(userId).orElse(null);
+                publishReferenceProfile(userId, deriveReference(profile,
+                        nutritionForReference == null ? null : nutritionForReference.getNutrientReferenceRange()));
+                referenceProfiles++;
+                UserAppPreferencesEntity app = userAppPreferencesRepository.findById(userId).orElse(null);
+                UserTrainingPreferencesEntity training = userTrainingPreferencesRepository.findById(userId).orElse(null);
+                UserNutritionPreferencesEntity nutrition = userNutritionPreferencesRepository.findById(userId).orElse(null);
+                UserNotificationPreferencesEntity notifications =
+                        userNotificationPreferencesRepository.findById(userId).orElse(null);
+                if (app != null && training != null && nutrition != null && notifications != null) {
+                    publishPreferencesUpdated(userId, app, training, nutrition, notifications);
+                    preferences++;
+                }
+                BodyMetricEntryEntity latest = bodyMetricEntryRepository
+                        .findTopByUserIdAndWeightKgIsNotNullOrderByMeasuredAtDesc(userId).orElse(null);
+                if (latest != null) {
+                    publishBodyMetricsRecordedEvent(userId, latest);
+                    bodyMetrics++;
+                }
+            }
+        } while (page.hasNext());
+        return new PersonFactsReconcileResponse(referenceProfiles, preferences, bodyMetrics);
+    }
+
     @Override
     @Transactional
     public void deleteCurrentUser(CurrentUserPrincipal principal) {
@@ -790,6 +839,48 @@ public class UserServiceImpl implements UserService {
         return contentType;
     }
 
+    private void publishPreferencesUpdated(UUID userId, UserAppPreferencesEntity app,
+                                           UserTrainingPreferencesEntity training,
+                                           UserNutritionPreferencesEntity nutrition,
+                                           UserNotificationPreferencesEntity notifications) {
+        domainEventPublisher.publish(
+                "user-events", "UserPreferences", userId.toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "UserPreferencesUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, userId,
+                new UserPreferencesUpdatedPayload(
+                        app.getPreferredUnits().getCode(),
+                        training.getWeeklyWorkoutDays(),
+                        nutrition.getDietaryPattern() == null
+                                ? null
+                                : nutrition.getDietaryPattern().getCode(),
+                        notifications.isPushEnabled() || notifications.isEmailEnabled(),
+                        training.getEquipmentInventory().stream().map(TrainingEquipment::getCode).toList(),
+                        training.getFocusAreas().stream().map(TrainingFocusArea::getCode).toList(),
+                        app.getTimezone())));
+    }
+
+    private NutritionReferenceProfileDeriver.Derived deriveReference(UserProfileEntity profile,
+                                                                     NutrientReferenceRange range) {
+        return NutritionReferenceProfileDeriver.derive(
+                profile == null ? null : profile.getGender(),
+                profile == null ? null : profile.getBirthDate(),
+                range,
+                Clock.systemUTC());
+    }
+
+    private void publishReferenceProfileIfChanged(UUID userId, NutritionReferenceProfileDeriver.Derived before,
+                                                  NutritionReferenceProfileDeriver.Derived after) {
+        if (!before.equals(after)) {
+            publishReferenceProfile(userId, after);
+        }
+    }
+
+    private void publishReferenceProfile(UUID userId, NutritionReferenceProfileDeriver.Derived derived) {
+        domainEventPublisher.publish(
+                "user-events", "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "NutritionReferenceProfileUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE,
+                userId, new NutritionReferenceProfileUpdatedPayload(derived.referenceSex(), derived.ageBand())));
+    }
+
     private void publishProfileUpdated(UUID userId, UserProfileEntity saved, List<String> changedFields) {
         domainEventPublisher.publish(
                 "user-events", "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
@@ -826,7 +917,7 @@ public class UserServiceImpl implements UserService {
         entity.setNote(request.note());
     }
 
-    private void publishBodyMetricsRecorded(UUID userId, BodyMetricEntryEntity saved) {
+    private void publishBodyMetricsRecordedEvent(UUID userId, BodyMetricEntryEntity saved) {
         domainEventPublisher.publish(
                 PROGRESS_EVENTS_TOPIC, "BodyMetricEntry", saved.getMetricId().toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "BodyMetricsRecorded", 1, Instant.now(Clock.systemUTC()), SOURCE, userId,
@@ -836,6 +927,10 @@ public class UserServiceImpl implements UserService {
                         saved.getBodyFatRate(),
                         saved.getWaistCm(),
                         saved.getMeasuredAt())));
+    }
+
+    private void publishBodyMetricsRecorded(UUID userId, BodyMetricEntryEntity saved) {
+        publishBodyMetricsRecordedEvent(userId, saved);
         // EV-3: a body-metric write may change the latest weight, so recompute.
         energyProfileService.publishEnergyProfile(userId);
     }
@@ -874,7 +969,10 @@ public class UserServiceImpl implements UserService {
                         nutrition.getMealFrequency(),
                         nutrition.getCalorieTrackingMode(),
                         nutrition.getMacroPreference(),
-                        nutrition.getWaterGoalMl()),
+                        nutrition.getWaterGoalMl(),
+                        nutrition.getNutrientReferenceRange() == null
+                                ? NutrientReferenceRange.PROFILE
+                                : nutrition.getNutrientReferenceRange()),
                 new NotificationPreferencesView(
                         notifications.isPushEnabled(),
                         notifications.isEmailEnabled(),

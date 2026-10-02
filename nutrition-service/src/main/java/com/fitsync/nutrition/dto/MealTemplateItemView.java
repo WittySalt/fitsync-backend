@@ -19,5 +19,7 @@ public record MealTemplateItemView(
         BigDecimal fatGrams,
         BigDecimal fiberGrams,
         BigDecimal sugarGrams,
-        BigDecimal sodiumMg) {
+        BigDecimal sodiumMg,
+        UUID recipeId,
+        BigDecimal recipeServings) {
 }
