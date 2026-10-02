@@ -32,6 +32,12 @@ public class RecipeIngredientEntity extends BaseAuditableEntity {
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 
+    @Column(name = "display_text", length = 200)
+    private String displayText;
+
+    @Column(name = "grams", precision = 10, scale = 2)
+    private BigDecimal grams;
+
     public UUID getIngredientId() {
         return ingredientId;
     }
@@ -78,5 +84,21 @@ public class RecipeIngredientEntity extends BaseAuditableEntity {
 
     public void setSortOrder(int sortOrder) {
         this.sortOrder = sortOrder;
+    }
+
+    public String getDisplayText() {
+        return displayText;
+    }
+
+    public void setDisplayText(String displayText) {
+        this.displayText = displayText;
+    }
+
+    public BigDecimal getGrams() {
+        return grams;
+    }
+
+    public void setGrams(BigDecimal grams) {
+        this.grams = grams;
     }
 }

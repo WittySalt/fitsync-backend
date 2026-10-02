@@ -23,5 +23,17 @@ public interface FoodNutrientDetailRepository extends JpaRepository<FoodNutrient
             """)
     List<FoodNutrientDetailEntity> findActiveByFoodId(@Param("foodId") UUID foodId, @Param("onDate") LocalDate onDate);
 
+    @Query("""
+            select d
+            from FoodNutrientDetailEntity d
+            where d.foodId in :foodIds
+              and d.active = true
+              and (d.dateEffectiveFrom is null or d.dateEffectiveFrom <= :onDate)
+              and (d.dateEffectiveTo is null or d.dateEffectiveTo >= :onDate)
+            order by d.foodId asc, d.sortOrder asc
+            """)
+    List<FoodNutrientDetailEntity> findActiveByFoodIdIn(
+            @Param("foodIds") Collection<UUID> foodIds, @Param("onDate") LocalDate onDate);
+
     void deleteByFoodIdIn(Collection<UUID> foodIds);
 }

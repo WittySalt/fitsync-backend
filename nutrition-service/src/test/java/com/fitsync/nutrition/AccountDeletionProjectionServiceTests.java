@@ -10,7 +10,6 @@ import java.util.UUID;
 
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
 import com.fitsync.nutrition.entity.MealTemplateEntity;
-import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.messaging.AccountDeletionProjectionService;
 import com.fitsync.nutrition.repository.CustomFoodRepository;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
@@ -24,7 +23,7 @@ import com.fitsync.nutrition.repository.MealTemplateItemRepository;
 import com.fitsync.nutrition.repository.MealTemplateRepository;
 import com.fitsync.nutrition.repository.NutritionPreferenceProjectionRepository;
 import com.fitsync.nutrition.repository.NutritionTargetRepository;
-import com.fitsync.nutrition.repository.RecipeIngredientRepository;
+import com.fitsync.nutrition.repository.RecipeFavoriteRepository;
 import com.fitsync.nutrition.repository.RecipeRepository;
 import com.fitsync.nutrition.repository.WaterLogRepository;
 import org.junit.jupiter.api.Test;
@@ -36,16 +35,12 @@ class AccountDeletionProjectionServiceTests {
     void deletesUserNutritionDataAndChildRows() {
         Fixtures fixtures = new Fixtures();
         UUID userId = UUID.randomUUID();
-        UUID recipeId = UUID.randomUUID();
         UUID templateId = UUID.randomUUID();
         UUID foodId = UUID.randomUUID();
         MealTemplateEntity template = new MealTemplateEntity();
         template.setTemplateId(templateId);
-        RecipeEntity recipe = new RecipeEntity();
-        recipe.setRecipeId(recipeId);
         FoodCatalogItemEntity food = new FoodCatalogItemEntity();
         food.setFoodId(foodId);
-        when(fixtures.recipeRepository.findByUserIdOrderByNameAsc(userId)).thenReturn(List.of(recipe));
         when(fixtures.mealTemplateRepository.findByUserIdOrderByNameAsc(userId)).thenReturn(List.of(template));
         when(fixtures.foodCatalogItemRepository.findByOwnerUserId(userId)).thenReturn(List.of(food));
 
@@ -56,8 +51,11 @@ class AccountDeletionProjectionServiceTests {
         mealOrder.verify(fixtures.mealLogRepository).purgeItemDetailsByUserId(userId);
         mealOrder.verify(fixtures.mealLogRepository).purgeItemsByUserId(userId);
         mealOrder.verify(fixtures.mealLogRepository).purgeByUserId(userId);
-        verify(fixtures.recipeIngredientRepository).deleteByRecipeId(recipeId);
-        verify(fixtures.recipeRepository).deleteAll(List.of(recipe));
+        // Recipes go through native purges as well, so that soft-deleted recipes are removed with their steps.
+        verify(fixtures.recipeFavoriteRepository).deleteByUserId(userId);
+        verify(fixtures.recipeRepository).purgeStepsByUserId(userId);
+        verify(fixtures.recipeRepository).purgeIngredientsByUserId(userId);
+        verify(fixtures.recipeRepository).purgeByUserId(userId);
         verify(fixtures.mealTemplateItemRepository).deleteByTemplateId(templateId);
         verify(fixtures.mealTemplateRepository).deleteAll(List.of(template));
         verify(fixtures.foodFavoriteRepository).deleteByFoodIdIn(List.of(foodId));
@@ -76,7 +74,7 @@ class AccountDeletionProjectionServiceTests {
     private static final class Fixtures {
         private final MealLogRepository mealLogRepository = mock(MealLogRepository.class);
         private final RecipeRepository recipeRepository = mock(RecipeRepository.class);
-        private final RecipeIngredientRepository recipeIngredientRepository = mock(RecipeIngredientRepository.class);
+        private final RecipeFavoriteRepository recipeFavoriteRepository = mock(RecipeFavoriteRepository.class);
         private final MealTemplateRepository mealTemplateRepository = mock(MealTemplateRepository.class);
         private final MealTemplateItemRepository mealTemplateItemRepository = mock(MealTemplateItemRepository.class);
         private final FoodCatalogItemRepository foodCatalogItemRepository = mock(FoodCatalogItemRepository.class);
@@ -96,7 +94,7 @@ class AccountDeletionProjectionServiceTests {
         private final AccountDeletionProjectionService service = new AccountDeletionProjectionService(
                 mealLogRepository,
                 recipeRepository,
-                recipeIngredientRepository,
+                recipeFavoriteRepository,
                 mealTemplateRepository,
                 mealTemplateItemRepository,
                 foodCatalogItemRepository,
