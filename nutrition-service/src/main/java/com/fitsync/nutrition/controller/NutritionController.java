@@ -12,6 +12,7 @@ import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
 import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
+import com.fitsync.nutrition.dto.CreateRecipeCookRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
 import com.fitsync.nutrition.dto.MealTemplateView;
@@ -31,6 +32,7 @@ import com.fitsync.nutrition.dto.MealView;
 import com.fitsync.nutrition.dto.QuickAddMealRequest;
 import com.fitsync.nutrition.dto.UsualMealsView;
 import com.fitsync.nutrition.dto.RecipeAddItemsRequest;
+import com.fitsync.nutrition.dto.RecipeCookView;
 import com.fitsync.nutrition.dto.RecipeDetailView;
 import com.fitsync.nutrition.dto.RecipeMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
@@ -41,6 +43,7 @@ import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionDiaryService;
 import com.fitsync.nutrition.service.NutritionPageInsightService;
 import com.fitsync.nutrition.service.NutritionService;
+import com.fitsync.nutrition.service.RecipeCookService;
 import com.fitsync.nutrition.service.RecipeLibraryService;
 import com.fitsync.nutrition.service.UsualMealsService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -74,17 +77,20 @@ public class NutritionController {
     private final UsualMealsService usualMealsService;
     private final NutritionDiaryService nutritionDiaryService;
     private final RecipeLibraryService recipeLibraryService;
+    private final RecipeCookService recipeCookService;
 
     public NutritionController(NutritionService nutritionService,
                                NutritionPageInsightService nutritionPageInsightService,
                                UsualMealsService usualMealsService,
                                NutritionDiaryService nutritionDiaryService,
-                               RecipeLibraryService recipeLibraryService) {
+                               RecipeLibraryService recipeLibraryService,
+                               RecipeCookService recipeCookService) {
         this.nutritionService = nutritionService;
         this.nutritionPageInsightService = nutritionPageInsightService;
         this.usualMealsService = usualMealsService;
         this.nutritionDiaryService = nutritionDiaryService;
         this.recipeLibraryService = recipeLibraryService;
+        this.recipeCookService = recipeCookService;
     }
 
     @PostMapping("/meals")
@@ -402,6 +408,26 @@ public class NutritionController {
     @GetMapping("/recipes/{recipeId}")
     public RecipeDetailView recipe(Authentication authentication, @PathVariable UUID recipeId) {
         return recipeLibraryService.detail(currentPrincipal(authentication), recipeId);
+    }
+
+    /**
+     * Records that the caller cooked a recipe. The first write answers 201, and a retry with the same
+     * clientCookId answers 200 with the same record.
+     */
+    @PostMapping("/recipes/{recipeId}/cooks")
+    public org.springframework.http.ResponseEntity<RecipeCookView> recordCook(Authentication authentication,
+                                                                              @PathVariable UUID recipeId,
+                                                                              @Valid @RequestBody CreateRecipeCookRequest request) {
+        RecipeCookService.Recorded recorded = recipeCookService.record(currentPrincipal(authentication), recipeId, request);
+        return org.springframework.http.ResponseEntity
+                .status(recorded.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(recorded.view());
+    }
+
+    @DeleteMapping("/recipes/cooks/{cookId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteCook(Authentication authentication, @PathVariable UUID cookId) {
+        recipeCookService.delete(currentPrincipal(authentication), cookId);
     }
 
     @PostMapping("/recipes/{recipeId}/favorite")

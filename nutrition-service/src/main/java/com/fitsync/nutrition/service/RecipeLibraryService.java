@@ -35,6 +35,8 @@ import com.fitsync.nutrition.entity.RecipeIngredientEntity;
 import com.fitsync.nutrition.entity.RecipeStepEntity;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository.RecentRecipeRow;
+import com.fitsync.nutrition.repository.RecipeCookRepository;
+import com.fitsync.nutrition.repository.RecipeCookRepository.CookedRecipeRow;
 import com.fitsync.nutrition.repository.RecipeFavoriteRepository;
 import com.fitsync.nutrition.repository.RecipeIngredientRepository;
 import com.fitsync.nutrition.repository.RecipeRepository;
@@ -96,6 +98,7 @@ public class RecipeLibraryService {
     private final Clock clock;
     private final NutritionDiaryService diaryService;
     private final MealNutritionQueryRepository mealQueries;
+    private final RecipeCookRepository cookRepository;
 
     public RecipeLibraryService(RecipeRepository recipeRepository,
                                 RecipeIngredientRepository ingredientRepository,
@@ -106,7 +109,8 @@ public class RecipeLibraryService {
                                 PersonLookup personLookup,
                                 Clock clock,
                                 NutritionDiaryService diaryService,
-                                MealNutritionQueryRepository mealQueries) {
+                                MealNutritionQueryRepository mealQueries,
+                                RecipeCookRepository cookRepository) {
         this.recipeRepository = recipeRepository;
         this.ingredientRepository = ingredientRepository;
         this.stepRepository = stepRepository;
@@ -117,6 +121,7 @@ public class RecipeLibraryService {
         this.clock = clock;
         this.diaryService = diaryService;
         this.mealQueries = mealQueries;
+        this.cookRepository = cookRepository;
     }
 
     @Transactional(readOnly = true)
@@ -297,15 +302,26 @@ public class RecipeLibraryService {
      * the caller can no longer see is left out.
      */
     private Page<RecipeListItemView> recent(UUID userId) {
-        List<RecentRecipeRow> rows = mealQueries.findRecentRecipes(userId, PageRequest.of(0, RECENT_FETCH));
+        // The recorded cooks and the meals that came from a recipe (the only trace before cooks were recorded)
+        // are merged, and a recipe shows the newest time of the two.
+        Map<UUID, Instant> newest = new HashMap<>();
+        for (RecentRecipeRow row : mealQueries.findRecentRecipes(userId, PageRequest.of(0, RECENT_FETCH))) {
+            newest.merge(row.getRecipeId(), row.getLastCookedAt(), RecipeLibraryService::later);
+        }
+        for (CookedRecipeRow row : cookRepository.findRecentRecipes(userId, PageRequest.of(0, RECENT_FETCH))) {
+            newest.merge(row.getRecipeId(), row.getLastCookedAt(), RecipeLibraryService::later);
+        }
+        List<UUID> ordered = newest.entrySet().stream()
+                .sorted(Map.Entry.<UUID, Instant>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+                .map(Map.Entry::getKey)
+                .toList();
         Map<UUID, RecipeEntity> byId = new HashMap<>();
-        recipeRepository.findAllById(rows.stream().map(RecentRecipeRow::getRecipeId).toList())
-                .forEach(recipe -> byId.put(recipe.getRecipeId(), recipe));
+        recipeRepository.findAllById(ordered).forEach(recipe -> byId.put(recipe.getRecipeId(), recipe));
         Map<UUID, Instant> lastCooked = new LinkedHashMap<>();
-        for (RecentRecipeRow row : rows) {
-            RecipeEntity recipe = byId.get(row.getRecipeId());
+        for (UUID recipeId : ordered) {
+            RecipeEntity recipe = byId.get(recipeId);
             if (recipe != null && isVisible(userId, recipe) && lastCooked.size() < RECENT_LIMIT) {
-                lastCooked.put(recipe.getRecipeId(), row.getLastCookedAt());
+                lastCooked.put(recipeId, newest.get(recipeId));
             }
         }
         List<RecipeEntity> recipes = lastCooked.keySet().stream().map(byId::get).toList();
@@ -316,6 +332,10 @@ public class RecipeLibraryService {
                         saved.contains(recipe.getRecipeId()), lastCooked.get(recipe.getRecipeId())))
                 .toList();
         return new PageImpl<>(content, PageRequest.of(0, RECENT_LIMIT), content.size());
+    }
+
+    private static Instant later(Instant first, Instant second) {
+        return first.isAfter(second) ? first : second;
     }
 
     private Set<UUID> savedIds(UUID userId, String scope, List<RecipeEntity> recipes) {
@@ -553,7 +573,9 @@ public class RecipeLibraryService {
                 computation.tags(),
                 computation.dietFlags(),
                 favorite,
-                editable);
+                editable,
+                cookRepository.countByUserIdAndRecipeIdAndDeletedAtIsNull(userId, recipe.getRecipeId()),
+                cookRepository.findLastFinishedAt(userId, recipe.getRecipeId()).orElse(null));
     }
 
     private static BigDecimal shareOf(BigDecimal amount, BigDecimal reference) {

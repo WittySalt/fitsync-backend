@@ -145,6 +145,11 @@
 
     <!-- Constructor-injected Spring Data repositories of the recipe services, same noise as above. -->
     <Match>
+        <Class name="com.fitsync.nutrition.service.RecipeCookService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
         <Class name="com.fitsync.nutrition.service.RecipeInsightService"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>

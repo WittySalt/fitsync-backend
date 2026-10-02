@@ -34,6 +34,12 @@ public interface RecipeRepository extends JpaRepository<RecipeEntity, UUID>, Jpa
             """, nativeQuery = true)
     int purgeIngredientsByUserId(@Param("userId") UUID userId);
 
+    // The cooks of the user go with the account. Cooks of other users on this user's recipes go with the
+    // recipe row, through the foreign key.
+    @Modifying
+    @Query(value = "delete from recipe_cooks where user_id = :userId", nativeQuery = true)
+    int purgeCooksByUserId(@Param("userId") UUID userId);
+
     @Modifying
     @Query(value = "delete from recipes where user_id = :userId", nativeQuery = true)
     int purgeByUserId(@Param("userId") UUID userId);

@@ -68,6 +68,7 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
         jdbcTemplate.update("delete from meal_template_items");
         jdbcTemplate.update("delete from meal_templates");
         jdbcTemplate.update("delete from recipe_favorites");
+        jdbcTemplate.update("delete from recipe_cooks");
         jdbcTemplate.update("delete from recipe_steps");
         jdbcTemplate.update("delete from recipe_ingredients");
         jdbcTemplate.update("delete from recipes");
@@ -984,6 +985,145 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
         mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + other).param("scope", "recent"))
                 .andExpect(jsonPath("$.content.length()").value(10))
                 .andExpect(jsonPath("$.content[0].name").value("Extra dish 11"));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions cook(String token, UUID recipeId, String body)
+            throws Exception {
+        return mockMvc.perform(post(RECIPES + "/" + recipeId + "/cooks")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + token)
+                .content(body));
+    }
+
+    private static String cookJson(String servings, String finishedAt) {
+        return "{\"clientCookId\": \"" + UUID.randomUUID() + "\", \"servings\": " + servings
+                + (finishedAt == null ? "" : ", \"finishedAt\": \"" + finishedAt + "\"") + "}";
+    }
+
+    @Test
+    void aCookIsRecordedOnceAndARetryWithTheSameClientIdAnswersWithTheSameRecord() throws Exception {
+        String token = tokenFor("cook-a@example.com");
+        UUID clientId = UUID.randomUUID();
+        String body = "{\"clientCookId\": \"" + clientId + "\", \"servings\": 2, "
+                + "\"startedAt\": \"2026-06-11T17:00:00Z\", \"finishedAt\": \"2026-06-11T18:00:00Z\"}";
+
+        String first = cook(token, chickenBowl, body)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.recipeId").value(chickenBowl.toString()))
+                .andExpect(jsonPath("$.servings").value(2.0))
+                .andExpect(jsonPath("$.startedAt").value("2026-06-11T17:00:00Z"))
+                .andExpect(jsonPath("$.finishedAt").value("2026-06-11T18:00:00Z"))
+                .andReturn().getResponse().getContentAsString();
+        String second = cook(token, chickenBowl, body).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        Assertions.assertEquals(JsonPath.<String>read(first, "$.cookId"), JsonPath.<String>read(second, "$.cookId"));
+        Assertions.assertEquals(1, jdbcTemplate.queryForObject("select count(*) from recipe_cooks", Integer.class));
+        // Without a finishedAt the cook ends now.
+        cook(token, lentilSalad, cookJson("1", null)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.finishedAt").isNotEmpty())
+                .andExpect(jsonPath("$.startedAt").doesNotExist());
+    }
+
+    @Test
+    void cookServingsMustBeBetweenAQuarterAndFifty() throws Exception {
+        String token = tokenFor("cook-b@example.com");
+
+        cook(token, chickenBowl, cookJson("0.24", null)).andExpect(status().isBadRequest());
+        cook(token, chickenBowl, cookJson("50.01", null)).andExpect(status().isBadRequest());
+        cook(token, chickenBowl, cookJson("0", null)).andExpect(status().isBadRequest());
+        cook(token, chickenBowl, "{\"clientCookId\": \"" + UUID.randomUUID() + "\"}")
+                .andExpect(status().isBadRequest());
+        cook(token, chickenBowl, cookJson("0.25", null)).andExpect(status().isCreated());
+        cook(token, chickenBowl, cookJson("50", null)).andExpect(status().isCreated());
+    }
+
+    @Test
+    void aCookCannotFinishInTheFutureBeyondFiveMinutesOfSkew() throws Exception {
+        String token = tokenFor("cook-c@example.com");
+
+        cook(token, chickenBowl, cookJson("1", Instant.now().plusSeconds(3600).toString()))
+                .andExpect(status().isBadRequest());
+        cook(token, chickenBowl, cookJson("1", Instant.now().plusSeconds(120).toString()))
+                .andExpect(status().isCreated());
+        cook(token, chickenBowl, "{\"clientCookId\": \"" + UUID.randomUUID() + "\", \"servings\": 1, "
+                + "\"startedAt\": \"2026-06-11T19:00:00Z\", \"finishedAt\": \"2026-06-11T18:00:00Z\"}")
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aCookNeedsARecipeTheCallerCanSee() throws Exception {
+        String token = tokenFor("cook-d@example.com");
+
+        cook(token, unpublished, cookJson("1", null)).andExpect(status().isNotFound());
+        cook(token, UUID.randomUUID(), cookJson("1", null)).andExpect(status().isNotFound());
+        mockMvc.perform(post(RECIPES + "/" + chickenBowl + "/cooks").contentType(MediaType.APPLICATION_JSON)
+                .content(cookJson("1", null))).andExpect(status().isUnauthorized());
+        Assertions.assertEquals(0, jdbcTemplate.queryForObject("select count(*) from recipe_cooks", Integer.class));
+    }
+
+    @Test
+    void onlyTheOwnerCanDeleteACookAndItIsMarkedNotRemoved() throws Exception {
+        String token = tokenFor("cook-e@example.com");
+        String other = tokenFor("cook-f@example.com");
+        String cookId = JsonPath.read(cook(token, chickenBowl, cookJson("1", null)).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "$.cookId");
+
+        mockMvc.perform(delete(RECIPES + "/cooks/" + cookId).header("Authorization", "Bearer " + other))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete(RECIPES + "/cooks/" + UUID.randomUUID()).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete(RECIPES + "/cooks/" + cookId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete(RECIPES + "/cooks/" + cookId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+
+        Assertions.assertEquals(1, jdbcTemplate.queryForObject(
+                "select count(*) from recipe_cooks where deleted_at is not null", Integer.class));
+    }
+
+    @Test
+    void theDetailCountsTheCallersCooksAndSoftDeleteTakesThemBackOutOfCountAndRecent() throws Exception {
+        String token = tokenFor("cook-g@example.com");
+        String other = tokenFor("cook-h@example.com");
+        mockMvc.perform(get(RECIPES + "/" + chickenBowl).header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.cookCount").value(0))
+                .andExpect(jsonPath("$.lastCookedAt").doesNotExist());
+        cook(token, chickenBowl, cookJson("1", "2026-06-10T18:00:00Z")).andExpect(status().isCreated());
+        String newest = JsonPath.read(cook(token, chickenBowl, cookJson("2", "2026-06-11T18:00:00Z"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.cookId");
+        cook(other, chickenBowl, cookJson("1", "2026-06-12T18:00:00Z")).andExpect(status().isCreated());
+
+        mockMvc.perform(get(RECIPES + "/" + chickenBowl).header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.cookCount").value(2))
+                .andExpect(jsonPath("$.lastCookedAt").value("2026-06-11T18:00:00Z"));
+        mockMvc.perform(delete(RECIPES + "/cooks/" + newest).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get(RECIPES + "/" + chickenBowl).header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.cookCount").value(1))
+                .andExpect(jsonPath("$.lastCookedAt").value("2026-06-10T18:00:00Z"));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token).param("scope", "recent"))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].lastCookedAt").value("2026-06-10T18:00:00Z"));
+    }
+
+    @Test
+    void recentMergesRecordedCooksWithMealsFromARecipeAndShowsTheNewestOfBoth() throws Exception {
+        String token = tokenFor("cook-i@example.com");
+        // The lentil salad was only logged as a meal, the chicken bowl was logged and cooked, and the milk
+        // porridge was cooked before the meal of the chicken bowl.
+        logRecipeNow(token, lentilSalad, Instant.parse("2026-06-09T12:00:00Z"));
+        logRecipeNow(token, chickenBowl, Instant.parse("2026-06-10T12:00:00Z"));
+        cook(token, chickenBowl, cookJson("1", "2026-06-12T12:00:00Z")).andExpect(status().isCreated());
+        cook(token, milkPorridge, cookJson("1", "2026-06-11T12:00:00Z")).andExpect(status().isCreated());
+
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token).param("scope", "recent"))
+                .andExpect(jsonPath("$.content.length()").value(3))
+                .andExpect(jsonPath("$.content[0].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.content[0].lastCookedAt").value("2026-06-12T12:00:00Z"))
+                .andExpect(jsonPath("$.content[1].name").value("Milk porridge"))
+                .andExpect(jsonPath("$.content[2].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.content[2].lastCookedAt").value("2026-06-09T12:00:00Z"));
     }
 
     private String fromRecipeJson(String servings) {

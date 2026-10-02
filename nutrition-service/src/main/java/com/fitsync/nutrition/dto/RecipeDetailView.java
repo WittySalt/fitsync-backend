@@ -26,7 +26,9 @@ public record RecipeDetailView(
         List<String> tags,
         List<String> dietFlags,
         boolean favorite,
-        boolean editable) {
+        boolean editable,
+        long cookCount,
+        java.time.Instant lastCookedAt) {
 
     public RecipeDetailView {
         ingredients = ingredients == null ? List.of() : List.copyOf(ingredients);
