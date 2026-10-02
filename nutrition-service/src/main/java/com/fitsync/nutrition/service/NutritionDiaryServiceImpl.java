@@ -27,6 +27,7 @@ import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.DrinkWaterEntryView;
 import com.fitsync.nutrition.dto.NutrientBalanceView;
 import com.fitsync.nutrition.dto.NutrientCoverageView;
+import com.fitsync.nutrition.dto.NutrientDayView;
 import com.fitsync.nutrition.dto.NutrientSummaryItemView;
 import com.fitsync.nutrition.dto.NutrientSummaryView;
 import com.fitsync.nutrition.dto.ProteinByMealView;
@@ -41,6 +42,7 @@ import com.fitsync.nutrition.entity.WaterLogEntity;
 import com.fitsync.nutrition.repository.FoodCategoryRepository;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository.DiaryItemRow;
+import com.fitsync.nutrition.repository.MealNutritionQueryRepository.MealCodeTotalRow;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository.MealNutrientTotalRow;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository.MealTotalsRow;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository.NutrientDetailRow;
@@ -383,6 +385,13 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
             }
         }
         Map<String, String> richest = richestUsualFoods(userId, to, zone, codes);
+        Map<String, Map<LocalDate, BigDecimal>> dailyTotals = new HashMap<>();
+        for (MealCodeTotalRow row : mealQueries.findNutrientTotalsByMeal(userId, start, end, codes)) {
+            if (row.getTotal() != null) {
+                dailyTotals.computeIfAbsent(row.getNutrientCode(), key -> new HashMap<>())
+                        .merge(localDate(row.getConsumedAt(), zone), row.getTotal(), BigDecimal::add);
+            }
+        }
 
         List<NutrientSummaryItemView> items = new ArrayList<>();
         for (NutrientEntity nutrient : listed) {
@@ -405,7 +414,8 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                     known ? reaches(average, reference) : null,
                     upper,
                     known ? upper != null && average.compareTo(upper) > 0 : null,
-                    richest.get(code)));
+                    richest.get(code),
+                    dayEntries(from, to, loggedDates, dailyTotals.getOrDefault(code, Map.of()), reference)));
         }
         items.sort(Comparator
                 .comparingInt((NutrientSummaryItemView item) -> focusOrder(focusCodes, item.code()))
@@ -415,6 +425,18 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                 mealQueries.countItems(userId, start, end),
                 mealQueries.countItemsWithoutNutrients(userId, start, end));
         return new NutrientSummaryView(from, to, days, daysLogged, references.label(), references.range(), focusCodes, coverage, items);
+    }
+
+    private static List<NutrientDayView> dayEntries(LocalDate from, LocalDate to, Set<LocalDate> loggedDates,
+                                                    Map<LocalDate, BigDecimal> amounts, BigDecimal reference) {
+        List<NutrientDayView> entries = new ArrayList<>();
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            BigDecimal amount = loggedDates.contains(date) ? amounts.get(date) : null;
+            BigDecimal rounded = amount == null ? null : scaleTwo(amount);
+            entries.add(new NutrientDayView(date, loggedDates.contains(date), rounded,
+                    rounded == null ? null : shareOf(rounded, reference)));
+        }
+        return entries;
     }
 
     /**

@@ -161,6 +161,15 @@ public interface MealNutritionQueryRepository extends Repository<MealLogEntity, 
         BigDecimal getTotal();
     }
 
+    /** One nutrient summed over one meal, with the nutrient code. */
+    interface MealCodeTotalRow {
+        String getNutrientCode();
+
+        Instant getConsumedAt();
+
+        BigDecimal getTotal();
+    }
+
     /** One nutrient summed over a whole range. */
     interface NutrientTotalRow {
         String getNutrientCode();
@@ -260,6 +269,23 @@ public interface MealNutritionQueryRepository extends Repository<MealLogEntity, 
                                               @Param("from") Instant from,
                                               @Param("to") Instant to,
                                               @Param("codes") Collection<String> codes);
+
+    /** One nutrient summed per meal, for every given nutrient, so a range is bucketed by local date from one query. */
+    @Query("""
+            select d.nutrientCode as nutrientCode, m.mealId as mealId, m.consumedAt as consumedAt, sum(d.amount) as total
+            from MealItemNutrientDetailEntity d, MealItemEntity i, MealLogEntity m
+            where d.mealItemId = i.mealItemId
+              and i.mealId = m.mealId
+              and m.userId = :userId
+              and m.consumedAt >= :from
+              and m.consumedAt < :to
+              and d.nutrientCode in :codes
+            group by d.nutrientCode, m.mealId, m.consumedAt
+            """)
+    List<MealCodeTotalRow> findNutrientTotalsByMeal(@Param("userId") UUID userId,
+                                                    @Param("from") Instant from,
+                                                    @Param("to") Instant to,
+                                                    @Param("codes") Collection<String> codes);
 
     /** How many meal items a user logged in {@code [from, to)}. */
     @Query("""

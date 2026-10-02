@@ -1,5 +1,6 @@
 package com.fitsync.nutrition;
 
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -487,6 +488,33 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.nutrients[4].met").value(nullValue()))
                 .andExpect(jsonPath("$.nutrients[4].aboveUpperLimit").value(nullValue()))
                 .andExpect(jsonPath("$.nutrients[4].richestUsualFood").value(nullValue()));
+    }
+
+    @Test
+    void nutrientSummaryListsEveryDateWithItsOwnAmountAndShare() throws Exception {
+        personIs("MALE", 25, null, null);
+        String token = logVitaminDays(tokenFor("perday@example.com"));
+        mockMvc.perform(post(BASE + "/meals/quick-add").contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"name\": \"Mystery\", \"calories\": 100, \"consumedAt\": \"2026-06-12T12:00:00Z\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-09").param("to", "2026-06-12").param("timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days.length()").value(4))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[0].date").value("2026-06-09"))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[0].logged").value(false))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[0].amount").value(contains(nullValue())))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[0].share").value(contains(nullValue())))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[1].logged").value(true))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[1].amount").value(28.0))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[1].share").value(0.311))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[3].date").value("2026-06-12"))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[3].logged").value(true))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[3].amount").value(contains(nullValue())))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[3].share").value(contains(nullValue())))
+                .andExpect(jsonPath("$.nutrients[?(@.code == 'IRON')].days[2].amount").value(5.7));
     }
 
     @Test
