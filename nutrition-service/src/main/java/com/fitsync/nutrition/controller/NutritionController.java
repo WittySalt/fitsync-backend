@@ -34,6 +34,7 @@ import com.fitsync.nutrition.dto.RecipeAddItemsRequest;
 import com.fitsync.nutrition.dto.RecipeDetailView;
 import com.fitsync.nutrition.dto.RecipeMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
+import com.fitsync.nutrition.dto.TemplateRecipeInput;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
@@ -314,6 +315,14 @@ public class NutritionController {
         return nutritionService.getMealTemplate(currentPrincipal(authentication), templateId);
     }
 
+    @PostMapping("/meal-templates/{templateId}/recipe-items")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealTemplateView addRecipeToMealTemplate(Authentication authentication,
+                                                    @PathVariable UUID templateId,
+                                                    @Valid @RequestBody TemplateRecipeInput request) {
+        return nutritionService.addRecipeToMealTemplate(currentPrincipal(authentication), templateId, request);
+    }
+
     @DeleteMapping("/meal-templates/{templateId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteMealTemplate(Authentication authentication, @PathVariable UUID templateId) {
@@ -377,12 +386,13 @@ public class NutritionController {
                           @RequestParam(required = false) String category,
                           @RequestParam(required = false) String q,
                           @RequestParam(required = false) String diet,
+                          @RequestParam(required = false) String tag,
                           @RequestParam(defaultValue = "0") int page,
                           @RequestParam(defaultValue = "20") int size) {
         if (scope == null) {
             return nutritionService.listRecipes(currentPrincipal(authentication));
         }
-        return recipeLibraryService.list(currentPrincipal(authentication), scope, category, q, diet, page, size);
+        return recipeLibraryService.list(currentPrincipal(authentication), scope, category, q, diet, tag, page, size);
     }
 
     @GetMapping("/recipes/{recipeId}")

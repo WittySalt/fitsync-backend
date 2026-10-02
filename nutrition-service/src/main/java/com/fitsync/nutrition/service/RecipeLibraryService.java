@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -36,8 +37,10 @@ import com.fitsync.nutrition.service.RecipeInsightService.RecipeComputation;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,6 +60,7 @@ public class RecipeLibraryService {
     static final int MAX_CATEGORY_LENGTH = 60;
     static final int MAX_PAGE_SIZE = 50;
     static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int TAG_BATCH_SIZE = 200;
     private static final String SOURCE_USER = "USER";
     private static final String NOT_FOUND = "Recipe not found";
 
@@ -86,7 +90,8 @@ public class RecipeLibraryService {
 
     @Transactional(readOnly = true)
     public Page<RecipeListItemView> list(CurrentUserPrincipal principal, String scope, String category, String q,
-                                         String diet, int page, int size) {
+                                         String diet, String tag, int page, int size) {
+        String requiredTag = tagLabel(tag);
         String normalizedScope = normalizeScope(scope);
         String cleanCategory = cleanText(category, MAX_CATEGORY_LENGTH, "category");
         String cleanQuery = cleanText(q, MAX_QUERY_LENGTH, "q");
@@ -98,16 +103,71 @@ public class RecipeLibraryService {
             case SCOPE_FAVORITES -> RecipeSearchSpecification.favorites(userId, cleanCategory, cleanQuery, excluded);
             default -> throw new BadRequestException("scope must be mine, library or favorites");
         };
-        PageRequest pageRequest = PageRequest.of(Math.max(page, 0),
-                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
-                Sort.by(Sort.Order.asc("name").ignoreCase(), Sort.Order.asc("recipeId")));
-        Page<RecipeEntity> recipes = recipeRepository.findAll(specification, pageRequest);
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        Sort sort = Sort.by(Sort.Order.asc("name").ignoreCase(), Sort.Order.asc("recipeId"));
+        if (requiredTag != null) {
+            return listWithTag(userId, normalizedScope, specification, requiredTag, pageNumber, pageSize, sort);
+        }
+        Page<RecipeEntity> recipes = recipeRepository.findAll(specification, PageRequest.of(pageNumber, pageSize, sort));
         Map<UUID, RecipeComputation> computations = insightService.compute(recipes.getContent());
-        Set<UUID> saved = SCOPE_MINE.equals(normalizedScope) || recipes.isEmpty() ? Set.of()
-                : new HashSet<>(favoriteRepository.findSavedRecipeIds(userId,
-                        recipes.getContent().stream().map(RecipeEntity::getRecipeId).toList()));
+        Set<UUID> saved = savedIds(userId, normalizedScope, recipes.getContent());
         return recipes.map(recipe -> toListItem(recipe, computations.get(recipe.getRecipeId()),
                 saved.contains(recipe.getRecipeId())));
+    }
+
+    /**
+     * Tags are worked out on read, so the filter walks the candidates in batches, keeps the ones that carry the
+     * tag and pages over those. The total is the size of the filtered set.
+     */
+    private Page<RecipeListItemView> listWithTag(UUID userId, String scope,
+                                                 Specification<RecipeEntity> specification,
+                                                 String tagLabel, int pageNumber, int pageSize, Sort sort) {
+        List<RecipeEntity> matched = new ArrayList<>();
+        Map<UUID, RecipeComputation> matchedComputations = new HashMap<>();
+        int batch = 0;
+        Page<RecipeEntity> candidates;
+        do {
+            candidates = recipeRepository.findAll(specification, PageRequest.of(batch++, TAG_BATCH_SIZE, sort));
+            Map<UUID, RecipeComputation> computations = insightService.compute(candidates.getContent());
+            for (RecipeEntity recipe : candidates.getContent()) {
+                RecipeComputation computation = computations.get(recipe.getRecipeId());
+                if (computation.tags().contains(tagLabel)) {
+                    matched.add(recipe);
+                    matchedComputations.put(recipe.getRecipeId(), computation);
+                }
+            }
+        } while (candidates.hasNext());
+        long from = (long) pageNumber * pageSize;
+        List<RecipeEntity> slice = from >= matched.size() ? List.of()
+                : matched.subList((int) from, (int) Math.min(matched.size(), from + pageSize));
+        Set<UUID> saved = savedIds(userId, scope, slice);
+        List<RecipeListItemView> content = slice.stream()
+                .map(recipe -> toListItem(recipe, matchedComputations.get(recipe.getRecipeId()),
+                        saved.contains(recipe.getRecipeId())))
+                .toList();
+        return new PageImpl<>(content, PageRequest.of(pageNumber, pageSize), matched.size());
+    }
+
+    private Set<UUID> savedIds(UUID userId, String scope, List<RecipeEntity> recipes) {
+        if (SCOPE_MINE.equals(scope) || recipes.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(favoriteRepository.findSavedRecipeIds(userId,
+                recipes.stream().map(RecipeEntity::getRecipeId).toList()));
+    }
+
+    private static String tagLabel(String tag) {
+        if (tag == null || tag.isBlank()) {
+            return null;
+        }
+        return switch (tag.trim()) {
+            case "HIGH_PROTEIN" -> RecipeInsightService.TAG_HIGH_PROTEIN;
+            case "HIGH_FIBRE" -> RecipeInsightService.TAG_HIGH_FIBRE;
+            case "HIGH_SUGAR" -> RecipeInsightService.TAG_HIGH_SUGAR;
+            case "HIGH_SALT" -> RecipeInsightService.TAG_HIGH_SALT;
+            default -> throw new BadRequestException("tag must be HIGH_PROTEIN, HIGH_FIBRE, HIGH_SUGAR or HIGH_SALT");
+        };
     }
 
     @Transactional(readOnly = true)

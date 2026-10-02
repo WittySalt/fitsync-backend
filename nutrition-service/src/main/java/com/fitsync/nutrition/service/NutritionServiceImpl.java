@@ -867,6 +867,19 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional
+    public MealTemplateView addRecipeToMealTemplate(CurrentUserPrincipal principal, UUID templateId,
+                                                    TemplateRecipeInput input) {
+        MealTemplateEntity template = getOwnedTemplate(principal.userId(), templateId);
+        List<MealTemplateItemEntity> items = new ArrayList<>(
+                mealTemplateItemRepository.findByTemplateIdOrderBySortOrderAsc(template.getTemplateId()));
+        int sortOrder = items.isEmpty() ? 0 : items.get(items.size() - 1).getSortOrder() + 1;
+        items.add(mealTemplateItemRepository.save(
+                templateItemFromRecipe(principal.userId(), template.getTemplateId(), input, sortOrder)));
+        return toMealTemplateView(template, items);
+    }
+
+    @Override
+    @Transactional
     public void deleteMealTemplate(CurrentUserPrincipal principal, UUID templateId) {
         MealTemplateEntity template = getOwnedTemplate(principal.userId(), templateId);
         mealTemplateItemRepository.deleteByTemplateId(template.getTemplateId());

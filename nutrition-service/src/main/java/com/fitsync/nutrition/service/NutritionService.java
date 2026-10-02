@@ -14,6 +14,7 @@ import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
 import com.fitsync.nutrition.dto.MealTemplateView;
+import com.fitsync.nutrition.dto.TemplateRecipeInput;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.FoodCategoryView;
@@ -104,6 +105,8 @@ public interface NutritionService {
     List<MealTemplateView> listMealTemplates(CurrentUserPrincipal principal);
 
     MealTemplateView getMealTemplate(CurrentUserPrincipal principal, UUID templateId);
+
+    MealTemplateView addRecipeToMealTemplate(CurrentUserPrincipal principal, UUID templateId, TemplateRecipeInput input);
 
     void deleteMealTemplate(CurrentUserPrincipal principal, UUID templateId);
 

@@ -574,6 +574,120 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
     }
 
     @Test
+    void aRecipeCanBeAppendedToAnExistingTemplateWithoutRecreatingIt() throws Exception {
+        String token = tokenFor("append@example.com");
+        String id = createOwnRecipe(token, "Append bowl");
+        String created = mockMvc.perform(post(BASE + "/meal-templates").contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"name\": \"Box\", \"recipeItems\": [{\"recipeId\": \"" + id + "\", \"servings\": 1}]}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String templateId = JsonPath.read(created, "$.templateId");
+        String firstItemId = JsonPath.read(created, "$.items[0].templateItemId");
+
+        mockMvc.perform(post(BASE + "/meal-templates/" + templateId + "/recipe-items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"recipeId\": \"" + lentilSalad + "\", \"servings\": 2}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.templateId").value(templateId))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].templateItemId").value(firstItemId))
+                .andExpect(jsonPath("$.items[1].recipeId").value(lentilSalad.toString()))
+                .andExpect(jsonPath("$.items[1].recipeServings").value(2.0))
+                .andExpect(jsonPath("$.items[1].foodName").value("Lentil salad"));
+        mockMvc.perform(get(BASE + "/meal-templates/" + templateId).header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.items.length()").value(2));
+    }
+
+    @Test
+    void appendingARecipeToATemplateChecksOwnershipVisibilityAndServings() throws Exception {
+        String token = tokenFor("append-owner@example.com");
+        String id = createOwnRecipe(token, "Owner bowl");
+        String created = mockMvc.perform(post(BASE + "/meal-templates").contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"name\": \"Mine\", \"recipeItems\": [{\"recipeId\": \"" + id + "\", \"servings\": 1}]}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String templateId = JsonPath.read(created, "$.templateId");
+        String other = tokenFor("append-other@example.com");
+        String path = BASE + "/meal-templates/" + templateId + "/recipe-items";
+
+        // A template that belongs to somebody else.
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + other)
+                        .content("{\"recipeId\": \"" + lentilSalad + "\", \"servings\": 1}"))
+                .andExpect(status().isNotFound());
+        // A recipe the caller cannot see: an unpublished system recipe.
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"recipeId\": \"" + unpublished + "\", \"servings\": 1}"))
+                .andExpect(status().isNotFound());
+        // A recipe the caller cannot see: somebody else's own recipe, added to the caller's own template.
+        String otherTemplate = JsonPath.read(mockMvc.perform(post(BASE + "/meal-templates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + other)
+                        .content("{\"name\": \"Theirs\", \"recipeItems\": [{\"recipeId\": \"" + lentilSalad
+                                + "\", \"servings\": 1}]}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "$.templateId");
+        mockMvc.perform(post(BASE + "/meal-templates/" + otherTemplate + "/recipe-items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + other)
+                        .content("{\"recipeId\": \"" + id + "\", \"servings\": 1}"))
+                .andExpect(status().isNotFound());
+        // Servings out of range, and a missing recipe id.
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"recipeId\": \"" + lentilSalad + "\", \"servings\": 0.1}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"recipeId\": \"" + lentilSalad + "\", \"servings\": 21}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"servings\": 1}"))
+                .andExpect(status().isBadRequest());
+        // Nothing was added by the rejected calls.
+        mockMvc.perform(get(BASE + "/meal-templates/" + templateId).header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.items.length()").value(1));
+    }
+
+    @Test
+    void theTagFilterKeepsTheMatchingRecipesAndCountsTheFilteredSet() throws Exception {
+        String token = tokenFor("tags@example.com");
+
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("tag", "HIGH_FIBRE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"));
+        // Two recipes are high in protein; with a page size of one the total still counts both.
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("tag", "HIGH_PROTEIN").param("size", "1").param("page", "0"))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("Chicken rice bowl"));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("tag", "HIGH_PROTEIN").param("size", "1").param("page", "1"))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("tag", "HIGH_PROTEIN").param("size", "1").param("page", "5"))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content.length()").value(0));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("tag", "HIGH_SALT"))
+                .andExpect(jsonPath("$.totalElements").value(0));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
+                        .param("scope", "library").param("tag", "TASTY"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void deletingARecipeMarksItAndAccountDeletionRemovesTheRows() throws Exception {
         String token = tokenFor("deleter@example.com");
         String userId = userIdOf(token);
