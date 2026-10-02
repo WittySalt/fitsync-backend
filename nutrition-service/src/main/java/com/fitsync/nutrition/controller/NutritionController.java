@@ -30,6 +30,9 @@ import com.fitsync.nutrition.dto.LogWaterRequest;
 import com.fitsync.nutrition.dto.MealView;
 import com.fitsync.nutrition.dto.QuickAddMealRequest;
 import com.fitsync.nutrition.dto.UsualMealsView;
+import com.fitsync.nutrition.dto.RecipeAddItemsRequest;
+import com.fitsync.nutrition.dto.RecipeDetailView;
+import com.fitsync.nutrition.dto.RecipeMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
@@ -37,6 +40,7 @@ import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.nutrition.service.NutritionDiaryService;
 import com.fitsync.nutrition.service.NutritionPageInsightService;
 import com.fitsync.nutrition.service.NutritionService;
+import com.fitsync.nutrition.service.RecipeLibraryService;
 import com.fitsync.nutrition.service.UsualMealsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -68,15 +72,18 @@ public class NutritionController {
     private final NutritionPageInsightService nutritionPageInsightService;
     private final UsualMealsService usualMealsService;
     private final NutritionDiaryService nutritionDiaryService;
+    private final RecipeLibraryService recipeLibraryService;
 
     public NutritionController(NutritionService nutritionService,
                                NutritionPageInsightService nutritionPageInsightService,
                                UsualMealsService usualMealsService,
-                               NutritionDiaryService nutritionDiaryService) {
+                               NutritionDiaryService nutritionDiaryService,
+                               RecipeLibraryService recipeLibraryService) {
         this.nutritionService = nutritionService;
         this.nutritionPageInsightService = nutritionPageInsightService;
         this.usualMealsService = usualMealsService;
         this.nutritionDiaryService = nutritionDiaryService;
+        this.recipeLibraryService = recipeLibraryService;
     }
 
     @PostMapping("/meals")
@@ -360,14 +367,62 @@ public class NutritionController {
         return nutritionService.createRecipe(currentPrincipal(authentication), request);
     }
 
+    /**
+     * With a scope (mine, library or favorites) this is a page of recipe cards. Without one it keeps its
+     * earlier shape, the caller's own recipes as a plain list.
+     */
     @GetMapping("/recipes")
-    public List<RecipeView> recipes(Authentication authentication) {
-        return nutritionService.listRecipes(currentPrincipal(authentication));
+    public Object recipes(Authentication authentication,
+                          @RequestParam(required = false) String scope,
+                          @RequestParam(required = false) String category,
+                          @RequestParam(required = false) String q,
+                          @RequestParam(required = false) String diet,
+                          @RequestParam(defaultValue = "0") int page,
+                          @RequestParam(defaultValue = "20") int size) {
+        if (scope == null) {
+            return nutritionService.listRecipes(currentPrincipal(authentication));
+        }
+        return recipeLibraryService.list(currentPrincipal(authentication), scope, category, q, diet, page, size);
     }
 
     @GetMapping("/recipes/{recipeId}")
-    public RecipeView recipe(Authentication authentication, @PathVariable UUID recipeId) {
-        return nutritionService.getRecipe(currentPrincipal(authentication), recipeId);
+    public RecipeDetailView recipe(Authentication authentication, @PathVariable UUID recipeId) {
+        return recipeLibraryService.detail(currentPrincipal(authentication), recipeId);
+    }
+
+    @PostMapping("/recipes/{recipeId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void favoriteRecipe(Authentication authentication, @PathVariable UUID recipeId) {
+        recipeLibraryService.favorite(currentPrincipal(authentication), recipeId);
+    }
+
+    @DeleteMapping("/recipes/{recipeId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unfavoriteRecipe(Authentication authentication, @PathVariable UUID recipeId) {
+        recipeLibraryService.unfavorite(currentPrincipal(authentication), recipeId);
+    }
+
+    @PostMapping("/recipes/{recipeId}/copy")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RecipeDetailView copyRecipe(Authentication authentication, @PathVariable UUID recipeId) {
+        return recipeLibraryService.copy(currentPrincipal(authentication), recipeId);
+    }
+
+    @PostMapping("/meals/from-recipe/{recipeId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView createMealFromRecipe(Authentication authentication,
+                                         @PathVariable UUID recipeId,
+                                         @Valid @RequestBody RecipeMealRequest request) {
+        return nutritionService.createMealFromRecipe(currentPrincipal(authentication), recipeId, request);
+    }
+
+    @PostMapping("/meals/{mealId}/items/from-recipe/{recipeId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MealView addRecipeToMeal(Authentication authentication,
+                                    @PathVariable UUID mealId,
+                                    @PathVariable UUID recipeId,
+                                    @Valid @RequestBody RecipeAddItemsRequest request) {
+        return nutritionService.addRecipeToMeal(currentPrincipal(authentication), mealId, recipeId, request);
     }
 
     @PutMapping("/recipes/{recipeId}")

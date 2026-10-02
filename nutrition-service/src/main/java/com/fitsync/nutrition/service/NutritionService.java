@@ -25,6 +25,8 @@ import com.fitsync.nutrition.dto.LoggedFoodView;
 import com.fitsync.nutrition.dto.MealView;
 import com.fitsync.nutrition.dto.LogWaterRequest;
 import com.fitsync.nutrition.dto.QuickAddMealRequest;
+import com.fitsync.nutrition.dto.RecipeAddItemsRequest;
+import com.fitsync.nutrition.dto.RecipeMealRequest;
 import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
@@ -106,6 +108,10 @@ public interface NutritionService {
     void deleteMealTemplate(CurrentUserPrincipal principal, UUID templateId);
 
     MealView createMealFromTemplate(CurrentUserPrincipal principal, UUID templateId, MaterializeTemplateRequest request);
+
+    MealView createMealFromRecipe(CurrentUserPrincipal principal, UUID recipeId, RecipeMealRequest request);
+
+    MealView addRecipeToMeal(CurrentUserPrincipal principal, UUID mealId, UUID recipeId, RecipeAddItemsRequest request);
 
     WaterLogView logWater(CurrentUserPrincipal principal, LogWaterRequest request);
 

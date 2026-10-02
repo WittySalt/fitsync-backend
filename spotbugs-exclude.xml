@@ -143,6 +143,24 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Constructor-injected Spring Data repositories of the recipe services, same noise as above. -->
+    <Match>
+        <Class name="com.fitsync.nutrition.service.RecipeInsightService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.nutrition.service.RecipeLibraryService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- The scope and diet parameters are compared with a fixed list of ASCII keywords, ignoring case, and the
+         text is never used as a key or a file name afterwards. -->
+    <Match>
+        <Class name="com.fitsync.nutrition.service.RecipeLibraryService"/>
+        <Bug pattern="IMPROPER_UNICODE"/>
+    </Match>
+
     <!-- Constructor-injected Spring Data repositories of the Diary read service, same noise as above. -->
     <Match>
         <Class name="com.fitsync.nutrition.service.NutritionDiaryServiceImpl"/>
