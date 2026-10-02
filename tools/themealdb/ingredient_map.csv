@@ -1,0 +1,762 @@
+mealdb_name,fdc_id,note
+salt,173468,table salt
+garlic,169230,"raw, generic"
+onion,170000,"raw, generic"
+olive oil,171413,"olive, salad or cooking"
+butter,173410,"salted, generic"
+sugar,169655,granulated
+water,174158,"bottled, generic"
+milk,171265,whole 3.25%
+egg,171287,whole raw
+vegetable oil,172370,"soybean, generic cooking oil"
+pepper,170931,"black pepper, ground"
+eggs,171287,whole raw
+parsley,170416,fresh
+flour,168894,all-purpose enriched
+potatoes,170026,"flesh and skin, raw"
+carrots,170393,raw
+black pepper,170931,ground
+plain flour,168894,all-purpose enriched (UK plain)
+soy sauce,174277,"shoyu, soy and wheat"
+spring onions,170005,"raw, scallions with tops"
+baking powder,172804,double-acting
+coriander,169997,fresh cilantro leaves
+lime,168155,raw
+paprika,171329,spice
+red pepper,170108,"sweet red, raw"
+lemon,167746,"raw, without peel"
+garlic clove,169230,"raw, generic"
+ginger,169231,ginger root raw
+caster sugar,169655,"granulated, same composition"
+chicken stock,172884,home-prepared stock
+tomato puree,170459,"UK puree is concentrated, paste"
+thyme,173470,fresh
+red chilli,170106,hot chili red raw
+vanilla extract,173471,extract
+oil,172370,generic cooking oil (soybean)
+brown sugar,168833,brown
+cinnamon,171320,ground
+tomato,170457,red ripe raw
+all purpose flour,168894,all-purpose enriched
+bay leaf,170917,dried spice
+coconut milk,170173,canned
+red onions,170000,"raw, generic"
+mint,173475,spearmint fresh
+cumin,170923,seed
+fish sauce,174531,ready-to-serve
+cornstarch,169698,cornstarch
+rice,168877,white long-grain raw
+beef,171206,"chuck for stew, lean and fat, raw"
+lemon juice,167747,raw juice
+double cream,170859,heavy whipping
+egg yolks,172184,yolk raw
+unsalted butter,173430,without salt
+bacon,168277,"cured, unprepared"
+beef stock,172883,home-prepared stock
+ground cumin,170923,seed
+onions,170000,"raw, generic"
+sunflower oil,171025,"linoleic, standard"
+celery,169988,raw
+vegetable stock,171180,"vegetable broth, the only USDA vegetable broth"
+bread,174924,"white, commercially prepared"
+cucumber,168409,with peel raw
+icing sugar,169656,powdered
+yeast,175043,bakers active dry
+allspice,171315,ground
+almonds,170567,raw
+breadcrumbs,174928,dry grated plain
+chicken thighs,172385,"thigh meat and skin, raw"
+chorizo,173859,pork chorizo raw
+cilantro,169997,fresh
+honey,169640,honey
+nutmeg,171326,ground
+sesame seed oil,171016,sesame
+bay leaves,170917,dried spice
+shallots,170499,raw
+cardamom,170919,spice
+extra virgin olive oil,171413,"olive, salad or cooking"
+greek yogurt,171304,Greek plain whole milk
+mushrooms,169251,white raw
+cabbage,169975,raw
+chicken,173636,"roasting chicken, meat only, raw"
+green chilli,170497,hot chili green raw
+ground cinnamon,171320,ground
+mayonnaise,171009,regular
+cayenne pepper,170932,cayenne
+green pepper,170427,"sweet green, raw"
+leek,169246,raw
+self-raising flour,168895,self-rising enriched
+sour cream,171257,cultured
+tomatoes,170457,red ripe raw
+basil,172232,fresh
+mustard,172234,prepared yellow
+dill,172233,dill weed fresh
+orange,169097,"raw, all varieties"
+raisins,168164,golden seedless
+scallions,170005,"raw, scallions with tops"
+cherry tomatoes,170457,red ripe raw
+chicken breast,171509,breast skinless boneless raw
+heavy cream,170859,heavy whipping
+cinnamon stick,171320,ground cinnamon as closest
+ground beef,174036,"80% lean, raw"
+scotch bonnet,170106,hot chili red raw as closest
+turmeric,172231,ground
+white wine,174837,table white
+corn flour,169698,cornstarch (UK corn flour)
+kosher salt,173468,"table salt, same sodium"
+melted butter,173410,"salted, generic"
+rosemary,173473,fresh
+chickpeas,173800,"canned, drained solids"
+chives,169994,raw
+cloves,171321,ground
+ground ginger,170926,spice
+mozzarella,170845,whole milk
+parmesan,170848,hard
+pork,167818,loin whole lean and fat raw
+prawns,175179,shrimp raw
+rice noodles,169742,dry
+tinned tomatos,170051,canned in tomato juice
+egg white,172183,white raw
+green beans,169961,snap green raw
+lamb,174315,leg shank half lean and fat raw
+lettuce,169248,iceberg raw
+red wine vinegar,172240,red wine vinegar
+rice vinegar,172237,distilled vinegar as closest
+sesame seed,170150,whole dried
+vanilla,173471,extract
+worcestershire sauce,171610,worcestershire
+aubergine,169228,raw
+basil leaves,172232,fresh
+chilli,170106,hot chili red raw
+chopped tomatoes,170051,canned in tomato juice
+creme fraiche,171257,sour cream as closest
+feta,173420,feta
+muscovado sugar,168833,brown
+oregano,171328,dried spice
+peanuts,172430,all types raw
+plum tomatoes,170457,red ripe raw
+saffron,170934,spice
+sea salt,173468,"table salt, same sodium"
+spinach,168462,raw
+walnuts,170187,english
+white wine vinegar,172237,distilled vinegar as closest
+basmati rice,168877,white long-grain raw
+chicken breasts,171509,breast skinless boneless raw
+condensed milk,171275,canned sweetened
+cream cheese,173418,cream cheese
+curry powder,170924,spice
+dried oregano,171328,dried spice
+minced beef,174036,"80% lean, raw"
+oyster sauce,174529,ready-to-serve
+avocado,171705,raw all varieties
+chilli powder,171319,spice
+courgettes,169291,zucchini with skin raw
+dark chocolate,170272,60-69% cacao
+garlic powder,171325,dried powder
+hotsauce,174527,pepper or hot sauce
+kidney beans,174285,"red canned, drained solids"
+lime juice,168156,raw juice
+peas,170419,green raw
+pita bread,174915,white enriched
+puff pastry,172790,frozen ready-to-bake
+sausages,172934,pork sausage link/patty unprepared
+sweetcorn,169998,sweet yellow raw
+baguette,172675,french or vienna
+bean sprouts,169957,mung sprouted raw
+dry white wine,174837,table white
+egg plants,169228,raw
+garam masala,170924,curry powder as closest blend
+granulated sugar,169655,granulated
+jasmine rice,168877,white long-grain raw
+lamb mince,174370,ground raw
+red wine,173190,table red
+thai red curry paste,NONE,"branded paste, no USDA equivalent"
+tomato ketchup,168556,catsup
+tomato sauce,170054,canned sauce
+vinegar,172237,distilled
+yellow pepper,169383,"sweet yellow, raw"
+beetroot,169145,beets raw
+black olives,169094,ripe canned
+broccoli,170379,raw
+cheddar cheese,173414,cheddar
+cheese,173414,"cheddar, generic"
+chicken stock cube,171563,"chicken broth cubes, dry"
+chilli flakes,170932,cayenne/red pepper
+clear honey,169640,honey
+coriander leaves,169997,fresh cilantro leaves
+cumin seeds,170923,seed
+desiccated coconut,170170,dried not sweetened
+dry sherry,175112,dessert wine dry
+ground pork,168372,"84% lean, raw"
+ham,173864,sliced regular
+harissa spice,NONE,"spice blend, no USDA equivalent"
+parmesan cheese,170848,hard
+peanut butter,174266,smooth with salt
+pumpkin,168448,raw
+raw king prawns,175179,shrimp raw
+salmon,175167,Atlantic farmed raw
+squid,174223,mixed species raw
+white cabbage,169975,raw
+apple cider vinegar,173469,cider
+banana,173944,raw
+bicarbonate of soda,175040,baking soda
+black beans,175188,black turtle canned
+brandy,174817,"no brandy in the SR set, rum 80 proof used as distilled spirit"
+cannellini beans,175204,"white beans, canned"
+challots,170499,"misspelling of shallots, raw"
+coconut,170169,coconut meat raw
+dijon mustard,172234,prepared yellow
+dulce de leche,173461,dulce de leche
+fennel,169385,bulb raw
+golden caster sugar,169655,granulated
+green olives,169096,pickled green
+ground coriander,170922,coriander seed
+ground nutmeg,171326,ground
+lard,171401,lard
+pine nuts,170591,dried
+rapeseed oil,172336,canola is rapeseed
+raspberries,167755,raw
+red pepper flakes,170932,cayenne/red pepper
+rocket,169387,arugula raw
+sherry vinegar,172240,red wine vinegar as closest
+smoked paprika,171329,spice
+strawberries,167762,raw
+vegetable stock cube,171613,"bouillon cubes and granules, dry"
+warm water,174158,"bottled, generic"
+whole milk,171265,whole 3.25%
+yogurt,171284,plain whole milk
+apples,171689,raw without skin
+balsamic vinegar,172241,balsamic
+beef brisket,174057,"brisket flat half, lean only"
+chicken legs,172385,thigh used for leg
+chili powder,171319,chili powder
+cocoa powder,169593,dry powder unsweetened
+coconut cream,170171,"canned, sweetened is the only canned cream"
+dried apricots,173941,dried sulfured
+fish stock,172885,home-prepared stock
+golden syrup,169661,maple syrup as closest
+jalapeno,168576,jalapeno raw
+kale,168421,raw
+lamb leg,174315,leg shank half lean and fat raw
+lemons,167746,"raw, without peel"
+macaroni,169736,pasta dry enriched
+marjoram,170928,dried
+minced pork,168372,"84% lean, raw"
+powdered sugar,169656,powdered
+red cabbage,169977,red raw
+shortcrust pastry,167932,"pie crust, refrigerated, unbaked"
+shortening,173584,vegetable household
+sirloin steak,168728,top sirloin lean and fat raw
+star anise,NONE,no USDA entry
+tamarind paste,167763,tamarind raw
+whipping cream,170858,light whipping
+white vinegar,172237,distilled
+almond extract,NONE,no USDA entry
+birds-eye chillies,170106,hot chili red raw
+blackberries,173946,raw
+boiling water,174158,"bottled, generic"
+butter beans,174254,"large lima beans, canned"
+butternut squash,169295,winter butternut raw
+canola oil,172336,canola
+cold water,174158,"bottled, generic"
+custard,NONE,prepared custard not in the V900 set
+digestive biscuits,174957,graham crackers as closest
+dried mint,172239,spearmint dried
+english mustard,172234,prepared yellow
+ground almonds,170567,almonds raw
+ground cardomom,170919,cardamom spice
+ground nut oil,171410,peanut
+instant yeast,175043,bakers active dry
+king prawns,175179,shrimp raw
+lemon zest,167749,lemon peel raw
+lemongrass stalks,168573,raw
+maple syrup,169661,maple
+mascarpone,173418,cream cheese as closest
+molasses,168820,molasses
+paella rice,168879,white medium-grain raw
+palm sugar,168833,brown sugar as closest
+peanut oil,171410,peanut
+pistachio,170184,pistachio raw
+salted butter,173410,salted
+sauerkraut,169279,canned
+shrimp,175179,shrimp raw
+spaghetti,168927,pasta dry unenriched
+strong white bread flour,168896,bread enriched
+swede,168454,rutabaga raw
+sweet chilli sauce,NONE,no USDA equivalent
+all-purpose seasoning,NONE,branded blend
+asparagus,168389,raw
+beef fillet,169545,tenderloin steak lean and fat raw
+black treacle,168820,molasses
+broad beans,175205,fava mature seeds raw
+brown lentils,172420,raw
+caraway seed,170918,spice
+celeriac,170400,raw
+celery salt,173468,table salt as closest
+chocolate chips,167976,semisweet chocolate
+clams,174214,mixed species raw
+cream,170859,heavy whipping
+crusty bread,172675,french or vienna
+dark brown soft sugar,168833,brown
+dried fruit,168164,raisins as closest
+dried white beans,175202,white raw
+fennel seeds,171323,spice
+filo pastry,172791,phyllo dough
+galangal,NONE,no USDA entry
+ground allspice,171315,ground
+gruyère,171242,gruyere
+jam,169641,jams and preserves
+lemongrass,168573,raw
+mango,169910,raw
+minced garlic,169230,"raw, generic"
+mussels,174216,blue raw
+new potatoes,170026,"flesh and skin, raw"
+noodles,169731,egg noodles dry enriched
+orange blossom water,NONE,no USDA entry
+passata,170054,canned tomato sauce
+pecan nuts,170182,pecans
+pork chops,168263,loin center chops lean raw
+pork shoulder,167843,shoulder whole lean and fat raw
+prunes,168162,dried uncooked
+raspberry jam,169641,jams and preserves
+ricotta,170851,whole milk
+roasted peanut,172431,oil-roasted with salt
+rose water,NONE,no USDA entry
+russet potato,170026,raw
+sage,170935,ground
+salt cod,174190,Atlantic cod dried and salted
+semolina,169715,enriched
+shiitake mushrooms,169242,raw
+single cream,170857,light cream
+smoked haddock,174199,smoked
+squash,NONE,ambiguous
+starch,169698,cornstarch as generic starch
+suet,170193,beef suet raw
+sweet potatoes,168482,raw
+tiger prawns,175179,shrimp raw
+vanilla pod,173471,vanilla extract as closest
+vanilla sugar,169655,granulated
+white fish,171955,cod Atlantic raw as generic white fish
+apricot,171697,raw
+beer,168746,regular all
+black pudding,171618,blood sausage
+braeburn apples,171689,apples raw without skin
+bramley apples,171689,apples raw without skin
+breadfruit,171714,raw
+capers,172238,canned
+cashew nuts,170162,raw
+chicken wings,172390,wing meat and skin
+chilli sauce,174527,pepper or hot sauce
+chimichurri sauce,NONE,no USDA entry
+chopped onion,170000,raw
+chopped parsley,170416,fresh
+cider vinegar,173469,cider
+cilantro leaves,169997,fresh
+cocoa,169593,dry powder unsweetened
+corn on the cob,169998,sweet yellow raw
+corned beef,170200,brisket cooked
+cornmeal,169697,whole-grain yellow
+couscous,169699,dry
+currants,168164,raisins as closest
+demerara sugar,170674,turbinado
+diced tomatoes,170051,canned in tomato juice
+dill pickles,168558,dill or kosher dill
+fennel bulb,169385,raw
+fish fillet,171955,cod Atlantic raw as generic white fish
+flaked almonds,170567,raw
+floury potatoes,170026,raw
+freshly chopped parsley,170416,fresh
+frozen peas,170419,green raw
+ghee,171314,clarified butter
+ginger paste,169231,ginger root raw
+goats cheese,173435,goat soft type
+ground black pepper,170931,ground
+ground clove,171321,ground
+ground turmeric,172231,ground
+ice cream,167575,vanilla
+jersey royal potatoes,170026,raw
+lamb loin chops,172491,loin lean only raw
+lamb shoulder,172500,shoulder arm lean and fat raw
+lamb stock,NONE,no USDA entry
+lasagne sheets,169736,pasta dry enriched
+lentils,172420,raw
+light brown soft sugar,168833,brown
+lime leaves,NONE,no USDA entry
+makrut lime leaves,NONE,no USDA entry
+milk chocolate,167587,milk chocolate
+mirin,NONE,no USDA entry
+natural yoghurt,171284,plain whole milk
+oats,173904,regular and quick dry
+onion salt,173468,table salt as closest
+orange juice,169098,raw juice
+orange zest,169103,orange peel raw
+oyster mushrooms,168580,raw
+pak choi,170390,chinese pak-choi raw
+plantain,168215,green raw
+radish,169276,raw
+raw tiger prawns,175179,shrimp raw
+red chilli flakes,170932,cayenne/red pepper
+red pepper paste,NONE,branded paste
+red potatoes,170029,red flesh and skin raw
+rice flour,169714,white unenriched
+rye bread,172684,rye
+sake,167723,rice sake
+sichuan pepper,NONE,no USDA entry
+small potatoes,170026,raw
+soya bean,174270,soybeans mature raw
+sushi rice,168931,white short-grain raw
+tahini,170189,roasted and toasted kernels
+tapioca,169717,pearl dry
+thai green curry paste,NONE,"branded paste, no USDA equivalent"
+tofu,172475,raw firm
+tuna,173709,light canned in water drained
+turmeric powder,172231,ground
+turnips,170465,raw
+water chestnut,NONE,no USDA entry in the V900 set
+zucchini,169291,zucchini with skin raw
+almond essence,NONE,no USDA entry
+anchovy fillet,174183,canned in oil drained
+apricot jam,170645,apricot
+baby new potatoes,170026,raw
+bamboo shoot,169210,raw
+banana leaves,NONE,inedible wrapper
+barbeque sauce,NONE,no sensible match in the V900 set
+beef shin,174725,NZ hind shin lean only raw
+blueberries,171711,raw
+bread flour,168896,bread enriched
+brie,172177,brie
+brown rice,169703,brown long-grain raw
+brown rice noodle,169742,rice noodles dry as closest
+buckwheat,170286,buckwheat
+buttermilk,172225,fluid whole
+cacao,170271,dark 45-59% cacao
+callaloo,NONE,no USDA entry
+candied peel,169103,orange peel as closest
+cassava,169985,raw
+chestnut mushroom,168434,brown or crimini raw
+chicken drumsticks,172373,drumstick meat and skin
+chicken liver,171060,raw
+chinese broccoli,169404,raw
+chinese five spice powder,NONE,no USDA entry
+clotted cream,170859,heavy whipping cream as closest
+coco sugar,170674,turbinado as closest
+coconut flakes,170170,dried not sweetened
+coconut oil,171412,coconut
+cod,171955,Atlantic raw
+conchs,173720,baked or broiled
+cooking wine,169070,wine cooking
+coriander seeds,170922,coriander seed
+corn tortillas,175036,corn
+daikon radish,168451,oriental radish raw
+dark beer,168746,regular all
+dark rum,174817,distilled rum 80 proof
+dried cranberries,171722,cranberries raw as closest
+dried shrimp,NONE,no USDA entry
+duck legs,172410,duck domesticated meat only raw
+duck sauce,171823,ready-to-serve
+egg wash,171287,whole raw
+evaporated milk,171276,canned evaporated
+fast action yeast,175043,bakers active dry
+fettuccine,169736,pasta dry enriched
+figs,173021,raw
+flank steak,169433,flank lean and fat raw
+"free-range egg, beaten",171287,whole raw
+fresh thyme,173470,fresh
+frozen seafood mix,NONE,mixed product
+garlic bulb,169230,garlic raw
+garlic sauce,NONE,no USDA entry
+gelatine leafs,169599,gelatins dry powder
+ginger garlic paste,169231,ginger root raw as closest
+glace cherry,171719,sweet cherries raw as closest
+goat meat,175303,raw
+goose fat,173572,goose fat
+gouda cheese,171241,gouda
+haddock,171964,raw
+hispi (sweetheart) cabbage,169975,cabbage raw
+horseradish,173472,prepared
+hot chilli powder,171319,chili powder
+hummus,174289,commercial
+iceberg lettuce,169248,iceberg raw
+italian fennel sausages,172952,Italian sweet links
+jamaican curry powder,170924,curry powder
+jerusalem artichokes,169236,raw
+kaffir lime leaves,NONE,no USDA entry
+lamb kidney,174442,NZ lamb kidney raw
+linguine pasta,169736,pasta dry enriched
+marzipan,170160,almond paste
+mincemeat,NONE,no USDA entry
+miniature marshmallows,167995,marshmallows
+mixed peel,169103,orange peel as closest
+mozzarella balls,170845,mozzarella whole milk
+mustard powder,170929,mustard seed ground
+naan bread,171845,plain
+napa cabbage,169979,chinese pe-tsai raw
+oxtail,NONE,no USDA entry
+peaches,169928,yellow raw
+pecorino,171249,romano
+peppercorns,170931,black pepper
+pineapple chunks,169124,raw all varieties
+plain chocolate,170272,dark 60-69% cacao
+poppy seeds,171330,spice
+pork back ribs,168299,backribs lean and fat raw
+pork belly slices,167812,belly raw
+pork tenderloin,168249,tenderloin lean only raw
+potato starch,NONE,no USDA entry
+pul biber,170932,cayenne/red pepper
+quinoa,168874,uncooked
+red chilli powder,171319,chili powder
+red curry paste,NONE,"branded paste, no USDA equivalent"
+rhubarb,167758,raw
+rice paper sheets,NONE,no USDA entry
+rice stick noodles,169742,rice noodles dry
+roasted pepper,170108,sweet red raw
+romano pepper,170108,sweet red raw
+sardines,175139,Atlantic canned in oil drained
+savoy cabbage,170388,savoy raw
+sesame seed burger buns,172796,hamburger or hotdog plain
+sherry,175112,dessert wine dry
+shredded mexican cheese,173414,cheddar as closest
+sugar snap peas,169961,snap green raw as closest
+summer savoury,NONE,no USDA entry
+sweet smoked paprika,171329,paprika
+swiss cheese,171251,swiss
+tahini paste,170189,tahini
+udon noodles,169731,egg noodles dry as closest
+unsweetened cocoa,169593,cocoa dry powder
+vermicelli pasta,169736,pasta dry enriched
+vermicelli rice noodles,169742,rice noodles dry
+wheat flour,168894,all-purpose enriched
+white chocolate chips,167571,white chocolate
+allspice berries,171315,ground
+almond flour,170567,almonds raw as closest
+almond milk,174832,unsweetened
+almond paste,170160,almond paste
+baby aubergine,169228,raw
+baby plum tomatoes,170457,red ripe raw
+baby squid,174223,mixed species raw
+baked beans,173731,home prepared
+banana pepper,169394,raw
+beef flank steak,169433,flank lean and fat raw
+beef gravy,171589,instant beef dry
+beef stock concentrate,171561,"beef broth cubes, dry as closest"
+beef stock cubes,171561,"beef broth cubes, dry"
+beef tenderloin,174736,NZ tenderloin lean only raw
+beef tomatoes,170457,red ripe raw
+black eyed peas,NONE,no cowpea in the V900 set
+blackcurrant jam,169641,jams and preserves
+bok choi,170390,chinese pak-choi raw
+borlotti beans,173744,kidney red raw
+bouillon cubes,171613,bouillon cubes and granules dry
+bowtie pasta,169736,pasta dry enriched
+bread rolls,172796,hamburger or hotdog plain
+brussels sprouts,170383,raw
+buckwheat flour,170687,whole-groat
+bulgur wheat,170688,dry
+bun,172796,hamburger or hotdog plain
+buns,172796,hamburger or hotdog plain
+can of chickpeas,173800,canned drained
+canned beans,174285,kidney canned as generic
+canned tomatoes,170051,canned in tomato juice
+caramel,167974,caramels
+carrot,170393,raw
+cashews,170162,raw
+charlotte potatoes,170026,raw
+cherry,171719,sweet raw
+chestnuts,170164,chinese raw
+chicken bouillon powder,171562,chicken broth or bouillon dry
+chickpea flour,174288,besan
+chilled butter,173410,salted
+chinese cabbage,169979,chinese pe-tsai raw
+chinese leaf,169979,chinese pe-tsai raw
+chopped chive,169994,raw
+chuck roast,169495,chuck blade roast lean and fat raw
+ciabatta,172675,french or vienna as closest
+clove,171321,ground
+colby jack cheese,173414,cheddar as closest
+cooked beetroot,169146,beets cooked
+cooking apples,171689,apples raw without skin
+cottage cheese,172179,creamed
+cranberry,171722,raw
+cream of tartar,175041,cream of tartar
+creamed corn,169215,sweet yellow canned cream style
+cubed feta cheese,173420,feta
+dark brown sugar,168833,brown
+dark chocolate chips,167976,semisweet chocolate
+dark soft brown sugar,168833,brown
+dark soy sauce,174277,shoyu
+dried cherries,171719,sweet cherries raw as closest
+dried chillies,170932,cayenne/red pepper
+dried dill,171322,dried
+dried red chillies,170932,cayenne/red pepper
+dried white navy beans,173745,navy raw
+egg noodles,169731,egg noodles dry enriched
+emmentaler cheese,171251,swiss
+enchilada sauce,174074,red mild ready to serve
+english muffins,174093,whole grain white
+fajita seasoning,NONE,spice blend with no USDA equivalent
+falafel,172455,home-prepared
+farfalle,169736,pasta dry enriched
+farmers cheese,172179,cottage creamed as closest
+fenugreek,171324,seed
+fillet of steak,169545,tenderloin steak lean and fat raw
+fine yellow cornmeal,169697,whole-grain yellow
+five spice powder,NONE,no USDA entry
+flat rice noodles,169742,rice noodles dry
+flour tortilla,175037,flour refrigerated
+"free-range eggs, beaten",171287,whole raw
+french lentils,172420,lentils raw
+fresh basil,172232,fresh
+fries,NONE,ambiguous
+frogs legs,168148,raw
+fromage frais,171284,plain yogurt as closest
+full fat sour cream,171257,cultured
+full fat yogurt,171284,plain whole milk
+garlic granules,171325,garlic powder
+gingerbread spice,NONE,spice blend with no USDA equivalent
+glutinous rice,168883,white glutinous uncooked
+graham cracker crumbs,174957,graham crackers
+grape tomatoes,170457,red ripe raw
+grapefruit,174677,raw white California
+great northern beans,175192,canned
+grits,174630,hominy white regular dry
+ground mustard,170929,mustard seed ground
+ground pistachios,170184,pistachio raw
+ground walnuts,170187,english walnuts
+gruyere,171242,gruyere
+gruyere cheese,171242,gruyere
+habanero pepper,170106,hot chili red raw
+haricot beans,175202,white raw
+hazlenuts,170581,hazelnuts
+herring,175116,Atlantic raw
+high heat cooking oil,172370,generic cooking oil (soybean)
+hind shank,172568,veal shank raw
+hoisin sauce,172886,ready-to-serve
+hot beef stock,172883,home-prepared stock
+hot smoked paprika,171329,paprika
+ice cubes,174158,water
+italian seasoning,NONE,spice blend with no USDA equivalent
+jerk,NONE,spice blend with no USDA equivalent
+jumbo shrimp,175179,shrimp raw
+juniper berries,NONE,no USDA entry
+kielbasa,173877,fully cooked grilled
+lean minced beef,174030,"90% lean, raw"
+lean minced steak,174030,"90% lean, raw"
+lima beans,168396,immature raw
+little gem lettuce,168431,red leaf raw
+lobster,174208,northern raw
+mackerel,175119,Atlantic raw
+madras paste,NONE,"branded paste, no USDA equivalent"
+malt vinegar,172237,distilled as closest
+manchego,173414,cheddar as closest
+maria cookies,174957,graham crackers as closest
+marinated tofu,172475,raw firm as closest
+massaman curry paste,NONE,"branded paste, no USDA equivalent"
+mature cheddar,173414,cheddar
+medjool dates,168191,medjool
+mixed peppers,170108,sweet red raw
+mixed spice,NONE,spice blend with no USDA equivalent
+monkfish,173676,raw
+monterey jack cheese,173414,cheddar as closest
+mung bean sprouts,169957,mung sprouted raw
+mustard seeds,170929,ground mustard seed
+oatmeal,173904,oats regular and quick dry
+oysters,174219,Pacific raw
+paccheri pasta,169736,pasta dry enriched
+padron peppers,170427,sweet green raw
+panang curry paste,NONE,"branded paste, no USDA equivalent"
+parma ham,NONE,no USDA entry
+parmigiano-reggiano,170848,parmesan hard
+parsnips,170417,raw
+pears,169118,raw
+penne rigate,169736,pasta dry enriched
+phyllo dough,172791,phyllo dough
+pimento stuffed olives,169096,pickled green
+pineapple juice,169948,frozen concentrate unsweetened undiluted
+pinto beans,174286,canned drained
+pitted black olives,169094,ripe canned
+pitted dates,171726,deglet noor
+plum jam,169641,jams and preserves
+plum sauce,172879,ready-to-serve
+pomegranate,169134,raw
+porridge oats,173904,regular and quick dry
+prosciutto,NONE,no USDA entry
+pumpkin puree,168450,canned without salt
+purple sprouting broccoli,170379,broccoli raw
+queso fresco,172223,queso fresco
+rainbow trout,173717,farmed raw
+ras el hanout,NONE,no USDA entry
+raw frozen prawns,175179,shrimp raw
+raw vegetables,NONE,ambiguous
+ready rolled shortcrust pastry,167932,"pie crust, refrigerated, unbaked"
+red pepper sauce,171604,hot chili mature red canned
+red snapper,173698,snapper raw
+refried beans,174296,canned vegetarian
+rice vermicelli,169742,rice noodles dry
+rice wine,167723,rice sake
+rigatoni,169736,pasta dry enriched
+rolled oats,173904,regular and quick dry
+runner beans,169961,snap green raw
+salsa,174524,ready-to-serve
+sea bass fillets,175142,sea bass raw
+seasoned rice vinegar,172237,distilled as closest
+semi-skimmed milk,171267,reduced fat 2%
+semolina flour,169715,enriched
+serrano ham,NONE,no USDA entry
+shaoxing wine,167723,rice sake as closest
+shelled hazelnuts,170581,hazelnuts
+shredded coconut,168586,dried sweetened shredded
+shredded monterey jack cheese,173414,cheddar as closest
+silken tofu,172461,silken firm
+sirloin steak tips,168728,top sirloin lean and fat raw
+smoked salmon,173687,chinook smoked
+smoky paprika,171329,paprika
+snow peas,169961,snap green raw as closest
+sour milk,172225,buttermilk
+soya milk,175218,plain soymilk
+speculaas spice mix,NONE,spice blend with no USDA equivalent
+sriracha,171186,hot chile sriracha
+stale bread,174924,"white, commercially prepared"
+stilton cheese,173414,cheddar as closest
+stoned dates,171726,deglet noor
+stout,168746,regular all
+strained yoghurt,171304,Greek plain whole milk
+streaky bacon,168277,"cured, unprepared"
+strong white flour,168896,bread enriched
+sugar syrup,NONE,ambiguous
+sultanas,168164,golden seedless
+sumac,NONE,no USDA entry
+sun-dried tomatoes,168567,sun-dried
+sweet peppadew peppers,170108,sweet red raw
+tabasco sauce,174528,Tabasco
+taro,169308,raw
+tarragon leaves,170937,tarragon dried as closest
+tempeh,174272,tempeh
+tortillas,175036,corn ready-to-bake
+trout,175153,mixed species raw
+turkey,171505,ground raw
+turkey mince,171505,ground raw
+unflavoured gelatin,169599,gelatins dry powder
+unsalted beef stock,172883,home-prepared stock
+unsalted peanuts,172430,all types raw
+unsalted pistachio,170184,pistachio raw
+unwaxed lemon,167746,lemon raw without peel
+unwaxed lime,168155,lime raw
+vanilla bean paste,173471,vanilla extract as closest
+veal,175290,ground raw
+vegetable millk,175218,plain soymilk as closest
+vegetables,NONE,ambiguous
+vine tomatoes,170457,red ripe raw
+white asparagus,168389,asparagus raw
+white bread,174924,"white, commercially prepared"
+white chocolate,167571,white chocolate
+white cornmeal,169750,whole-grain white
+white fish fillets,171955,cod Atlantic raw as generic white fish
+white flour,168894,all-purpose enriched
+white sauerkraut,169279,canned
+whole black peppercorns,170931,black pepper
+whole wheat,NONE,ambiguous
+wholegrain mustard,172234,prepared yellow
+wild mushrooms,169251,white raw as closest
+wood ear mushrooms,NONE,no USDA entry
+yautia,169401,raw
+yellow split peas,172428,green split raw as closest
