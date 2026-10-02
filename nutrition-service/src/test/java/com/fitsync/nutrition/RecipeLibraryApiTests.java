@@ -209,6 +209,8 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.favorite").value(false))
                 .andExpect(jsonPath("$.ingredients[0].displayText").value("2 chicken breasts"))
                 .andExpect(jsonPath("$.ingredients[0].foodName").value("Chicken breast"))
+                // The user's own recipe shows the food's name, not the line as written.
+                .andExpect(jsonPath("$.ingredients[0].name").value("Chicken breast"))
                 .andExpect(jsonPath("$.ingredients[0].grams").value(200.0))
                 .andExpect(jsonPath("$.ingredients[0].foodGroup").value("PROTEIN"))
                 .andExpect(jsonPath("$.ingredients[0].categoryCode").value("MEAT_POULTRY"))
@@ -571,6 +573,24 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                         .content("{\"name\": \"Both\", \"fromMealId\": \"" + UUID.randomUUID() + "\", "
                                 + "\"recipeItems\": [{\"recipeId\": \"" + id + "\", \"servings\": 1}]}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void importedRecipesShowTheIngredientWordWhileTheFoodNameStaysAvailable() throws Exception {
+        String token = tokenFor("names@example.com");
+        jdbcTemplate.update("update recipe_ingredients set display_text = '400g Chicken' "
+                + "where recipe_id = ? and sort_order = 0", chickenBowl);
+        jdbcTemplate.update("update recipe_ingredients set display_text = 'zest and juice of 1 Broccoli' "
+                + "where recipe_id = ? and sort_order = 2", chickenBowl);
+
+        mockMvc.perform(get(RECIPES + "/" + chickenBowl).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ingredients[0].displayText").value("400g Chicken"))
+                .andExpect(jsonPath("$.ingredients[0].name").value("Chicken"))
+                .andExpect(jsonPath("$.ingredients[0].foodName").value("Chicken breast"))
+                // No written line: the food name is the fallback.
+                .andExpect(jsonPath("$.ingredients[1].name").value("White rice"))
+                .andExpect(jsonPath("$.ingredients[2].name").value("Broccoli"));
     }
 
     @Test

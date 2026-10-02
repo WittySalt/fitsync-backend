@@ -54,12 +54,31 @@ public final class RecipeStepAnalyzer {
             "^(?:\\d+(?:[./]\\d+)?\\s?" + FRACTION + "?|" + FRACTION + ")(?:\\s?(?:g|kg|mg|ml|l|oz|lb|lbs)\\b)?\\s*",
             FLAGS);
 
+    private static final Pattern OF_QUANTITY = Pattern.compile("\\bof\\s+(?=(?:\\d|" + FRACTION + "))", FLAGS);
+
     private static final Pattern MEASURE_WORDS = Pattern.compile(
             "g|kg|mg|ml|l|cl|dl|oz|lbs?|cups?|tbsp?|tsp|tblsp|tablespoons?|teaspoons?|pinch(?:es)?|dash|handful"
                     + "|bunch|cloves?|cans?|tins?|pack(?:et)?|slices?|pieces?|sticks?|sprigs?|large|medium|small|of",
             FLAGS);
 
     private RecipeStepAnalyzer() {
+    }
+
+    /**
+     * The short ingredient name of a written line: "400g Salmon" gives "Salmon", "zest and juice of 1 Lime" gives
+     * "Lime". Empty when nothing is left after the measure.
+     */
+    public static String ingredientName(String displayText) {
+        if (displayText == null) {
+            return "";
+        }
+        String text = displayText.strip();
+        Matcher counted = OF_QUANTITY.matcher(text);
+        int cut = -1;
+        while (counted.find()) {
+            cut = counted.end();
+        }
+        return IngredientMatcher.wordOf(cut < 0 ? text : text.substring(cut)).strip();
     }
 
     /** The first sentence of the step, cut at a clause boundary to at most 60 characters, never empty. */

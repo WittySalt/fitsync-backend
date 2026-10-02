@@ -296,6 +296,17 @@ public class RecipeLibraryService {
                 favorite);
     }
 
+    /** Imported recipes show the ingredient word of the written line; the user's own show the food's name. */
+    private static String shortName(RecipeEntity recipe, IngredientComputation item) {
+        if (!SOURCE_USER.equals(recipe.getSource()) && item.displayText() != null) {
+            String parsed = RecipeStepAnalyzer.ingredientName(item.displayText());
+            if (!parsed.isEmpty()) {
+                return parsed;
+            }
+        }
+        return item.foodName();
+    }
+
     private RecipeDetailView toDetail(UUID userId, RecipeEntity recipe) {
         RecipeComputation computation = insightService.compute(recipe);
         PersonReferences references = referenceService.forPerson(personLookup.facts(userId).basics());
@@ -309,7 +320,7 @@ public class RecipeLibraryService {
             String text = item.displayText() == null || item.displayText().isBlank()
                     ? item.foodName() : item.displayText();
             ingredients.add(new RecipeDetailIngredientView(item.ingredientId(), text,
-                    item.foodCatalogItemId(), item.foodName(),
+                    item.foodCatalogItemId(), item.foodName(), shortName(recipe, item),
                     item.grams() == null ? null : item.grams().setScale(2, RoundingMode.HALF_UP),
                     item.foodGroup(), item.categoryCode()));
         }

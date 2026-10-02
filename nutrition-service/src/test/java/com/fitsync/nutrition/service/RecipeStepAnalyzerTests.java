@@ -26,6 +26,19 @@ class RecipeStepAnalyzerTests {
         return timers.get(0);
     }
 
+    // ingredient names
+
+    @Test
+    void ingredientNameIsTheWordAfterTheMeasure() {
+        assertEquals("Salmon", RecipeStepAnalyzer.ingredientName("400g Salmon"));
+        assertEquals("Olive Oil", RecipeStepAnalyzer.ingredientName("3 tbs Olive Oil"));
+        assertEquals("Lime", RecipeStepAnalyzer.ingredientName("zest and juice of 1 Lime"));
+        assertEquals("Salt", RecipeStepAnalyzer.ingredientName("Pinch of Salt"));
+        assertEquals("Cream of tartar", RecipeStepAnalyzer.ingredientName("Cream of tartar"));
+        assertEquals("Avocado", RecipeStepAnalyzer.ingredientName("2 large Avocado"));
+        assertEquals("", RecipeStepAnalyzer.ingredientName(null));
+    }
+
     // titles
 
     @Test
