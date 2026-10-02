@@ -7,6 +7,7 @@ import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
+import com.fitsync.analytics.dto.AnalyticsEnergyWeeklyResponse;
 import com.fitsync.analytics.dto.AnalyticsGoalProgressResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSeriesResponse;
 import com.fitsync.analytics.dto.AnalyticsNutritionSummaryResponse;
@@ -17,6 +18,7 @@ import com.fitsync.analytics.dto.AnalyticsWorkoutSummaryResponse;
 import com.fitsync.analytics.dto.BodyTrendBucket;
 import com.fitsync.analytics.dto.ComparePeriod;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
+import com.fitsync.analytics.service.AnalyticsEnergyService;
 import com.fitsync.analytics.service.AnalyticsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -24,6 +26,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Size;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
@@ -39,9 +42,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AnalyticsController {
 
     private final AnalyticsService analyticsService;
+    private final AnalyticsEnergyService analyticsEnergyService;
 
-    public AnalyticsController(AnalyticsService analyticsService) {
+    public AnalyticsController(AnalyticsService analyticsService, AnalyticsEnergyService analyticsEnergyService) {
         this.analyticsService = analyticsService;
+        this.analyticsEnergyService = analyticsEnergyService;
     }
 
     @GetMapping("/dashboard")
@@ -224,6 +229,28 @@ public class AnalyticsController {
                                                       @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                                                       LocalDate weekStart) {
         return analyticsService.getWeeklyReport(currentPrincipal(authentication), weekStart);
+    }
+
+    @GetMapping("/energy/weekly")
+    @Operation(summary = "Get energy this week",
+            description = "Returns eaten, resting and workout energy and the balance of the logged days of a week, "
+                    + "the meal split, a running total and eight weeks of expected against actual weight change. "
+                    + "weekStart must be a Monday and defaults to the current week; timezone is an IANA zone and "
+                    + "defaults to the user's stored zone, then UTC. The caller comes from the token only.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Energy week returned"),
+            @ApiResponse(responseCode = "400", description = "weekStart is not a Monday or timezone is not valid"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public AnalyticsEnergyWeeklyResponse energyWeekly(Authentication authentication,
+                                                      @Parameter(description = "ISO week start (a Monday). Defaults to the current week.")
+                                                      @RequestParam(required = false)
+                                                      @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                                                      LocalDate weekStart,
+                                                      @Parameter(description = "IANA time zone, for example Asia/Singapore.")
+                                                      @RequestParam(required = false) @Size(max = 64) String timezone) {
+        return analyticsEnergyService.getWeekly(currentPrincipal(authentication).userId(), weekStart, timezone);
     }
 
     @GetMapping("/summary/compare")

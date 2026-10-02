@@ -64,7 +64,8 @@ public class WorkoutProjectionService {
                               Instant startedAt,
                               Integer durationMinutes,
                               Integer caloriesBurned,
-                              Integer exerciseCount) {
+                              Integer exerciseCount,
+                              boolean caloriesEstimated) {
         if (processedEventRepository.existsById(event.eventId())) {
             return;
         }
@@ -91,6 +92,7 @@ public class WorkoutProjectionService {
         newContribution.setDurationMinutes(durationMinutes);
         newContribution.setCaloriesBurned(caloriesBurned);
         newContribution.setExerciseCount(exerciseCount);
+        newContribution.setCaloriesEstimated(caloriesEstimated);
         newContribution.setLastAppliedAt(resolveOccurredAt(event.occurredAt(), startedAt));
         workoutContributionRepository.save(newContribution);
 
@@ -134,6 +136,8 @@ public class WorkoutProjectionService {
                 defaultInt(daily.getTotalWorkoutMinutes()) - contributionDuration(oldContribution) + contributionDuration(newContribution), 0));
         daily.setTotalCaloriesBurned(Math.max(
                 defaultInt(daily.getTotalCaloriesBurned()) - contributionCalories(oldContribution) + contributionCalories(newContribution), 0));
+        daily.setEstimatedCaloriesBurned(Math.max(
+                defaultInt(daily.getEstimatedCaloriesBurned()) - estimatedCalories(oldContribution) + estimatedCalories(newContribution), 0));
         daily.setTotalExerciseCount(Math.max(
                 defaultInt(daily.getTotalExerciseCount()) - contributionExerciseCount(oldContribution) + contributionExerciseCount(newContribution), 0));
         daily.setProjectionUpdatedAt(resolveOccurredAt(occurredAt, null));
@@ -149,6 +153,7 @@ public class WorkoutProjectionService {
         entity.setCompletedWorkoutCount(0);
         entity.setTotalWorkoutMinutes(0);
         entity.setTotalCaloriesBurned(0);
+        entity.setEstimatedCaloriesBurned(0);
         entity.setTotalExerciseCount(0);
         entity.setRolling7DayWorkoutCount(0);
         entity.setRolling28DayWorkoutCount(0);
@@ -241,6 +246,11 @@ public class WorkoutProjectionService {
 
     private int contributionCalories(AnalyticsWorkoutContributionEntity contribution) {
         return contribution == null || contribution.getCaloriesBurned() == null ? 0 : contribution.getCaloriesBurned();
+    }
+
+    /** The calories of a workout whose calories the server estimated; zero when the person gave them. */
+    private int estimatedCalories(AnalyticsWorkoutContributionEntity contribution) {
+        return contribution != null && contribution.isCaloriesEstimated() ? contributionCalories(contribution) : 0;
     }
 
     private int contributionExerciseCount(AnalyticsWorkoutContributionEntity contribution) {

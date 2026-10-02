@@ -22,6 +22,7 @@ import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
 import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
+import com.fitsync.analytics.repository.AnalyticsUserEnergyProfileRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -50,6 +51,7 @@ class AccountDeletionProjectionServiceTests {
         verify(fixtures.dashboardSnapshotRepository).deleteById(userId);
         verify(fixtures.streakRollupRepository).deleteById(userId);
         verify(fixtures.workoutRecordsRepository).deleteById(userId);
+        verify(fixtures.energyProfileRepository).deleteByUserId(userId);
         verify(fixtures.processedEventRepository).deleteByUserId(userId);
         verify(fixtures.cacheInvalidationService).evictForUser(userId);
 
@@ -105,6 +107,8 @@ class AccountDeletionProjectionServiceTests {
                 mock(AnalyticsUserStreakRollupRepository.class);
         private final AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository =
                 mock(AnalyticsUserWorkoutRecordsRepository.class);
+        private final AnalyticsUserEnergyProfileRepository energyProfileRepository =
+                mock(AnalyticsUserEnergyProfileRepository.class);
         private final AnalyticsCacheInvalidationService cacheInvalidationService =
                 mock(AnalyticsCacheInvalidationService.class);
         private final AccountDeletionProjectionService service = new AccountDeletionProjectionService(
@@ -118,6 +122,7 @@ class AccountDeletionProjectionServiceTests {
                 dashboardSnapshotRepository,
                 streakRollupRepository,
                 workoutRecordsRepository,
+                energyProfileRepository,
                 cacheInvalidationService,
                 Clock.fixed(Instant.parse("2026-06-25T04:00:00Z"), ZoneOffset.UTC));
     }

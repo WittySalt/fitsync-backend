@@ -194,6 +194,12 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
                 .filter(java.util.Objects::nonNull)
                 .mapToInt(Integer::intValue)
                 .sum());
+        daily.setEstimatedCaloriesBurned(contributions.stream()
+                .filter(AnalyticsWorkoutContributionEntity::isCaloriesEstimated)
+                .map(AnalyticsWorkoutContributionEntity::getCaloriesBurned)
+                .filter(java.util.Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum());
         daily.setTotalExerciseCount(contributions.stream()
                 .map(AnalyticsWorkoutContributionEntity::getExerciseCount)
                 .filter(java.util.Objects::nonNull)
@@ -237,6 +243,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         daily.setCompletedWorkoutCount(0);
         daily.setTotalWorkoutMinutes(0);
         daily.setTotalCaloriesBurned(0);
+        daily.setEstimatedCaloriesBurned(0);
         daily.setTotalExerciseCount(0);
         daily.setRolling7DayWorkoutCount(0);
         daily.setRolling28DayWorkoutCount(0);

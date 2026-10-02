@@ -23,6 +23,7 @@ public class WorkoutUpdatedEventConsumerImpl implements DomainEventConsumer<Work
                 payload == null ? null : payload.startedAt(),
                 payload == null ? null : payload.durationMinutes(),
                 payload == null ? null : payload.caloriesBurned(),
-                payload == null ? null : payload.exerciseCount());
+                payload == null ? null : payload.exerciseCount(),
+                payload != null && Boolean.TRUE.equals(payload.caloriesEstimated()));
     }
 }
