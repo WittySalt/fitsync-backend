@@ -20,6 +20,7 @@ public record RecipeListItemView(
         BigDecimal servings,
         Integer kcalPerServing,
         BigDecimal proteinGramsPerServing,
+        BigDecimal fatGramsPerServing,
         List<String> tags,
         List<String> dietFlags,
         List<String> topFoodGroups,

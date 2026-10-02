@@ -120,6 +120,7 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                 // 754 kcal over 2 servings, and 72.9 g protein over 2 servings.
                 .andExpect(jsonPath("$.content[0].kcalPerServing").value(377))
                 .andExpect(jsonPath("$.content[0].proteinGramsPerServing").value(36.45))
+                .andExpect(jsonPath("$.content[0].fatGramsPerServing").isNumber())
                 .andExpect(jsonPath("$.content[0].tags[0]").value("High protein"))
                 .andExpect(jsonPath("$.content[0].tags.length()").value(1))
                 .andExpect(jsonPath("$.content[0].dietFlags.length()").value(0))

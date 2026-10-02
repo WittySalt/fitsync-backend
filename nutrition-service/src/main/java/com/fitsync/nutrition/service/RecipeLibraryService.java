@@ -452,6 +452,7 @@ public class RecipeLibraryService {
                 recipe.getServings(),
                 computation.kcalPerServing(),
                 computation.proteinPerServing(),
+                computation.fatPerServing(),
                 computation.tags(),
                 computation.dietFlags(),
                 computation.topFoodGroups(),
