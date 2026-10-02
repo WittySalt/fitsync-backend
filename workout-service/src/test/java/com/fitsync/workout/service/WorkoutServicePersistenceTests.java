@@ -546,6 +546,34 @@ class WorkoutServicePersistenceTests {
     }
 
     @Test
+    void shouldReplaceAnExerciseAtTheSameSequenceInASessionInProgress() {
+        UUID run = createExerciseOfType("replace-same-seq-run", "Replace Same Sequence Run", ExerciseType.CARDIO);
+        WorkoutSessionView session = workoutService.createSession(currentUser, new UpsertWorkoutSessionRequest(
+                null,
+                "Replace Session",
+                WorkoutType.CUSTOM,
+                WorkoutSessionStatus.IN_PROGRESS,
+                WorkoutSource.MANUAL,
+                Instant.parse("2026-06-11T18:00:00Z"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()));
+        workoutService.appendOrReplaceExercise(currentUser, session.sessionId(),
+                new WorkoutExerciseLogInput(run, 1, null, null, null, null, null, null, null, null, List.of()));
+
+        // Sending the same exercise at the same sequence again replaces the row instead of failing on the
+        // (session, sequence) unique index.
+        WorkoutSessionView replaced = workoutService.appendOrReplaceExercise(currentUser, session.sessionId(),
+                new WorkoutExerciseLogInput(run, 1, null, null, null, null, null, null, null, null, List.of()));
+
+        assertEquals(1, replaced.exercises().size());
+        assertEquals(1, replaced.exercises().get(0).sequence());
+    }
+
+    @Test
     void shouldSetKindOnSessionStartedFromPlan() {
         UUID squatId = createExercise("kind-start-squat", "Kind Start Squat");
         WorkoutPlanView plan = workoutService.createPlan(currentUser, new CreateWorkoutPlanRequest(
