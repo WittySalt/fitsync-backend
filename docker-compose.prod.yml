@@ -55,6 +55,7 @@ x-kafka-consumer-env: &kafka-consumer-env
   KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED: ${KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED:-false}
   KAFKA_WORKOUT_DELETED_LISTENER_ENABLED: ${KAFKA_WORKOUT_DELETED_LISTENER_ENABLED:-false}
   KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED: ${KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED:-false}
+  KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED: ${KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED:-false}
 
 # Object storage for media — workout exercise images AND user avatars. Both the
 # workout-service (catalog import) and user-service (avatar upload) write here via
