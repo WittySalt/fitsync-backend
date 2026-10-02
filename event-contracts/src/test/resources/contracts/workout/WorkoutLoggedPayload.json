@@ -8,5 +8,6 @@
   "durationMinutes": 50,
   "caloriesBurned": 420,
   "exerciseCount": 6,
-  "source": "PLAN"
+  "source": "PLAN",
+  "caloriesEstimated": false
 }

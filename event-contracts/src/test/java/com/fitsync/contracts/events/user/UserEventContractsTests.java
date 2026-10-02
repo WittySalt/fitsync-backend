@@ -70,4 +70,11 @@ class UserEventContractsTests {
         assertEquals(Instant.parse("2026-06-25T04:00:00Z"), payload.deletedAt());
         assertEquals("USER_REQUESTED", payload.reason());
     }
+
+    @Test
+    void energyProfileOldConstructorReadsAsNotEstimated() {
+        Instant at = Instant.parse("2026-06-15T07:30:00Z");
+        assertEquals(false, new EnergyProfileComputedPayload(1662, 2576, "MODERATE", at).estimated());
+        assertEquals(true, new EnergyProfileComputedPayload(1662, 2576, "MODERATE", at, true).estimated());
+    }
 }

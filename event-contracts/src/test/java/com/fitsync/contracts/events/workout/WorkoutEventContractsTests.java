@@ -109,4 +109,15 @@ class WorkoutEventContractsTests {
         assertEquals(new BigDecimal("125.00"), payload.records().get(0).value());
         assertEquals(achievedAt, payload.achievedAt());
     }
+
+    @Test
+    void shouldKeepOldConstructorsAndReadMissingEstimatedFlagAsNull() {
+        Instant at = Instant.parse("2026-06-11T18:30:00Z");
+        WorkoutLoggedPayload logged = new WorkoutLoggedPayload(
+                UUID.randomUUID(), null, "STRENGTH", "COMPLETED", at, at, 50, 420, 6, "PLAN");
+        WorkoutUpdatedPayload updated = new WorkoutUpdatedPayload(
+                UUID.randomUUID(), null, "CARDIO", "COMPLETED", at, at, 55, 460, 1, "DEVICE");
+        assertEquals(null, logged.caloriesEstimated());
+        assertEquals(null, updated.caloriesEstimated());
+    }
 }

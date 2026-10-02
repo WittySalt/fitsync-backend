@@ -13,10 +13,19 @@ import java.time.Instant;
  * @param activityLevel the activity level the TDEE was computed with (nullable — the
  *                      default factor was used when the profile has none)
  * @param computedAt    when user-service computed this profile
+ * @param estimated     true when age or sex were not given and defaults were used (additive;
+ *                      absent on older events, which read as false)
  */
 public record EnergyProfileComputedPayload(
         Integer bmrCalories,
         Integer tdeeCalories,
         String activityLevel,
-        Instant computedAt) {
+        Instant computedAt,
+        boolean estimated) {
+
+    /** Shape before {@code estimated} existed, kept for callers that do not know the flag. */
+    public EnergyProfileComputedPayload(
+            Integer bmrCalories, Integer tdeeCalories, String activityLevel, Instant computedAt) {
+        this(bmrCalories, tdeeCalories, activityLevel, computedAt, false);
+    }
 }
