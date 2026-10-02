@@ -55,6 +55,7 @@ public final class RecipeStepAnalyzer {
     /** "until crispy on both sides" says when the food is done, not that it is turned halfway. */
     private static final Pattern DONENESS_BOTH_SIDES = Pattern.compile(
             "\\b(?:until|till)\\b[^,;]*\\bon both sides\\b", FLAGS);
+    private static final Pattern ING_FORM = Pattern.compile(".+ing", FLAGS);
     private static final int LABEL_MAX = 32;
     private static final int LABEL_PHRASE_WORDS = 4;
     private static final Set<String> LABEL_STOP_WORDS = Set.of("in", "until", "till", "for", "over", "on", "at", "with",
@@ -213,7 +214,7 @@ public final class RecipeStepAnalyzer {
         while (match.find()) {
             int[] range = secondsOf(match);
             if (range != null && range[0] >= MIN_TIMER_SECONDS && range[1] <= MAX_TIMER_SECONDS) {
-                String label = label(sentence, stepText, stepNumber, mainIngredient);
+                String label = label(sentence, match.start(), stepText, stepNumber, mainIngredient);
                 timers.add(new RecipeStepTimerView(range[0], range[1], eachSide, match.group().strip(), label));
             }
         }
@@ -241,16 +242,37 @@ public final class RecipeStepAnalyzer {
      * What the timer times: the cooking verb and the words after it up to a preposition, a comma or four words;
      * the verb and the step's main ingredient when nothing follows; then the step title; then "Step N timer".
      */
-    private static String label(String sentence, String stepText, int stepNumber, String mainIngredient) {
-        String clause = sentence;
-        int colon = clause.indexOf(':');
-        if (colon >= 0 && COOKING_VERB.matcher(clause.substring(colon + 1)).find()) {
-            clause = clause.substring(colon + 1);
+    private static String label(String sentence, int durationStart, String stepText, int stepNumber,
+                                 String mainIngredient) {
+        int begin = 0;
+        int colon = sentence.indexOf(':');
+        if (colon >= 0 && colon < durationStart
+                && COOKING_VERB.matcher(sentence.substring(colon + 1, durationStart)).find()) {
+            begin = colon + 1;
         }
-        Matcher verb = COOKING_VERB.matcher(clause);
-        if (verb.find()) {
-            String word = capitalise(verb.group());
-            String phrase = phraseAfter(clause.substring(verb.end()));
+        Matcher verbs = COOKING_VERB.matcher(sentence.substring(begin, durationStart));
+        int verbStart = -1;
+        int verbEnd = -1;
+        boolean nearestIsParticiple = true;
+        while (verbs.find()) {
+            // The nearest verb before the time wins, but "stirring" or "turning" does not replace an earlier verb.
+            boolean participle = ING_FORM.matcher(verbs.group()).matches();
+            if (verbStart < 0 || !participle || nearestIsParticiple) {
+                verbStart = begin + verbs.start();
+                verbEnd = begin + verbs.end();
+                nearestIsParticiple = participle;
+            }
+        }
+        if (verbStart < 0) {
+            Matcher any = COOKING_VERB.matcher(sentence);
+            if (any.find()) {
+                verbStart = any.start();
+                verbEnd = any.end();
+            }
+        }
+        if (verbStart >= 0) {
+            String word = capitalise(sentence.substring(verbStart, verbEnd));
+            String phrase = phraseAfter(sentence.substring(verbEnd, Math.max(verbEnd, durationStart)));
             String label;
             if (!phrase.isEmpty()) {
                 label = word + " " + phrase;

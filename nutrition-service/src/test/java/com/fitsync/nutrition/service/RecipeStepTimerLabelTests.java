@@ -46,6 +46,9 @@ class RecipeStepTimerLabelTests {
                     + "until golden.", null, "Cook the arepas"),
             new Case("Cook gently stirring the whole time until the eggs are set, 2 to 5 minutes.", null,
                     "Cook gently stirring the whole"),
+            new Case("Place on the grill plate and cook for 5 minutes.", "Sausages", "Cook · Sausages"),
+            new Case("Simmer, stirring occasionally, for about 30 minutes, or until the sauce is thickened.",
+                    "Tomatoes", "Simmer · Tomatoes"),
             new Case("Spread the mixture into the cake tin and bake for 50-55 mins or until firm in the centre.",
                     "Cake", "Bake · Cake"));
 
