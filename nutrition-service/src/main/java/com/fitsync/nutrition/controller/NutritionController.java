@@ -18,6 +18,7 @@ import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
 import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
+import com.fitsync.nutrition.dto.NutrientPageView;
 import com.fitsync.nutrition.dto.NutrientSummaryView;
 import com.fitsync.nutrition.dto.NutritionPageInsightView;
 import com.fitsync.nutrition.dto.RangeSummaryView;
@@ -209,8 +210,18 @@ public class NutritionController {
     public NutrientSummaryView nutrientSummary(Authentication authentication,
                                                @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                                @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-                                               @RequestParam(required = false) String timezone) {
-        return nutritionDiaryService.getNutrientSummary(currentPrincipal(authentication), from, to, timezone);
+                                               @RequestParam(required = false) String timezone,
+                                               @RequestParam(defaultValue = "diary") String scope) {
+        return nutritionDiaryService.getNutrientSummary(currentPrincipal(authentication), from, to, timezone, scope);
+    }
+
+    @GetMapping("/nutrients/{code}")
+    public NutrientPageView nutrientPage(Authentication authentication,
+                                         @PathVariable String code,
+                                         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                         @RequestParam(required = false) String timezone) {
+        return nutritionDiaryService.getNutrientPage(currentPrincipal(authentication), code, from, to, timezone);
     }
 
     @GetMapping("/insights/page")

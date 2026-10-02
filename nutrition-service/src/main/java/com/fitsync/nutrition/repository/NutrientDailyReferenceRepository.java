@@ -20,4 +20,7 @@ public interface NutrientDailyReferenceRepository extends JpaRepository<Nutrient
             order by r.nutrientCode asc, r.kind asc
             """)
     List<NutrientDailyReferenceEntity> findApplicable(@Param("sex") String sex, @Param("age") int age);
+
+    /** Every row of one nutrient, for the table of all age bands. */
+    List<NutrientDailyReferenceEntity> findByNutrientCodeOrderByAgeFromAscSexAsc(String nutrientCode);
 }

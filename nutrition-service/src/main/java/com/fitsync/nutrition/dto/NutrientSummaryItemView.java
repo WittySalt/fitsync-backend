@@ -9,11 +9,17 @@ import java.util.List;
  * When no logged item of the range carries the nutrient, the average, share, met and aboveUpperLimit are null.
  * richestUsualFood names the food, among the person's usual ones, that gives the most per usual portion.
  * days has one entry per date of the range, from first to last.
+ * groupCode, symbol and atomicNumber place the nutrient in the all-nutrients table, and are null where it has none.
+ * For a nutrient with a limit instead of a target (sodium, sugar, saturated fat) the reference is the limit, met
+ * means the average stays within it and aboveUpperLimit means it is over it.
  */
 public record NutrientSummaryItemView(
         String code,
         String displayName,
         String kind,
+        String groupCode,
+        String symbol,
+        Integer atomicNumber,
         String unit,
         BigDecimal averageAmount,
         BigDecimal reference,
