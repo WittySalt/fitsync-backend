@@ -244,6 +244,35 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
     }
 
     @Test
+    void detailStepsCarryATitleTheIngredientsTheyUseAndTheirTimers() throws Exception {
+        String token = tokenFor("cook@example.com");
+        String body = mockMvc.perform(post(RECIPES).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(recipeJson("Roast chicken", 2, "200", "2 chicken breasts",
+                                "[{\"text\":\"Season the chicken breasts with salt. Rest them.\"},"
+                                + "{\"text\":\"Roast for 25 minutes, 3 mins each side.\"}]")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String id = JsonPath.read(body, "$.recipeId");
+        String ingredientId = JsonPath.read(body, "$.ingredients[0].ingredientId");
+
+        mockMvc.perform(get(RECIPES + "/" + id).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].title").value("Season the chicken breasts with salt"))
+                .andExpect(jsonPath("$.steps[0].ingredientIds.length()").value(1))
+                .andExpect(jsonPath("$.steps[0].ingredientIds[0]").value(ingredientId))
+                .andExpect(jsonPath("$.steps[0].timers.length()").value(0))
+                .andExpect(jsonPath("$.steps[1].title").value("Roast for 25 minutes, 3 mins each side"))
+                .andExpect(jsonPath("$.steps[1].ingredientIds.length()").value(0))
+                .andExpect(jsonPath("$.steps[1].timers.length()").value(2))
+                .andExpect(jsonPath("$.steps[1].timers[0].seconds").value(1500))
+                .andExpect(jsonPath("$.steps[1].timers[0].maxSeconds").value(1500))
+                .andExpect(jsonPath("$.steps[1].timers[0].eachSide").value(true))
+                .andExpect(jsonPath("$.steps[1].timers[0].phrase").value("25 minutes"))
+                .andExpect(jsonPath("$.steps[1].timers[1].seconds").value(180));
+    }
+
+    @Test
     void writeValidationRejectsBlankStepsAndNonPositiveGrams() throws Exception {
         String token = tokenFor("validation@example.com");
 

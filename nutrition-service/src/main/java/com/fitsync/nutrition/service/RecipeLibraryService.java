@@ -253,9 +253,20 @@ public class RecipeLibraryService {
                     item.grams() == null ? null : item.grams().setScale(2, RoundingMode.HALF_UP),
                     item.foodGroup(), item.categoryCode()));
         }
-        List<RecipeStepView> steps = stepRepository.findByRecipeIdOrderByStepNumberAsc(recipe.getRecipeId()).stream()
-                .map(step -> new RecipeStepView(step.getStepNumber(), step.getText()))
-                .toList();
+        List<RecipeStepEntity> stepRows = stepRepository.findByRecipeIdOrderByStepNumberAsc(recipe.getRecipeId());
+        List<List<UUID>> usedIngredients = RecipeStepAnalyzer.ingredientIdsByStep(
+                stepRows.stream().map(RecipeStepEntity::getText).toList(),
+                computation.ingredients().stream()
+                        .map(item -> new RecipeStepAnalyzer.IngredientRef(item.ingredientId(), item.foodName(),
+                                item.displayText()))
+                        .toList());
+        List<RecipeStepView> steps = new ArrayList<>();
+        for (int i = 0; i < stepRows.size(); i++) {
+            RecipeStepEntity step = stepRows.get(i);
+            steps.add(new RecipeStepView(step.getStepNumber(), step.getText(),
+                    RecipeStepAnalyzer.title(step.getText(), step.getStepNumber()),
+                    usedIngredients.get(i), RecipeStepAnalyzer.timers(step.getText())));
+        }
         boolean shared = recipe.getScope() == RecipeScope.SYSTEM;
         boolean favorite = shared && favoriteRepository.findByUserIdAndRecipeId(userId, recipe.getRecipeId()).isPresent();
         boolean editable = recipe.getScope() == RecipeScope.USER && userId.equals(recipe.getUserId());
