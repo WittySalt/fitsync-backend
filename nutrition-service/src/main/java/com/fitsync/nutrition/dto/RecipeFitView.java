@@ -1,5 +1,6 @@
 package com.fitsync.nutrition.dto;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 
 /**
@@ -9,9 +10,10 @@ import java.math.BigDecimal;
  * lowestNutrient is the vitamin or mineral furthest below its daily reference so far today, or null when
  * nothing has been logged today.
  */
-public record RecipeFitView(Integer kcalLeft, BigDecimal proteinShortGrams, LowestNutrient lowestNutrient) {
+public record RecipeFitView(Integer kcalLeft, BigDecimal proteinShortGrams, LowestNutrient lowestNutrient)
+        implements Serializable {
 
     /** The nutrient of the day that is furthest below its reference. */
-    public record LowestNutrient(String code, String displayName) {
+    public record LowestNutrient(String code, String displayName) implements Serializable {
     }
 }

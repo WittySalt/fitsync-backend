@@ -1,6 +1,7 @@
 package com.fitsync.nutrition.dto;
 
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -19,5 +20,18 @@ public class RecipeFitPage extends PageImpl<RecipeListItemView> {
 
     public RecipeFitView getFit() {
         return fit;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        return other instanceof RecipeFitPage page && super.equals(other) && Objects.equals(fit, page.fit);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), fit);
     }
 }

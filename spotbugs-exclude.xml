@@ -567,6 +567,16 @@
     </Match>
 
     <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.ReadRecipeTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.SearchRecipesTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
         <Class name="com.fitsync.recommendation.coach.client.WorkoutCatalogueClient"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
