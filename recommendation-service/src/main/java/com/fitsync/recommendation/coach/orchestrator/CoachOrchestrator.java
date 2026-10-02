@@ -221,6 +221,9 @@ public class CoachOrchestrator {
         if (turnContext != null && turnContext.surface() != null) {
             transcript.add(surfaceLine(turnContext.surface()));
         }
+        if (turnContext != null && turnContext.recipeId() != null) {
+            transcript.add(recipeLine(turnContext.recipeId()));
+        }
         if (turnContext != null && turnContext.pinnedReading() != null) {
             transcript.add(pinnedReadingObservation(turnContext.surface(), turnContext.pinnedReading()));
             toolsUsed.add(PINNED_READING_TOOL_NAME);
@@ -609,6 +612,12 @@ public class CoachOrchestrator {
     /** The one line that opens the transcript when the client says which page the user is on. */
     private static String surfaceLine(CoachSurface surface) {
         return "The user is on the " + pageName(surface) + " page.";
+    }
+
+    /** Only the id comes from the client, and it was checked to be a UUID before it got here. */
+    static String recipeLine(String recipeId) {
+        return "The user is asking about the recipe with id " + recipeId + ". Read it with readRecipe before "
+                + "answering, and suggest other recipes only from searchRecipes.";
     }
 
     private static String pageName(CoachSurface surface) {

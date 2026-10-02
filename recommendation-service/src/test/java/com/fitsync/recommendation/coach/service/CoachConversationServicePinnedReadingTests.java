@@ -106,6 +106,19 @@ class CoachConversationServicePinnedReadingTests {
     }
 
     @Test
+    @DisplayName("the recipe id of the context reaches the turn context, and is null when the client sent none")
+    void recipeIdIsCarriedIntoTheTurnContext() {
+        String id = "6c6a1ac5-5b6b-584e-9e3f-40e36949cdfb";
+
+        service.send(USER_ID, THREAD_ID, TOKEN, "Is this a good dinner?",
+                new CoachMessageContext(CoachSurface.NUTRITION, null, "Asia/Singapore", id));
+        assertThat(orchestratorContext().recipeId()).isEqualTo(id);
+
+        send(CoachSurface.NUTRITION);
+        assertThat(orchestratorContext().recipeId()).isNull();
+    }
+
+    @Test
     @DisplayName("pages that show no reading never ask for one")
     void otherPagesAskForNothing() {
         send(CoachSurface.HOME);

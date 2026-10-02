@@ -18,12 +18,18 @@ import com.fitsync.recommendation.coach.dto.CoachSurface;
  * @param surface       the page the user is on, or null when the request carried no context at all
  * @param pinnedReading the reading the user is asking about, resolved and matched to the id the
  *                      client sent, or null when there is none
+ * @param recipeId      the id of the recipe page the question was asked on, already checked to be a
+ *                      UUID, or null; the recipe itself is never carried here
  */
-public record TurnContext(CoachSurface surface, PinnedReading pinnedReading) {
+public record TurnContext(CoachSurface surface, PinnedReading pinnedReading, String recipeId) {
+
+    public TurnContext(CoachSurface surface, PinnedReading pinnedReading) {
+        this(surface, pinnedReading, null);
+    }
 
     /** A context with a known surface and no pinned reading. */
     public static TurnContext ofSurface(CoachSurface surface) {
-        return new TurnContext(surface, null);
+        return new TurnContext(surface, null, null);
     }
 
     /**
