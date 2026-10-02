@@ -51,10 +51,14 @@ public record AnalyticsEnergyWeeklyResponse(
     public record MealSplit(int breakfast, int lunch, int dinner, int snack, int other) {
     }
 
-    /** Eaten, balance and runningTotal are null on a day without a logged meal. */
+    /**
+     * Eaten, balance and runningTotal are null on a day without a logged meal. Today (still going) shows
+     * what is logged so far but has no balance or running total and is left out of every count.
+     */
     public record Day(
             LocalDate date,
             boolean logged,
+            boolean today,
             Integer eaten,
             Integer resting,
             Integer workouts,

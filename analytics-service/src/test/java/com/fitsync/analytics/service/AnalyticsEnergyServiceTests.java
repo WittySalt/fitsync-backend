@@ -195,6 +195,52 @@ class AnalyticsEnergyServiceTests {
     }
 
     @Test
+    void todayIsShownButNeverCounted() {
+        profile(Instant.parse("2026-09-01T00:00:00Z"), 1700, false);
+        // The clock says Friday 2026-10-02. Three past days are logged, Friday only has breakfast and lunch so far.
+        loggedDay(MONDAY, 2040, 2);
+        loggedDay(MONDAY.plusDays(1), 2040, 2);
+        loggedDay(MONDAY.plusDays(2), 2040, 2);
+        loggedDay(MONDAY.plusDays(4), 932, 2);
+        workoutDay(MONDAY.plusDays(4), 400, 0);
+        meal(MONDAY.plusDays(2), "LUNCH", 2040);
+        meal(MONDAY.plusDays(4), "BREAKFAST", 932);
+        wire();
+
+        AnalyticsEnergyWeeklyResponse response = service.getWeekly(userId, MONDAY, UTC);
+
+        Day friday = response.days().get(4);
+        assertThat(friday.today()).isTrue();
+        assertThat(friday.eaten()).isEqualTo(932);
+        assertThat(friday.workouts()).isEqualTo(400);
+        assertThat(friday.balance()).isNull();
+        assertThat(friday.runningTotal()).isNull();
+        assertThat(response.days().stream().filter(Day::today)).hasSize(1);
+        assertThat(response.daysLogged()).isEqualTo(3);
+        assertThat(response.status()).isEqualTo("OK");
+        assertThat(response.average().eaten()).isEqualTo(2040);
+        assertThat(response.average().workouts()).isZero();
+        assertThat(response.average().balance()).isZero();
+        assertThat(response.mealSplit().breakfast()).isZero();
+        assertThat(response.mealSplit().lunch()).isEqualTo(680);
+        assertThat(response.days().get(2).runningTotal()).isZero();
+        assertThat(response.weeks().get(7).expectedKgChange()).isEqualTo(0.0);
+    }
+
+    @Test
+    void todayDoesNotLiftAWeekOverTheThreeDayRuleAndPastWeeksHaveNoToday() {
+        profile(Instant.parse("2026-09-01T00:00:00Z"), 1700, false);
+        loggedDay(MONDAY, 2040, 2);
+        loggedDay(MONDAY.plusDays(1), 2040, 2);
+        loggedDay(MONDAY.plusDays(4), 2040, 3);
+        wire();
+
+        assertThat(service.getWeekly(userId, MONDAY, UTC).status()).isEqualTo("TOO_FEW_DAYS");
+        assertThat(service.getWeekly(userId, MONDAY, UTC).daysLogged()).isEqualTo(2);
+        assertThat(service.getWeekly(userId, MONDAY.minusWeeks(1), UTC).days()).noneMatch(Day::today);
+    }
+
+    @Test
     void picksTheBmrThatWasNewestAtTheEndOfEachDayAndTheEarliestBeforeAnyComputation() {
         // First computation on Wednesday 10:00, second on Friday 08:00.
         profile(Instant.parse("2026-09-30T10:00:00Z"), 1600, false);

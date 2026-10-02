@@ -113,6 +113,7 @@ public class AnalyticsEnergyService {
         dailyWorkoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, rangeStart, end)
                 .forEach(row -> workouts.put(row.getActivityDate(), row));
         BmrTimeline timeline = loadTimeline(userId, rangeStart, end, zone);
+        LocalDate today = LocalDate.now(clock.withZone(zone));
 
         List<Day> days = new ArrayList<>();
         int runningTotal = 0;
@@ -130,7 +131,13 @@ public class AnalyticsEnergyService {
             AnalyticsUserDailyNutritionEntity nutritionRow = nutrition.get(date);
             boolean logged = nutritionRow != null && defaultInt(nutritionRow.getMealCount()) > 0;
             if (!logged) {
-                days.add(new Day(date, false, null, resting, workoutKcal, estimated, null, null));
+                days.add(new Day(date, false, date.equals(today), null, resting, workoutKcal, estimated, null, null));
+                continue;
+            }
+            if (date.equals(today)) {
+                // Today is still going: shown as far as it is logged, never counted.
+                days.add(new Day(date, true, true, defaultInt(nutritionRow.getTotalCaloriesConsumed()), resting,
+                        workoutKcal, estimated, null, null));
                 continue;
             }
             int eaten = defaultInt(nutritionRow.getTotalCaloriesConsumed());
@@ -146,7 +153,7 @@ public class AnalyticsEnergyService {
             } else {
                 restingSum += resting;
             }
-            days.add(new Day(date, true, eaten, resting, workoutKcal, estimated, balance,
+            days.add(new Day(date, true, false, eaten, resting, workoutKcal, estimated, balance,
                     balance == null ? null : runningTotal));
         }
 
@@ -176,13 +183,13 @@ public class AnalyticsEnergyService {
                 weekProfile == null ? null : weekProfile.getBmrKcal(),
                 weekProfile != null && weekProfile.isEstimated(),
                 RESTING_FACTOR, average, split, kg, days,
-                weeks(userId, rangeStart, nutrition, workouts, timeline));
+                weeks(userId, rangeStart, nutrition, workouts, timeline, today));
     }
 
     /** Whole-kcal split of the logged days' meals by type, averaged per logged day. */
     private MealSplit mealSplit(UUID userId, List<Day> days, LocalDate start, LocalDate end, int loggedDays) {
         Set<LocalDate> logged = new HashSet<>();
-        days.stream().filter(Day::logged).forEach(day -> logged.add(day.date()));
+        days.stream().filter(day -> day.logged() && !day.today()).forEach(day -> logged.add(day.date()));
         long breakfast = 0;
         long lunch = 0;
         long dinner = 0;
@@ -216,7 +223,7 @@ public class AnalyticsEnergyService {
     private List<Week> weeks(UUID userId, LocalDate rangeStart,
                              Map<LocalDate, AnalyticsUserDailyNutritionEntity> nutrition,
                              Map<LocalDate, AnalyticsUserDailyWorkoutEntity> workouts,
-                             BmrTimeline timeline) {
+                             BmrTimeline timeline, LocalDate today) {
         LocalDate rangeEnd = rangeStart.plusWeeks(WEEKS_SHOWN).minusDays(1);
         Map<LocalDate, BigDecimal> weights = new HashMap<>();
         dailyBodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(userId, rangeStart, rangeEnd)
@@ -240,7 +247,7 @@ public class AnalyticsEnergyService {
                     weightCount++;
                 }
                 AnalyticsUserDailyNutritionEntity row = nutrition.get(date);
-                if (row == null || defaultInt(row.getMealCount()) <= 0) {
+                if (row == null || defaultInt(row.getMealCount()) <= 0 || date.equals(today)) {
                     continue;
                 }
                 AnalyticsUserEnergyProfileEntity profile = timeline.forDay(date);
