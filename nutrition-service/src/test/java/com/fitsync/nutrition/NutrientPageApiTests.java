@@ -23,11 +23,22 @@ import org.junit.jupiter.api.Test;
  */
 class NutrientPageApiTests extends DiaryApiTestBase {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.fitsync.nutrition.repository.RecipeRepository recipeRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.fitsync.nutrition.repository.RecipeIngredientRepository ingredientRepository;
+
     private Seeded salmon;
     private Seeded eggs;
     private Seeded milk;
     private Seeded oats;
     private Seeded ham;
+    private Seeded mushrooms;
+    private Seeded tuna;
+    private Seeded herring;
+    private Seeded trout;
+    private Seeded yogurt;
 
     @BeforeEach
     void seedFoods() {
@@ -41,11 +52,11 @@ class NutrientPageApiTests extends DiaryApiTestBase {
                 .addServing("100 g", "g", "100", "100");
         milk = seedFood("Milk", "DAIRY", false, "g", 60, "1", null, mapOf("VIT_D", "1"))
                 .addServing("100 g", "g", "100", "100");
-        seedFood("Mushrooms", "VEGETABLES", false, "g", 30, "0", null, mapOf("VIT_D", "7"));
-        seedFood("Tuna", "MEAT_POULTRY", false, "g", 130, "1", null, mapOf("VIT_D", "6"));
-        seedFood("Herring", "MEAT_POULTRY", false, "g", 160, "2", null, mapOf("VIT_D", "5"));
-        seedFood("Trout", "MEAT_POULTRY", false, "g", 150, "2", null, mapOf("VIT_D", "4"));
-        seedFood("Yogurt", "DAIRY", false, "g", 60, "1", null, mapOf("VIT_D", "3"));
+        mushrooms = seedFood("Mushrooms", "VEGETABLES", false, "g", 30, "0", null, mapOf("VIT_D", "7"));
+        tuna = seedFood("Tuna", "MEAT_POULTRY", false, "g", 130, "1", null, mapOf("VIT_D", "6"));
+        herring = seedFood("Herring", "MEAT_POULTRY", false, "g", 160, "2", null, mapOf("VIT_D", "5"));
+        trout = seedFood("Trout", "MEAT_POULTRY", false, "g", 150, "2", null, mapOf("VIT_D", "4"));
+        yogurt = seedFood("Yogurt", "DAIRY", false, "g", 60, "1", null, mapOf("VIT_D", "3"));
         seedFood("Cod liver oil", "MISC", false, "g", 900, "20", null, mapOf("VIT_D", "250"));
         oats = seedFood("Rolled oats", "GRAINS", false, "g", 380, "1.2", null, mapOf(), profile -> {
             profile.setFiberGrams(new BigDecimal("10"));
@@ -58,6 +69,8 @@ class NutrientPageApiTests extends DiaryApiTestBase {
     @AfterEach
     void removeGuidesAndExtraCategories() {
         jdbcTemplate.update("delete from nutrient_guides");
+        jdbcTemplate.update("delete from recipe_ingredients");
+        jdbcTemplate.update("delete from recipes");
         // This class runs before NutritionApiTests, which counts the categories, so the ones the base class and this
         // class add (they are not part of the test schema) are removed again.
         jdbcTemplate.update("delete from food_categories where code in ('BEVERAGES', 'SWEETS', 'MISC')");
@@ -305,6 +318,93 @@ class NutrientPageApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.richest[5].name").value("Yogurt"))
                 .andExpect(jsonPath("$.richest[*].name", not(hasItem("Cod liver oil"))))
                 .andExpect(jsonPath("$.richest[*].name", not(hasItem("Milk"))));
+    }
+
+    @Test
+    void upperLimitsThatCoverSeveralBandsOrOneBandEachAreMatchedToTheirBand() throws Exception {
+        personIs("MALE", 25, null, null);
+        String token = tokenFor("limits-bands@example.com");
+
+        // Vitamin D has one upper limit row for 19 and over, and calcium one row per band group.
+        mockMvc.perform(get(BASE + "/nutrients/VIT_D").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.amounts", hasSize(4)))
+                .andExpect(jsonPath("$.amounts[0].label").value("19 to 30"))
+                .andExpect(jsonPath("$.amounts[1].label").value("31 to 50"))
+                .andExpect(jsonPath("$.amounts[2].label").value("51 to 70"))
+                .andExpect(jsonPath("$.amounts[3].label").value("71 and over"))
+                .andExpect(jsonPath("$.amounts[*].upperLimit", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(100.0))))
+                .andExpect(jsonPath("$.amounts[0].mine").value(true))
+                .andExpect(jsonPath("$.amounts[1].mine").value(false));
+        mockMvc.perform(get(BASE + "/nutrients/CALCIUM").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.amounts", hasSize(4)))
+                .andExpect(jsonPath("$.amounts[0].upperLimit").value(2500.0))
+                .andExpect(jsonPath("$.amounts[1].upperLimit").value(2500.0))
+                .andExpect(jsonPath("$.amounts[2].upperLimit").value(2000.0))
+                .andExpect(jsonPath("$.amounts[3].upperLimit").value(2000.0));
+    }
+
+    @Test
+    void richestFallsBackToShortenedNamesWhenFewerThanSixFoodsHaveAnEverydayName() throws Exception {
+        seedFood("Fish oil, cod liver", "MEAT_POULTRY", false, "g", 900, "20", null, mapOf("VIT_D", "250"));
+        seedFood("Mushrooms, brown, italian, or crimini, exposed to ultraviolet light, raw", "VEGETABLES", false, "g",
+                30, "0", null, mapOf("VIT_D", "8.5"));
+        systemRecipe("Fish bake", ingredient(salmon, "200g Salmon"), ingredient(eggs, "2 Eggs"));
+
+        mockMvc.perform(get(BASE + "/nutrients/VIT_D").header("Authorization", "Bearer " + tokenFor("short@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.richest", hasSize(6)))
+                .andExpect(jsonPath("$.richest[0].name").value("Fish oil (cod liver)"))
+                .andExpect(jsonPath("$.richest[1].name").value("Salmon"))
+                .andExpect(jsonPath("$.richest[2].name").value("Mushrooms (brown, UV)"))
+                .andExpect(jsonPath("$.richest[*].name", not(hasItem(org.hamcrest.Matchers.hasLength(33)))));
+    }
+
+    @Test
+    void richestListsOnlyFoodsWithAnEverydayNameWhenAtLeastSixHaveOne() throws Exception {
+        seedFood("Fish oil, cod liver", "MEAT_POULTRY", false, "g", 900, "20", null, mapOf("VIT_D", "250"));
+        systemRecipe("Big bake", ingredient(salmon, "200g Salmon"), ingredient(eggs, "2 Eggs"),
+                ingredient(milk, "1 cup Milk"), ingredient(mushrooms, "100g Mushrooms"), ingredient(tuna, "1 tin Tuna"),
+                ingredient(yogurt, "3 tbsp Yogurt"));
+
+        mockMvc.perform(get(BASE + "/nutrients/VIT_D").header("Authorization", "Bearer " + tokenFor("friendly@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.richest", hasSize(6)))
+                .andExpect(jsonPath("$.richest[0].name").value("Salmon"))
+                .andExpect(jsonPath("$.richest[1].name").value("Mushrooms"))
+                .andExpect(jsonPath("$.richest[2].name").value("Tuna"))
+                .andExpect(jsonPath("$.richest[3].name").value("Yogurt"))
+                .andExpect(jsonPath("$.richest[4].name").value("Eggs"))
+                .andExpect(jsonPath("$.richest[5].name").value("Milk"))
+                .andExpect(jsonPath("$.richest[*].name", not(hasItem("Herring"))))
+                .andExpect(jsonPath("$.richest[*].name", not(hasItem("Fish oil (cod liver)"))));
+    }
+
+    private com.fitsync.nutrition.entity.RecipeIngredientEntity ingredient(Seeded food, String line) {
+        com.fitsync.nutrition.entity.RecipeIngredientEntity ingredient = new com.fitsync.nutrition.entity.RecipeIngredientEntity();
+        ingredient.setIngredientId(java.util.UUID.randomUUID());
+        ingredient.setFoodCatalogItemId(food.foodId);
+        ingredient.setQuantity(BigDecimal.ONE);
+        ingredient.setGrams(new BigDecimal("100"));
+        ingredient.setDisplayText(line);
+        return ingredient;
+    }
+
+    private void systemRecipe(String name, com.fitsync.nutrition.entity.RecipeIngredientEntity... ingredients) {
+        com.fitsync.nutrition.entity.RecipeEntity recipe = new com.fitsync.nutrition.entity.RecipeEntity();
+        recipe.setRecipeId(java.util.UUID.randomUUID());
+        recipe.setScope(com.fitsync.nutrition.domain.RecipeScope.SYSTEM);
+        recipe.setName(name);
+        recipe.setServings(BigDecimal.ONE);
+        recipe.setSource("THEMEALDB");
+        recipe.setSourceRef("meal-" + name.toLowerCase().replace(' ', '-'));
+        recipe.setPublished(true);
+        recipeRepository.save(recipe);
+        int order = 0;
+        for (com.fitsync.nutrition.entity.RecipeIngredientEntity ingredient : ingredients) {
+            ingredient.setRecipeId(recipe.getRecipeId());
+            ingredient.setSortOrder(order++);
+            ingredientRepository.save(ingredient);
+        }
     }
 
     @Test
