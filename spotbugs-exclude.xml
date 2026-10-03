@@ -188,6 +188,12 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <!-- workout-service Progress reads: intentional, token-protected GET endpoints. -->
+    <Match>
+        <Class name="com.fitsync.workout.controller.TrainingProgressController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
     <Match>
         <Class name="~com\.fitsync\.workout\.entity\..*"/>
         <Bug pattern="EI_EXPOSE_REP"/>

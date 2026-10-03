@@ -1,12 +1,10 @@
 package com.fitsync.workout.progress;
 
-import java.util.Locale;
-
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.workout.domain.SessionKind;
 import com.fitsync.workout.domain.SportActivity;
 
-/** A parsed activity key: STRENGTH, CARDIO, MOBILITY or SPORT:&lt;activity code&gt;. */
+/** A parsed activity key, matched exactly: STRENGTH, CARDIO, MOBILITY or SPORT:&lt;activity code&gt;. */
 public record ActivityKey(SessionKind kind, SportActivity sport) {
 
     private static final int MAX_LENGTH = 60;
@@ -15,7 +13,7 @@ public record ActivityKey(SessionKind kind, SportActivity sport) {
         if (raw == null || raw.isBlank() || raw.length() > MAX_LENGTH) {
             throw invalid();
         }
-        String value = raw.trim().toUpperCase(Locale.ROOT);
+        String value = raw.trim();
         if (value.startsWith("SPORT:")) {
             String code = value.substring("SPORT:".length());
             for (SportActivity activity : SportActivity.values()) {

@@ -96,7 +96,8 @@ class ActivityAndExerciseProgressCalculatorTests {
         assertThrows(com.fitsync.web.error.BadRequestException.class, () -> ActivityKey.parse("SPORT:CURLING"));
         assertThrows(com.fitsync.web.error.BadRequestException.class, () -> ActivityKey.parse("SPORT"));
         assertThrows(com.fitsync.web.error.BadRequestException.class, () -> ActivityKey.parse("YOGA"));
-        assertEquals("SPORT:TABLE_TENNIS", ActivityKey.parse("sport:table_tennis").key());
+        assertEquals("SPORT:TABLE_TENNIS", ActivityKey.parse("SPORT:TABLE_TENNIS").key());
+        assertThrows(com.fitsync.web.error.BadRequestException.class, () -> ActivityKey.parse("strength"));
     }
 
     @Test

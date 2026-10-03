@@ -2,6 +2,8 @@ package com.fitsync.workout.service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,6 +28,10 @@ import com.fitsync.workout.dto.WorkoutPlanDayInput;
 import com.fitsync.workout.dto.WorkoutPlanExerciseInput;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.progress.ExerciseProgressView;
+import com.fitsync.workout.dto.progress.TrainingProgressView;
+import com.fitsync.workout.progress.ProgressPeriod;
+import com.fitsync.workout.progress.TrainingProgressService;
 import com.fitsync.workout.security.CurrentUserPrincipal;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
@@ -71,6 +77,9 @@ class WorkoutServicePostgresIT {
 
     @Autowired
     private WorkoutService workoutService;
+
+    @Autowired
+    private TrainingProgressService trainingProgressService;
 
     @Test
     void shouldListExercisesWhenQueryIsBlankOrFilteredOnPostgres() {
@@ -245,6 +254,27 @@ class WorkoutServicePostgresIT {
     }
 
     /** A person with one active plan and one completed session of three goblet squat sets. */
+    @Test
+    void shouldReadProgressPeriodsWithTheirBulkQueriesOnPostgres() {
+        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker not available");
+
+        CurrentUserPrincipal currentUser = seedTrainingHistory().user();
+        ProgressPeriod june = new ProgressPeriod(LocalDate.parse("2026-06-08"), LocalDate.parse("2026-07-05"));
+        ProgressPeriod july = new ProgressPeriod(LocalDate.parse("2026-07-06"), LocalDate.parse("2026-08-02"));
+
+        TrainingProgressView inJune = trainingProgressService.getTraining(currentUser, ZoneOffset.UTC, june,
+                new BigDecimal("70"));
+        TrainingProgressView inJuly = trainingProgressService.getTraining(currentUser, ZoneOffset.UTC, july, null);
+        ExerciseProgressView squat = trainingProgressService.getExercise(currentUser, ZoneOffset.UTC,
+                GOBLET_SQUAT_ID, june);
+
+        assertEquals(1, inJune.hero().sessions().value());
+        assertEquals(1, inJuly.hero().sessions().previous());
+        assertEquals(0, inJuly.hero().records().value());
+        assertEquals(1, squat.sessions());
+        assertEquals(new BigDecimal("16.0"), squat.tiles().e1rm().value());
+    }
+
     private TrainingHistory seedTrainingHistory() {
         CurrentUserPrincipal user = newUser();
         WorkoutPlanView plan = workoutService.createPlan(user, new CreateWorkoutPlanRequest(
