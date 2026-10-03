@@ -329,7 +329,7 @@ Response shape:
   "achievements": [
     { "code": "FIRST_WORKOUT", "title": "First workout", "unlocked": true,
       "unlockedAt": "2026-05-01T10:00:00Z", "progress": 1.0 },
-    { "code": "STREAK_7", "title": "7-day streak", "unlocked": false, "progress": 0.86 }
+    { "code": "STREAK_7", "title": "7 days in a row", "unlocked": false, "progress": 0.86 }
   ]
 }
 ```
