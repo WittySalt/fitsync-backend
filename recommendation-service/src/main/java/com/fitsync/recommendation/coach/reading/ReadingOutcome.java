@@ -11,5 +11,10 @@ package com.fitsync.recommendation.coach.reading;
 public enum ReadingOutcome {
     PENDING,
     ACCEPTED,
-    REJECTED
+    REJECTED,
+    /**
+     * Weekly reviews only: the facts of a week are recorded and no model reading has been asked for
+     * them, so the rule-written review stands.
+     */
+    FACTS_ONLY
 }

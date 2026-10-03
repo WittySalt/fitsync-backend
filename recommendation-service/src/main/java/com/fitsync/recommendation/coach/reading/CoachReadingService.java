@@ -285,15 +285,24 @@ public class CoachReadingService {
             }
         }
 
-        ClaudeClient client = claudeClientProvider.getIfAvailable();
-        if (client == null) {
+        return startGeneration(userId, page.surface(), CoachPageReadingStore.PAGE, page.systemPrompt(), hash,
+                snapshot.facts(), snapshot.period(), now);
+    }
+
+    /**
+     * Claims the row of one period and enqueues a model generation for it, the same steps a page
+     * reading takes. The weekly reviews use this with their own surface, week key and prompt, so a
+     * review is generated, validated, repaired and remembered exactly like a page reading.
+     *
+     * @return false when no model is configured, so nothing was started
+     */
+    boolean startGeneration(UUID userId, ReadingSurface surface, String periodKey, String systemPrompt,
+                            String hash, List<ReadingFact> facts, String period, Instant now) {
+        if (claudeClientProvider.getIfAvailable() == null) {
             return false;
         }
-
-        List<ReadingFact> facts = snapshot.facts();
-        String period = snapshot.period();
-        store.claimPending(userId, page.surface(), hash, now);
-        executor.execute(() -> generate(userId, page, hash, facts, period));
+        store.claimPending(userId, surface, periodKey, hash, now);
+        executor.execute(() -> generate(userId, surface, periodKey, systemPrompt, hash, facts, period));
         return true;
     }
 
@@ -301,21 +310,22 @@ public class CoachReadingService {
      * The generation itself: one attempt, and on a failed validation, one repair attempt that is
      * told exactly what was wrong. Runs entirely off the request thread.
      */
-    private void generate(UUID userId, ReadingPage page, String factsHash, List<ReadingFact> facts, String period) {
+    private void generate(UUID userId, ReadingSurface surface, String periodKey, String systemPrompt,
+                          String factsHash, List<ReadingFact> facts, String period) {
         try {
-            generateOrReject(userId, page, factsHash, facts, period);
+            generateOrReject(userId, surface, periodKey, systemPrompt, factsHash, facts, period);
         } catch (RuntimeException ex) {
             // Anything unexpected ends as a rejection. Without this the row would stay pending,
             // and every visit after the sixty seconds would start the same failing work again.
             LOG.warn("event=coach_reading_generation_failed reason={}",
                     String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));
-            store.persistRejected(userId, page.surface(), factsHash, Instant.now(clock),
+            store.persistRejected(userId, surface, periodKey, factsHash, Instant.now(clock),
                     CoachPageReadingStore.REJECTED_TTL);
         }
     }
 
-    private void generateOrReject(UUID userId, ReadingPage page, String factsHash, List<ReadingFact> facts,
-                                  String period) {
+    private void generateOrReject(UUID userId, ReadingSurface surface, String periodKey, String systemPrompt,
+                                  String factsHash, List<ReadingFact> facts, String period) {
         ClaudeClient client = claudeClientProvider.getIfAvailable();
         if (client == null) {
             // The AI tier was switched off between the GET and this running; nothing to do, and the
@@ -323,21 +333,19 @@ public class CoachReadingService {
             return;
         }
 
-        ReadingSurface surface = page.surface();
-        String systemPrompt = page.systemPrompt();
         String prompt = promptFor(facts, period);
         Attempt first = tryGenerate(client, systemPrompt, prompt);
         if (!first.reached()) {
             // A model that cannot be reached has not failed any check. It is asked again after a
             // short wait, so the reading returns soon after the model does.
-            store.persistRejected(userId, surface, factsHash, Instant.now(clock),
+            store.persistRejected(userId, surface, periodKey, factsHash, Instant.now(clock),
                     CoachPageReadingStore.UNREACHABLE_TTL);
             logOutcome(userId, surface, "UNREACHABLE");
             return;
         }
         ReadingValidator.Result firstResult = validate(first, facts);
         if (firstResult != null && firstResult.valid()) {
-            accept(userId, surface, factsHash, first.answer(), firstResult);
+            accept(userId, surface, periodKey, factsHash, first.answer(), firstResult);
             return;
         }
 
@@ -347,11 +355,11 @@ public class CoachReadingService {
         Attempt second = tryGenerate(client, systemPrompt, repairPrompt);
         ReadingValidator.Result secondResult = validate(second, facts);
         if (secondResult != null && secondResult.valid()) {
-            accept(userId, surface, factsHash, second.answer(), secondResult);
+            accept(userId, surface, periodKey, factsHash, second.answer(), secondResult);
             return;
         }
 
-        store.persistRejected(userId, surface, factsHash, Instant.now(clock),
+        store.persistRejected(userId, surface, periodKey, factsHash, Instant.now(clock),
                 second.reached() ? CoachPageReadingStore.REJECTED_TTL : CoachPageReadingStore.UNREACHABLE_TTL);
         logOutcome(userId, surface, second.reached() ? "REJECTED" : "UNREACHABLE");
     }
@@ -401,9 +409,9 @@ public class CoachReadingService {
     private record Attempt(ModelAnswer answer, boolean reached) {
     }
 
-    private void accept(UUID userId, ReadingSurface surface, String factsHash, ModelAnswer answer,
+    private void accept(UUID userId, ReadingSurface surface, String periodKey, String factsHash, ModelAnswer answer,
                         ReadingValidator.Result result) {
-        store.persistAccepted(userId, surface, factsHash,
+        store.persistAccepted(userId, surface, periodKey, factsHash,
                 answer.headline(), answer.body(), result.citations(), Instant.now(clock));
         logOutcome(userId, surface, "ACCEPTED");
     }

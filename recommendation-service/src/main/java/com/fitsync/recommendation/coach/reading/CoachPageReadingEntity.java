@@ -25,7 +25,8 @@ import jakarta.persistence.UniqueConstraint;
  */
 @Entity
 @Table(name = "coach_page_reading",
-        uniqueConstraints = @UniqueConstraint(name = "uq_coach_page_reading_user_surface", columnNames = {"user_id", "surface"}))
+        uniqueConstraints = @UniqueConstraint(name = "uq_coach_page_reading_user_surface_period",
+                columnNames = {"user_id", "surface", "period_key"}))
 public class CoachPageReadingEntity extends BaseAuditableEntity {
 
     @Id
@@ -68,6 +69,17 @@ public class CoachPageReadingEntity extends BaseAuditableEntity {
 
     @Column(name = "expires_at")
     private Instant expiresAt;
+
+    /**
+     * The period a row describes: empty for a page reading, which has one row per user and page, and
+     * the Monday a weekly review's week starts on, written as an ISO date.
+     */
+    @Column(name = "period_key", nullable = false, length = 10)
+    private String periodKey = "";
+
+    /** The facts a weekly review was written from, as JSON; null for a page reading. */
+    @Column(name = "facts_json", length = 4000)
+    private String factsJson;
 
     public UUID getId() {
         return id;
@@ -163,5 +175,21 @@ public class CoachPageReadingEntity extends BaseAuditableEntity {
 
     public void setExpiresAt(Instant expiresAt) {
         this.expiresAt = expiresAt;
+    }
+
+    public String getPeriodKey() {
+        return periodKey;
+    }
+
+    public void setPeriodKey(String periodKey) {
+        this.periodKey = periodKey == null ? "" : periodKey;
+    }
+
+    public String getFactsJson() {
+        return factsJson;
+    }
+
+    public void setFactsJson(String factsJson) {
+        this.factsJson = factsJson;
     }
 }

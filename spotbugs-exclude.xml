@@ -747,6 +747,21 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <!-- The weekly review controller and service. SPRING_ENDPOINT flags the controller for being a
+         controller, and EI_EXPOSE_REP2 flags the Spring singletons both were given by injection
+         (the review service, the two clients, the writer), the same noise as the services above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.controller.CoachReviewController"/>
+        <Or>
+            <Bug pattern="SPRING_ENDPOINT"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.reading.WeeklyReviewService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- The coach quality report for the admin console. SPRING_ENDPOINT flags the controller for
          being a controller. The path is under /api/v1/internal, which SecurityConfig restricts to
          the ADMIN role. The service keeps three Spring Data repositories it was given by
