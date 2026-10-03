@@ -43,7 +43,7 @@ public class NutritionCatalogueClient extends CatalogueClient {
     public NutritionCatalogueClient(@Qualifier("coachRestClientBuilder") RestClient.Builder builder,
                                       CoachProperties properties,
                                       ObjectMapper objectMapper) {
-        super(builder, properties.nutritionBaseUrl(), "nutrition");
+        super(builder, properties.apiBaseUrl(), "nutrition");
         this.insightReader = objectMapper.readerFor(NutritionInsight.class);
     }
 

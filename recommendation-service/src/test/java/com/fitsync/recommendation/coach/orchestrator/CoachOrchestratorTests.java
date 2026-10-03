@@ -704,12 +704,12 @@ class CoachOrchestratorTests {
 
     /** Two tool calls, so the budget is reachable inside a test without a long script. */
     private CoachProperties properties() {
-        return new CoachProperties(2, null, null, null, null, null, null);
+        return new CoachProperties(2, null, null, null, null);
     }
 
     /** Same as {@link #properties()}, with answer validation explicitly toggled. */
     private CoachProperties properties(boolean answerValidationEnabled) {
-        return new CoachProperties(2, null, null, null, null, null, answerValidationEnabled);
+        return new CoachProperties(2, null, null, null, answerValidationEnabled);
     }
 
     private static List<String> repeat(String value, int times) {

@@ -27,8 +27,7 @@ class NutritionRecipesClientTests {
     private static final String CALLER = "abc-credential";
     private static final UUID RECIPE = UUID.fromString("6c6a1ac5-5b6b-584e-9e3f-40e36949cdfb");
 
-    private final CoachProperties properties = new CoachProperties(null, null, null,
-            "http://nutrition-service:8083", "http://user-service:8081", null, null);
+    private final CoachProperties properties = new CoachProperties(null, null, "http://api-gateway:8088", null, null);
 
     @Test
     @DisplayName("one recipe is read by id with the caller's credential")

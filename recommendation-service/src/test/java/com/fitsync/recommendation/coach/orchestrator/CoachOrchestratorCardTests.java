@@ -116,7 +116,7 @@ class CoachOrchestratorCardTests {
         }
         ToolRegistry registry = new ToolRegistry(tools, Mockito.mock(CoachThreadService.class), objectMapper);
         return new CoachOrchestrator(provider, new CoachGuardrail(), registry, new CoachActionParser(objectMapper),
-                new CoachProperties(2, null, null, null, null, null, false), objectMapper,
+                new CoachProperties(2, null, null, null, false), objectMapper,
                 java.util.concurrent.Executors.newSingleThreadExecutor(), new AnswerValidator(), calendar);
     }
 

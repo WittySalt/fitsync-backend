@@ -34,7 +34,7 @@ public class WorkoutCatalogueClient extends CatalogueClient {
     public WorkoutCatalogueClient(@Qualifier("coachRestClientBuilder") RestClient.Builder builder,
                                       CoachProperties properties,
                                       ObjectMapper objectMapper) {
-        super(builder, properties.workoutBaseUrl(), "workout");
+        super(builder, properties.apiBaseUrl(), "workout");
         this.objectMapper = objectMapper;
     }
 

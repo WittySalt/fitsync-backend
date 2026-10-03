@@ -23,7 +23,7 @@ public class AnalyticsProgressClient extends CatalogueClient {
 
     public AnalyticsProgressClient(@Qualifier("coachRestClientBuilder") RestClient.Builder builder,
                                    CoachProperties properties) {
-        super(builder, properties.analyticsBaseUrl(), "analytics");
+        super(builder, properties.apiBaseUrl(), "analytics");
     }
 
     /** The Goal page's figures for one period, as JSON, or null when they could not be read. */

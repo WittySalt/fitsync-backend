@@ -27,8 +27,7 @@ class NutritionMealsClientTests {
 
     private static final String CALLER = "abc-credential";
 
-    private final CoachProperties properties = new CoachProperties(null, null, null,
-            "http://nutrition-service:8083", "http://user-service:8081", null, null);
+    private final CoachProperties properties = new CoachProperties(null, null, "http://api-gateway:8088", null, null);
 
     @Test
     @DisplayName("the daily summary is read for one date and timezone with the caller's credential")

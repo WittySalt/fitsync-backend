@@ -40,7 +40,7 @@ public class UserProfileClient extends CatalogueClient {
     public UserProfileClient(@Qualifier("coachRestClientBuilder") RestClient.Builder builder,
                              CoachProperties properties,
                              ObjectMapper objectMapper) {
-        super(builder, properties.userBaseUrl(), "user");
+        super(builder, properties.apiBaseUrl(), "user");
         this.insightReader = objectMapper.readerFor(ProgressInsight.class);
     }
 
