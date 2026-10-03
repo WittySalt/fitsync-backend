@@ -1,5 +1,6 @@
 package com.fitsync.analytics.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -79,7 +80,14 @@ class ProgressControllerTests {
                         Map.of("weeklyRateKg", new BigDecimal("-0.41")))),
                 new ProgressGoalResponse.Weight(List.of(), List.of(), List.of(), null,
                         "28-day average change carried forward"),
-                null, new ProgressGoalResponse.Pace(List.of()), List.of());
+                null, new ProgressGoalResponse.Pace(List.of()), List.of(),
+                new ProgressGoalResponse.Road("LOSE", "AHEAD", new BigDecimal("74.6"), LocalDate.parse("2026-07-06"),
+                        new BigDecimal("71.2"), LocalDate.parse("2026-10-01"), new BigDecimal("68.0"),
+                        LocalDate.parse("2026-12-11"), new BigDecimal("3.2"), new BigDecimal("0.52"),
+                        new BigDecimal("0.55"), LocalDate.parse("2026-11-25"),
+                        List.of(new ProgressGoalResponse.Tick(74, LocalDate.parse("2026-07-30"), null),
+                                new ProgressGoalResponse.Tick(71, null, LocalDate.parse("2026-10-05"))), null),
+                "WEIGHT");
         when(progressGoalService.getGoal(eq(principal.userId()), any(), eq("Asia/Singapore"))).thenReturn(response);
 
         mockMvc.perform(get("/api/v1/analytics/progress/goal")
@@ -94,7 +102,16 @@ class ProgressControllerTests {
                 .andExpect(jsonPath("$.hero.projectedDate.previous").value("2027-01-10"))
                 .andExpect(jsonPath("$.highlights[0].code").value("RATE_IN_RANGE"))
                 .andExpect(jsonPath("$.highlights[0].inputs.weeklyRateKg").value(-0.41))
-                .andExpect(jsonPath("$.weight.method").value("28-day average change carried forward"));
+                .andExpect(jsonPath("$.weight.method").value("28-day average change carried forward"))
+                .andExpect(jsonPath("$.leadType").value("WEIGHT"))
+                .andExpect(jsonPath("$.road.direction").value("LOSE"))
+                .andExpect(jsonPath("$.road.state").value("AHEAD"))
+                .andExpect(jsonPath("$.road.distanceKg").value(3.2))
+                .andExpect(jsonPath("$.road.fractionWeight").value(0.52))
+                .andExpect(jsonPath("$.road.projectedDate").value("2026-11-25"))
+                .andExpect(jsonPath("$.road.ticks[0].crossedOn").value("2026-07-30"))
+                .andExpect(jsonPath("$.road.ticks[1].projectedOn").value("2026-10-05"))
+                .andExpect(jsonPath("$.road.keep").value(nullValue()));
         verify(progressGoalService).getGoal(principal.userId(), ProgressWindow.of(FROM, TO), "Asia/Singapore");
     }
 

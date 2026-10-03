@@ -7,6 +7,7 @@ import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -90,6 +91,73 @@ class ProgressGoalServiceTests {
         assertThat(response.highlights()).extracting(ProgressHighlight::code)
                 .containsExactly("RATE_IN_RANGE", "WAIST_VS_WEIGHT");
         assertThat(response.pace().weeks()).hasSize(8);
+        assertThat(response.leadType()).isEqualTo("WEIGHT");
+        assertThat(response.road().direction()).isEqualTo("LOSE");
+        assertThat(response.road().nowKg()).isEqualTo(now.latestKg());
+        assertThat(response.road().projectedDate()).isEqualTo(now.projectedDate());
+        assertThat(response.road().targetKg()).isEqualByComparingTo("68.0");
+        assertThat(response.road().ticks()).isNotEmpty();
+    }
+
+    @Test
+    void roadStartsAtTheFirstWeighInFoundBeforeThePeriodAndLeadTypeFollowsTheWeightGoal() {
+        weighDaily();
+        fixture.goal("WEIGHT", "68.0", GOAL_DATE, "2026-10-01T00:00:00Z");
+        fixture.wire();
+
+        ProgressGoalResponse response = fixture.goalService(ProgressFixture.clockAt(SATURDAY_NOON))
+                .getGoal(fixture.userId, ProgressWindow.of(LocalDate.parse("2026-09-28"), TO), "UTC");
+
+        // 13 July is far before the period and its 28-day lead-in, and the road still starts there.
+        assertThat(response.road().startDate()).isEqualTo(LocalDate.parse("2026-07-13"));
+        assertThat(response.road().startKg()).isEqualByComparingTo("75.0");
+    }
+
+    @Test
+    void withoutAWeightGoalThereIsNoRoadAndAHabitGoalLeads() {
+        proteinWeek();
+
+        ProgressGoalResponse response = fixture.goalService(ProgressFixture.clockAt(SATURDAY_NOON))
+                .getGoal(fixture.userId, ProgressWindow.of(FROM, TO), "UTC");
+
+        assertThat(response.road()).isNull();
+        assertThat(response.leadType()).isEqualTo("PROTEIN");
+    }
+
+    @Test
+    void withAWeightGoalButNoWeighInsTheRoadIsEmptyAndNoProjection() {
+        fixture.goal("WEIGHT", "68.0", GOAL_DATE, "2026-10-01T00:00:00Z");
+        fixture.wire();
+
+        ProgressGoalResponse response = fixture.goalService(ProgressFixture.clockAt(SATURDAY_NOON))
+                .getGoal(fixture.userId, ProgressWindow.of(FROM, TO), "UTC");
+
+        assertThat(response.road().state()).isEqualTo("NO_PROJECTION");
+        assertThat(response.road().nowKg()).isNull();
+        assertThat(response.road().ticks()).isEmpty();
+    }
+
+    @Test
+    void noGoalAtAllHasNeitherRoadNorLeadType() {
+        fixture.wire();
+
+        ProgressGoalResponse response = fixture.goalService(ProgressFixture.clockAt(SATURDAY_NOON))
+                .getGoal(fixture.userId, ProgressWindow.of(FROM, TO), "UTC");
+
+        assertThat(response.road()).isNull();
+        assertThat(response.leadType()).isNull();
+    }
+
+    @Test
+    void leadTypeBreaksTiesInTheDocumentedOrder() {
+        OtherGoal carbs = new OtherGoal("CARBS", BigDecimal.TEN, "g", 3, 5, List.of(), List.of());
+        OtherGoal calories = new OtherGoal("CALORIES", BigDecimal.TEN, "kcal", 1, 5, List.of(), List.of());
+        OtherGoal workouts = new OtherGoal("WORKOUT_FREQUENCY", BigDecimal.TEN, "sessions", 2, 6, List.of(),
+                List.of());
+
+        assertThat(ProgressGoalService.leadType(null, List.of(carbs, calories))).isEqualTo("CALORIES");
+        assertThat(ProgressGoalService.leadType(null, List.of(carbs, calories, workouts)))
+                .isEqualTo("WORKOUT_FREQUENCY");
     }
 
     @Test

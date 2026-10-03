@@ -32,7 +32,8 @@ class CoachVoiceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Your goal pace status is AHEAD.", "The status is ON_TRACK for the week.",
-            "Today reads NOT_LOGGED so far."})
+            "Today reads NOT_LOGGED so far.", "The road says DATE_PASSED.", "Your road is STALLED.",
+            "Your goal is REACHED."})
     @DisplayName("a status code copied from a tool result is a tone violation")
     void rejectsRawStatusWords(String text) {
         assertThat(CoachVoice.toneViolations(text)).contains("RAW_STATUS_WORD");

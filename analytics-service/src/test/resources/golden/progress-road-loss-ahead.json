@@ -1,0 +1,24 @@
+{
+  "direction": "LOSE",
+  "state": "AHEAD",
+  "startKg": 74.6,
+  "startDate": "2026-07-06",
+  "nowKg": 71.2,
+  "nowDate": "2026-10-01",
+  "targetKg": 68.0,
+  "targetDate": "2026-12-11",
+  "distanceKg": 3.2,
+  "fractionWeight": 0.52,
+  "fractionTime": 0.55,
+  "projectedDate": "2026-11-25",
+  "ticks": [
+    {"kg": 74, "crossedOn": "2026-07-30", "projectedOn": null},
+    {"kg": 73, "crossedOn": "2026-09-01", "projectedOn": null},
+    {"kg": 72, "crossedOn": "2026-09-21", "projectedOn": null},
+    {"kg": 71, "crossedOn": null, "projectedOn": "2026-10-05"},
+    {"kg": 70, "crossedOn": null, "projectedOn": "2026-10-22"},
+    {"kg": 69, "crossedOn": null, "projectedOn": "2026-11-08"},
+    {"kg": 68, "crossedOn": null, "projectedOn": "2026-11-25"}
+  ],
+  "keep": null
+}

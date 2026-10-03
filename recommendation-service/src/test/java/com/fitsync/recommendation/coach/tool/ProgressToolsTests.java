@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -77,6 +78,9 @@ class ProgressToolsTests {
             {"goal":{"type":"WEIGHT","targetKg":75,"byDate":"2026-12-31"},
              "hero":{"nowKg":80.4,"changeKg":-1.2,"weeklyRate":{"value":-0.3,"previous":-0.25},
                      "projectedDate":{"value":"2027-01-15","previous":"2027-02-20"},"daysLeft":94},
+             "road":{"direction":"LOSE","state":"AHEAD","startKg":84.0,"nowKg":80.4,"targetKg":75,"distanceKg":5.4,
+                     "fractionWeight":0.4,"fractionTime":0.55,"projectedDate":"2026-12-10","ticks":[],"keep":null},
+             "leadType":"WEIGHT",
              "highlights":[{"code":"RATE_IN_RANGE","title":"Your rate is in the usual range","series":[]}],
              "weight":{"daily":[],"weekly":[{"weekStart":"2026-09-21","avgKg":80.6,"weighIns":3}],"projection":[],
                        "method":"28-day average change carried forward"},
@@ -157,10 +161,48 @@ class ProgressToolsTests {
                 .contains("Weekly rate: 0.3 kg a week down, and 0.25 kg a week down in the period before.")
                 .contains("Date the goal is reached at this rate: 2027-01-15, and 2027-02-20 at the rate of the period before.")
                 .contains("Days left to the goal date: 94.")
+                .contains("The goal the page leads with: weight.")
+                .contains("Road to the goal: ahead, losing weight.")
+                .contains("Distance to the goal weight: 5.4 kg.")
+                .contains("Date the road reaches the goal weight: 2026-12-10.")
+                .contains("Share of the way to the goal weight: 40%, with 55% of the time to the goal date gone.")
                 .contains("- week of 2026-09-21: 80.6 kg from 3 weigh-ins")
                 .contains("Body fat: 22.5% at the start and 21.8% at the end.")
                 .contains("- protein, target 140 g: met on 9 of 20 logged days.")
                 .contains("- workout frequency, target 3 sessions; week of 2026-09-21 4.");
+        assertNoRawCodes(text);
+    }
+
+    @Test
+    @DisplayName("every road state is said in plain words and the codes never reach the prompt")
+    void roadStatesAreSaidInWords() {
+        Map<String, String> phrases = Map.of("AHEAD", "ahead", "ON_COURSE", "on course", "BEHIND", "behind",
+                "REACHED", "reached", "DATE_PASSED", "past the date", "STALLED", "holding steady");
+        phrases.forEach((code, phrase) -> {
+            when(analytics.goalProgress(anyString(), any(), any(), any())).thenReturn(
+                    "{\"goal\":null,\"road\":{\"direction\":\"GAIN\",\"state\":\"" + code + "\"}}");
+
+            String text = goal.invoke(CALL, period()).observation();
+
+            assertThat(text).contains("Road to the goal: " + phrase + ", gaining weight.");
+            assertNoRawCodes(text);
+        });
+    }
+
+    @Test
+    @DisplayName("a road without a pace and a keep road are written without codes")
+    void roadWithoutPaceAndKeepRoad() {
+        when(analytics.goalProgress(anyString(), any(), any(), any())).thenReturn(
+                "{\"road\":{\"direction\":\"KEEP\",\"state\":\"NO_PROJECTION\",\"keep\":{\"bandKg\":1.0,"
+                        + "\"weeks\":[{\"inside\":true},{\"inside\":false},{\"inside\":true}]}},"
+                        + "\"leadType\":\"WORKOUT_FREQUENCY\"}");
+
+        String text = goal.invoke(CALL, period()).observation();
+
+        assertThat(text)
+                .contains("The road to the goal has no pace yet, because there are too few weigh-ins.")
+                .contains("Weeks with the average weight within 1 kg of the goal weight: 2 of 3.")
+                .contains("The goal the page leads with: workout frequency.");
         assertNoRawCodes(text);
     }
 
