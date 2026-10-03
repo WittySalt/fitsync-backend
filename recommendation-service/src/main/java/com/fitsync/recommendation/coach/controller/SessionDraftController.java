@@ -9,6 +9,7 @@ import com.fitsync.recommendation.coach.dto.RejectSessionDraftRequest;
 import com.fitsync.recommendation.coach.dto.DraftSessionRequest;
 import com.fitsync.recommendation.coach.dto.SessionDraftView;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
+import com.fitsync.recommendation.coach.service.CoachRateLimiter;
 import com.fitsync.recommendation.coach.service.SessionDraftService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -43,9 +44,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class SessionDraftController {
 
     private final SessionDraftService draftService;
+    private final CoachRateLimiter rateLimiter;
 
-    public SessionDraftController(SessionDraftService draftService) {
+    public SessionDraftController(SessionDraftService draftService, CoachRateLimiter rateLimiter) {
         this.draftService = draftService;
+        this.rateLimiter = rateLimiter;
     }
 
     @PostMapping
@@ -59,6 +62,7 @@ public class SessionDraftController {
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Drafted"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "429", description = "Coach limit reached: {code:COACH_LIMIT, retryAfterSeconds, message}"),
             @ApiResponse(responseCode = "503", description = "Neither the model nor the rules could build one")
     })
     public SessionDraftView draft(Authentication authentication,
@@ -67,10 +71,10 @@ public class SessionDraftController {
                                   @Valid @RequestBody(required = false) DraftSessionRequest request) {
         // The caller's own token goes to the catalogue and the questionnaire, so the draft is built
         // from exactly what this user is allowed to see.
-        CoachCallContext call = new CoachCallContext(
-                CoachPrincipal.userId(authentication),
-                CoachPrincipal.bearerToken(authorization),
-                null);
+        UUID userId = CoachPrincipal.userId(authentication);
+        // Drafts share the per-user limit with chat turns, because each one costs a model call.
+        rateLimiter.check(userId, null);
+        CoachCallContext call = new CoachCallContext(userId, CoachPrincipal.bearerToken(authorization), null);
         return draftService.draft(call, request == null ? null : request.request(), threadId);
     }
 

@@ -13,6 +13,7 @@ import com.fitsync.recommendation.coach.entity.CoachTurnEntity;
 import com.fitsync.recommendation.coach.entity.CoachTurnRole;
 import com.fitsync.recommendation.coach.service.CoachThreadService;
 import com.fitsync.web.error.ResourceNotFoundException;
+import org.springframework.data.domain.Page;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -194,5 +195,57 @@ class CoachThreadServiceTests {
 
         assertThat(service.listThreads(ALICE)).extracting(CoachThreadView::title)
                 .containsExactly("Older", "Newer");
+    }
+
+    @Test
+    @DisplayName("the history list pages newest first, caps a page at 50 and counts only the caller's live threads")
+    void historyIsPagedNewestFirst() {
+        for (int i = 1; i <= 7; i++) {
+            CoachThreadView thread = service.createThread(ALICE, "Thread " + i);
+            service.appendTurn(ALICE, thread.threadId(), CoachTurnRole.USER, "Question " + i);
+        }
+        service.createThread(BOB, "Bob's thread");
+
+        Page<CoachThreadView> first = service.listThreads(ALICE, 0, 3);
+        Page<CoachThreadView> last = service.listThreads(ALICE, 2, 3);
+
+        assertThat(first.getTotalElements()).isEqualTo(7);
+        assertThat(first.getContent()).hasSize(3)
+                .extracting(CoachThreadView::lastMessageAt).isSortedAccordingTo(java.util.Comparator.reverseOrder());
+        assertThat(last.getContent()).hasSize(1);
+        assertThat(first.getContent()).extracting(CoachThreadView::title).doesNotContain("Bob's thread");
+        assertThat(service.listThreads(ALICE, 0, 500).getSize()).isEqualTo(CoachThreadService.MAX_PAGE_SIZE);
+        assertThat(service.listThreads(ALICE, -4, 0).getSize()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a list item carries the title cut to sixty characters, the surface and the turn count")
+    void listItemShape() {
+        CoachThreadView thread = service.createThread(ALICE, null);
+        service.appendTurn(ALICE, thread.threadId(), CoachTurnRole.USER,
+                "Can you explain why my weight has been moving slower than the plan says it should be",
+                null, "PROGRESS");
+        service.appendTurn(ALICE, thread.threadId(), CoachTurnRole.ASSISTANT, "It moved 0.4 kg a week.");
+
+        CoachThreadView item = service.listThreads(ALICE, 0, 20).getContent().get(0);
+
+        assertThat(item.title().length()).isLessThanOrEqualTo(61);
+        assertThat(item.title()).startsWith("Can you explain why my weight has been moving slower");
+        assertThat(item.surface()).isEqualTo("PROGRESS");
+        assertThat(item.turnCount()).isEqualTo(2);
+        assertThat(item.lastMessageAt()).isEqualTo(item.lastActiveAt());
+    }
+
+    @Test
+    @DisplayName("archiving someone else's thread is a 404 and leaves the owner's list untouched")
+    void archivingIsOwnerOnly() {
+        CoachThreadView thread = service.createThread(ALICE, "Alice's");
+
+        assertThatThrownBy(() -> service.archiveThread(BOB, thread.threadId()))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        assertThat(service.listThreads(ALICE)).hasSize(1);
+        service.archiveThread(ALICE, thread.threadId());
+        assertThat(service.listThreads(ALICE, 0, 20).getTotalElements()).isZero();
     }
 }

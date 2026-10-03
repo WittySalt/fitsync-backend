@@ -3,6 +3,7 @@ package com.fitsync.recommendation.coach.config;
 import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
  * Configuration the coach layer owns.
@@ -29,6 +30,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                        itself exists so an environment can turn the check off without a code
  *                        change, the same reason every other coach behaviour here is a property
  *                        rather than a constant.
+ * @param turnsPerHour    how many orchestrator turns and session drafts one user may start in an hour
+ * @param turnsPerDay     how many one user may start in a day
  */
 @ConfigurationProperties(prefix = "fitsync.coach")
 public record CoachProperties(
@@ -38,13 +41,32 @@ public record CoachProperties(
         String nutritionBaseUrl,
         String userBaseUrl,
         Duration streamTimeout,
-        Boolean answerValidationEnabled) {
+        Boolean answerValidationEnabled,
+        Integer turnsPerHour,
+        Integer turnsPerDay) {
 
     private static final int DEFAULT_MAX_TOOL_CALLS = 4;
     private static final Duration DEFAULT_CATALOGUE_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration DEFAULT_STREAM_TIMEOUT = Duration.ofMinutes(2);
+    private static final int DEFAULT_TURNS_PER_HOUR = 30;
+    private static final int DEFAULT_TURNS_PER_DAY = 150;
 
+    /** The properties as they were before the limits existed, for callers that never set them. */
+    public CoachProperties(Integer maxToolCalls, Duration catalogueTimeout, String workoutBaseUrl,
+                           String nutritionBaseUrl, String userBaseUrl, Duration streamTimeout,
+                           Boolean answerValidationEnabled) {
+        this(maxToolCalls, catalogueTimeout, workoutBaseUrl, nutritionBaseUrl, userBaseUrl, streamTimeout,
+                answerValidationEnabled, null, null);
+    }
+
+    @ConstructorBinding
     public CoachProperties {
+        turnsPerHour = turnsPerHour == null || turnsPerHour.intValue() < 1
+                ? Integer.valueOf(DEFAULT_TURNS_PER_HOUR)
+                : turnsPerHour;
+        turnsPerDay = turnsPerDay == null || turnsPerDay.intValue() < 1
+                ? Integer.valueOf(DEFAULT_TURNS_PER_DAY)
+                : turnsPerDay;
         maxToolCalls = maxToolCalls == null || maxToolCalls.intValue() < 1
                 ? Integer.valueOf(DEFAULT_MAX_TOOL_CALLS)
                 : maxToolCalls;

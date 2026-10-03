@@ -1,9 +1,11 @@
 package com.fitsync.recommendation.coach.service;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 
 import com.fitsync.recommendation.coach.config.CoachProperties;
 import com.fitsync.recommendation.coach.dto.CoachMessageContext;
@@ -22,6 +24,7 @@ import com.fitsync.recommendation.coach.stream.SseProgressStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -35,6 +38,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * <p>The streaming and plain paths run the same turn. Only the listener differs, so a streamed
  * answer and a plain one cannot drift apart, and a client that cannot stream loses the progress
  * view rather than the feature.
+ *
+ * <p>A question may carry a client turn id. A second request with the same id in the same thread
+ * does not start another turn: it waits for the first attempt's answer, up to the stream timeout,
+ * and returns that. This is what makes retrying after a dropped stream safe. An assistant turn is
+ * never left empty: when the run fails it is filled with a fixed sentence and marked FAILED.
  */
 @Service
 public class CoachConversationService {
@@ -46,17 +54,27 @@ public class CoachConversationService {
     private final CoachReadingService readingService;
     private final CoachProperties properties;
     private final ExecutorService turnExecutor;
+    private final CoachRateLimiter rateLimiter;
+
+    /** What an assistant turn says when the run behind it failed. */
+    static final String FAILURE_TEXT = "I could not finish that answer. Please ask again in a moment.";
+
+    static final String FAILED_VERDICT = "FAILED";
+
+    private static final Duration POLL_INTERVAL = Duration.ofMillis(300);
 
     public CoachConversationService(CoachThreadService threadService,
                                     CoachOrchestrator orchestrator,
                                     CoachReadingService readingService,
                                     CoachProperties properties,
-                                    @Qualifier("coachTurnExecutor") ExecutorService turnExecutor) {
+                                    @Qualifier("coachTurnExecutor") ExecutorService turnExecutor,
+                                    CoachRateLimiter rateLimiter) {
         this.threadService = threadService;
         this.orchestrator = orchestrator;
         this.readingService = readingService;
         this.properties = properties;
         this.turnExecutor = turnExecutor;
+        this.rateLimiter = rateLimiter;
     }
 
     /** Sends a message with no page context, exactly as every caller from before this existed does. */
@@ -70,7 +88,20 @@ public class CoachConversationService {
      */
     public CoachMessageResponse send(UUID userId, UUID threadId, String bearerToken, String message,
                                      CoachMessageContext context) {
-        PendingTurn pending = beginTurn(userId, threadId, message);
+        return send(userId, threadId, bearerToken, message, context, null);
+    }
+
+    /**
+     * Sends a message that may be a retry. With a client turn id that this thread already has, no new
+     * turn is started: the first attempt's answer is returned, waiting for it when it is still
+     * running, and a {@code RUNNING} response comes back if it does not finish in time.
+     */
+    public CoachMessageResponse send(UUID userId, UUID threadId, String bearerToken, String message,
+                                     CoachMessageContext context, UUID clientTurnId) {
+        PendingTurn pending = beginTurn(userId, threadId, message, context, clientTurnId);
+        if (pending.replay()) {
+            return awaitAnswer(pending);
+        }
         return finishTurn(pending, bearerToken, message, context, CoachProgressListener.NONE);
     }
 
@@ -89,22 +120,43 @@ public class CoachConversationService {
     /** Runs a turn, streaming each step to the caller as it happens, with the page context attached. */
     public SseEmitter stream(UUID userId, UUID threadId, String bearerToken, String message,
                              CoachMessageContext context) {
-        PendingTurn pending = beginTurn(userId, threadId, message);
+        return stream(userId, threadId, bearerToken, message, context, null);
+    }
+
+    /** Streams a turn that may be a retry; a known client turn id replays the first attempt's answer. */
+    public SseEmitter stream(UUID userId, UUID threadId, String bearerToken, String message,
+                             CoachMessageContext context, UUID clientTurnId) {
+        PendingTurn pending = beginTurn(userId, threadId, message, context, clientTurnId);
 
         SseEmitter emitter = new SseEmitter(properties.streamTimeout().toMillis());
         SseProgressStream stream = new SseProgressStream(emitter);
 
-        turnExecutor.execute(() -> {
-            try {
-                stream.sendAnswer(finishTurn(pending, bearerToken, message, context, stream));
-                stream.complete();
-            } catch (RuntimeException ex) {
-                // The turn is already persisted up to wherever it got, so the client is told the
-                // turn failed and the detail stays in the log where it is useful.
-                LOG.warn("Streamed coach turn failed for turn {}", pending.turnId(), ex);
-                stream.sendFailure();
+        try {
+            turnExecutor.execute(() -> {
+                try {
+                    CoachMessageResponse response = pending.replay()
+                            ? awaitAnswer(pending)
+                            : finishTurn(pending, bearerToken, message, context, stream);
+                    if (CoachMessageResponse.RUNNING.equals(response.status())) {
+                        stream.sendFailure();
+                    } else {
+                        stream.sendAnswer(response);
+                        stream.complete();
+                    }
+                } catch (RuntimeException ex) {
+                    // The turn is already persisted up to wherever it got, so the client is told the
+                    // turn failed and the detail stays in the log where it is useful.
+                    LOG.warn("Streamed coach turn failed for turn {}", pending.turnId(), ex);
+                    stream.sendFailure();
+                }
+            });
+        } catch (RejectedExecutionException ex) {
+            // Nothing will ever run this turn, so it must not stay an empty answer.
+            if (!pending.replay()) {
+                failTurn(pending.turnId());
             }
-        });
+            stream.sendFailure();
+        }
 
         return emitter;
     }
@@ -113,13 +165,92 @@ public class CoachConversationService {
      * Opens a turn: the user's message and the empty assistant turn its tool invocations will hang
      * from, both committed before any inference starts.
      */
-    private PendingTurn beginTurn(UUID userId, UUID threadId, String message) {
-        threadService.appendTurn(userId, threadId, CoachTurnRole.USER, message);
+    private PendingTurn beginTurn(UUID userId, UUID threadId, String message, CoachMessageContext context,
+                                  UUID clientTurnId) {
+        // A retry of a question this thread already has starts nothing and is not counted.
+        if (clientTurnId != null) {
+            Optional<PendingTurn> earlier = replayOf(userId, threadId, clientTurnId);
+            if (earlier.isPresent()) {
+                return earlier.get();
+            }
+        }
+
+        rateLimiter.check(userId, context == null ? null : context.timezone());
+
+        String surface = context == null || context.surface() == null ? null : context.surface().name();
+        try {
+            threadService.appendTurn(userId, threadId, CoachTurnRole.USER, message, clientTurnId, surface);
+        } catch (DataIntegrityViolationException ex) {
+            // Two requests with the same id raced and the other one won: this one is the retry.
+            Optional<PendingTurn> earlier = clientTurnId == null
+                    ? Optional.empty()
+                    : replayOf(userId, threadId, clientTurnId);
+            if (earlier.isPresent()) {
+                return earlier.get();
+            }
+            throw ex;
+        }
         CoachTurnEntity answerTurn =
                 threadService.appendTurn(userId, threadId, CoachTurnRole.ASSISTANT, "");
         return new PendingTurn(
                 userId, threadId, answerTurn.getTurnId(),
-                priorExchanges(threadId, answerTurn.getTurnId()));
+                priorExchanges(threadId, answerTurn.getTurnId()), false, 0);
+    }
+
+    private Optional<PendingTurn> replayOf(UUID userId, UUID threadId, UUID clientTurnId) {
+        return threadService.findByClientTurnId(userId, threadId, clientTurnId)
+                .map(question -> new PendingTurn(userId, threadId,
+                        threadService.turnAfter(threadId, question.getSeq()).map(CoachTurnEntity::getTurnId).orElse(null),
+                        List.of(), true, question.getSeq()));
+    }
+
+    /**
+     * The answer to a turn some other request started: returned as soon as it has content, and
+     * after the stream timeout a {@code RUNNING} response if it still has none.
+     */
+    private CoachMessageResponse awaitAnswer(PendingTurn pending) {
+        long deadline = System.nanoTime() + properties.streamTimeout().toNanos();
+        UUID turnId = pending.turnId();
+        while (true) {
+            if (turnId == null) {
+                turnId = threadService.turnAfter(pending.threadId(), pending.userSeq())
+                        .map(CoachTurnEntity::getTurnId).orElse(null);
+            }
+            if (turnId != null) {
+                Optional<CoachTurnEntity> turn = threadService.findTurn(turnId);
+                if (turn.isPresent() && !turn.get().getContent().isBlank()) {
+                    return answeredFrom(pending.threadId(), turn.get());
+                }
+            }
+            long remainingMs = (deadline - System.nanoTime()) / 1_000_000L;
+            if (remainingMs <= 0) {
+                break;
+            }
+            try {
+                Thread.sleep(Math.min(POLL_INTERVAL.toMillis(), remainingMs));
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return new CoachMessageResponse(pending.threadId(), turnId, "", 0, List.of(), 0, null,
+                CoachMessageResponse.RUNNING);
+    }
+
+    private CoachMessageResponse answeredFrom(UUID threadId, CoachTurnEntity turn) {
+        return new CoachMessageResponse(threadId, turn.getTurnId(), turn.getContent(),
+                turn.getTier() == null ? 0 : turn.getTier(), threadService.toolNames(turn.getTurnId()),
+                turn.getLatencyMs() == null ? 0 : turn.getLatencyMs(), null);
+    }
+
+    /** Fills an assistant turn whose run failed, so a thread never holds an empty answer. */
+    private void failTurn(UUID turnId) {
+        try {
+            threadService.replaceContent(turnId, FAILURE_TEXT);
+            threadService.recordTelemetry(turnId, null, null, null, null, null, FAILED_VERDICT);
+        } catch (RuntimeException ex) {
+            LOG.warn("Could not mark coach turn {} as failed", turnId, ex);
+        }
     }
 
     private CoachMessageResponse finishTurn(PendingTurn pending,
@@ -127,6 +258,19 @@ public class CoachConversationService {
                                             String message,
                                             CoachMessageContext messageContext,
                                             CoachProgressListener listener) {
+        try {
+            return runTurn(pending, bearerToken, message, messageContext, listener);
+        } catch (RuntimeException ex) {
+            failTurn(pending.turnId());
+            throw ex;
+        }
+    }
+
+    private CoachMessageResponse runTurn(PendingTurn pending,
+                                         String bearerToken,
+                                         String message,
+                                         CoachMessageContext messageContext,
+                                         CoachProgressListener listener) {
         ResolvedContext resolved = resolveTurnContext(pending.userId(), bearerToken, messageContext);
 
         CoachCallContext context = new CoachCallContext(pending.userId(), bearerToken, pending.turnId(),
@@ -232,7 +376,12 @@ public class CoachConversationService {
                 .toList();
     }
 
-    /** A turn that has been opened and committed but not yet answered. */
-    private record PendingTurn(UUID userId, UUID threadId, UUID turnId, List<String> history) {
+    /**
+     * A turn that has been opened and committed but not yet answered. {@code replay} marks a retry
+     * that found a turn some earlier request started, in which case {@code turnId} may still be
+     * null for a moment and {@code userSeq} says where to look for it.
+     */
+    private record PendingTurn(UUID userId, UUID threadId, UUID turnId, List<String> history,
+                               boolean replay, int userSeq) {
     }
 }

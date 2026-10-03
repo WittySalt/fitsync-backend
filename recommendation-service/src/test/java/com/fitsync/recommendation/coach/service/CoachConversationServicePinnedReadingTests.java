@@ -62,7 +62,7 @@ class CoachConversationServicePinnedReadingTests {
         when(orchestrator.answer(any(), anyString(), any(), any(), any(CoachProgressListener.class)))
                 .thenReturn(new CoachOutcome("An answer.", 2, List.of(), 10, true, "PASSED"));
         service = new CoachConversationService(threadService, orchestrator, readingService,
-                mock(CoachProperties.class), mock(ExecutorService.class));
+                mock(CoachProperties.class), mock(ExecutorService.class), mock(CoachRateLimiter.class));
     }
 
     @Test

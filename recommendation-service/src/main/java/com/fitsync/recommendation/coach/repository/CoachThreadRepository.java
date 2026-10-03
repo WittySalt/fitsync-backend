@@ -5,6 +5,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.recommendation.coach.entity.CoachThreadEntity;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -16,6 +18,9 @@ public interface CoachThreadRepository extends JpaRepository<CoachThreadEntity, 
 
     /** The thread list a user sees: theirs, still live, most recently used first. */
     List<CoachThreadEntity> findByUserIdAndArchivedFalseOrderByLastActiveAtDesc(UUID userId);
+
+    /** One page of the thread list; the caller supplies the sort so the order is stated where it is used. */
+    Page<CoachThreadEntity> findByUserIdAndArchivedFalse(UUID userId, Pageable pageable);
 
     /** Ownership is checked by querying for it rather than by loading and comparing afterwards. */
     Optional<CoachThreadEntity> findByThreadIdAndUserId(UUID threadId, UUID userId);

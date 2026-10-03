@@ -10,7 +10,7 @@ import com.fitsync.recommendation.coach.dto.CreateCoachThreadRequest;
 import com.fitsync.recommendation.coach.dto.SendCoachMessageRequest;
 import com.fitsync.recommendation.coach.service.CoachConversationService;
 import com.fitsync.recommendation.coach.service.CoachThreadService;
-import com.fitsync.recommendation.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -20,6 +20,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -47,6 +49,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Tag(name = "Coach threads", description = "Conversations with the coach, and the trace behind each answer.")
 public class CoachThreadController {
 
+    /** The header a client may send to make a retried question safe. */
+    static final String IDEMPOTENCY_KEY = "Idempotency-Key";
+
     private final CoachThreadService threadService;
     private final CoachConversationService conversationService;
 
@@ -58,13 +63,23 @@ public class CoachThreadController {
 
     @GetMapping
     @Operation(summary = "List my live threads, most recently used first",
+            description = "The conversation history. Archived threads are left out. Paged with page "
+                    + "(from 0) and size (default 20, at most 50); the X-Total-Count header carries the "
+                    + "number of live threads. Each item has threadId, title (the opening question cut "
+                    + "to 60 characters), surface, lastMessageAt and turnCount.",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Threads returned"),
             @ApiResponse(responseCode = "401", description = "Authentication required")
     })
-    public List<CoachThreadView> list(Authentication authentication) {
-        return threadService.listThreads(CoachPrincipal.userId(authentication));
+    public ResponseEntity<List<CoachThreadView>> list(Authentication authentication,
+                                                      @RequestParam(defaultValue = "0") int page,
+                                                      @RequestParam(defaultValue = "20") int size) {
+        org.springframework.data.domain.Page<CoachThreadView> threads =
+                threadService.listThreads(CoachPrincipal.userId(authentication), page, size);
+        return ResponseEntity.ok()
+                .header("X-Total-Count", String.valueOf(threads.getTotalElements()))
+                .body(threads.getContent());
     }
 
     @PostMapping
@@ -103,19 +118,44 @@ public class CoachThreadController {
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Answered"),
+            @ApiResponse(responseCode = "202", description = "A retry of a question that is still being "
+                    + "answered did not see it finish in time; status is RUNNING and the turn can be read "
+                    + "from the thread later"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
-            @ApiResponse(responseCode = "404", description = "No such thread for this user")
+            @ApiResponse(responseCode = "404", description = "No such thread for this user"),
+            @ApiResponse(responseCode = "429", description = "Coach limit reached: {code:COACH_LIMIT, retryAfterSeconds, message}")
     })
-    public CoachMessageResponse send(Authentication authentication,
+    public ResponseEntity<CoachMessageResponse> send(Authentication authentication,
                                      @PathVariable UUID threadId,
                                      @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+                                     @RequestHeader(name = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
                                      @Valid @RequestBody SendCoachMessageRequest request) {
         // The caller's own token is forwarded to the services that own the catalogues, so the coach
         // reads with exactly the caller's authority. Taken from the header rather than the security
         // context because the orchestrator runs tools off the request thread.
-        return conversationService.send(
+        CoachMessageResponse response = conversationService.send(
                 CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization),
-                request.message(), request.context());
+                request.message(), request.context(), clientTurnId(idempotencyKey, request));
+        return CoachMessageResponse.RUNNING.equals(response.status())
+                ? ResponseEntity.status(HttpStatus.ACCEPTED).body(response)
+                : ResponseEntity.ok(response);
+    }
+
+    /**
+     * The id a client gave its question: the Idempotency-Key header when sent, else the body field.
+     * Anything that is not a UUID is a bad request rather than being silently ignored, because a
+     * client that believes it is protected against duplicates should be told when it is not.
+     */
+    private static UUID clientTurnId(String header, SendCoachMessageRequest request) {
+        String raw = header != null && !header.isBlank() ? header.strip() : request.clientTurnId();
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("Idempotency-Key must be a UUID");
+        }
     }
 
     @PostMapping(path = "/{threadId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -131,15 +171,17 @@ public class CoachThreadController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Event stream opened"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
-            @ApiResponse(responseCode = "404", description = "No such thread for this user")
+            @ApiResponse(responseCode = "404", description = "No such thread for this user"),
+            @ApiResponse(responseCode = "429", description = "Coach limit reached: {code:COACH_LIMIT, retryAfterSeconds, message}")
     })
     public SseEmitter stream(Authentication authentication,
                              @PathVariable UUID threadId,
                              @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+                             @RequestHeader(name = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
                              @Valid @RequestBody SendCoachMessageRequest request) {
         return conversationService.stream(
                 CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization),
-                request.message(), request.context());
+                request.message(), request.context(), clientTurnId(idempotencyKey, request));
     }
 
     @DeleteMapping("/{threadId}")

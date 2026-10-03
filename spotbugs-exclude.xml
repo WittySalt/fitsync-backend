@@ -717,4 +717,9 @@
         <Class name="com.fitsync.recommendation.coach.service.CoachQualityService"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+    <!-- Constructor-injected Spring repositories, the same dependency-injection noise as the services above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.service.CoachRateLimiter"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>
