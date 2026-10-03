@@ -29,4 +29,19 @@ class CoachVoiceTests {
     void rejectsDoNotAsAnInstruction(String text) {
         assertThat(CoachVoice.toneViolations(text)).containsExactly("BANNED_PHRASE:do not");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Your goal pace status is AHEAD.", "The status is ON_TRACK for the week.",
+            "Today reads NOT_LOGGED so far."})
+    @DisplayName("a status code copied from a tool result is a tone violation")
+    void rejectsRawStatusWords(String text) {
+        assertThat(CoachVoice.toneViolations(text)).contains("RAW_STATUS_WORD");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"You are ahead of your date.", "Your BMI is 22.5 and your HR zone is steady."})
+    @DisplayName("plain words and short capitals such as BMI are fine")
+    void acceptsPlainStatusWords(String text) {
+        assertThat(CoachVoice.toneViolations(text)).doesNotContain("RAW_STATUS_WORD");
+    }
 }
