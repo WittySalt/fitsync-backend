@@ -627,6 +627,13 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- The five progress tools hold their constructor-injected client and calendar, the same
+         dependency-injection noise as the tools above. -->
+    <Match>
+        <Class name="~com\.fitsync\.recommendation\.coach\.tool\.Read(Training|Goal|Food|Exercise|Activity)ProgressTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <Match>
         <Class name="com.fitsync.recommendation.coach.client.WorkoutCatalogueClient"/>
         <Bug pattern="EI_EXPOSE_REP2"/>

@@ -32,6 +32,7 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  *                        rather than a constant.
  * @param turnsPerHour    how many orchestrator turns and session drafts one user may start in an hour
  * @param turnsPerDay     how many one user may start in a day
+ * @param analyticsBaseUrl root of the service that owns the goal and food progress read model
  */
 @ConfigurationProperties(prefix = "fitsync.coach")
 public record CoachProperties(
@@ -43,7 +44,8 @@ public record CoachProperties(
         Duration streamTimeout,
         Boolean answerValidationEnabled,
         Integer turnsPerHour,
-        Integer turnsPerDay) {
+        Integer turnsPerDay,
+        String analyticsBaseUrl) {
 
     private static final int DEFAULT_MAX_TOOL_CALLS = 4;
     private static final Duration DEFAULT_CATALOGUE_TIMEOUT = Duration.ofSeconds(5);
@@ -56,7 +58,15 @@ public record CoachProperties(
                            String nutritionBaseUrl, String userBaseUrl, Duration streamTimeout,
                            Boolean answerValidationEnabled) {
         this(maxToolCalls, catalogueTimeout, workoutBaseUrl, nutritionBaseUrl, userBaseUrl, streamTimeout,
-                answerValidationEnabled, null, null);
+                answerValidationEnabled, null, null, null);
+    }
+
+    /** The properties as they were before the analytics root existed. */
+    public CoachProperties(Integer maxToolCalls, Duration catalogueTimeout, String workoutBaseUrl,
+                           String nutritionBaseUrl, String userBaseUrl, Duration streamTimeout,
+                           Boolean answerValidationEnabled, Integer turnsPerHour, Integer turnsPerDay) {
+        this(maxToolCalls, catalogueTimeout, workoutBaseUrl, nutritionBaseUrl, userBaseUrl, streamTimeout,
+                answerValidationEnabled, turnsPerHour, turnsPerDay, null);
     }
 
     @ConstructorBinding
@@ -74,6 +84,7 @@ public record CoachProperties(
         workoutBaseUrl = workoutBaseUrl == null ? "http://localhost:8082" : stripTrailingSlash(workoutBaseUrl);
         nutritionBaseUrl = nutritionBaseUrl == null ? "http://localhost:8083" : stripTrailingSlash(nutritionBaseUrl);
         userBaseUrl = userBaseUrl == null ? "http://localhost:8081" : stripTrailingSlash(userBaseUrl);
+        analyticsBaseUrl = analyticsBaseUrl == null ? "http://localhost:8085" : stripTrailingSlash(analyticsBaseUrl);
         streamTimeout = streamTimeout == null ? DEFAULT_STREAM_TIMEOUT : streamTimeout;
         answerValidationEnabled = answerValidationEnabled == null ? Boolean.TRUE : answerValidationEnabled;
     }

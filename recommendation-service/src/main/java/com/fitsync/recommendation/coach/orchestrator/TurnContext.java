@@ -3,6 +3,7 @@ package com.fitsync.recommendation.coach.orchestrator;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.fitsync.recommendation.coach.dto.CoachCardContext;
 import com.fitsync.recommendation.coach.dto.CoachSurface;
 
 /**
@@ -20,16 +21,22 @@ import com.fitsync.recommendation.coach.dto.CoachSurface;
  *                      client sent, or null when there is none
  * @param recipeId      the id of the recipe page the question was asked on, already checked to be a
  *                      UUID, or null; the recipe itself is never carried here
+ * @param card          the Progress card the question was asked on, already validated, or null; only
+ *                      its kind, id and dates, never its figures
  */
-public record TurnContext(CoachSurface surface, PinnedReading pinnedReading, String recipeId) {
+public record TurnContext(CoachSurface surface, PinnedReading pinnedReading, String recipeId, CoachCardContext card) {
 
     public TurnContext(CoachSurface surface, PinnedReading pinnedReading) {
-        this(surface, pinnedReading, null);
+        this(surface, pinnedReading, null, null);
+    }
+
+    public TurnContext(CoachSurface surface, PinnedReading pinnedReading, String recipeId) {
+        this(surface, pinnedReading, recipeId, null);
     }
 
     /** A context with a known surface and no pinned reading. */
     public static TurnContext ofSurface(CoachSurface surface) {
-        return new TurnContext(surface, null, null);
+        return new TurnContext(surface, null, null, null);
     }
 
     /**
