@@ -30,6 +30,7 @@ import com.fitsync.analytics.dto.ProgressGoalResponse.Pace;
 import com.fitsync.analytics.dto.ProgressGoalResponse.PaceWeek;
 import com.fitsync.analytics.dto.ProgressGoalResponse.RateChangeMark;
 import com.fitsync.analytics.dto.ProgressGoalResponse.Reading;
+import com.fitsync.analytics.dto.ProgressGoalResponse.Road;
 import com.fitsync.analytics.dto.ProgressGoalResponse.WeekValue;
 import com.fitsync.analytics.dto.ProgressGoalResponse.Weight;
 import com.fitsync.analytics.dto.ProgressGoalResponse.WeeklyWeight;
@@ -61,6 +62,12 @@ public class ProgressGoalService {
     static final BigDecimal NEAR_TARGET_SHARE = new BigDecimal("0.10");
     /** A difference smaller than this between the 28-day rates before and after a Monday is not marked. */
     static final BigDecimal MIN_RATE_CHANGE = new BigDecimal("0.10");
+    /** How far back the road looks for the weigh-ins it starts from. */
+    static final int ROAD_LOOKBACK_DAYS = 1100;
+    /** Which habit goal leads when there is no weight goal and two have the same number of logged days. */
+    private static final List<String> LEAD_ORDER = List.of(GoalProgressEvaluator.CALORIES,
+            GoalProgressEvaluator.PROTEIN, GoalProgressEvaluator.WORKOUT_FREQUENCY, GoalProgressEvaluator.CARBS,
+            GoalProgressEvaluator.FAT);
     private static final List<String> OTHER_GOAL_TYPES = List.of(GoalProgressEvaluator.CALORIES,
             GoalProgressEvaluator.PROTEIN, GoalProgressEvaluator.CARBS, GoalProgressEvaluator.FAT,
             GoalProgressEvaluator.WORKOUT_FREQUENCY);
@@ -165,7 +172,38 @@ public class ProgressGoalService {
 
         return new ProgressGoalResponse(new ProgressPeriod(window.from(), window.to()),
                 new ProgressPeriod(window.previousFrom(), window.previousTo()), goal, hero, highlights, weight, body,
-                new Pace(paceWeeks), otherGoals);
+                new Pace(paceWeeks), otherGoals,
+                road(userId, weightGoal, goal, reference, zone), leadType(goal, otherGoals));
+    }
+
+    private Road road(UUID userId, AnalyticsUserGoalProgressEntity weightGoal, Goal goal, LocalDate reference,
+                      ZoneId zone) {
+        if (goal == null) {
+            return null;
+        }
+        TreeMap<LocalDate, BigDecimal> history = new TreeMap<>();
+        dailyBodyRepository.findByUserIdAndMetricDateBetweenOrderByMetricDateAsc(userId,
+                        reference.minusDays(ROAD_LOOKBACK_DAYS), reference)
+                .stream().filter(row -> row.getWeightKg() != null)
+                .forEach(row -> history.put(row.getMetricDate(), row.getWeightKg()));
+        LocalDate createdOn = weightGoal.getDateTimeCreated() == null ? null
+                : weightGoal.getDateTimeCreated().atZone(zone).toLocalDate();
+        return ProgressRoad.build(history, createdOn, goal.targetKg(), goal.byDate(), weightGoal.getBaselineValue(),
+                reference);
+    }
+
+    /**
+     * The goal the page leads with: the weight goal when there is one, else the daily or weekly goal with the
+     * most logged days (ties in the order of {@link #LEAD_ORDER}), null with no goal at all.
+     */
+    static String leadType(Goal weightGoal, List<OtherGoal> otherGoals) {
+        if (weightGoal != null) {
+            return GoalProgressEvaluator.WEIGHT;
+        }
+        return otherGoals.stream()
+                .min(Comparator.comparingInt(OtherGoal::loggedDays).reversed()
+                        .thenComparingInt(other -> LEAD_ORDER.indexOf(other.type())))
+                .map(OtherGoal::type).orElse(null);
     }
 
     /** The newest active goal of each type (older read-model rows of the same type are ignored). */

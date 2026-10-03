@@ -17,7 +17,9 @@ public record ProgressGoalResponse(
         Weight weight,
         Body body,
         Pace pace,
-        List<OtherGoal> otherGoals) {
+        List<OtherGoal> otherGoals,
+        Road road,
+        String leadType) {
 
     public ProgressGoalResponse {
         highlights = List.copyOf(highlights);
@@ -151,5 +153,47 @@ public record ProgressGoalResponse(
     }
 
     public record WeekValue(LocalDate weekStart, BigDecimal value, BigDecimal target) {
+    }
+
+    /**
+     * The weight goal drawn as a road (progress v5 spec section 4). Null without a weight goal. direction is
+     * LOSE, GAIN or KEEP (null only before the first weigh-in without a baseline); state is AHEAD, ON_COURSE,
+     * BEHIND, REACHED, DATE_PASSED, STALLED or NO_PROJECTION. The kilo figures are one decimal, the fractions
+     * 0 to 1 at two decimals; fractionTime is null without a goal date, projectedDate when there is no pace
+     * toward the goal. Every figure except the goal's own is null before the first weigh-in.
+     */
+    public record Road(String direction, String state, BigDecimal startKg, LocalDate startDate, BigDecimal nowKg,
+                       LocalDate nowDate, BigDecimal targetKg, LocalDate targetDate, BigDecimal distanceKg,
+                       BigDecimal fractionWeight, BigDecimal fractionTime, LocalDate projectedDate,
+                       List<Tick> ticks, Keep keep) {
+
+        public Road {
+            ticks = List.copyOf(ticks);
+        }
+
+        @Override
+        public List<Tick> ticks() {
+            return List.copyOf(ticks);
+        }
+    }
+
+    /** A whole kilo on the road; the dates are null when the state is NO_PROJECTION or the pace never gets there. */
+    public record Tick(int kg, LocalDate crossedOn, LocalDate projectedOn) {
+    }
+
+    /** KEEP goals only: the last eight weeks that hold a weigh-in, each inside the band or not. */
+    public record Keep(BigDecimal bandKg, List<KeepWeek> weeks) {
+
+        public Keep {
+            weeks = List.copyOf(weeks);
+        }
+
+        @Override
+        public List<KeepWeek> weeks() {
+            return List.copyOf(weeks);
+        }
+    }
+
+    public record KeepWeek(LocalDate weekStart, BigDecimal avgKg, boolean inside) {
     }
 }
