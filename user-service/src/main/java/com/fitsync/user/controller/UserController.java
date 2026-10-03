@@ -1,9 +1,9 @@
 package com.fitsync.user.controller;
 
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.user.dto.AccountDataExportPayload;
@@ -26,7 +26,7 @@ import com.fitsync.user.dto.UserPreferencesView;
 import com.fitsync.user.dto.UserProfileView;
 import com.fitsync.user.security.CurrentUserPrincipal;
 import com.fitsync.user.service.UserService;
-import com.fitsync.web.error.BadRequestException;
+import com.fitsync.web.timezone.RequestTimezone;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -185,8 +185,8 @@ public class UserController {
 
     @GetMapping("/me/insights/progress")
     public ProgressInsightResponse progressInsight(Authentication authentication,
-                                                   @RequestParam(required = false) String timezone) {
-        return userService.getProgressInsight(currentPrincipal(authentication), parseTimezone(timezone));
+                                                   @RequestTimezone Optional<ZoneId> zone) {
+        return userService.getProgressInsight(currentPrincipal(authentication), zone.orElse(null));
     }
 
     @PostMapping("/me/data-export/requests")
@@ -209,18 +209,6 @@ public class UserController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"fitsync-account-export.json\"")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(payload);
-    }
-
-    /** The requested zone, or null when none was sent, so the service reads the profile zone instead. */
-    private static ZoneId parseTimezone(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            return null;
-        }
-        try {
-            return ZoneId.of(timezone.trim());
-        } catch (DateTimeException ex) {
-            throw new BadRequestException("timezone must be an IANA zone id such as Asia/Singapore");
-        }
     }
 
     private CurrentUserPrincipal currentPrincipal(Authentication authentication) {
