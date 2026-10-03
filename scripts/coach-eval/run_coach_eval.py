@@ -62,8 +62,11 @@ class Client:
             raise SystemExit(f"could not create a thread: {status} {body}")
         return body["threadId"]
 
-    def ask(self, thread_id: str, text: str) -> dict:
-        status, body = self._call("POST", f"/api/v1/coach/threads/{thread_id}/messages", {"message": text})
+    def ask(self, thread_id: str, text: str, context: dict | None = None) -> dict:
+        payload: dict = {"message": text}
+        if context:
+            payload["context"] = with_card_period(context)
+        status, body = self._call("POST", f"/api/v1/coach/threads/{thread_id}/messages", payload)
         if status != 200:
             raise RuntimeError(f"message failed: {status} {body}")
         return body
@@ -85,6 +88,15 @@ class Client:
         if status != 200:
             raise RuntimeError(f"metrics failed: {status}")
         return body
+
+
+def with_card_period(context: dict) -> dict:
+    """A card without dates is asked about the last 28 days, so the golden file never goes stale."""
+    card = context.get("card")
+    if not card or ("from" in card and "to" in card):
+        return context
+    today = dt.date.today()
+    return {**context, "card": {**card, "from": (today - dt.timedelta(days=27)).isoformat(), "to": today.isoformat()}}
 
 
 def contains_any(text: str, needles: list[str]) -> bool:
@@ -110,7 +122,7 @@ def run(args: argparse.Namespace) -> int:
         thread_id = client.new_thread()
         t0 = time.perf_counter()
         try:
-            response = client.ask(thread_id, q["text"])
+            response = client.ask(thread_id, q["text"], q.get("context"))
             turn = client.turn(thread_id, response["turnId"])
             answer = turn["content"]
             verdict = turn.get("guardrailVerdict") or ""
@@ -123,7 +135,8 @@ def run(args: argparse.Namespace) -> int:
         tiers[str(tier)] = tiers.get(str(tier), 0) + 1
 
         if q["category"] == "grounded":
-            ok = contains_any(answer, q["expect_any"]) and not verdict.startswith("REFUSED")
+            ok = (contains_any(answer, q["expect_any"]) and not verdict.startswith("REFUSED")
+                  and ("expect_tool" not in q or q["expect_tool"] in tools))
         elif q["category"] == "refusal":
             ok = verdict == q["expect_verdict"]
         elif q["category"] == "not_refusal":
