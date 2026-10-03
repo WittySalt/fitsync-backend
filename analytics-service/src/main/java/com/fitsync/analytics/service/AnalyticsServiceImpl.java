@@ -410,7 +410,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
      * calories, carbs and fat are ceilings and protein is a floor.
      */
     private LiveGoalValues liveGoalValues(AnalyticsUserGoalProgressEntity goal, LiveNutritionDay day) {
-        String type = goal.getGoalType() == null ? "" : goal.getGoalType().trim().toUpperCase(Locale.ROOT);
+        // Goal types are stored as the upper-case enum names the events carry, so they are matched as they are.
+        String type = goal.getGoalType() == null ? "" : goal.getGoalType().trim();
         if (!GoalProgressEvaluator.NUTRITION_GOAL_TYPES.contains(type)) {
             return new LiveGoalValues(toDouble(goal.getCurrentValue()), toDouble(goal.getProgressRatio()), goal.isOnTrack());
         }
