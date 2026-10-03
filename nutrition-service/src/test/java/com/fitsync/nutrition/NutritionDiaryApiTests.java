@@ -126,7 +126,7 @@ class NutritionDiaryApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].mealId").value(kept));
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.mealCount").value(1))
                 .andExpect(jsonPath("$.totalCalories").value(89));
         mockMvc.perform(get(BASE + "/foods/recent").header("Authorization", "Bearer " + token))

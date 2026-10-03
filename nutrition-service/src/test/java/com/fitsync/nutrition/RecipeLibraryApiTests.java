@@ -802,7 +802,7 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + token)
                         .content("{\"servings\": 1, \"mealType\": \"DINNER\", \"consumedAt\": \"" + at
-                                + "\", \"timezone\": \"UTC\"}"))
+                                + "\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.mealId");
@@ -932,8 +932,8 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fit").doesNotExist());
         mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
-                        .param("scope", "library").param("sort", "fit").param("timezone", "Not/AZone"))
-                .andExpect(status().isBadRequest());
+                        .param("scope", "library").param("sort", "fit").header("X-Timezone", "Not/AZone"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -1128,7 +1128,7 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
 
     private String fromRecipeJson(String servings) {
         return "{\"servings\": " + servings + ", \"mealType\": \"DINNER\", "
-                + "\"consumedAt\": \"2026-06-11T18:00:00Z\", \"timezone\": \"UTC\"}";
+                + "\"consumedAt\": \"2026-06-11T18:00:00Z\"}";
     }
 
     private RecipeIngredientEntity ingredient(Seeded food, String grams) {

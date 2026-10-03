@@ -72,7 +72,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mealCount").value(3))
                 .andExpect(jsonPath("$.totalCalories").value(629))
@@ -93,7 +93,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String token = logTheDay(tokenFor("flags@example.com"));
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.fiberTargetGrams").value(28.0))
                 .andExpect(jsonPath("$.sugarLimitGrams").value(50.0))
                 .andExpect(jsonPath("$.sodiumLimitMg").value(2300.0))
@@ -108,7 +108,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String token = logTheDay(tokenFor("balance@example.com"));
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.balance.length()").value(5))
                 .andExpect(jsonPath("$.balance[0].code").value("FIBER"))
                 .andExpect(jsonPath("$.balance[0].displayName").value("Fibre"))
@@ -150,7 +150,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         logMeal(token, "DINNER", oats, "2026-06-11T19:00:00Z");
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.balance[1].topSources.length()").value(1))
                 .andExpect(jsonPath("$.balance[1].topSources[0].amount").value(858.0));
     }
@@ -161,7 +161,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String token = logTheDay(tokenFor("woman@example.com"));
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.balance[1].reference").value(2600.0));
     }
 
@@ -171,7 +171,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String token = logTheDay(tokenFor("unknown@example.com"));
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.balance[0].reference").value(28.0))
                 .andExpect(jsonPath("$.balance[1].reference").value(3000.0))
@@ -186,7 +186,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String token = logTheDay(tokenFor("protein@example.com"));
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.proteinByMeal.weightKg").value(80.0))
                 .andExpect(jsonPath("$.proteinByMeal.lowGrams").value(24))
                 .andExpect(jsonPath("$.proteinByMeal.highGrams").value(32))
@@ -208,7 +208,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String other = tokenFor("quiet@example.com");
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + other)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.mealCount").value(0))
                 .andExpect(jsonPath("$.totalCalories").value(0))
                 .andExpect(jsonPath("$.balance.length()").value(5))
@@ -233,7 +233,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String token = logQuickAddOnly(tokenFor("unknown-day@example.com"), "2026-06-11T12:00:00Z");
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mealCount").value(1))
                 .andExpect(jsonPath("$.totalSaturatedFatGrams").value(nullValue()))
@@ -259,7 +259,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         logQuickAddOnly(token, "2026-06-11T12:00:00Z");
 
         mockMvc.perform(get(BASE + "/summary/daily").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.totalPotassiumMg").value(429.0))
                 .andExpect(jsonPath("$.totalSaturatedFatGrams").value(1.2))
                 .andExpect(jsonPath("$.balance[1].amount").value(429.0))
@@ -280,7 +280,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get(BASE + "/water").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalMl").value(500))
                 .andExpect(jsonPath("$.entries.length()").value(1))
@@ -299,7 +299,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         logMeal(token, "BREAKFAST", oats, "2026-06-11T08:00:00Z");
 
         mockMvc.perform(get(BASE + "/water").header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-11").param("timezone", "UTC"))
+                        .param("date", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.fromDrinksMl").value(0))
                 .andExpect(jsonPath("$.drinkEntries.length()").value(0));
     }
@@ -321,7 +321,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         logTheDay(token);
 
         mockMvc.perform(get(BASE + "/summary/range").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-06-09").param("to", "2026-06-11").param("timezone", "UTC"))
+                        .param("from", "2026-06-09").param("to", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.from").value("2026-06-09"))
                 .andExpect(jsonPath("$.to").value("2026-06-11"))
@@ -359,7 +359,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String token = logQuickAddOnly(tokenFor("range-unknown@example.com"), "2026-06-11T12:00:00Z");
 
         mockMvc.perform(get(BASE + "/summary/range").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-06-11").param("to", "2026-06-11").param("timezone", "UTC"))
+                        .param("from", "2026-06-11").param("to", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.days[0].logged").value(true))
                 .andExpect(jsonPath("$.days[0].totalCalories").value(500))
                 .andExpect(jsonPath("$.days[0].potassiumMg").value(nullValue()))
@@ -375,10 +375,10 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         logMeal(token, "SNACK", oats, "2026-06-10T20:00:00Z");
 
         mockMvc.perform(get(BASE + "/summary/range").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-06-11").param("to", "2026-06-11").param("timezone", "Asia/Singapore"))
+                        .param("from", "2026-06-11").param("to", "2026-06-11").header("X-Timezone", "Asia/Singapore"))
                 .andExpect(jsonPath("$.days[0].logged").value(true));
         mockMvc.perform(get(BASE + "/summary/range").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-06-11").param("to", "2026-06-11").param("timezone", "UTC"))
+                        .param("from", "2026-06-11").param("to", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(jsonPath("$.days[0].logged").value(false));
     }
 
@@ -411,8 +411,8 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                         .param("from", "2026-06-11"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get(BASE + "/summary/range").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-06-10").param("to", "2026-06-11").param("timezone", "Mars/Olympus"))
-                .andExpect(status().isBadRequest());
+                        .param("from", "2026-06-10").param("to", "2026-06-11").header("X-Timezone", "Mars/Olympus"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -450,7 +450,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
         String token = logVitaminDays(tokenFor("vitamins@example.com"));
 
         mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-06-09").param("to", "2026-06-11").param("timezone", "UTC"))
+                        .param("from", "2026-06-09").param("to", "2026-06-11").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.from").value("2026-06-09"))
                 .andExpect(jsonPath("$.to").value("2026-06-11"))
@@ -500,7 +500,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-06-09").param("to", "2026-06-12").param("timezone", "UTC"))
+                        .param("from", "2026-06-09").param("to", "2026-06-12").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days.length()").value(4))
                 .andExpect(jsonPath("$.nutrients[?(@.code == 'VIT_C')].days[0].date").value("2026-06-09"))

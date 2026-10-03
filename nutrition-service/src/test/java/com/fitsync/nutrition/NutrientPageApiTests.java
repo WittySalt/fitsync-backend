@@ -160,7 +160,7 @@ class NutrientPageApiTests extends DiaryApiTestBase {
         insertGuide("VIT_D");
 
         mockMvc.perform(get(BASE + "/nutrients/VIT_D").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-06-10").param("to", "2026-06-12").param("timezone", "UTC"))
+                        .param("from", "2026-06-10").param("to", "2026-06-12").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("VIT_D"))
                 .andExpect(jsonPath("$.displayName").value("Vitamin D"))
@@ -224,7 +224,7 @@ class NutrientPageApiTests extends DiaryApiTestBase {
         String token = tokenFor("defaults@example.com");
 
         mockMvc.perform(get(BASE + "/nutrients/VIT_C").header("Authorization", "Bearer " + token)
-                        .param("timezone", "UTC"))
+                        .header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.days").value(7))
                 .andExpect(jsonPath("$.dayValues", hasSize(7)))

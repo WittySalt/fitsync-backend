@@ -140,7 +140,6 @@ abstract class DiaryApiTestBase {
                   "mealType": "%s",
                   "source": "MANUAL",
                   "consumedAt": "%s",
-                  "timezone": "UTC",
                   "items": [{"foodCatalogItemId": "%s", "foodServingId": "%s", "quantity": %s}]
                 }
                 """.formatted(mealType, consumedAt, food.foodId, food.servingIds.get(servingLabel), quantity);

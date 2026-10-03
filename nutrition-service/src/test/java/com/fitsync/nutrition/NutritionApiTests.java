@@ -170,7 +170,7 @@ class NutritionApiTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + token)
                         .param("date", "2026-06-11")
-                        .param("timezone", "UTC"))
+                        .header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.targetCalories").value(1800))
                 .andExpect(jsonPath("$.targetProteinGrams").value(140.0));
@@ -219,7 +219,6 @@ class NutritionApiTests {
                                   "name": "Chicken rice",
                                   "source": "MANUAL",
                                   "consumedAt": "2026-06-11T12:45:00Z",
-                                  "timezone": "Asia/Singapore",
                                   "note": "Post-workout meal",
                                   "items": [
                                     {
@@ -264,7 +263,7 @@ class NutritionApiTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + token)
                         .param("date", "2026-06-11")
-                        .param("timezone", "UTC"))
+                        .header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCalories").value(600))
                 .andExpect(jsonPath("$.totalCarbsGrams").value(52.0))
@@ -283,7 +282,6 @@ class NutritionApiTests {
                                   "name": "Chicken rice updated",
                                   "source": "MANUAL",
                                   "consumedAt": "2026-06-11T13:00:00Z",
-                                  "timezone": "Asia/Singapore",
                                   "items": [
                                     {
                                       "foodName": "Chicken breast",
@@ -323,7 +321,6 @@ class NutritionApiTests {
                                   "mealType": "LUNCH",
                                   "source": "MANUAL",
                                   "consumedAt": "2026-06-15T12:00:00Z",
-                                  "timezone": "UTC",
                                   "items": [
                                     {
                                       "foodName": "Salty fibrous bowl",
@@ -342,7 +339,7 @@ class NutritionApiTests {
         mockMvc.perform(get("/api/v1/nutrition/summary/daily")
                         .header("Authorization", "Bearer " + token)
                         .param("date", "2026-06-15")
-                        .param("timezone", "UTC"))
+                        .header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalFiberGrams").value(30.00))
                 .andExpect(jsonPath("$.totalSugarGrams").value(60.00))
@@ -469,7 +466,6 @@ class NutritionApiTests {
                                   "mealType": "BREAKFAST",
                                   "source": "MANUAL",
                                   "consumedAt": "2026-06-14T08:00:00Z",
-                                  "timezone": "UTC",
                                   "items": [
                                     { "foodName": "Oats", "quantity": 1.0, "unit": "bowl", "calories": 300 }
                                   ]
@@ -487,7 +483,6 @@ class NutritionApiTests {
                                   "mealType": "LUNCH",
                                   "source": "MANUAL",
                                   "consumedAt": "2026-06-14T12:00:00Z",
-                                  "timezone": "UTC",
                                   "items": [
                                     { "foodName": "Salad", "quantity": 1.0, "unit": "bowl", "calories": 400 }
                                   ]
@@ -512,17 +507,46 @@ class NutritionApiTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + token)
                         .content("""
-                                { "targetDate": "2026-06-21", "timezone": "UTC" }
+                                { "targetDate": "2026-06-21" }
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.length()").value(2));
 
         mockMvc.perform(get("/api/v1/nutrition/summary/daily")
                         .header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-21").param("timezone", "UTC"))
+                        .param("date", "2026-06-21").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mealCount").value(2))
                 .andExpect(jsonPath("$.totalCalories").value(700));
+    }
+
+    @Test
+    void waterLogKeepsTheZoneFromTheHeaderAndIgnoresAnInvalidOne() throws Exception {
+        String token = tokenFor("wanda@example.com", "Wanda");
+        String body = "{ \"amountMl\": 250, \"loggedAt\": \"2026-06-16T09:00:00Z\" }";
+
+        mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Timezone", "Asia/Singapore")
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.timezone").value("Asia/Singapore"));
+
+        mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Timezone", "+08:00")
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.timezone").doesNotExist());
+
+        mockMvc.perform(post("/api/v1/nutrition/water")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.timezone").doesNotExist());
     }
 
     @Test
@@ -533,7 +557,7 @@ class NutritionApiTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + token)
                         .content("""
-                                { "amountMl": 250, "loggedAt": "2026-06-16T09:00:00Z", "timezone": "UTC" }
+                                { "amountMl": 250, "loggedAt": "2026-06-16T09:00:00Z" }
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.amountMl").value(250))
@@ -550,7 +574,7 @@ class NutritionApiTests {
 
         mockMvc.perform(get("/api/v1/nutrition/water")
                         .header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-16").param("timezone", "UTC"))
+                        .param("date", "2026-06-16").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalMl").value(750))
                 .andExpect(jsonPath("$.entries.length()").value(2));
@@ -561,7 +585,7 @@ class NutritionApiTests {
 
         mockMvc.perform(get("/api/v1/nutrition/water")
                         .header("Authorization", "Bearer " + token)
-                        .param("date", "2026-06-16").param("timezone", "UTC"))
+                        .param("date", "2026-06-16").header("X-Timezone", "UTC"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalMl").value(500))
                 .andExpect(jsonPath("$.entries.length()").value(1));
@@ -1317,15 +1341,16 @@ class NutritionApiTests {
     }
 
     @Test
-    void nutritionPageInsightRequiresAuthenticationAndRejectsAnInvalidTimezone() throws Exception {
+    void nutritionPageInsightRequiresAuthenticationAndIgnoresAnInvalidTimezoneHeader() throws Exception {
         mockMvc.perform(get("/api/v1/nutrition/insights/page"))
                 .andExpect(status().isUnauthorized());
 
         String token = tokenFor("insight-zone@example.com", "Insight Zone");
         mockMvc.perform(get("/api/v1/nutrition/insights/page")
                         .header("Authorization", "Bearer " + token)
-                        .param("timezone", "Mars/Olympus"))
-                .andExpect(status().isBadRequest());
+                        .header("X-Timezone", "Mars/Olympus"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timezone").value("UTC"));
     }
 
     @Test
@@ -1372,15 +1397,16 @@ class NutritionApiTests {
     }
 
     @Test
-    void usualMealsRequireAuthenticationAndRejectAnInvalidTimezone() throws Exception {
+    void usualMealsRequireAuthenticationAndIgnoreAnInvalidTimezoneHeader() throws Exception {
         mockMvc.perform(get("/api/v1/nutrition/meals/usual"))
                 .andExpect(status().isUnauthorized());
 
         String token = tokenFor("usual-zone@example.com", "Usual Zone");
         mockMvc.perform(get("/api/v1/nutrition/meals/usual")
                         .header("Authorization", "Bearer " + token)
-                        .param("timezone", "Mars/Olympus"))
-                .andExpect(status().isBadRequest());
+                        .header("X-Timezone", "Mars/Olympus"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timezone").value("UTC"));
     }
 
     @Test

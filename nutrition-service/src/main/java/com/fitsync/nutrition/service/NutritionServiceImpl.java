@@ -205,16 +205,18 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional
-    public MealView createMeal(CurrentUserPrincipal principal, CreateMealRequest request) {
-        return createMealFromPlanned(principal.userId(), request, plannedFromInputs(principal.userId(), request.items()));
+    public MealView createMeal(CurrentUserPrincipal principal, CreateMealRequest request, String timezone) {
+        return createMealFromPlanned(principal.userId(), request, timezone,
+                plannedFromInputs(principal.userId(), request.items()));
     }
 
     /** Saves a new meal from the header of a request and items that are already planned, then publishes MealLogged. */
-    private MealView createMealFromPlanned(UUID userId, CreateMealRequest header, List<PlannedItem> planned) {
+    private MealView createMealFromPlanned(UUID userId, CreateMealRequest header, String timezone,
+                                          List<PlannedItem> planned) {
         MealLogEntity entity = new MealLogEntity();
         entity.setMealId(UUID.randomUUID());
         entity.setUserId(userId);
-        applyMeal(entity, header);
+        applyMeal(entity, header, timezone);
         MealLogEntity savedMeal = mealLogRepository.save(entity);
         List<MealItemEntity> savedItems = persistMealItems(savedMeal.getMealId(), planned);
         publishMealLogged(savedMeal, savedItems);
@@ -223,7 +225,7 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional
-    public MealView quickAddMeal(CurrentUserPrincipal principal, QuickAddMealRequest request) {
+    public MealView quickAddMeal(CurrentUserPrincipal principal, QuickAddMealRequest request, String timezone) {
         String itemName = request.name() == null || request.name().isBlank() ? "Quick add" : request.name().trim();
         MealItemInput item = new MealItemInput(
                 null, null, null, null, null,
@@ -243,10 +245,9 @@ public class NutritionServiceImpl implements NutritionService {
                 blankToNull(request.name()),
                 MealSource.MANUAL,
                 request.consumedAt() == null ? Instant.now(Clock.systemUTC()) : request.consumedAt(),
-                blankToNull(request.timezone()),
                 null,
                 List.of(item));
-        return createMeal(principal, mealRequest);
+        return createMeal(principal, mealRequest, timezone);
     }
 
     @Override
@@ -270,9 +271,10 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional
-    public MealView updateMeal(CurrentUserPrincipal principal, UUID mealId, CreateMealRequest request) {
+    public MealView updateMeal(CurrentUserPrincipal principal, UUID mealId, CreateMealRequest request,
+                              String timezone) {
         MealLogEntity meal = getOwnedMeal(principal.userId(), mealId);
-        applyMeal(meal, request);
+        applyMeal(meal, request, timezone);
         MealLogEntity savedMeal = mealLogRepository.save(meal);
         mealItemRepository.deleteByMealId(savedMeal.getMealId());
         List<MealItemEntity> savedItems = replaceMealItems(principal.userId(), savedMeal.getMealId(), request.items());
@@ -314,8 +316,9 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional
-    public List<MealView> copyDay(CurrentUserPrincipal principal, LocalDate sourceDate, CopyDayRequest request) {
-        ZoneId zone = resolveZone(request.timezone());
+    public List<MealView> copyDay(CurrentUserPrincipal principal, LocalDate sourceDate, CopyDayRequest request,
+                                 String timezone) {
+        ZoneId zone = resolveZone(timezone);
         Instant from = sourceDate.atStartOfDay(zone).toInstant();
         Instant to = sourceDate.plusDays(1).atStartOfDay(zone).minusNanos(1).toInstant();
         List<MealLogEntity> meals = mealLogRepository
@@ -889,7 +892,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional
     public MealView createMealFromTemplate(CurrentUserPrincipal principal, UUID templateId,
-                                           MaterializeTemplateRequest request) {
+                                           MaterializeTemplateRequest request, String timezone) {
         MealTemplateEntity template = getOwnedTemplate(principal.userId(), templateId);
         List<MealTemplateItemEntity> templateItems = mealTemplateItemRepository
                 .findByTemplateIdOrderBySortOrderAsc(template.getTemplateId());
@@ -914,10 +917,9 @@ public class NutritionServiceImpl implements NutritionService {
                 template.getName(),
                 MealSource.MANUAL,
                 request.consumedAt(),
-                blankToNull(request.timezone()),
                 template.getNote(),
                 List.of());
-        return createMealFromPlanned(principal.userId(), mealRequest, planned);
+        return createMealFromPlanned(principal.userId(), mealRequest, timezone, planned);
     }
 
     private MealTemplateEntity getOwnedTemplate(UUID userId, UUID templateId) {
@@ -999,7 +1001,8 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional
-    public MealView createMealFromRecipe(CurrentUserPrincipal principal, UUID recipeId, RecipeMealRequest request) {
+    public MealView createMealFromRecipe(CurrentUserPrincipal principal, UUID recipeId, RecipeMealRequest request,
+                                         String timezone) {
         RecipeEntity recipe = recipeLibraryService.findVisible(principal.userId(), recipeId);
         List<PlannedItem> planned = plannedRecipeItems(principal.userId(), recipe, request.servings());
         CreateMealRequest header = new CreateMealRequest(
@@ -1007,10 +1010,9 @@ public class NutritionServiceImpl implements NutritionService {
                 truncate(recipe.getName(), 120),
                 MealSource.MANUAL,
                 request.consumedAt(),
-                blankToNull(request.timezone()),
                 null,
                 List.of());
-        return createMealFromPlanned(principal.userId(), header, planned);
+        return createMealFromPlanned(principal.userId(), header, timezone, planned);
     }
 
     @Override
@@ -1082,13 +1084,13 @@ public class NutritionServiceImpl implements NutritionService {
 
     @Override
     @Transactional
-    public WaterLogView logWater(CurrentUserPrincipal principal, LogWaterRequest request) {
+    public WaterLogView logWater(CurrentUserPrincipal principal, LogWaterRequest request, String timezone) {
         WaterLogEntity entity = new WaterLogEntity();
         entity.setWaterId(UUID.randomUUID());
         entity.setUserId(principal.userId());
         entity.setAmountMl(request.amountMl());
         entity.setLoggedAt(request.loggedAt() == null ? Instant.now(Clock.systemUTC()) : request.loggedAt());
-        entity.setTimezone(blankToNull(request.timezone()));
+        entity.setTimezone(blankToNull(timezone));
         return toWaterLogView(waterLogRepository.save(entity));
     }
 
@@ -1413,12 +1415,12 @@ public class NutritionServiceImpl implements NutritionService {
         return toFoodDetailView(clonedFood);
     }
 
-    private void applyMeal(MealLogEntity entity, CreateMealRequest request) {
+    private void applyMeal(MealLogEntity entity, CreateMealRequest request, String timezone) {
         entity.setMealType(request.mealType());
         entity.setName(request.name());
         entity.setSource(request.source());
         entity.setConsumedAt(request.consumedAt());
-        entity.setTimezone(request.timezone());
+        entity.setTimezone(blankToNull(timezone));
         entity.setNote(request.note());
     }
 

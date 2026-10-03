@@ -291,7 +291,6 @@ class ExternalFoodImportTests {
                                   "name": "Yogurt",
                                   "source": "MANUAL",
                                   "consumedAt": "2026-06-11T02:00:00Z",
-                                  "timezone": "UTC",
                                   "items": [ { "foodCatalogItemId": "%s", "quantity": 1.0, "unit": "serving" } ]
                                 }
                                 """.formatted(foodId)))
