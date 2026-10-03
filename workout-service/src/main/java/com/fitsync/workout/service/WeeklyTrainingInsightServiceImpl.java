@@ -55,18 +55,15 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
     private final WorkoutSessionRepository workoutSessionRepository;
     private final WorkoutPlanRepository workoutPlanRepository;
     private final WorkoutExerciseLogRepository workoutExerciseLogRepository;
-    private final UserZoneResolver userZoneResolver;
 
     public WeeklyTrainingInsightServiceImpl(Clock clock,
                                             WorkoutSessionRepository workoutSessionRepository,
                                             WorkoutPlanRepository workoutPlanRepository,
-                                            WorkoutExerciseLogRepository workoutExerciseLogRepository,
-                                            UserZoneResolver userZoneResolver) {
+                                            WorkoutExerciseLogRepository workoutExerciseLogRepository) {
         this.clock = clock;
         this.workoutSessionRepository = workoutSessionRepository;
         this.workoutPlanRepository = workoutPlanRepository;
         this.workoutExerciseLogRepository = workoutExerciseLogRepository;
-        this.userZoneResolver = userZoneResolver;
     }
 
     @Override
@@ -74,7 +71,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
     public WeeklyTrainingInsightView getWeeklyTrainingInsight(CurrentUserPrincipal currentUser,
                                                               String timezone,
                                                               LocalDate date) {
-        ZoneId zoneId = userZoneResolver.resolve(currentUser.userId(), timezone);
+        ZoneId zoneId = resolveZone(timezone);
         LocalDate today = LocalDate.ofInstant(clock.instant(), zoneId);
         LocalDate referenceDate = date != null ? date : today;
 

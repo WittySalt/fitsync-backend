@@ -63,16 +63,13 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
     private final Clock clock;
     private final WorkoutSessionRepository workoutSessionRepository;
     private final WorkoutExerciseLogRepository workoutExerciseLogRepository;
-    private final UserZoneResolver userZoneResolver;
 
     public TrainingPageInsightServiceImpl(Clock clock,
                                           WorkoutSessionRepository workoutSessionRepository,
-                                          WorkoutExerciseLogRepository workoutExerciseLogRepository,
-                                          UserZoneResolver userZoneResolver) {
+                                          WorkoutExerciseLogRepository workoutExerciseLogRepository) {
         this.clock = clock;
         this.workoutSessionRepository = workoutSessionRepository;
         this.workoutExerciseLogRepository = workoutExerciseLogRepository;
-        this.userZoneResolver = userZoneResolver;
     }
 
     @Override
@@ -80,7 +77,7 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
     public TrainingPageInsightView getTrainingPageInsight(CurrentUserPrincipal currentUser,
                                                            String timezone,
                                                            LocalDate date) {
-        ZoneId zoneId = userZoneResolver.resolve(currentUser.userId(), timezone);
+        ZoneId zoneId = InsightDates.resolveZone(timezone);
         LocalDate today = LocalDate.ofInstant(clock.instant(), zoneId);
         LocalDate referenceDate = date != null ? date : today;
 

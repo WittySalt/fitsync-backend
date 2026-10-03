@@ -2,6 +2,8 @@ package com.fitsync.workout.controller;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.workout.domain.ExerciseEquipment;
@@ -42,6 +44,7 @@ import com.fitsync.workout.service.TrainingPageInsightService;
 import com.fitsync.workout.service.WeeklyTrainingInsightService;
 import com.fitsync.workout.service.WorkoutService;
 import com.fitsync.web.response.PageResponse;
+import com.fitsync.web.timezone.RequestTimezone;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -152,27 +155,27 @@ public class WorkoutController {
     @GetMapping("/insights/weekly")
     public WeeklyTrainingInsightView getWeeklyTrainingInsight(
             Authentication authentication,
-            @RequestParam(required = false) @Size(max = 64) String timezone,
+            @RequestTimezone Optional<ZoneId> zone,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return weeklyTrainingInsightService.getWeeklyTrainingInsight(currentPrincipal(authentication), timezone, date);
+        return weeklyTrainingInsightService.getWeeklyTrainingInsight(currentPrincipal(authentication), zoneId(zone), date);
     }
 
     @Operation(summary = "Get the training page insight summary for the current user")
     @GetMapping("/insights/training")
     public TrainingPageInsightView getTrainingPageInsight(
             Authentication authentication,
-            @RequestParam(required = false) @Size(max = 64) String timezone,
+            @RequestTimezone Optional<ZoneId> zone,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return trainingPageInsightService.getTrainingPageInsight(currentPrincipal(authentication), timezone, date);
+        return trainingPageInsightService.getTrainingPageInsight(currentPrincipal(authentication), zoneId(zone), date);
     }
 
     @Operation(summary = "Get the calendar-month training insight for the current user")
     @GetMapping("/insights/monthly")
     public MonthlyTrainingInsightView getMonthlyTrainingInsight(
             Authentication authentication,
-            @RequestParam(required = false) @Size(max = 64) String timezone,
+            @RequestTimezone Optional<ZoneId> zone,
             @RequestParam(required = false) @Size(max = 7) String month) {
-        return monthlyTrainingInsightService.getMonthlyTrainingInsight(currentPrincipal(authentication), timezone, month);
+        return monthlyTrainingInsightService.getMonthlyTrainingInsight(currentPrincipal(authentication), zoneId(zone), month);
     }
 
     @Operation(summary = "Update a custom exercise")
@@ -270,8 +273,8 @@ public class WorkoutController {
     public WorkoutSessionView startPlan(Authentication authentication,
                                         @PathVariable UUID planId,
                                         @RequestParam(required = false) UUID planDayId,
-                                        @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone) {
-        return workoutService.startPlan(currentPrincipal(authentication), planId, planDayId, timezone);
+                                        @RequestTimezone Optional<ZoneId> zone) {
+        return workoutService.startPlan(currentPrincipal(authentication), planId, planDayId, zoneId(zone));
     }
 
     @PostMapping("/sessions")
@@ -426,6 +429,11 @@ public class WorkoutController {
     public void deleteSession(Authentication authentication,
                               @PathVariable UUID sessionId) {
         workoutService.deleteSession(currentPrincipal(authentication), sessionId);
+    }
+
+    /** The zone from the X-Timezone header, or UTC when the client sent none or an unusable one. */
+    private static String zoneId(Optional<ZoneId> zone) {
+        return zone.map(ZoneId::getId).orElse("UTC");
     }
 
     private CurrentUserPrincipal currentPrincipal(Authentication authentication) {

@@ -12,7 +12,6 @@ import com.fitsync.workout.entity.WorkoutPlanEntity;
 import com.fitsync.workout.messaging.AccountDeletionProjectionService;
 import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
-import com.fitsync.workout.repository.UserTimezoneRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -25,8 +24,7 @@ class AccountDeletionProjectionServiceTests {
         WorkoutPlanRepository planRepository = mock(WorkoutPlanRepository.class);
         ExerciseRepository exerciseRepository = mock(ExerciseRepository.class);
         AccountDeletionProjectionService service =
-                new AccountDeletionProjectionService(
-                        sessionRepository, planRepository, exerciseRepository, mock(UserTimezoneRepository.class));
+                new AccountDeletionProjectionService(sessionRepository, planRepository, exerciseRepository);
         UUID userId = UUID.randomUUID();
         List<WorkoutPlanEntity> plans = List.of(new WorkoutPlanEntity());
         List<ExerciseEntity> exercises = List.of(new ExerciseEntity());

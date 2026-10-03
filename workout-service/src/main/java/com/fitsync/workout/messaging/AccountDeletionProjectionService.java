@@ -4,7 +4,6 @@ import java.util.UUID;
 
 import com.fitsync.workout.repository.ExerciseRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
-import com.fitsync.workout.repository.UserTimezoneRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,16 +14,13 @@ public class AccountDeletionProjectionService {
     private final WorkoutSessionRepository workoutSessionRepository;
     private final WorkoutPlanRepository workoutPlanRepository;
     private final ExerciseRepository exerciseRepository;
-    private final UserTimezoneRepository userTimezoneRepository;
 
     public AccountDeletionProjectionService(WorkoutSessionRepository workoutSessionRepository,
                                             WorkoutPlanRepository workoutPlanRepository,
-                                            ExerciseRepository exerciseRepository,
-                                            UserTimezoneRepository userTimezoneRepository) {
+                                            ExerciseRepository exerciseRepository) {
         this.workoutSessionRepository = workoutSessionRepository;
         this.workoutPlanRepository = workoutPlanRepository;
         this.exerciseRepository = exerciseRepository;
-        this.userTimezoneRepository = userTimezoneRepository;
     }
 
     @Transactional
@@ -36,6 +32,5 @@ public class AccountDeletionProjectionService {
         workoutSessionRepository.purgeAllByUserId(userId);
         workoutPlanRepository.deleteAll(workoutPlanRepository.findByUserIdOrderByDateTimeUpdatedDesc(userId));
         exerciseRepository.deleteAll(exerciseRepository.findByOwnerUserIdOrderByNameAsc(userId));
-        userTimezoneRepository.deleteById(userId);
     }
 }
