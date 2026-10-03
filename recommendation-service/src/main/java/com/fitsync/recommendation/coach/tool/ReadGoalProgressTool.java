@@ -10,6 +10,7 @@ import static com.fitsync.recommendation.coach.tool.ProgressToolSupport.words;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +25,15 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ReadGoalProgressTool extends ProgressReadTool {
+
+    /** The road's state codes as the coach says them; a code missing here is left out of the prompt. */
+    private static final Map<String, String> STATE_PHRASES = Map.of(
+            "AHEAD", "ahead",
+            "ON_COURSE", "on course",
+            "BEHIND", "behind",
+            "REACHED", "reached",
+            "DATE_PASSED", "past the date",
+            "STALLED", "holding steady");
 
     private final AnalyticsProgressClient client;
 
@@ -43,7 +53,8 @@ public class ReadGoalProgressTool extends ProgressReadTool {
                 readGoalProgress(from?, to?)
                   from, to: dates like 2026-09-01, at most 370 days apart; default the last 28 days
                   returns the Goal page for that period: weight goal, weight now and its change, weekly rate
-                  and projected date against the period before, body measures, other goals and days met""";
+                  and projected date against the period before, how far along the road to the goal the weight is
+                  (ahead, on course, behind, reached), body measures, other goals and days met""";
     }
 
     @Override
@@ -61,6 +72,7 @@ public class ReadGoalProgressTool extends ProgressReadTool {
         StringBuilder out = new StringBuilder();
         appendGoal(out, body.path("goal"));
         appendHero(out, body.path("hero"));
+        appendRoad(out, body.path("road"), body.path("leadType"));
         ProgressToolSupport.appendHighlights(out, body.path("highlights"));
         appendWeeklyWeight(out, body.path("weight"));
         appendBody(out, body.path("body"));
@@ -119,6 +131,63 @@ public class ReadGoalProgressTool extends ProgressReadTool {
         if (daysLeft != null) {
             line(out, "Days left to the goal date: " + daysLeft + ".");
         }
+    }
+
+    /**
+     * The road to the weight goal. The state and direction codes are written as plain phrases, because an
+     * answer that copies {@code AHEAD} or {@code DATE_PASSED} is rejected.
+     */
+    private static void appendRoad(StringBuilder out, JsonNode road, JsonNode leadType) {
+        String lead = words(leadType.asText(""));
+        if (!lead.isEmpty()) {
+            line(out, "The goal the page leads with: " + lead + ".");
+        }
+        if (!road.isObject()) {
+            return;
+        }
+        String direction = switch (road.path("direction").asText("")) {
+            case "LOSE" -> "losing weight";
+            case "GAIN" -> "gaining weight";
+            case "KEEP" -> "keeping the weight steady";
+            default -> "";
+        };
+        String state = STATE_PHRASES.get(road.path("state").asText(""));
+        if (state == null) {
+            line(out, "The road to the goal has no pace yet, because there are too few weigh-ins.");
+        } else {
+            line(out, "Road to the goal: " + state + (direction.isEmpty() ? "" : ", " + direction) + ".");
+        }
+        String distance = number(road.path("distanceKg"));
+        if (distance != null) {
+            line(out, "Distance to the goal weight: " + distance + " kg.");
+        }
+        String projected = road.path("projectedDate").asText("");
+        if (!projected.isBlank()) {
+            line(out, "Date the road reaches the goal weight: " + ProgressToolSupport.clean(projected) + ".");
+        }
+        String weight = percent(road.path("fractionWeight"));
+        String time = percent(road.path("fractionTime"));
+        if (weight != null) {
+            line(out, "Share of the way to the goal weight: " + weight + "%"
+                    + (time == null ? "" : ", with " + time + "% of the time to the goal date gone") + ".");
+        }
+        JsonNode weeks = road.path("keep").path("weeks");
+        if (weeks.isArray() && !weeks.isEmpty()) {
+            int inside = 0;
+            for (JsonNode week : weeks) {
+                inside += week.path("inside").asBoolean(false) ? 1 : 0;
+            }
+            String band = number(road.path("keep").path("bandKg"));
+            line(out, "Weeks with the average weight within " + (band == null ? "1" : band)
+                    + " kg of the goal weight: " + inside + " of " + weeks.size() + ".");
+        }
+    }
+
+    private static String percent(JsonNode fraction) {
+        if (!fraction.isNumber()) {
+            return null;
+        }
+        return ProgressToolSupport.format(fraction.decimalValue().movePointRight(2));
     }
 
     private static String direction(JsonNode value) {
