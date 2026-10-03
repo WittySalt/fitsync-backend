@@ -55,8 +55,7 @@ public class UserProfileClient extends CatalogueClient {
      */
     public ProgressInsight progressInsight(String bearerToken, String timezone) {
         Map<String, Object> params = params();
-        params.put("timezone", timezone);
-        String body = get(PROGRESS_INSIGHT, params, bearerToken);
+        String body = get(PROGRESS_INSIGHT, params, bearerToken, timezone);
         if (body == null) {
             return null;
         }

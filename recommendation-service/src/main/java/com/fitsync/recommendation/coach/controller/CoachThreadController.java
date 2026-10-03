@@ -1,6 +1,8 @@
 package com.fitsync.recommendation.coach.controller;
 
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.recommendation.coach.dto.CoachThreadDetailView;
@@ -11,6 +13,7 @@ import com.fitsync.recommendation.coach.dto.SendCoachMessageRequest;
 import com.fitsync.recommendation.coach.service.CoachConversationService;
 import com.fitsync.recommendation.coach.service.CoachThreadService;
 import com.fitsync.web.error.BadRequestException;
+import com.fitsync.web.timezone.RequestTimezone;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -129,13 +132,15 @@ public class CoachThreadController {
                                      @PathVariable UUID threadId,
                                      @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
                                      @RequestHeader(name = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
-                                     @Valid @RequestBody SendCoachMessageRequest request) {
+                                     @Valid @RequestBody SendCoachMessageRequest request,
+                                     @RequestTimezone Optional<ZoneId> zone) {
         // The caller's own token is forwarded to the services that own the catalogues, so the coach
         // reads with exactly the caller's authority. Taken from the header rather than the security
         // context because the orchestrator runs tools off the request thread.
         CoachMessageResponse response = conversationService.send(
                 CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization),
-                request.message(), request.context(), clientTurnId(idempotencyKey, request));
+                request.message(), request.context(), clientTurnId(idempotencyKey, request),
+                zone.map(ZoneId::getId).orElse(null));
         return CoachMessageResponse.RUNNING.equals(response.status())
                 ? ResponseEntity.status(HttpStatus.ACCEPTED).body(response)
                 : ResponseEntity.ok(response);
@@ -178,10 +183,12 @@ public class CoachThreadController {
                              @PathVariable UUID threadId,
                              @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
                              @RequestHeader(name = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
-                             @Valid @RequestBody SendCoachMessageRequest request) {
+                             @Valid @RequestBody SendCoachMessageRequest request,
+                             @RequestTimezone Optional<ZoneId> zone) {
         return conversationService.stream(
                 CoachPrincipal.userId(authentication), threadId, CoachPrincipal.bearerToken(authorization),
-                request.message(), request.context(), clientTurnId(idempotencyKey, request));
+                request.message(), request.context(), clientTurnId(idempotencyKey, request),
+                zone.map(ZoneId::getId).orElse(null));
     }
 
     @DeleteMapping("/{threadId}")

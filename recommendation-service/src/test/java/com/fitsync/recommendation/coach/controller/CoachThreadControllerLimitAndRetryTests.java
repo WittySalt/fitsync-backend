@@ -65,7 +65,7 @@ class CoachThreadControllerLimitAndRetryTests {
     @DisplayName("a full limit answers 429 with code, retryAfterSeconds and a sentence, on the plain endpoint")
     void limitOnThePlainEndpoint() throws Exception {
         when(conversationService.send(eq(USER_ID), eq(THREAD_ID), any(String.class), any(String.class),
-                isNull(), isNull()))
+                isNull(), isNull(), isNull()))
                 .thenThrow(new CoachLimitException(1500, "You have asked a lot this hour. You can ask again at 14:05."));
 
         mockMvc.perform(post("/api/v1/coach/threads/{id}/messages", THREAD_ID)
@@ -83,7 +83,7 @@ class CoachThreadControllerLimitAndRetryTests {
     @DisplayName("the stream endpoint refuses a full limit the same way, before any stream opens")
     void limitOnTheStreamEndpoint() throws Exception {
         when(conversationService.stream(eq(USER_ID), eq(THREAD_ID), any(String.class), any(String.class),
-                isNull(), isNull()))
+                isNull(), isNull(), isNull()))
                 .thenThrow(new CoachLimitException(60, "You have asked a lot this hour. You can ask again at 09:30."));
 
         mockMvc.perform(post("/api/v1/coach/threads/{id}/messages/stream", THREAD_ID)
@@ -99,7 +99,7 @@ class CoachThreadControllerLimitAndRetryTests {
     @DisplayName("the Idempotency-Key header and the clientTurnId body field both reach the service, the header first")
     void theRetryIdReachesTheService() throws Exception {
         when(conversationService.send(eq(USER_ID), eq(THREAD_ID), any(String.class), any(String.class),
-                isNull(), eq(CLIENT_TURN)))
+                isNull(), eq(CLIENT_TURN), isNull()))
                 .thenReturn(new CoachMessageResponse(THREAD_ID, TURN_ID, "Same answer.", 2, List.of(), 10, null));
 
         mockMvc.perform(post("/api/v1/coach/threads/{id}/messages", THREAD_ID)
@@ -124,7 +124,7 @@ class CoachThreadControllerLimitAndRetryTests {
                 .andExpect(status().isOk());
 
         verify(conversationService, org.mockito.Mockito.times(3)).send(eq(USER_ID), eq(THREAD_ID),
-                any(String.class), any(String.class), isNull(), eq(CLIENT_TURN));
+                any(String.class), any(String.class), isNull(), eq(CLIENT_TURN), isNull());
     }
 
     @Test
@@ -148,7 +148,7 @@ class CoachThreadControllerLimitAndRetryTests {
     @DisplayName("a retry that finds its first attempt still running answers 202 with the turn id")
     void aRunningTurnAnswersAccepted() throws Exception {
         when(conversationService.send(eq(USER_ID), eq(THREAD_ID), any(String.class), any(String.class),
-                isNull(), eq(CLIENT_TURN)))
+                isNull(), eq(CLIENT_TURN), isNull()))
                 .thenReturn(new CoachMessageResponse(THREAD_ID, TURN_ID, "", 0, List.of(), 0, null,
                         CoachMessageResponse.RUNNING));
 

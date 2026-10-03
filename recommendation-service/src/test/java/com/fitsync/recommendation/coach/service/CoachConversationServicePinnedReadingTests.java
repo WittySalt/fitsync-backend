@@ -82,6 +82,20 @@ class CoachConversationServicePinnedReadingTests {
     }
 
     @Test
+    @DisplayName("the zone of the request header reaches the call context, and is null when none was sent")
+    void theHeaderZoneReachesTheCallContext() {
+        service.send(USER_ID, THREAD_ID, TOKEN, "How did I do?", null, null, "Asia/Singapore");
+        service.send(USER_ID, THREAD_ID, TOKEN, "How did I do?", null, null);
+
+        ArgumentCaptor<com.fitsync.recommendation.coach.orchestrator.CoachCallContext> captor =
+                ArgumentCaptor.forClass(com.fitsync.recommendation.coach.orchestrator.CoachCallContext.class);
+        verify(orchestrator, org.mockito.Mockito.times(2))
+                .answer(captor.capture(), anyString(), any(), any(), any(CoachProgressListener.class));
+        assertThat(captor.getAllValues().get(0).timezone()).isEqualTo("Asia/Singapore");
+        assertThat(captor.getAllValues().get(1).timezone()).isNull();
+    }
+
+    @Test
     @DisplayName("a progress message resolves the progress reading, whose 28 days are not described as a week")
     void progressReadingIsResolvedWithoutAWeek() {
         when(readingService.pinnedReading(eq(ReadingSurface.PROGRESS), eq(USER_ID), eq(TOKEN), eq("Asia/Singapore"),
@@ -111,7 +125,7 @@ class CoachConversationServicePinnedReadingTests {
         String id = "6c6a1ac5-5b6b-584e-9e3f-40e36949cdfb";
 
         service.send(USER_ID, THREAD_ID, TOKEN, "Is this a good dinner?",
-                new CoachMessageContext(CoachSurface.NUTRITION, null, "Asia/Singapore", id));
+                new CoachMessageContext(CoachSurface.NUTRITION, null, id));
         assertThat(orchestratorContext().recipeId()).isEqualTo(id);
 
         send(CoachSurface.NUTRITION);
@@ -140,7 +154,7 @@ class CoachConversationServicePinnedReadingTests {
 
     private CoachMessageResponse send(CoachSurface surface) {
         return service.send(USER_ID, THREAD_ID, TOKEN, "How did I do?",
-                new CoachMessageContext(surface, READING_ID, "Asia/Singapore"));
+                new CoachMessageContext(surface, READING_ID), null, "Asia/Singapore");
     }
 
     private TurnContext orchestratorContext() {

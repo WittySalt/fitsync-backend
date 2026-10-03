@@ -39,6 +39,10 @@ class CatalogueClientTests {
             params.put("scope", null);
             return get("/api/v1/nutrition/foods/search", params, "the-token");
         }
+
+        private String searchInZone(String timezone) {
+            return get("/api/v1/nutrition/foods/search", params(), "the-token", timezone);
+        }
     }
 
     @Test
@@ -79,6 +83,37 @@ class CatalogueClientTests {
                 .andRespond(withSuccess("{\"content\":[]}", MediaType.APPLICATION_JSON));
 
         new TestClient(builder).search("oats");
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("the client's zone is forwarded as the X-Timezone header, never as a query parameter")
+    void forwardsTheZoneAsAHeader() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("http://nutrition-service:8083/api/v1/nutrition/foods/search"))
+                .andExpect(header("X-Timezone", "Asia/Singapore"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        new TestClient(builder).searchInZone("Asia/Singapore");
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("no header is sent when there is no zone, or when it is not a usable zone id")
+    void sendsNoHeaderWithoutAUsableZone() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist("X-Timezone"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist("X-Timezone"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        TestClient client = new TestClient(builder);
+
+        client.searchInZone(null);
+        client.searchInZone("+08:00");
 
         server.verify();
     }

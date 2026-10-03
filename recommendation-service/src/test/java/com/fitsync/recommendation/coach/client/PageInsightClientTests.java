@@ -54,7 +54,8 @@ class PageInsightClientTests {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(method(HttpMethod.GET))
-                .andExpect(requestTo(endsWith("/api/v1/nutrition/insights/page?timezone=UTC")))
+                .andExpect(requestTo(endsWith("/api/v1/nutrition/insights/page")))
+                .andExpect(header("X-Timezone", "UTC"))
                 .andExpect(header("Authorization", "Bearer " + CALLER))
                 .andRespond(withSuccess(NUTRITION_BODY, MediaType.APPLICATION_JSON));
 
@@ -89,7 +90,8 @@ class PageInsightClientTests {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(method(HttpMethod.GET))
-                .andExpect(requestTo(endsWith("/api/v1/users/me/insights/progress?timezone=UTC")))
+                .andExpect(requestTo(endsWith("/api/v1/users/me/insights/progress")))
+                .andExpect(header("X-Timezone", "UTC"))
                 .andExpect(header("Authorization", "Bearer " + CALLER))
                 .andRespond(withSuccess(PROGRESS_BODY, MediaType.APPLICATION_JSON));
 

@@ -59,8 +59,7 @@ public class NutritionCatalogueClient extends CatalogueClient {
     public String dailySummary(String bearerToken, LocalDate date, String timezone) {
         Map<String, Object> params = params();
         params.put("date", date.toString());
-        params.put("timezone", timezone);
-        return get(DAILY_SUMMARY, params, bearerToken);
+        return get(DAILY_SUMMARY, params, bearerToken, timezone);
     }
 
     /**
@@ -72,16 +71,14 @@ public class NutritionCatalogueClient extends CatalogueClient {
         Map<String, Object> params = params();
         params.put("from", from.toString());
         params.put("to", to.toString());
-        params.put("timezone", timezone);
-        return get(NUTRIENTS_SUMMARY, params, bearerToken);
+        return get(NUTRIENTS_SUMMARY, params, bearerToken, timezone);
     }
 
     /** The plain water logged on one local day, and the water that came from drinks. */
     public String water(String bearerToken, LocalDate date, String timezone) {
         Map<String, Object> params = params();
         params.put("date", date.toString());
-        params.put("timezone", timezone);
-        return get(WATER, params, bearerToken);
+        return get(WATER, params, bearerToken, timezone);
     }
 
     /** One recipe in full, as the caller may see it. Null when it is not visible to the caller or the service cannot be reached. */
@@ -99,13 +96,12 @@ public class NutritionCatalogueClient extends CatalogueClient {
         Map<String, Object> params = params();
         params.put("scope", "library");
         params.put("sort", "fit");
-        params.put("timezone", timezone);
         params.put("q", query);
         params.put("diet", diet);
         params.put("tag", tag);
         params.put("page", page);
         params.put("size", size);
-        return get(RECIPES, params, bearerToken);
+        return get(RECIPES, params, bearerToken, timezone);
     }
 
     /** The caller's meals between two instants, both ends included. */
@@ -123,8 +119,7 @@ public class NutritionCatalogueClient extends CatalogueClient {
      */
     public NutritionInsight pageInsight(String bearerToken, String timezone) {
         Map<String, Object> params = params();
-        params.put("timezone", timezone);
-        String body = get(PAGE_INSIGHT, params, bearerToken);
+        String body = get(PAGE_INSIGHT, params, bearerToken, timezone);
         if (body == null) {
             return null;
         }

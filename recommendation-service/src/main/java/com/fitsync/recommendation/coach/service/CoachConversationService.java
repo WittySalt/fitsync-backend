@@ -98,11 +98,20 @@ public class CoachConversationService {
      */
     public CoachMessageResponse send(UUID userId, UUID threadId, String bearerToken, String message,
                                      CoachMessageContext context, UUID clientTurnId) {
-        PendingTurn pending = beginTurn(userId, threadId, message, context, clientTurnId);
+        return send(userId, threadId, bearerToken, message, context, clientTurnId, null);
+    }
+
+    /**
+     * As above, with the zone the client sent in its X-Timezone header, or null when it sent none, in which case
+     * the stored profile zone is used and then UTC.
+     */
+    public CoachMessageResponse send(UUID userId, UUID threadId, String bearerToken, String message,
+                                     CoachMessageContext context, UUID clientTurnId, String timezone) {
+        PendingTurn pending = beginTurn(userId, threadId, message, context, clientTurnId, timezone);
         if (pending.replay()) {
             return awaitAnswer(pending);
         }
-        return finishTurn(pending, bearerToken, message, context, CoachProgressListener.NONE);
+        return finishTurn(pending, bearerToken, message, context, timezone, CoachProgressListener.NONE);
     }
 
     /**
@@ -126,7 +135,13 @@ public class CoachConversationService {
     /** Streams a turn that may be a retry; a known client turn id replays the first attempt's answer. */
     public SseEmitter stream(UUID userId, UUID threadId, String bearerToken, String message,
                              CoachMessageContext context, UUID clientTurnId) {
-        PendingTurn pending = beginTurn(userId, threadId, message, context, clientTurnId);
+        return stream(userId, threadId, bearerToken, message, context, clientTurnId, null);
+    }
+
+    /** As above, with the zone the client sent in its X-Timezone header, or null when it sent none. */
+    public SseEmitter stream(UUID userId, UUID threadId, String bearerToken, String message,
+                             CoachMessageContext context, UUID clientTurnId, String timezone) {
+        PendingTurn pending = beginTurn(userId, threadId, message, context, clientTurnId, timezone);
 
         SseEmitter emitter = new SseEmitter(properties.streamTimeout().toMillis());
         SseProgressStream stream = new SseProgressStream(emitter);
@@ -136,7 +151,7 @@ public class CoachConversationService {
                 try {
                     CoachMessageResponse response = pending.replay()
                             ? awaitAnswer(pending)
-                            : finishTurn(pending, bearerToken, message, context, stream);
+                            : finishTurn(pending, bearerToken, message, context, timezone, stream);
                     if (CoachMessageResponse.RUNNING.equals(response.status())) {
                         stream.sendFailure();
                     } else {
@@ -166,7 +181,7 @@ public class CoachConversationService {
      * from, both committed before any inference starts.
      */
     private PendingTurn beginTurn(UUID userId, UUID threadId, String message, CoachMessageContext context,
-                                  UUID clientTurnId) {
+                                  UUID clientTurnId, String timezone) {
         // A retry of a question this thread already has starts nothing and is not counted.
         if (clientTurnId != null) {
             Optional<PendingTurn> earlier = replayOf(userId, threadId, clientTurnId);
@@ -175,7 +190,7 @@ public class CoachConversationService {
             }
         }
 
-        rateLimiter.check(userId, context == null ? null : context.timezone());
+        rateLimiter.check(userId, timezone);
 
         String surface = context == null || context.surface() == null ? null : context.surface().name();
         try {
@@ -257,9 +272,10 @@ public class CoachConversationService {
                                             String bearerToken,
                                             String message,
                                             CoachMessageContext messageContext,
+                                            String timezone,
                                             CoachProgressListener listener) {
         try {
-            return runTurn(pending, bearerToken, message, messageContext, listener);
+            return runTurn(pending, bearerToken, message, messageContext, timezone, listener);
         } catch (RuntimeException ex) {
             failTurn(pending.turnId());
             throw ex;
@@ -270,11 +286,11 @@ public class CoachConversationService {
                                          String bearerToken,
                                          String message,
                                          CoachMessageContext messageContext,
+                                         String timezone,
                                          CoachProgressListener listener) {
-        ResolvedContext resolved = resolveTurnContext(pending.userId(), bearerToken, messageContext);
+        ResolvedContext resolved = resolveTurnContext(pending.userId(), bearerToken, messageContext, timezone);
 
-        CoachCallContext context = new CoachCallContext(pending.userId(), bearerToken, pending.turnId(),
-                messageContext == null ? null : messageContext.timezone());
+        CoachCallContext context = new CoachCallContext(pending.userId(), bearerToken, pending.turnId(), timezone);
         CoachOutcome outcome = orchestrator.answer(context, message, pending.history(), resolved.turnContext(), listener);
 
         threadService.replaceContent(pending.turnId(), outcome.answer());
@@ -303,7 +319,8 @@ public class CoachConversationService {
      * the failure reaches the log, not even its message, which could echo the token from a
      * well-meaning exception; only the exception's class name does.
      */
-    private ResolvedContext resolveTurnContext(UUID userId, String bearerToken, CoachMessageContext messageContext) {
+    private ResolvedContext resolveTurnContext(UUID userId, String bearerToken, CoachMessageContext messageContext,
+                                               String timezone) {
         if (messageContext == null) {
             return new ResolvedContext(null, null);
         }
@@ -314,7 +331,7 @@ public class CoachConversationService {
         if (readingSurface != null && messageContext.readingId() != null) {
             try {
                 Optional<CoachReadingService.PinnedReading> resolved = readingService.pinnedReading(readingSurface,
-                        userId, bearerToken, messageContext.timezoneOrDefault(), messageContext.readingId());
+                        userId, bearerToken, timezone == null ? "UTC" : timezone, messageContext.readingId());
                 if (resolved.isPresent()) {
                     CoachReadingService.PinnedReading reading = resolved.get();
                     pinnedReading = new TurnContext.PinnedReading(reading.headline(), reading.body(),
