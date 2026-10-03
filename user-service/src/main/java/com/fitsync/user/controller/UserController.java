@@ -211,9 +211,10 @@ public class UserController {
                 .body(payload);
     }
 
+    /** The requested zone, or null when none was sent, so the service reads the profile zone instead. */
     private static ZoneId parseTimezone(String timezone) {
         if (timezone == null || timezone.isBlank()) {
-            return ZoneId.of("UTC");
+            return null;
         }
         try {
             return ZoneId.of(timezone.trim());

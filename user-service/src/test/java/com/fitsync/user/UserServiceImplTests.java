@@ -258,6 +258,48 @@ class UserServiceImplTests {
     }
 
     @Test
+    void progressInsightWithoutAZoneReadsTheProfileZoneThenTheAppZoneThenUtc() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "zone@test.dev", "Zone", "USER");
+        emptyProgressSources(fixtures, userId);
+
+        // Nothing stored.
+        assertEquals("UTC", fixtures.service.getProgressInsight(principal, null).timezone());
+
+        // The app preferences zone is used when the profile has none.
+        UserAppPreferencesEntity app = new UserAppPreferencesEntity();
+        app.setTimezone("America/Los_Angeles");
+        when(fixtures.userAppPreferencesRepository.findById(userId)).thenReturn(Optional.of(app));
+        assertEquals("America/Los_Angeles", fixtures.service.getProgressInsight(principal, null).timezone());
+
+        // The profile zone wins over the app preferences zone.
+        com.fitsync.user.entity.UserProfileEntity profile = new com.fitsync.user.entity.UserProfileEntity();
+        profile.setTimezone("Asia/Singapore");
+        when(fixtures.userProfileRepository.findById(userId)).thenReturn(Optional.of(profile));
+        assertEquals("Asia/Singapore", fixtures.service.getProgressInsight(principal, null).timezone());
+
+        // A zone the request names still wins over both.
+        assertEquals("Europe/London",
+                fixtures.service.getProgressInsight(principal, ZoneId.of("Europe/London")).timezone());
+
+        // A stored zone that cannot be read is skipped.
+        profile.setTimezone("Not/AZone");
+        app.setTimezone(" ");
+        assertEquals("UTC", fixtures.service.getProgressInsight(principal, null).timezone());
+    }
+
+    private void emptyProgressSources(Fixtures fixtures, UUID userId) {
+        when(fixtures.bodyMetricEntryRepository.findTrendSource(any(), any(), any())).thenReturn(List.of());
+        when(fixtures.bodyMetricEntryRepository
+                .findTopByUserIdAndWeightKgIsNotNullAndMeasuredAtLessThanOrderByMeasuredAtDesc(any(), any()))
+                .thenReturn(Optional.empty());
+        when(fixtures.userGoalRepository.findByUserIdOrderByGoalTypeAsc(userId)).thenReturn(List.of());
+        when(fixtures.userProfileRepository.findById(userId)).thenReturn(Optional.empty());
+        when(fixtures.userAppPreferencesRepository.findById(userId)).thenReturn(Optional.empty());
+    }
+
+    @Test
     void progressInsightIgnoresArchivedWeightGoalAndTakesTheNewestActiveOne() {
         Fixtures fixtures = new Fixtures();
         UUID userId = UUID.randomUUID();

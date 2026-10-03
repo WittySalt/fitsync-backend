@@ -2,6 +2,7 @@ package com.fitsync.user.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -84,8 +85,9 @@ class UserControllerProgressInsightTests {
     }
 
     @Test
-    void missingTimezoneDefaultsToUtc() throws Exception {
-        when(userService.getProgressInsight(any(), eq(ZoneId.of("UTC")))).thenReturn(
+    void missingTimezoneLeavesTheChoiceToTheService() throws Exception {
+        // No zone is sent, so the controller passes null and the service reads the profile zone, else UTC.
+        when(userService.getProgressInsight(any(), isNull())).thenReturn(
                 new ProgressInsightResponse("UTC", LocalDate.parse("2026-09-30"),
                         null, null, 0, null, null, null, null, null, List.of()));
 

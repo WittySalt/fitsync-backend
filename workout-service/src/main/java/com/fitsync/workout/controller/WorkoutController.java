@@ -152,7 +152,7 @@ public class WorkoutController {
     @GetMapping("/insights/weekly")
     public WeeklyTrainingInsightView getWeeklyTrainingInsight(
             Authentication authentication,
-            @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone,
+            @RequestParam(required = false) @Size(max = 64) String timezone,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return weeklyTrainingInsightService.getWeeklyTrainingInsight(currentPrincipal(authentication), timezone, date);
     }
@@ -161,7 +161,7 @@ public class WorkoutController {
     @GetMapping("/insights/training")
     public TrainingPageInsightView getTrainingPageInsight(
             Authentication authentication,
-            @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone,
+            @RequestParam(required = false) @Size(max = 64) String timezone,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return trainingPageInsightService.getTrainingPageInsight(currentPrincipal(authentication), timezone, date);
     }
@@ -170,7 +170,7 @@ public class WorkoutController {
     @GetMapping("/insights/monthly")
     public MonthlyTrainingInsightView getMonthlyTrainingInsight(
             Authentication authentication,
-            @RequestParam(defaultValue = "UTC") @Size(max = 64) String timezone,
+            @RequestParam(required = false) @Size(max = 64) String timezone,
             @RequestParam(required = false) @Size(max = 7) String month) {
         return monthlyTrainingInsightService.getMonthlyTrainingInsight(currentPrincipal(authentication), timezone, month);
     }

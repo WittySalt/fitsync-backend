@@ -54,13 +54,16 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
     private final Clock clock;
     private final WorkoutSessionRepository workoutSessionRepository;
     private final WorkoutExerciseLogRepository workoutExerciseLogRepository;
+    private final UserZoneResolver userZoneResolver;
 
     public MonthlyTrainingInsightServiceImpl(Clock clock,
                                              WorkoutSessionRepository workoutSessionRepository,
-                                             WorkoutExerciseLogRepository workoutExerciseLogRepository) {
+                                             WorkoutExerciseLogRepository workoutExerciseLogRepository,
+                                             UserZoneResolver userZoneResolver) {
         this.clock = clock;
         this.workoutSessionRepository = workoutSessionRepository;
         this.workoutExerciseLogRepository = workoutExerciseLogRepository;
+        this.userZoneResolver = userZoneResolver;
     }
 
     @Override
@@ -68,7 +71,7 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
     public MonthlyTrainingInsightView getMonthlyTrainingInsight(CurrentUserPrincipal currentUser,
                                                                 String timezone,
                                                                 String monthText) {
-        ZoneId zoneId = InsightDates.resolveZone(timezone);
+        ZoneId zoneId = userZoneResolver.resolve(currentUser.userId(), timezone);
         LocalDate today = LocalDate.ofInstant(clock.instant(), zoneId);
         YearMonth month = resolveMonth(monthText, YearMonth.from(today));
 
