@@ -344,6 +344,73 @@ public class AnalyticsEnergyService {
         }
     }
 
+    /**
+     * The average balance of each Monday week from {@code firstMonday} to {@code lastMonday}, worked out
+     * exactly as {@link #getWeekly} works out the week's {@code average.balance} and {@code daysLogged}, so the
+     * Food page's weekly bars agree with the energy card. All rows are read once for the whole range.
+     */
+    @Transactional(readOnly = true)
+    public List<WeekBalance> weeklyBalances(UUID userId, LocalDate firstMonday, LocalDate lastMonday, ZoneId zone) {
+        if (lastMonday.isBefore(firstMonday)) {
+            return List.of();
+        }
+        LocalDate end = lastMonday.plusDays(6);
+        Map<LocalDate, AnalyticsUserDailyNutritionEntity> nutrition = new HashMap<>();
+        dailyNutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, firstMonday, end)
+                .forEach(row -> nutrition.put(row.getActivityDate(), row));
+        Map<LocalDate, AnalyticsUserDailyWorkoutEntity> workouts = new HashMap<>();
+        dailyWorkoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, firstMonday, end)
+                .forEach(row -> workouts.put(row.getActivityDate(), row));
+        BmrTimeline timeline = loadTimeline(userId, firstMonday, end, zone);
+        Map<LocalDate, Integer> mealsPerDay = mealsPerDay(
+                mealContributionRepository.findByUserIdAndActivityDateBetween(userId, firstMonday, end), nutrition);
+        LocalDate today = LocalDate.now(clock.withZone(zone));
+        LocalDate thisMonday = today.with(WeekFields.ISO.dayOfWeek(), 1);
+
+        List<WeekBalance> weeks = new ArrayList<>();
+        for (LocalDate monday = firstMonday; !monday.isAfter(lastMonday); monday = monday.plusWeeks(1)) {
+            int loggedDays = 0;
+            long eatenSum = 0;
+            long restingSum = 0;
+            long workoutSum = 0;
+            boolean allLoggedHaveBmr = true;
+            for (int d = 0; d < 7; d++) {
+                LocalDate date = monday.plusDays(d);
+                AnalyticsUserDailyNutritionEntity row = nutrition.get(date);
+                if (row == null || date.equals(today)
+                        || mealsPerDay.getOrDefault(date, 0) < MIN_MEALS_FOR_A_LOGGED_DAY) {
+                    continue;
+                }
+                AnalyticsUserEnergyProfileEntity profile = timeline.forDay(date);
+                AnalyticsUserDailyWorkoutEntity workout = workouts.get(date);
+                loggedDays++;
+                eatenSum += defaultInt(row.getTotalCaloriesConsumed());
+                workoutSum += workout == null ? 0 : defaultInt(workout.getTotalCaloriesBurned());
+                if (profile == null) {
+                    allLoggedHaveBmr = false;
+                } else {
+                    restingSum += restingKcal(profile.getBmrKcal());
+                }
+            }
+            Integer balance = null;
+            if (loggedDays > 0 && allLoggedHaveBmr) {
+                balance = average(eatenSum, loggedDays)
+                        - (average(restingSum, loggedDays) + average(workoutSum, loggedDays));
+            }
+            weeks.add(new WeekBalance(monday, balance, loggedDays, monday.equals(thisMonday)));
+        }
+        return weeks;
+    }
+
+    /** One week of {@link #weeklyBalances}: the average balance per logged day, null without a logged day or a BMR. */
+    public record WeekBalance(LocalDate weekStart, Integer balance, int daysLogged, boolean current) {
+    }
+
+    /** The caller's zone: the requested one, else the stored one, else UTC. A malformed request zone is a 400. */
+    ZoneId resolveZone(UUID userId, String timezone) {
+        return resolveRequestedZone(userId, timezone);
+    }
+
     private ZoneId resolveRequestedZone(UUID userId, String timezone) {
         if (timezone != null && !timezone.isBlank()) {
             try {

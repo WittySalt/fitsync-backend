@@ -345,6 +345,23 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Progress Goal and Food pages: the same constructor-injected repositories, and an intentional,
+         token-protected read endpoint. -->
+    <Match>
+        <Class name="com.fitsync.analytics.service.ProgressGoalService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.service.ProgressFoodService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.controller.ProgressController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
     <Match>
         <Class name="com.fitsync.analytics.messaging.EnergyProfileComputedEventConsumerImpl"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
