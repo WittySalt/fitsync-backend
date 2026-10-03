@@ -528,8 +528,9 @@ class WeeklyTrainingInsightServiceTests {
         assertEquals(earlierId, result.today().lastOfKind().sessionId());
         assertEquals(List.of("Lift 1", "Lift 2", "Lift 3", "Lift 4", "Lift 5", "Lift 6"),
                 result.today().lastOfKind().exerciseNames());
-        // The three the weekly insight always runs, plus one bounded read of the names.
-        assertEquals(4, statements);
+        // The three the weekly insight always runs, plus one bounded read of the names, plus the
+        // Progress card's four fixed reads (sessions, their logs with sets, secondary groups, best singles).
+        assertEquals(8, statements);
     }
 
     @Test
@@ -557,7 +558,9 @@ class WeeklyTrainingInsightServiceTests {
                 currentUser, "Asia/Singapore", LocalDate.parse("2026-09-27"));
 
         assertNull(result.today().lastOfKind());
-        assertEquals(3, statistics.getPrepareStatementCount());
+        // Three for the weekly insight and three fixed reads for the Progress card (no exercises, so
+        // no secondary groups to read).
+        assertEquals(6, statistics.getPrepareStatementCount());
     }
 
     @Test
@@ -616,8 +619,9 @@ class WeeklyTrainingInsightServiceTests {
         long statements = statistics.getPrepareStatementCount();
 
         // Active plan, completed sessions, and the wider window the day-by-day
-        // breakdown needs; the usual start time is worked out from the sessions already loaded.
-        assertEquals(3, statements);
+        // breakdown needs, plus the Progress card's three fixed reads; the usual start time is worked
+        // out from the sessions already loaded.
+        assertEquals(6, statements);
     }
 
     private String usualStartTime(String timezone) {
