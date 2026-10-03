@@ -254,7 +254,10 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.muscleGroups[0].muscleGroup").value("CHEST"))
                 .andExpect(jsonPath("$.muscleGroups[0].lastTrainedOn").value("2026-09-25"))
                 .andExpect(jsonPath("$.volume.thisWeekKg").value(3846.00))
-                .andExpect(jsonPath("$.volume.thisWeekSessionsWithVolume").value(2));
+                .andExpect(jsonPath("$.volume.thisWeekSessionsWithVolume").value(2))
+                .andExpect(jsonPath("$.volume.previousWeekSameDaysKg").value(1716.00))
+                .andExpect(jsonPath("$.previousWeekSameDaysCompletedSessions").value(3))
+                .andExpect(jsonPath("$.previousWeekSameDaysTotalMinutes").value(120));
 
         verify(weeklyTrainingInsightService).getWeeklyTrainingInsight(
                 eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-27")));
