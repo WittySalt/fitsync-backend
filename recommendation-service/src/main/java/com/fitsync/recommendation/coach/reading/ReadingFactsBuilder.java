@@ -81,7 +81,7 @@ public class ReadingFactsBuilder {
         for (int i = 0; i < chosen.size(); i++) {
             ReadingFact fact = chosen.get(i);
             numbered.add(new ReadingFact(i + 1, fact.key(), fact.label(), fact.value(), fact.unit(),
-                    fact.numericValue(), fact.note(), fact.detail()));
+                    fact.numericValue(), fact.note(), fact.detail(), fact.card()));
         }
         return List.copyOf(numbered);
     }
@@ -322,7 +322,7 @@ public class ReadingFactsBuilder {
         for (int i = 0; i < chosen.size(); i++) {
             ReadingFact fact = chosen.get(i);
             numbered.add(new ReadingFact(i + 1, fact.key(), fact.label(), fact.value(), fact.unit(),
-                    fact.numericValue(), fact.note(), fact.detail()));
+                    fact.numericValue(), fact.note(), fact.detail(), fact.card()));
         }
         return List.copyOf(numbered);
     }
