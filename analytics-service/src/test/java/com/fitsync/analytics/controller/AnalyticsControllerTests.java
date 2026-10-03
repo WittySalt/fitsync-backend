@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -395,7 +396,7 @@ class AnalyticsControllerTests {
         mockMvc.perform(get("/api/v1/analytics/energy/weekly")
                         .with(authentication(authToken(principal)))
                         .param("weekStart", "2026-09-28")
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .param("userId", UUID.randomUUID().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("TOO_FEW_DAYS"))
@@ -406,15 +407,16 @@ class AnalyticsControllerTests {
     }
 
     @Test
-    void energyWeeklyRejectsMalformedWeekStartAndOverlongTimezone() throws Exception {
+    void energyWeeklyRejectsMalformedWeekStartAndIgnoresAnInvalidTimezoneHeader() throws Exception {
         mockMvc.perform(get("/api/v1/analytics/energy/weekly")
                         .with(authentication(authToken(principal())))
                         .param("weekStart", "not-a-date"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/analytics/energy/weekly")
                         .with(authentication(authToken(principal())))
-                        .param("timezone", "x".repeat(65)))
-                .andExpect(status().isBadRequest());
+                        .header("X-Timezone", "x".repeat(65)))
+                .andExpect(status().isOk());
+        verify(analyticsEnergyService).getWeekly(any(), isNull(), isNull());
     }
 
     @Test
