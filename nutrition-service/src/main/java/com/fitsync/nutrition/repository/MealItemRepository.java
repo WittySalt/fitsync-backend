@@ -52,4 +52,37 @@ public interface MealItemRepository extends JpaRepository<MealItemEntity, UUID> 
     List<RecentLoggedFoodRow> findRecentItemsByUserIdAndFoodGroup(@Param("userId") UUID userId,
                                                                   @Param("foodGroup") String foodGroup,
                                                                   Pageable pageable);
+
+    /** One food the caller logged in a range: how often and when last, grouped by its snapshot identity. */
+    interface LoggedFoodCountRow {
+        UUID getFoodCatalogItemId();
+
+        UUID getCustomFoodId();
+
+        String getFoodName();
+
+        String getCategoryCode();
+
+        long getTimes();
+
+        Instant getLastConsumedAt();
+    }
+
+    /**
+     * The caller's logged foods in {@code [from, to)}, counted per meal item and grouped by catalogue food,
+     * custom food and name, most often first. Deleted meals are left out by the entity's restriction.
+     */
+    @Query("""
+            select i.foodCatalogItemId as foodCatalogItemId, i.customFoodId as customFoodId, i.foodName as foodName,
+                   max(i.categoryCode) as categoryCode, count(i) as times, max(m.consumedAt) as lastConsumedAt
+            from MealItemEntity i, MealLogEntity m
+            where i.mealId = m.mealId
+              and m.userId = :userId
+              and m.consumedAt >= :from
+              and m.consumedAt < :to
+            group by i.foodCatalogItemId, i.customFoodId, i.foodName
+            order by count(i) desc, max(m.consumedAt) desc
+            """)
+    List<LoggedFoodCountRow> countLoggedFoods(@Param("userId") UUID userId, @Param("from") Instant from,
+                                              @Param("to") Instant to);
 }

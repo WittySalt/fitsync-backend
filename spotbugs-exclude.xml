@@ -138,6 +138,18 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <!-- Progress Food page: an intentional, token-protected read endpoint and its constructor-injected
+         repositories. -->
+    <Match>
+        <Class name="com.fitsync.nutrition.controller.NutritionProgressController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.nutrition.service.NutritionProgressService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <Match>
         <Class name="com.fitsync.nutrition.service.NutritionServiceImpl"/>
         <Bug pattern="EI_EXPOSE_REP2"/>

@@ -41,4 +41,10 @@ public interface RecipeCookRepository extends JpaRepository<RecipeCookEntity, UU
             order by max(c.finishedAt) desc, c.recipeId asc
             """)
     List<CookedRecipeRow> findRecentRecipes(@Param("userId") UUID userId, Pageable pageable);
+
+    long countByUserIdAndDeletedAtIsNullAndFinishedAtGreaterThanEqualAndFinishedAtLessThan(UUID userId, Instant from,
+                                                                                         Instant to);
+
+    Optional<RecipeCookEntity> findFirstByUserIdAndDeletedAtIsNullAndFinishedAtGreaterThanEqualAndFinishedAtLessThanOrderByFinishedAtDesc(
+            UUID userId, Instant from, Instant to);
 }
