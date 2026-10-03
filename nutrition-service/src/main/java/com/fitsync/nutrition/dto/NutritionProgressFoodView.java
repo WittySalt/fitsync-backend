@@ -17,7 +17,8 @@ import java.util.UUID;
  * @param recentWindow    the last 31 days of the period at most, the range the nutrient summary allows; it is
  *                        the range of {@code lowestNutrients} and {@code habits}
  * @param lowestNutrients the three vitamins or minerals with the smallest share of their daily reference
- * @param habits          logged days and days that met the fibre target in {@code recentWindow}
+ * @param habits          in {@code recentWindow}: logged days, days that met the fibre target, and days whose
+ *                        plain water and drinks together reached the daily water goal
  */
 public record NutritionProgressFoodView(
         LocalDate from,
@@ -72,6 +73,11 @@ public record NutritionProgressFoodView(
     public record LowNutrient(String code, String displayName, BigDecimal share) {
     }
 
-    public record Habits(int loggedDays, int fibreMetDays) {
+    /**
+     * waterGoalMl is the daily goal from the preferences, null when none is known. A day without a known goal
+     * is never met and is left out of waterDays, the denominator, so both are 0 without a goal. waterDays
+     * counts the logged days of the window, as fibre does.
+     */
+    public record Habits(int loggedDays, int fibreMetDays, int waterMetDays, int waterDays, Integer waterGoalMl) {
     }
 }

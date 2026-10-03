@@ -9,7 +9,20 @@ public record UserPreferencesUpdatedPayload(
         boolean notificationsEnabled,
         List<String> equipmentInventory,
         List<String> focusAreas,
-        String timezone) {
+        String timezone,
+        Integer waterGoalMl) {
+
+    /** Producers from before the water goal was added (additive field, null when unknown). */
+    public UserPreferencesUpdatedPayload(String preferredUnits,
+                                         Integer workoutDaysPerWeek,
+                                         String dietaryPreference,
+                                         boolean notificationsEnabled,
+                                         List<String> equipmentInventory,
+                                         List<String> focusAreas,
+                                         String timezone) {
+        this(preferredUnits, workoutDaysPerWeek, dietaryPreference, notificationsEnabled,
+                equipmentInventory, focusAreas, timezone, null);
+    }
 
     public UserPreferencesUpdatedPayload(String preferredUnits,
                                          Integer workoutDaysPerWeek,
@@ -18,7 +31,7 @@ public record UserPreferencesUpdatedPayload(
                                          List<String> equipmentInventory,
                                          List<String> focusAreas) {
         this(preferredUnits, workoutDaysPerWeek, dietaryPreference, notificationsEnabled,
-                equipmentInventory, focusAreas, null);
+                equipmentInventory, focusAreas, null, null);
     }
 
     public UserPreferencesUpdatedPayload {

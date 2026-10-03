@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import com.fitsync.nutrition.domain.MealType;
+import com.fitsync.nutrition.dto.DrinkWaterEntryView;
 import com.fitsync.nutrition.dto.NutrientSummaryItemView;
 import com.fitsync.nutrition.dto.NutrientSummaryView;
 import com.fitsync.nutrition.dto.NutritionProgressFoodView;
@@ -33,14 +34,18 @@ import com.fitsync.nutrition.dto.RangeDayView;
 import com.fitsync.nutrition.dto.RangeSummaryView;
 import com.fitsync.nutrition.entity.FoodCategoryEntity;
 import com.fitsync.nutrition.entity.MealLogEntity;
+import com.fitsync.nutrition.entity.NutritionPreferenceProjectionEntity;
 import com.fitsync.nutrition.entity.RecipeCookEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
+import com.fitsync.nutrition.entity.WaterLogEntity;
 import com.fitsync.nutrition.repository.FoodCategoryRepository;
 import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealItemRepository.LoggedFoodCountRow;
 import com.fitsync.nutrition.repository.MealLogRepository;
+import com.fitsync.nutrition.repository.NutritionPreferenceProjectionRepository;
 import com.fitsync.nutrition.repository.RecipeCookRepository;
 import com.fitsync.nutrition.repository.RecipeRepository;
+import com.fitsync.nutrition.repository.WaterLogRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import org.springframework.stereotype.Service;
@@ -68,19 +73,25 @@ public class NutritionProgressService {
     private final RecipeCookRepository recipeCookRepository;
     private final RecipeRepository recipeRepository;
     private final NutritionDiaryService diaryService;
+    private final WaterLogRepository waterLogRepository;
+    private final NutritionPreferenceProjectionRepository preferenceRepository;
 
     public NutritionProgressService(MealLogRepository mealLogRepository,
                                     MealItemRepository mealItemRepository,
                                     FoodCategoryRepository foodCategoryRepository,
                                     RecipeCookRepository recipeCookRepository,
                                     RecipeRepository recipeRepository,
-                                    NutritionDiaryService diaryService) {
+                                    NutritionDiaryService diaryService,
+                                    WaterLogRepository waterLogRepository,
+                                    NutritionPreferenceProjectionRepository preferenceRepository) {
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
         this.foodCategoryRepository = foodCategoryRepository;
         this.recipeCookRepository = recipeCookRepository;
         this.recipeRepository = recipeRepository;
         this.diaryService = diaryService;
+        this.waterLogRepository = waterLogRepository;
+        this.preferenceRepository = preferenceRepository;
     }
 
     /** {@code from} and {@code to} are both included, at most 370 days apart; the zone defaults to UTC. */
@@ -110,19 +121,50 @@ public class NutritionProgressService {
         LocalDate recentFrom = to.minusDays(RECENT_DAYS - 1L).isAfter(from) ? to.minusDays(RECENT_DAYS - 1L) : from;
         NutrientSummaryView nutrients = diaryService.getNutrientSummary(principal, recentFrom, to, zone.getId());
         RangeSummaryView range = diaryService.getRangeSummary(principal, recentFrom, to, zone.getId());
+        Integer waterGoal = preferenceRepository.findById(principal.userId())
+                .map(NutritionPreferenceProjectionEntity::getWaterGoalMl)
+                .filter(goal -> goal > 0)
+                .orElse(null);
+        Map<LocalDate, Integer> water = waterGoal == null ? Map.of()
+                : waterByDay(principal, recentFrom, to, zone);
         int loggedDays = 0;
         int fibreMet = 0;
+        int waterMet = 0;
         for (RangeDayView day : range.days()) {
             if (day.logged()) {
                 loggedDays++;
                 if (Boolean.TRUE.equals(day.fiberMet())) {
                     fibreMet++;
                 }
+                if (waterGoal != null && water.getOrDefault(day.date(), 0) >= waterGoal) {
+                    waterMet++;
+                }
             }
         }
+        Habits habits = new Habits(loggedDays, fibreMet, waterMet, waterGoal == null ? 0 : loggedDays, waterGoal);
 
         return new NutritionProgressFoodView(from, to, mealTimes, topFoods, new Cooks(cookCount, last),
-                new Window(recentFrom, to), lowestNutrients(nutrients), new Habits(loggedDays, fibreMet));
+                new Window(recentFrom, to), lowestNutrients(nutrients), habits);
+    }
+
+    /** Plain water logs plus the water in drinks, per local date, as the Diary's water card adds them. */
+    private Map<LocalDate, Integer> waterByDay(CurrentUserPrincipal principal, LocalDate from, LocalDate to,
+                                               ZoneId zone) {
+        Instant start = from.atStartOfDay(zone).toInstant();
+        Instant end = to.plusDays(1).atStartOfDay(zone).toInstant();
+        Map<LocalDate, Integer> water = new HashMap<>();
+        for (WaterLogEntity log : waterLogRepository
+                .findByUserIdAndLoggedAtGreaterThanEqualAndLoggedAtLessThanEqualOrderByLoggedAtAsc(
+                        principal.userId(), start, end.minusNanos(1))) {
+            water.merge(log.getLoggedAt().atZone(zone).toLocalDate(), Objects.requireNonNullElse(log.getAmountMl(), 0),
+                    Integer::sum);
+        }
+        for (DrinkWaterEntryView drink : diaryService.listDrinkWater(principal.userId(), start, end)) {
+            if (drink.consumedAt() != null && drink.waterMl() != null) {
+                water.merge(drink.consumedAt().atZone(zone).toLocalDate(), drink.waterMl(), Integer::sum);
+            }
+        }
+        return water;
     }
 
     static void validate(LocalDate from, LocalDate to) {

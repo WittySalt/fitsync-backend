@@ -11,5 +11,6 @@
     "240001",
     "240005"
   ],
-  "timezone": "Asia/Singapore"
+  "timezone": "Asia/Singapore",
+  "waterGoalMl": 2500
 }

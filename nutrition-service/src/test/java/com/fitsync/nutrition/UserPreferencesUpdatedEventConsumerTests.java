@@ -46,6 +46,22 @@ class UserPreferencesUpdatedEventConsumerTests {
                     assertThat(projection.getDietaryPreferenceCode()).isEqualTo("300003");
                     assertThat(projection.getWorkoutDaysPerWeek()).isEqualTo(4);
                     assertThat(projection.isNotificationsEnabled()).isTrue();
+                    assertThat(projection.getWaterGoalMl()).isNull();
                 });
+    }
+
+    @Test
+    void theWaterGoalIsProjectedAndAZeroGoalMeansNone() {
+        UUID userId = UUID.randomUUID();
+
+        consumer.consume(new FitSyncDomainEvent<>(UUID.randomUUID(), "UserPreferencesUpdated", 1,
+                Instant.parse("2026-06-12T00:20:00Z"), "user-service", userId,
+                new UserPreferencesUpdatedPayload("100001", 4, "300003", true, List.of(), List.of(), "UTC", 2500)));
+        assertThat(repository.findById(userId).orElseThrow().getWaterGoalMl()).isEqualTo(2500);
+
+        consumer.consume(new FitSyncDomainEvent<>(UUID.randomUUID(), "UserPreferencesUpdated", 1,
+                Instant.parse("2026-06-13T00:20:00Z"), "user-service", userId,
+                new UserPreferencesUpdatedPayload("100001", 4, "300003", true, List.of(), List.of(), "UTC", 0)));
+        assertThat(repository.findById(userId).orElseThrow().getWaterGoalMl()).isNull();
     }
 }

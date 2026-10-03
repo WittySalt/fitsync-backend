@@ -1,5 +1,6 @@
 package com.fitsync.nutrition;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -7,19 +8,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
+import com.fitsync.nutrition.messaging.UserPreferencesUpdatedEventConsumerImpl;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 /** GET /api/v1/nutrition/progress/food, the nutrition half of the Progress Food page (contract section 3.1). */
 class NutritionProgressApiTests extends DiaryApiTestBase {
 
     private static final String PATH = BASE + "/progress/food";
+
+    @Autowired
+    private UserPreferencesUpdatedEventConsumerImpl preferencesConsumer;
 
     @BeforeEach
     @AfterEach
@@ -161,6 +170,56 @@ class NutritionProgressApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.topFoods.length()").value(0))
                 .andExpect(jsonPath("$.cooks.count").value(0))
                 .andExpect(jsonPath("$.habits.fibreMetDays").value(0));
+    }
+
+    @Test
+    void waterMetDaysCountLoggedDaysWhosePlainWaterAndDrinksReachTheGoal() throws Exception {
+        String token = tokenFor("water@example.com");
+        UUID userId = UUID.fromString(userIdOf(token));
+        preferencesConsumer.consume(new FitSyncDomainEvent<>(UUID.randomUUID(), "UserPreferencesUpdated", 1,
+                Instant.parse("2026-06-01T00:00:00Z"), "user-service", userId,
+                new UserPreferencesUpdatedPayload("100001", 4, "300003", true, List.of(), List.of(), "UTC", 2000)));
+        Seeded oats = seedFood("Oats", "GRAINS", false, "g", 380, "1", null, Map.of())
+                .addServing("40 g", "g", "40", "40");
+        Seeded bottle = seedFood("Bottled water", "BEVERAGES", true, "ml", 0, "0", "100", Map.of())
+                .addServing("1 cup", "cup", "1", "240");
+        logMeal(token, "BREAKFAST", oats, "2026-06-01T07:00:00Z");
+        logMeal(token, "BREAKFAST", oats, "2026-06-02T07:00:00Z");
+        logMeal(token, "BREAKFAST", oats, "2026-06-03T07:00:00Z");
+        // 1 June: 2,000 ml of plain water, met. 2 June: 1,800 ml plus a 240 ml bottle, met only with the drink.
+        // 3 June: 500 ml, missed. 4 June: 2,500 ml but no food logged, so it is not one of the days counted.
+        logWater(token, 2000, "2026-06-01T09:00:00Z");
+        logWater(token, 1800, "2026-06-02T09:00:00Z");
+        logMeal(token, "SNACK", bottle, "2026-06-02T15:00:00Z");
+        logWater(token, 500, "2026-06-03T09:00:00Z");
+        logWater(token, 2500, "2026-06-04T09:00:00Z");
+
+        mockMvc.perform(get(PATH).header("Authorization", "Bearer " + token)
+                        .param("from", "2026-06-01").param("to", "2026-06-10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.habits.loggedDays").value(3))
+                .andExpect(jsonPath("$.habits.waterGoalMl").value(2000))
+                .andExpect(jsonPath("$.habits.waterDays").value(3))
+                .andExpect(jsonPath("$.habits.waterMetDays").value(2));
+
+        // Someone without a goal: no day is met and none is counted.
+        String other = tokenFor("no-water-goal@example.com");
+        logMeal(other, "BREAKFAST", oats, "2026-06-01T07:00:00Z");
+        logWater(other, 3000, "2026-06-01T09:00:00Z");
+        mockMvc.perform(get(PATH).header("Authorization", "Bearer " + other)
+                        .param("from", "2026-06-01").param("to", "2026-06-10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.habits.loggedDays").value(1))
+                .andExpect(jsonPath("$.habits.waterGoalMl").value(nullValue()))
+                .andExpect(jsonPath("$.habits.waterDays").value(0))
+                .andExpect(jsonPath("$.habits.waterMetDays").value(0));
+    }
+
+    private void logWater(String token, int ml, String at) throws Exception {
+        mockMvc.perform(post(BASE + "/water").contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("{\"amountMl\": " + ml + ", \"loggedAt\": \"" + at + "\"}"))
+                .andExpect(status().isCreated());
     }
 
     private void cook(UUID userId, UUID recipeId, String finishedAt, boolean deleted) {
