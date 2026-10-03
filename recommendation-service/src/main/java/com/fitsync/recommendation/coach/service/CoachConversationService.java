@@ -129,7 +129,8 @@ public class CoachConversationService {
                                             CoachProgressListener listener) {
         ResolvedContext resolved = resolveTurnContext(pending.userId(), bearerToken, messageContext);
 
-        CoachCallContext context = new CoachCallContext(pending.userId(), bearerToken, pending.turnId());
+        CoachCallContext context = new CoachCallContext(pending.userId(), bearerToken, pending.turnId(),
+                messageContext == null ? null : messageContext.timezone());
         CoachOutcome outcome = orchestrator.answer(context, message, pending.history(), resolved.turnContext(), listener);
 
         threadService.replaceContent(pending.turnId(), outcome.answer());
