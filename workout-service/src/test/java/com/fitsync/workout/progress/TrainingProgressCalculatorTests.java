@@ -325,7 +325,7 @@ class TrainingProgressCalculatorTests {
         Activity strength = activities.get(0);
         assertEquals("e1RM +19% across one lift", strength.summary().get(0).text());
         assertEquals("e1RM +19%", strength.summary().get(0).figure());
-        assertEquals("Volume 560 kg a week", strength.summary().get(1).text());
+        assertEquals("2 hard sets a week", strength.summary().get(1).text());
         assertEquals("0 or 1 sessions a week", strength.summary().get(2).text());
         assertEquals("+1 h 40 min on the 4 weeks before", strength.context());
     }

@@ -273,10 +273,11 @@ public final class ProgressFacts {
             lines.add(line("e1RM " + ProgressText.signedPct(shown),
                     "across " + ProgressText.word(lifts.size()) + (lifts.size() == 1 ? " lift" : " lifts"), trend));
         }
-        BigDecimal perWeek = volume(period).divide(BigDecimal.valueOf(weeks), 2, RoundingMode.HALF_UP);
-        BigDecimal previousPerWeek = volume(previous).divide(BigDecimal.valueOf(previousWeeks), 2, RoundingMode.HALF_UP);
-        lines.add(line("Volume " + ProgressText.volume(perWeek), "a week",
-                trend(perWeek.doubleValue(), previousPerWeek.doubleValue(), COUNT_TREND_RATIO)));
+        double setsPerWeek = (double) hardSets(period) / weeks;
+        double previousSetsPerWeek = (double) hardSets(previous) / previousWeeks;
+        long shownSets = Math.round(setsPerWeek);
+        lines.add(line(shownSets + (shownSets == 1 ? " hard set" : " hard sets"), "a week",
+                trend(setsPerWeek, previousSetsPerWeek, COUNT_TREND_RATIO)));
         int[] range = weeklyRange(period, progressPeriod.from(), endDate);
         String figure;
         if (range[0] == range[1]) {
@@ -419,6 +420,17 @@ public final class ProgressFacts {
         long total = 0;
         for (SessionSnap session : sessions) {
             total += session.minutes();
+        }
+        return total;
+    }
+
+    /** Sets with work in them across these sessions, the count the muscle figure also builds on. */
+    static long hardSets(List<SessionSnap> sessions) {
+        long total = 0;
+        for (SessionSnap session : sessions) {
+            for (ExerciseSnap exercise : session.exercises()) {
+                total += exercise.sets().stream().filter(SetSnap::hasWork).count();
+            }
         }
         return total;
     }
