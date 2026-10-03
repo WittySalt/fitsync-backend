@@ -57,4 +57,11 @@ public interface ExerciseRepository extends JpaRepository<ExerciseEntity, UUID>,
         long total = byType.stream().mapToLong(ExerciseTypeCount::count).sum();
         return new ExerciseCatalogSummaryResponse(total, byType);
     }
+    /** The secondary muscle groups of the given exercises, in one query. */
+    @Query("""
+            select new com.fitsync.workout.repository.ExerciseSecondaryRow(sm.exercise.exerciseId, sm.muscleGroup)
+            from ExerciseSecondaryMuscleEntity sm
+            where sm.exercise.exerciseId in :exerciseIds
+            """)
+    List<ExerciseSecondaryRow> findSecondaryGroups(@Param("exerciseIds") List<UUID> exerciseIds);
 }

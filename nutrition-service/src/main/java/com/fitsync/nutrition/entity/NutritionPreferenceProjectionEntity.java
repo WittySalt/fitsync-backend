@@ -42,6 +42,9 @@ public class NutritionPreferenceProjectionEntity extends BaseAuditableEntity {
     @Column(name = "weight_measured_at")
     private Instant weightMeasuredAt;
 
+    @Column(name = "water_goal_ml")
+    private Integer waterGoalMl;
+
     @Column(name = "projection_updated_at", nullable = false)
     private Instant projectionUpdatedAt;
 
@@ -107,6 +110,14 @@ public class NutritionPreferenceProjectionEntity extends BaseAuditableEntity {
 
     public void setWeightKg(BigDecimal weightKg) {
         this.weightKg = weightKg;
+    }
+
+    public Integer getWaterGoalMl() {
+        return waterGoalMl;
+    }
+
+    public void setWaterGoalMl(Integer waterGoalMl) {
+        this.waterGoalMl = waterGoalMl;
     }
 
     public Instant getWeightMeasuredAt() {

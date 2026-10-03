@@ -45,8 +45,7 @@ class PageInsightClientTests {
             .registerModule(new JavaTimeModule())
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    private final CoachProperties properties = new CoachProperties(null, null, null,
-            "http://nutrition-service:8083", "http://user-service:8081", null, null);
+    private final CoachProperties properties = new CoachProperties(null, null, "http://api-gateway:8088", null, null);
 
     @Test
     @DisplayName("the nutrition insight is read with the caller's credential and parsed, unknown fields ignored")

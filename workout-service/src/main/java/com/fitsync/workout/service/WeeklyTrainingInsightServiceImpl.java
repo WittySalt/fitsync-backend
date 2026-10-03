@@ -20,11 +20,17 @@ import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.dto.MuscleGroupInsightView;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WeeklyVolumeView;
+import com.fitsync.workout.dto.progress.ActivitySummaryView;
+import com.fitsync.workout.dto.progress.LiftChangeView;
+import com.fitsync.workout.dto.progress.SeriesPoint;
+import com.fitsync.workout.dto.progress.TrainingProgressView;
 import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
 import com.fitsync.workout.entity.WorkoutPlanDayEntity;
 import com.fitsync.workout.entity.WorkoutPlanEntity;
 import com.fitsync.workout.entity.WorkoutPlanExerciseEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
+import com.fitsync.workout.progress.TrainingProgressCalculator;
+import com.fitsync.workout.progress.TrainingProgressService;
 import com.fitsync.workout.repository.WorkoutExerciseLogRepository;
 import com.fitsync.workout.repository.WorkoutPlanRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
@@ -55,15 +61,18 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
     private final WorkoutSessionRepository workoutSessionRepository;
     private final WorkoutPlanRepository workoutPlanRepository;
     private final WorkoutExerciseLogRepository workoutExerciseLogRepository;
+    private final TrainingProgressService trainingProgressService;
 
     public WeeklyTrainingInsightServiceImpl(Clock clock,
                                             WorkoutSessionRepository workoutSessionRepository,
                                             WorkoutPlanRepository workoutPlanRepository,
-                                            WorkoutExerciseLogRepository workoutExerciseLogRepository) {
+                                            WorkoutExerciseLogRepository workoutExerciseLogRepository,
+                                            TrainingProgressService trainingProgressService) {
         this.clock = clock;
         this.workoutSessionRepository = workoutSessionRepository;
         this.workoutPlanRepository = workoutPlanRepository;
         this.workoutExerciseLogRepository = workoutExerciseLogRepository;
+        this.trainingProgressService = trainingProgressService;
     }
 
     @Override
@@ -127,6 +136,11 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         WeekByDayCalculator.Result weekByDay = computeWeekByDay(currentUser.userId(), zoneId, referenceDate,
                 weekStart, activePlan);
 
+        // The Progress card's lifts and activity lines: the same figures as the Training page's
+        // default four weeks, ending on the reference date.
+        TrainingProgressCalculator.CardFacts cardFacts =
+                trainingProgressService.getCardFacts(currentUser.userId(), zoneId, referenceDate);
+
         return new WeeklyTrainingInsightView(
                 zoneId.getId(),
                 referenceDate,
@@ -143,7 +157,18 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 weekByDay.nextTraining(),
                 usualStartTime(sessions, zoneId, lookbackStart, referenceDate),
                 previousWeekSameDays.sessions,
-                previousWeekSameDays.minutes);
+                previousWeekSameDays.minutes,
+                cardFacts.lifts().stream().map(WeeklyTrainingInsightServiceImpl::toLiftChange).toList(),
+                cardFacts.activities().stream()
+                        .map(activity -> new ActivitySummaryView(activity.key(), activity.name(), activity.summary()))
+                        .toList());
+    }
+
+    /** A main lift's first and latest estimated best single in the card's 28 days. */
+    static LiftChangeView toLiftChange(TrainingProgressView.Lift lift) {
+        List<SeriesPoint> points = lift.e1rm();
+        return new LiftChangeView(lift.exerciseId(), lift.name(), points.get(0).value(),
+                points.get(points.size() - 1).value(), lift.changePct());
     }
 
     /** The usual local start time over the 28-day lookback, from the sessions already loaded (no

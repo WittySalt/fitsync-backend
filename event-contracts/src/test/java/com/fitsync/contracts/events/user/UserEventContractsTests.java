@@ -19,7 +19,8 @@ class UserEventContractsTests {
                 true,
                 List.of("230002", "230004"),
                 List.of("240001", "240005"),
-                "Asia/Singapore");
+                "Asia/Singapore",
+                2500);
 
         assertEquals("100001", payload.preferredUnits());
         assertEquals(4, payload.workoutDaysPerWeek());
@@ -28,6 +29,19 @@ class UserEventContractsTests {
         assertEquals(List.of("230002", "230004"), payload.equipmentInventory());
         assertEquals(List.of("240001", "240005"), payload.focusAreas());
         assertEquals("Asia/Singapore", payload.timezone());
+        assertEquals(2500, payload.waterGoalMl());
+    }
+
+    @Test
+    void olderProducersLeaveTheWaterGoalNull() {
+        UserPreferencesUpdatedPayload payload = new UserPreferencesUpdatedPayload(
+                "100001", 4, "300001", true, List.of(), List.of(), "Asia/Singapore");
+        UserPreferencesUpdatedPayload oldest = new UserPreferencesUpdatedPayload(
+                "100001", 4, "300001", true, List.of(), List.of());
+
+        assertEquals(null, payload.waterGoalMl());
+        assertEquals(null, oldest.waterGoalMl());
+        assertEquals(null, oldest.timezone());
     }
 
     @Test

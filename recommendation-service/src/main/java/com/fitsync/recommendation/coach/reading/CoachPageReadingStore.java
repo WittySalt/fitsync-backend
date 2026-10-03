@@ -4,7 +4,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -39,10 +42,67 @@ class CoachPageReadingStore {
         this.repository = repository;
     }
 
+    /** The key of a page reading, which keeps one row per user and page. */
+    static final String PAGE = "";
+
     /** The stored reading for a user and a page, if there is one. */
     @Transactional(readOnly = true)
     Optional<CoachPageReadingEntity> find(UUID userId, ReadingSurface surface) {
-        return repository.findByUserIdAndSurface(userId, surface);
+        return find(userId, surface, PAGE);
+    }
+
+    /** The stored reading for a user, a surface and a period, if there is one. */
+    @Transactional(readOnly = true)
+    Optional<CoachPageReadingEntity> find(UUID userId, ReadingSurface surface, String periodKey) {
+        return repository.findByUserIdAndSurfaceAndPeriodKey(userId, surface, periodKey);
+    }
+
+    /** The stored rows of several periods, keyed by period. */
+    @Transactional(readOnly = true)
+    Map<String, CoachPageReadingEntity> findAll(UUID userId, ReadingSurface surface, Collection<String> periodKeys) {
+        Map<String, CoachPageReadingEntity> rows = new HashMap<>();
+        for (CoachPageReadingEntity row : repository.findByUserIdAndSurfaceAndPeriodKeyIn(userId, surface, periodKeys)) {
+            rows.put(row.getPeriodKey(), row);
+        }
+        return rows;
+    }
+
+    /**
+     * Records the facts a weekly review is written from. A row for other facts, or none, becomes a
+     * row for these facts with no model text, which is how a changed current week is written again.
+     * A row already holding these facts is left exactly as it is.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    CoachPageReadingEntity recordFacts(UUID userId, ReadingSurface surface, String periodKey, String factsHash,
+                                       String factsJson, Instant now) {
+        Optional<CoachPageReadingEntity> existing =
+                repository.findByUserIdAndSurfaceAndPeriodKey(userId, surface, periodKey);
+        if (existing.isPresent() && hashesMatch(factsHash, existing.get().getFactsHash())) {
+            return existing.get();
+        }
+        CoachPageReadingEntity row = existing.orElseGet(CoachPageReadingEntity::new);
+        if (existing.isEmpty()) {
+            row.setId(UUID.randomUUID());
+            row.setUserId(userId);
+            row.setSurface(surface);
+            row.setPeriodKey(periodKey);
+        }
+        row.setFactsHash(factsHash);
+        row.setFactsJson(factsJson);
+        row.setOutcome(ReadingOutcome.FACTS_ONLY);
+        row.setHeadline(null);
+        row.setBody(null);
+        row.setCitations(null);
+        row.setSource(null);
+        row.setStartedAt(now);
+        row.setGeneratedAt(null);
+        row.setExpiresAt(null);
+        try {
+            return repository.saveAndFlush(row);
+        } catch (DataIntegrityViolationException raceLost) {
+            return repository.findByUserIdAndSurfaceAndPeriodKey(userId, surface, periodKey)
+                    .orElseThrow(() -> raceLost);
+        }
     }
 
     /**
@@ -57,12 +117,21 @@ class CoachPageReadingStore {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     CoachPageReadingEntity claimPending(UUID userId, ReadingSurface surface, String factsHash, Instant now) {
-        Optional<CoachPageReadingEntity> existing = repository.findByUserIdAndSurface(userId, surface);
+        return claimPending(userId, surface, PAGE, factsHash, now);
+    }
+
+    /** The claim above, for one period of a surface. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    CoachPageReadingEntity claimPending(UUID userId, ReadingSurface surface, String periodKey, String factsHash,
+                                        Instant now) {
+        Optional<CoachPageReadingEntity> existing =
+                repository.findByUserIdAndSurfaceAndPeriodKey(userId, surface, periodKey);
         CoachPageReadingEntity row = existing.orElseGet(CoachPageReadingEntity::new);
         if (existing.isEmpty()) {
             row.setId(UUID.randomUUID());
             row.setUserId(userId);
             row.setSurface(surface);
+            row.setPeriodKey(periodKey);
         }
         row.setFactsHash(factsHash);
         row.setOutcome(ReadingOutcome.PENDING);
@@ -76,7 +145,8 @@ class CoachPageReadingStore {
         try {
             return repository.saveAndFlush(row);
         } catch (DataIntegrityViolationException raceLost) {
-            return repository.findByUserIdAndSurface(userId, surface).orElseThrow(() -> raceLost);
+            return repository.findByUserIdAndSurfaceAndPeriodKey(userId, surface, periodKey)
+                    .orElseThrow(() -> raceLost);
         }
     }
 
@@ -84,7 +154,14 @@ class CoachPageReadingStore {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     void persistAccepted(UUID userId, ReadingSurface surface, String factsHash,
                          String headline, String body, List<Integer> citations, Instant now) {
-        repository.findByUserIdAndSurface(userId, surface)
+        persistAccepted(userId, surface, PAGE, factsHash, headline, body, citations, now);
+    }
+
+    /** The accepted reading above, for one period of a surface. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    void persistAccepted(UUID userId, ReadingSurface surface, String periodKey, String factsHash,
+                         String headline, String body, List<Integer> citations, Instant now) {
+        repository.findByUserIdAndSurfaceAndPeriodKey(userId, surface, periodKey)
                 .filter(row -> hashesMatch(factsHash, row.getFactsHash()))
                 .ifPresent(row -> {
                     row.setOutcome(ReadingOutcome.ACCEPTED);
@@ -104,7 +181,14 @@ class CoachPageReadingStore {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     void persistRejected(UUID userId, ReadingSurface surface, String factsHash, Instant now, Duration keptFor) {
-        repository.findByUserIdAndSurface(userId, surface)
+        persistRejected(userId, surface, PAGE, factsHash, now, keptFor);
+    }
+
+    /** The rejection above, for one period of a surface. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    void persistRejected(UUID userId, ReadingSurface surface, String periodKey, String factsHash, Instant now,
+                         Duration keptFor) {
+        repository.findByUserIdAndSurfaceAndPeriodKey(userId, surface, periodKey)
                 .filter(row -> hashesMatch(factsHash, row.getFactsHash()))
                 .ifPresent(row -> {
                     row.setOutcome(ReadingOutcome.REJECTED);

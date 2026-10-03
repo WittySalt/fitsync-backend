@@ -74,6 +74,10 @@ fitsync:
       max-tokens: ${RECOMMENDATION_AI_MAX_TOKENS:1500}
       narrative-ttl: ${RECOMMENDATION_AI_NARRATIVE_TTL:P7D}
       coach-questions-per-hour: ${RECOMMENDATION_AI_COACH_QUESTIONS_PER_HOUR:5}
+  coach:
+    # The coach reads every other service through the API gateway's public paths with the
+    # caller's own token, so it needs one address and knows nothing about what is behind it.
+    api-base-url: ${FITSYNC_COACH_API_BASE_URL:http://localhost:8088}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

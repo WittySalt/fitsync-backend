@@ -1,6 +1,7 @@
 package com.fitsync.recommendation.coach.reading;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,8 +14,19 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface CoachPageReadingRepository extends JpaRepository<CoachPageReadingEntity, UUID> {
 
-    /** At most one row per user and surface, which the unique constraint also enforces. */
+    /**
+     * The row of a page reading. Only for the surfaces that keep one row per user, which every page
+     * does; weekly reviews keep one per week and are read with the period key.
+     */
     Optional<CoachPageReadingEntity> findByUserIdAndSurface(UUID userId, ReadingSurface surface);
+
+    /** At most one row per user, surface and period, which the unique constraint also enforces. */
+    Optional<CoachPageReadingEntity> findByUserIdAndSurfaceAndPeriodKey(UUID userId, ReadingSurface surface,
+                                                                        String periodKey);
+
+    /** The rows of several periods at once, which is how the weekly reviews are read. */
+    List<CoachPageReadingEntity> findByUserIdAndSurfaceAndPeriodKeyIn(UUID userId, ReadingSurface surface,
+                                                                      Collection<String> periodKeys);
 
     void deleteByUserId(UUID userId);
 

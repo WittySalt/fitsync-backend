@@ -1345,6 +1345,10 @@ class UserProfileTests {
                 && event.getPayload().contains("\"referenceSex\":\"MALE\"")));
         assertTrue(events.stream().noneMatch(event -> "UserProfileUpdated".equals(event.getEventType())));
         assertTrue(events.stream().anyMatch(event -> "UserPreferencesUpdated".equals(event.getEventType())));
+        // The water goal rides on the republished preferences so nutrition can project it.
+        assertTrue(events.stream().anyMatch(event -> "UserPreferencesUpdated".equals(event.getEventType())
+                && factsUserId.equals(event.getUserId())
+                && event.getPayload().contains("\"waterGoalMl\":2500")));
         var weights = events.stream()
                 .filter(event -> "BodyMetricsRecorded".equals(event.getEventType()))
                 .filter(event -> factsUserId.equals(event.getUserId()))

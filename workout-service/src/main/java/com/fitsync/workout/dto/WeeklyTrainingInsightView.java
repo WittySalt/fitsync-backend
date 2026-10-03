@@ -6,6 +6,8 @@ import java.util.List;
 
 import com.fitsync.workout.domain.DayKind;
 import com.fitsync.workout.domain.DaySource;
+import com.fitsync.workout.dto.progress.ActivitySummaryView;
+import com.fitsync.workout.dto.progress.LiftChangeView;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(example = """
@@ -44,7 +46,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
             "carriedOver": []
           },
           "nextTraining": null,
-          "usualStartTime": "18:30"
+          "usualStartTime": "18:30",
+          "lifts": [{"exerciseId": "7f1c1a52-6c1f-4c55-9a43-1f0b8e0c2d11", "name": "Deadlift", "e1rmStart": 81.7, "e1rmNow": 93.3, "changePct": 14}],
+          "activitySummaries": [{"key": "STRENGTH", "name": "Strength", "summary": [{"figure": "e1RM +14%", "text": "e1RM +14% across one lift", "trend": "UP"}]}]
         }
         """)
 public record WeeklyTrainingInsightView(
@@ -63,11 +67,39 @@ public record WeeklyTrainingInsightView(
         NextTrainingView nextTraining,
         String usualStartTime,
         int previousWeekSameDaysCompletedSessions,
-        int previousWeekSameDaysTotalMinutes) {
+        int previousWeekSameDaysTotalMinutes,
+        List<LiftChangeView> lifts,
+        List<ActivitySummaryView> activitySummaries) {
 
     public WeeklyTrainingInsightView {
         muscleGroups = muscleGroups == null ? List.of() : List.copyOf(muscleGroups);
         days = days == null ? List.of() : List.copyOf(days);
+        lifts = lifts == null ? List.of() : List.copyOf(lifts);
+        activitySummaries = activitySummaries == null ? List.of() : List.copyOf(activitySummaries);
+    }
+
+    /** The view before the Progress card's lifts and activity summaries existed; both default to empty. */
+    public WeeklyTrainingInsightView(
+            String timezone,
+            LocalDate referenceDate,
+            LocalDate weekStart,
+            LocalDate weekEnd,
+            int completedSessions,
+            int totalMinutes,
+            int previousWeekCompletedSessions,
+            int previousWeekTotalMinutes,
+            List<MuscleGroupInsightView> muscleGroups,
+            WeeklyVolumeView volume,
+            List<DayInsightView> days,
+            TodayInsightView today,
+            NextTrainingView nextTraining,
+            String usualStartTime,
+            int previousWeekSameDaysCompletedSessions,
+            int previousWeekSameDaysTotalMinutes) {
+        this(timezone, referenceDate, weekStart, weekEnd, completedSessions, totalMinutes,
+                previousWeekCompletedSessions, previousWeekTotalMinutes, muscleGroups, volume, days, today,
+                nextTraining, usualStartTime, previousWeekSameDaysCompletedSessions,
+                previousWeekSameDaysTotalMinutes, List.of(), List.of());
     }
 
     /** The view before the same-days figures existed; they default to last week's totals. */
@@ -134,5 +166,15 @@ public record WeeklyTrainingInsightView(
     @Override
     public List<DayInsightView> days() {
         return List.copyOf(days);
+    }
+
+    @Override
+    public List<LiftChangeView> lifts() {
+        return List.copyOf(lifts);
+    }
+
+    @Override
+    public List<ActivitySummaryView> activitySummaries() {
+        return List.copyOf(activitySummaries);
     }
 }

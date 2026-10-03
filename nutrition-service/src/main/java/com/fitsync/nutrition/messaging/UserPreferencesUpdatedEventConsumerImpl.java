@@ -33,6 +33,8 @@ public class UserPreferencesUpdatedEventConsumerImpl implements DomainEventConsu
         entity.setDietaryPreferenceCode(payload.dietaryPreference());
         entity.setWorkoutDaysPerWeek(payload.workoutDaysPerWeek());
         entity.setNotificationsEnabled(payload.notificationsEnabled());
+        // Null means no goal is set; a positive amount is the daily goal in millilitres.
+        entity.setWaterGoalMl(payload.waterGoalMl() == null || payload.waterGoalMl() <= 0 ? null : payload.waterGoalMl());
         entity.setProjectionUpdatedAt(event.occurredAt() == null ? Instant.now() : event.occurredAt());
         repository.save(entity);
     }

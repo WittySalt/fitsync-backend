@@ -343,8 +343,10 @@ public class CoachConversationService {
                         String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));
             }
         }
-        return new ResolvedContext(new TurnContext(messageContext.surface(), pinnedReading, messageContext.recipeId()),
-                pinnedReadingId);
+        // The card was validated with the request: its kind is an enum name, its id a UUID or an
+        // activity key, its dates a period of at most 370 days. Its figures are never sent.
+        return new ResolvedContext(new TurnContext(messageContext.surface(), pinnedReading, messageContext.recipeId(),
+                messageContext.card()), pinnedReadingId);
     }
 
     /** The pages that show a reading; every other page has nothing a message could be pinned to. */

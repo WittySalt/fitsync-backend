@@ -15,12 +15,12 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  * @param maxToolCalls    how many tool calls one turn may make before the orchestrator stops and
  *                        answers with what it has. Four is enough for the intents that exist and
  *                        low enough that a confused model cannot spend a minute of the user's time.
- * @param catalogueTimeout per-request timeout on a catalogue read. Short, because a slow catalogue
- *                        should degrade into an observation the model works around rather than
+ * @param catalogueTimeout per-request timeout on a read from another service. Short, because a slow
+ *                        read should degrade into an observation the model works around rather than
  *                        hold the turn open.
- * @param workoutBaseUrl  root of the service that owns the exercise catalogue
- * @param nutritionBaseUrl root of the service that owns the food catalogue
- * @param userBaseUrl     root of the service that owns the readiness questionnaire
+ * @param apiBaseUrl      root of the API gateway. The coach reads every other service through the
+ *                        gateway's public paths, with the caller's own token, exactly as the app does;
+ *                        it holds no address of any service behind it.
  * @param streamTimeout   how long a streamed turn may stay open. Generous next to a turn measured
  *                        in seconds, because the cost of cutting a slow answer off is a user who
  *                        sees nothing, while the cost of holding a dead connection is one idle
@@ -37,9 +37,7 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 public record CoachProperties(
         Integer maxToolCalls,
         Duration catalogueTimeout,
-        String workoutBaseUrl,
-        String nutritionBaseUrl,
-        String userBaseUrl,
+        String apiBaseUrl,
         Duration streamTimeout,
         Boolean answerValidationEnabled,
         Integer turnsPerHour,
@@ -50,13 +48,12 @@ public record CoachProperties(
     private static final Duration DEFAULT_STREAM_TIMEOUT = Duration.ofMinutes(2);
     private static final int DEFAULT_TURNS_PER_HOUR = 30;
     private static final int DEFAULT_TURNS_PER_DAY = 150;
+    private static final String DEFAULT_API_BASE_URL = "http://localhost:8088";
 
-    /** The properties as they were before the limits existed, for callers that never set them. */
-    public CoachProperties(Integer maxToolCalls, Duration catalogueTimeout, String workoutBaseUrl,
-                           String nutritionBaseUrl, String userBaseUrl, Duration streamTimeout,
-                           Boolean answerValidationEnabled) {
-        this(maxToolCalls, catalogueTimeout, workoutBaseUrl, nutritionBaseUrl, userBaseUrl, streamTimeout,
-                answerValidationEnabled, null, null);
+    /** The properties without the limits, which take their defaults. */
+    public CoachProperties(Integer maxToolCalls, Duration catalogueTimeout, String apiBaseUrl,
+                           Duration streamTimeout, Boolean answerValidationEnabled) {
+        this(maxToolCalls, catalogueTimeout, apiBaseUrl, streamTimeout, answerValidationEnabled, null, null);
     }
 
     @ConstructorBinding
@@ -71,9 +68,7 @@ public record CoachProperties(
                 ? Integer.valueOf(DEFAULT_MAX_TOOL_CALLS)
                 : maxToolCalls;
         catalogueTimeout = catalogueTimeout == null ? DEFAULT_CATALOGUE_TIMEOUT : catalogueTimeout;
-        workoutBaseUrl = workoutBaseUrl == null ? "http://localhost:8082" : stripTrailingSlash(workoutBaseUrl);
-        nutritionBaseUrl = nutritionBaseUrl == null ? "http://localhost:8083" : stripTrailingSlash(nutritionBaseUrl);
-        userBaseUrl = userBaseUrl == null ? "http://localhost:8081" : stripTrailingSlash(userBaseUrl);
+        apiBaseUrl = apiBaseUrl == null || apiBaseUrl.isBlank() ? DEFAULT_API_BASE_URL : stripTrailingSlash(apiBaseUrl);
         streamTimeout = streamTimeout == null ? DEFAULT_STREAM_TIMEOUT : streamTimeout;
         answerValidationEnabled = answerValidationEnabled == null ? Boolean.TRUE : answerValidationEnabled;
     }

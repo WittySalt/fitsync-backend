@@ -12,6 +12,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fitsync.recommendation.coach.dto.CoachCardContext;
 import com.fitsync.recommendation.coach.config.CoachProperties;
 import com.fitsync.recommendation.coach.dto.CoachSurface;
 import com.fitsync.recommendation.coach.guardrail.CoachGuardrail;
@@ -240,15 +242,18 @@ public class CoachOrchestrator {
         if (turnContext != null && turnContext.recipeId() != null) {
             transcript.add(recipeLine(turnContext.recipeId()));
         }
+        if (turnContext != null && turnContext.card() != null) {
+            transcript.add(cardLine(turnContext.card()));
+        }
         if (turnContext != null && turnContext.pinnedReading() != null) {
             transcript.add(pinnedReadingObservation(turnContext.surface(), turnContext.pinnedReading()));
             toolsUsed.add(PINNED_READING_TOOL_NAME);
         }
 
-        for (Map.Entry<String, ToolResult> planned : runPlannedTools(context, question, listener).entrySet()) {
-            transcript.add(observationOf(planned.getKey(), "{}", planned.getValue()));
-            toolsUsed.add(planned.getKey());
-            alreadyCalled.add(signature(planned.getKey(), "{}"));
+        for (PlannedResult planned : runPlannedTools(context, question, turnContext, listener)) {
+            transcript.add(observationOf(planned.tool(), planned.args(), planned.result()));
+            toolsUsed.add(planned.tool());
+            alreadyCalled.add(signature(planned.tool(), planned.args()));
         }
 
         int toolCalls = 0;
@@ -374,21 +379,32 @@ public class CoachOrchestrator {
      * Results are collected back in plan order so the prompt the model sees is deterministic, which
      * matters for reproducing an answer later.
      */
-    private Map<String, ToolResult> runPlannedTools(CoachCallContext context,
-                                                    String question,
-                                                    CoachProgressListener listener) {
-        Set<String> planned = plannedTools(question);
+    private List<PlannedResult> runPlannedTools(CoachCallContext context,
+                                                String question,
+                                                TurnContext turnContext,
+                                                CoachProgressListener listener) {
+        // The card's own read goes first, with the card's period, so the page the user asked from is
+        // the first thing the model sees after the line that names it.
+        Map<String, ObjectNode> planned = new LinkedHashMap<>();
+        if (turnContext != null && turnContext.card() != null) {
+            CardRead cardRead = cardRead(turnContext.card());
+            planned.put(cardRead.tool(), cardRead.args());
+        }
+        for (String tool : plannedTools(question)) {
+            planned.putIfAbsent(tool, objectMapper.createObjectNode());
+        }
         if (planned.isEmpty()) {
-            return Map.of();
+            return List.of();
         }
 
         Map<String, CompletableFuture<ToolResult>> inFlight = new LinkedHashMap<>();
-        for (String tool : planned) {
+        for (Map.Entry<String, ObjectNode> entry : planned.entrySet()) {
+            String tool = entry.getKey();
+            ObjectNode args = entry.getValue();
             emit(listener, CoachProgressEvent.started(tool));
             long startedAt = System.nanoTime();
             inFlight.put(tool, CompletableFuture
-                    .supplyAsync(() -> toolRegistry.invoke(context, tool, objectMapper.createObjectNode()),
-                            toolExecutor)
+                    .supplyAsync(() -> toolRegistry.invoke(context, tool, args), toolExecutor)
                     // Reported as each one lands rather than in plan order, so a watching user sees
                     // the concurrency that is actually happening. The prompt still assembles in plan
                     // order below, because an answer has to be reproducible.
@@ -398,17 +414,83 @@ public class CoachOrchestrator {
                             elapsedMs(startedAt)))));
         }
 
-        Map<String, ToolResult> results = new LinkedHashMap<>();
+        List<PlannedResult> results = new ArrayList<>();
         for (Map.Entry<String, CompletableFuture<ToolResult>> entry : inFlight.entrySet()) {
+            String args = planned.get(entry.getKey()).toString();
             try {
-                results.put(entry.getKey(), entry.getValue().join());
+                results.add(new PlannedResult(entry.getKey(), args, entry.getValue().join()));
             } catch (RuntimeException ex) {
                 LOG.warn("Planned tool {} failed", safeForLog(entry.getKey()), ex);
-                results.put(entry.getKey(), ToolResult.of("tool failed",
-                        "The " + entry.getKey() + " tool failed. Answer without it, or say so."));
+                results.add(new PlannedResult(entry.getKey(), args, ToolResult.of("tool failed",
+                        "The " + entry.getKey() + " tool failed. Answer without it, or say so.")));
             }
         }
         return results;
+    }
+
+    /** One planned read, with the arguments it was called with, in plan order. */
+    private record PlannedResult(String tool, String args, ToolResult result) {
+    }
+
+    /** The read tool a card names, and the arguments that read its period. */
+    record CardRead(String tool, ObjectNode args) {
+    }
+
+    /**
+     * The tool that reads what a card shows, with the card's period. Only the validated kind, id and
+     * dates reach the arguments; the tools check them again, so a card can never widen what is read.
+     */
+    CardRead cardRead(CoachCardContext card) {
+        ObjectNode args = objectMapper.createObjectNode();
+        String tool = switch (card.kind()) {
+            case GOAL -> "readGoalProgress";
+            case TRAINING -> "readTrainingProgress";
+            case FOOD -> "readFoodProgress";
+            case EXERCISE -> {
+                args.put("exerciseId", card.id());
+                yield "readExerciseProgress";
+            }
+            case STRENGTH, CARDIO, SPORT -> {
+                args.put("key", card.activityKey());
+                yield "readActivityProgress";
+            }
+        };
+        args.put("from", card.from().toString());
+        args.put("to", card.to().toString());
+        return new CardRead(tool, args);
+    }
+
+    /**
+     * The one line that names the card a question was asked on and the period it showed. It holds
+     * the card's kind in words and two dates, never a figure, because figures come only from the read
+     * that follows it.
+     */
+    static String cardLine(CoachCardContext card) {
+        String what = switch (card.kind()) {
+            case GOAL -> "their Goal card";
+            case TRAINING -> "their Training card";
+            case FOOD -> "their Food card";
+            case STRENGTH -> "their Strength activity";
+            case CARDIO -> "their Cardio activity";
+            case SPORT -> "their " + sportName(card.id()) + " activity";
+            case EXERCISE -> "one exercise on their Training page";
+        };
+        return "The user is asking about " + what + " on the Progress page, for " + card.from() + " to "
+                + card.to() + ". Its figures are in the result that follows.";
+    }
+
+    /** A sport key such as SPORT:TABLE_TENNIS as "table tennis"; the key was checked to be capitals and underscores. */
+    private static String sportName(String key) {
+        if (key == null) {
+            return "sport";
+        }
+        // The key holds only capitals and underscores, so lowering it is a plain ASCII step.
+        StringBuilder name = new StringBuilder();
+        for (char ch : key.substring(key.indexOf(':') + 1).toCharArray()) {
+            name.append(ch == '_' ? ' ' : ch >= 'A' && ch <= 'Z' ? (char) (ch + ('a' - 'A')) : ch);
+        }
+        String text = name.toString().strip();
+        return text.isEmpty() ? "sport" : text;
     }
 
     /**

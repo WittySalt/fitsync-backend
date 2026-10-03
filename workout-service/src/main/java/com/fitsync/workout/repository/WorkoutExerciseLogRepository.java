@@ -95,4 +95,52 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerc
                                                                          @Param("skippedStatus") WorkoutSetStatus skippedStatus,
                                                                          @Param("from") Instant from,
                                                                          @Param("to") Instant to);
+    // The progress pages read the sets of many sessions at once: every exercise log of the given
+    // sessions of the user, with its exercise and its sets, in one query per chunk of ids.
+    @Query("""
+            select distinct el from WorkoutExerciseLogEntity el
+              join fetch el.exercise
+              left join fetch el.sets
+            where el.session.userId = :userId
+              and el.session.sessionId in :sessionIds
+            """)
+    List<WorkoutExerciseLogEntity> findWithSetsBySessionIds(@Param("userId") UUID userId,
+                                                            @Param("sessionIds") List<UUID> sessionIds);
+
+    // Each exercise's best estimated single before a moment, as max(weight x (30 + reps)); the
+    // service divides by 30. A session is placed by completion, else start, like the progress pages.
+    // Only performed sets with a positive weight and reps count.
+    @Query("""
+            select new com.fitsync.workout.repository.ExerciseBestRow(
+                       el.exercise.exerciseId, cast(max(s.weightKg * (30 + s.reps)) as BigDecimal))
+            from WorkoutExerciseLogEntity el
+              join el.sets s
+              join el.session sess
+            where sess.userId = :userId
+              and sess.status = :status
+              and coalesce(sess.completedAt, sess.startedAt) < :before
+              and s.weightKg > 0
+              and s.reps > 0
+              and s.logged = true
+              and s.status <> :skippedStatus
+            group by el.exercise.exerciseId
+            """)
+    List<ExerciseBestRow> findBestE1rmBefore(@Param("userId") UUID userId,
+                                             @Param("status") WorkoutSessionStatus status,
+                                             @Param("skippedStatus") WorkoutSetStatus skippedStatus,
+                                             @Param("before") Instant before);
+
+    // Every log of one exercise in the user's completed sessions, with its session and sets, for the
+    // exercise page. One query; bounded by how often one person did one exercise.
+    @Query("""
+            select distinct el from WorkoutExerciseLogEntity el
+              join fetch el.session sess
+              left join fetch el.sets
+            where sess.userId = :userId
+              and sess.status = :status
+              and el.exercise.exerciseId = :exerciseId
+            """)
+    List<WorkoutExerciseLogEntity> findExerciseHistoryWithSets(@Param("userId") UUID userId,
+                                                               @Param("exerciseId") UUID exerciseId,
+                                                               @Param("status") WorkoutSessionStatus status);
 }

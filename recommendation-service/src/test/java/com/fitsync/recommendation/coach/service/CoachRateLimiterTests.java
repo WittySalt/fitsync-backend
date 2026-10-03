@@ -49,7 +49,7 @@ class CoachRateLimiterTests {
     }
 
     private CoachRateLimiter limiter(int perHour, int perDay) {
-        CoachProperties properties = new CoachProperties(null, null, null, null, null, null, null, perHour, perDay);
+        CoachProperties properties = new CoachProperties(null, null, null, null, null, perHour, perDay);
         return new CoachRateLimiter(turns, artifacts, properties, calendar, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -121,7 +121,7 @@ class CoachRateLimiterTests {
     @Test
     @DisplayName("the defaults are 30 an hour and 150 a day")
     void theDefaults() {
-        CoachProperties defaults = new CoachProperties(null, null, null, null, null, null, null);
+        CoachProperties defaults = new CoachProperties(null, null, null, null, null);
 
         assertThat(defaults.turnsPerHour()).isEqualTo(30);
         assertThat(defaults.turnsPerDay()).isEqualTo(150);

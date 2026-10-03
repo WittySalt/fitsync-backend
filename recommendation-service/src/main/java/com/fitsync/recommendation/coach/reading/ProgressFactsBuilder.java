@@ -21,6 +21,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class ProgressFactsBuilder {
 
+    /** The Progress card a fact belongs to, so the page can scroll to it from a citation. */
+    static final String CARD_GOAL = "GOAL";
+    static final String CARD_TRAINING = "TRAINING";
+    static final String CARD_FOOD = "FOOD";
+
     /** English short month names, written out because the JDK's own short form of September is "Sep". */
     private static final String[] MONTHS = {
             "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"};
@@ -34,9 +39,11 @@ public class ProgressFactsBuilder {
         addWeight(chosen, insight);
         addWeeklyRate(chosen, insight);
         addGoal(chosen, insight);
+        // Weight, rate and goal are the Goal card's figures; calories are the Food card's.
+        chosen.replaceAll(fact -> fact.withCard(CARD_GOAL));
         ReadingFact calories = NutritionFactsBuilder.caloriesFact(nutrition);
         if (calories != null) {
-            chosen.add(calories);
+            chosen.add(calories.withCard(CARD_FOOD));
         }
         return ReadingFactsBuilder.numbered(chosen);
     }

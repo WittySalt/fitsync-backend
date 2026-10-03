@@ -881,7 +881,8 @@ public class UserServiceImpl implements UserService {
                         notifications.isPushEnabled() || notifications.isEmailEnabled(),
                         training.getEquipmentInventory().stream().map(TrainingEquipment::getCode).toList(),
                         training.getFocusAreas().stream().map(TrainingFocusArea::getCode).toList(),
-                        app.getTimezone())));
+                        app.getTimezone(),
+                        nutrition.getWaterGoalMl())));
     }
 
     private NutritionReferenceProfileDeriver.Derived deriveReference(UserProfileEntity profile,

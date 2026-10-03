@@ -138,6 +138,18 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <!-- Progress Food page: an intentional, token-protected read endpoint and its constructor-injected
+         repositories. -->
+    <Match>
+        <Class name="com.fitsync.nutrition.controller.NutritionProgressController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.nutrition.service.NutritionProgressService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <Match>
         <Class name="com.fitsync.nutrition.service.NutritionServiceImpl"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -185,6 +197,12 @@
 
     <Match>
         <Class name="com.fitsync.workout.controller.InternalMessagingController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <!-- workout-service Progress reads: intentional, token-protected GET endpoints. -->
+    <Match>
+        <Class name="com.fitsync.workout.controller.TrainingProgressController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
@@ -337,6 +355,23 @@
     <Match>
         <Class name="com.fitsync.analytics.service.AnalyticsEnergyService"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Progress Goal and Food pages: the same constructor-injected repositories, and an intentional,
+         token-protected read endpoint. -->
+    <Match>
+        <Class name="com.fitsync.analytics.service.ProgressGoalService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.service.ProgressFoodService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.controller.ProgressController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
     <Match>
@@ -592,6 +627,13 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- The five progress tools hold their constructor-injected client and calendar, the same
+         dependency-injection noise as the tools above. -->
+    <Match>
+        <Class name="~com\.fitsync\.recommendation\.coach\.tool\.Read(Training|Goal|Food|Exercise|Activity)ProgressTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <Match>
         <Class name="com.fitsync.recommendation.coach.client.WorkoutCatalogueClient"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -703,6 +745,21 @@
     <Match>
         <Class name="com.fitsync.recommendation.coach.controller.CoachReadingController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <!-- The weekly review controller and service. SPRING_ENDPOINT flags the controller for being a
+         controller, and EI_EXPOSE_REP2 flags the Spring singletons both were given by injection
+         (the review service, the two clients, the writer), the same noise as the services above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.controller.CoachReviewController"/>
+        <Or>
+            <Bug pattern="SPRING_ENDPOINT"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.reading.WeeklyReviewService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
     <!-- The coach quality report for the admin console. SPRING_ENDPOINT flags the controller for

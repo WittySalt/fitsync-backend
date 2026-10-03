@@ -4,5 +4,7 @@ package com.fitsync.recommendation.coach.reading;
 public enum ReadingSurface {
     WORKOUT,
     NUTRITION,
-    PROGRESS
+    PROGRESS,
+    /** A weekly review on the Progress page, one row per Monday week. */
+    PROGRESS_WEEK
 }

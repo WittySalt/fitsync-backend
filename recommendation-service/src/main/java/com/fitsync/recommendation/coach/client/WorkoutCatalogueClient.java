@@ -25,13 +25,16 @@ public class WorkoutCatalogueClient extends CatalogueClient {
     private static final String PLANS = "/api/v1/workouts/plans";
     private static final String TRAINING_INSIGHT = "/api/v1/workouts/insights/training";
     private static final String WEEKLY_INSIGHT = "/api/v1/workouts/insights/weekly";
+    private static final String TRAINING_PROGRESS = "/api/v1/workouts/progress/training";
+    private static final String ACTIVITY_PROGRESS = "/api/v1/workouts/progress/activities/";
+    private static final String EXERCISE_PROGRESS = "/api/v1/workouts/progress/exercises/";
 
     private final ObjectMapper objectMapper;
 
     public WorkoutCatalogueClient(@Qualifier("coachRestClientBuilder") RestClient.Builder builder,
                                       CoachProperties properties,
                                       ObjectMapper objectMapper) {
-        super(builder, properties.workoutBaseUrl(), "workout");
+        super(builder, properties.apiBaseUrl(), "workout");
         this.objectMapper = objectMapper;
     }
 
@@ -137,5 +140,35 @@ public class WorkoutCatalogueClient extends CatalogueClient {
             LOG.warn("event=training_insight_unreadable");
             return null;
         }
+    }
+    /**
+     * The Training page's figures for one period, as JSON, or null when workout-service could not be
+     * read. Only the caller's token and zone are forwarded; the body weight header the page sends is
+     * not, so the lift ratios are whatever workout-service already knows.
+     */
+    public String trainingProgress(String bearerToken, String timezone, LocalDate from, LocalDate to) {
+        return get(TRAINING_PROGRESS, period(from, to), bearerToken, timezone);
+    }
+
+    /**
+     * One activity's page for one period, as JSON, or null when it could not be read.
+     *
+     * @param key an activity key already checked to be capital letters, underscores and colons
+     */
+    public String activityProgress(String bearerToken, String timezone, String key, LocalDate from, LocalDate to) {
+        return get(ACTIVITY_PROGRESS + key, period(from, to), bearerToken, timezone);
+    }
+
+    /** One exercise's page for one period, as JSON, or null when it could not be read. */
+    public String exerciseProgress(String bearerToken, String timezone, UUID exerciseId, LocalDate from,
+                                   LocalDate to) {
+        return get(EXERCISE_PROGRESS + exerciseId, period(from, to), bearerToken, timezone);
+    }
+
+    private static Map<String, Object> period(LocalDate from, LocalDate to) {
+        Map<String, Object> params = params();
+        params.put("from", from);
+        params.put("to", to);
+        return params;
     }
 }
