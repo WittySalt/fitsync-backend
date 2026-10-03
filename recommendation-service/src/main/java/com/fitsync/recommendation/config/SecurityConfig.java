@@ -3,6 +3,7 @@ package com.fitsync.recommendation.config;
 import com.fitsync.recommendation.security.JwtAuthenticationFilter;
 import com.fitsync.web.security.RestAccessDeniedHandler;
 import com.fitsync.web.security.RestAuthenticationEntryPoint;
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -45,6 +46,9 @@ public class SecurityConfig {
                         .authenticationEntryPoint(restAuthenticationEntryPoint)
                         .accessDeniedHandler(restAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
+                        // The streamed coach answer finishes on an async dispatch of a request that was
+                        // already authorised; checking it again fails after the response is committed.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers("/api/v1/internal/**").hasRole("ADMIN")
                         .requestMatchers(
                                 "/actuator/health",
