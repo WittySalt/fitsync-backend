@@ -2,7 +2,9 @@ package com.fitsync.nutrition.controller;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.nutrition.domain.FoodCatalogScope;
@@ -50,6 +52,7 @@ import com.fitsync.nutrition.service.UsualMealsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import com.fitsync.web.timezone.RequestTimezone;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -97,15 +100,17 @@ public class NutritionController {
     @PostMapping("/meals")
     @ResponseStatus(HttpStatus.CREATED)
     public MealView createMeal(Authentication authentication,
-                               @Valid @RequestBody CreateMealRequest request) {
-        return nutritionService.createMeal(currentPrincipal(authentication), request);
+                               @Valid @RequestBody CreateMealRequest request,
+                               @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.createMeal(currentPrincipal(authentication), request, zoneId(zone));
     }
 
     @PostMapping("/meals/quick-add")
     @ResponseStatus(HttpStatus.CREATED)
     public MealView quickAddMeal(Authentication authentication,
-                                 @Valid @RequestBody QuickAddMealRequest request) {
-        return nutritionService.quickAddMeal(currentPrincipal(authentication), request);
+                                 @Valid @RequestBody QuickAddMealRequest request,
+                                 @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.quickAddMeal(currentPrincipal(authentication), request, zoneId(zone));
     }
 
     @GetMapping("/meals")
@@ -124,8 +129,9 @@ public class NutritionController {
     @PutMapping("/meals/{mealId}")
     public MealView updateMeal(Authentication authentication,
                                @PathVariable UUID mealId,
-                               @Valid @RequestBody CreateMealRequest request) {
-        return nutritionService.updateMeal(currentPrincipal(authentication), mealId, request);
+                               @Valid @RequestBody CreateMealRequest request,
+                               @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.updateMeal(currentPrincipal(authentication), mealId, request, zoneId(zone));
     }
 
     @DeleteMapping("/meals/{mealId}")
@@ -141,8 +147,8 @@ public class NutritionController {
 
     @GetMapping("/meals/usual")
     public UsualMealsView usualMeals(Authentication authentication,
-                                     @RequestParam(required = false) String timezone) {
-        return usualMealsService.getUsualMeals(currentPrincipal(authentication), timezone);
+                                     @RequestTimezone Optional<ZoneId> zone) {
+        return usualMealsService.getUsualMeals(currentPrincipal(authentication), zoneId(zone));
     }
 
     @PostMapping("/meals/{mealId}/copy")
@@ -157,8 +163,9 @@ public class NutritionController {
     @ResponseStatus(HttpStatus.CREATED)
     public List<MealView> copyDay(Authentication authentication,
                                   @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-                                  @Valid @RequestBody CopyDayRequest request) {
-        return nutritionService.copyDay(currentPrincipal(authentication), date, request);
+                                  @Valid @RequestBody CopyDayRequest request,
+                                  @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.copyDay(currentPrincipal(authentication), date, request, zoneId(zone));
     }
 
     @PostMapping("/custom-foods")
@@ -194,25 +201,26 @@ public class NutritionController {
     @GetMapping("/summary/daily")
     public DailyNutritionSummaryView dailySummary(Authentication authentication,
                                                   @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-                                                  @RequestParam(required = false) String timezone) {
-        return nutritionService.getDailySummary(currentPrincipal(authentication), date, timezone);
+                                                  @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.getDailySummary(currentPrincipal(authentication), date, zoneId(zone));
     }
 
     @GetMapping("/summary/range")
     public RangeSummaryView rangeSummary(Authentication authentication,
                                          @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                          @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-                                         @RequestParam(required = false) String timezone) {
-        return nutritionDiaryService.getRangeSummary(currentPrincipal(authentication), from, to, timezone);
+                                         @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionDiaryService.getRangeSummary(currentPrincipal(authentication), from, to, zoneId(zone));
     }
 
     @GetMapping("/nutrients/summary")
     public NutrientSummaryView nutrientSummary(Authentication authentication,
                                                @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                                @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-                                               @RequestParam(required = false) String timezone,
+                                               @RequestTimezone Optional<ZoneId> zone,
                                                @RequestParam(defaultValue = "diary") String scope) {
-        return nutritionDiaryService.getNutrientSummary(currentPrincipal(authentication), from, to, timezone, scope);
+        return nutritionDiaryService.getNutrientSummary(currentPrincipal(authentication), from, to, zoneId(zone),
+                scope);
     }
 
     @GetMapping("/nutrients/{code}")
@@ -220,14 +228,14 @@ public class NutritionController {
                                          @PathVariable String code,
                                          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-                                         @RequestParam(required = false) String timezone) {
-        return nutritionDiaryService.getNutrientPage(currentPrincipal(authentication), code, from, to, timezone);
+                                         @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionDiaryService.getNutrientPage(currentPrincipal(authentication), code, from, to, zoneId(zone));
     }
 
     @GetMapping("/insights/page")
     public NutritionPageInsightView nutritionPageInsight(Authentication authentication,
-                                                         @RequestParam(required = false) String timezone) {
-        return nutritionPageInsightService.getNutritionPageInsight(currentPrincipal(authentication), timezone);
+                                                         @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionPageInsightService.getNutritionPageInsight(currentPrincipal(authentication), zoneId(zone));
     }
 
     @GetMapping("/foods/search")
@@ -350,22 +358,25 @@ public class NutritionController {
     @ResponseStatus(HttpStatus.CREATED)
     public MealView createMealFromTemplate(Authentication authentication,
                                            @PathVariable UUID templateId,
-                                           @Valid @RequestBody MaterializeTemplateRequest request) {
-        return nutritionService.createMealFromTemplate(currentPrincipal(authentication), templateId, request);
+                                           @Valid @RequestBody MaterializeTemplateRequest request,
+                                           @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.createMealFromTemplate(currentPrincipal(authentication), templateId, request,
+                zoneId(zone));
     }
 
     @PostMapping("/water")
     @ResponseStatus(HttpStatus.CREATED)
     public WaterLogView logWater(Authentication authentication,
-                                 @Valid @RequestBody LogWaterRequest request) {
-        return nutritionService.logWater(currentPrincipal(authentication), request);
+                                 @Valid @RequestBody LogWaterRequest request,
+                                 @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.logWater(currentPrincipal(authentication), request, zoneId(zone));
     }
 
     @GetMapping("/water")
     public WaterDaySummaryView waterDay(Authentication authentication,
                                         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-                                        @RequestParam(required = false) String timezone) {
-        return nutritionService.getWaterDay(currentPrincipal(authentication), date, timezone);
+                                        @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.getWaterDay(currentPrincipal(authentication), date, zoneId(zone));
     }
 
     @DeleteMapping("/water/{waterId}")
@@ -396,7 +407,7 @@ public class NutritionController {
     /**
      * With a scope (mine, library, favorites or recent) this is a page of recipe cards. Without one it keeps
      * its earlier shape, the caller's own recipes as a plain list. sort=fit ranks the cards by how well one
-     * serving fits what is left of today, and timezone says where today is.
+     * serving fits what is left of today, and the X-Timezone header says where today is.
      */
     @GetMapping("/recipes")
     public Object recipes(Authentication authentication,
@@ -406,14 +417,14 @@ public class NutritionController {
                           @RequestParam(required = false) String diet,
                           @RequestParam(required = false) String tag,
                           @RequestParam(required = false) String sort,
-                          @RequestParam(required = false) String timezone,
+                          @RequestTimezone Optional<ZoneId> zone,
                           @RequestParam(defaultValue = "0") int page,
                           @RequestParam(defaultValue = "20") int size) {
         if (scope == null) {
             return nutritionService.listRecipes(currentPrincipal(authentication));
         }
         return recipeLibraryService.list(currentPrincipal(authentication), scope, category, q, diet, tag, sort,
-                timezone, page, size);
+                zoneId(zone), page, size);
     }
 
     @GetMapping("/recipes/{recipeId}")
@@ -463,8 +474,10 @@ public class NutritionController {
     @ResponseStatus(HttpStatus.CREATED)
     public MealView createMealFromRecipe(Authentication authentication,
                                          @PathVariable UUID recipeId,
-                                         @Valid @RequestBody RecipeMealRequest request) {
-        return nutritionService.createMealFromRecipe(currentPrincipal(authentication), recipeId, request);
+                                         @Valid @RequestBody RecipeMealRequest request,
+                                         @RequestTimezone Optional<ZoneId> zone) {
+        return nutritionService.createMealFromRecipe(currentPrincipal(authentication), recipeId, request,
+                zoneId(zone));
     }
 
     @PostMapping("/meals/{mealId}/items/from-recipe/{recipeId}")
@@ -487,6 +500,11 @@ public class NutritionController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteRecipe(Authentication authentication, @PathVariable UUID recipeId) {
         nutritionService.deleteRecipe(currentPrincipal(authentication), recipeId);
+    }
+
+    /** The zone id from the X-Timezone header, or null so the service falls back to UTC. */
+    private static String zoneId(Optional<ZoneId> zone) {
+        return zone.map(ZoneId::getId).orElse(null);
     }
 
     private CurrentUserPrincipal currentPrincipal(Authentication authentication) {

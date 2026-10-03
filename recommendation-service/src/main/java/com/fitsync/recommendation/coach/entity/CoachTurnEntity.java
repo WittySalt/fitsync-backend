@@ -51,6 +51,10 @@ public class CoachTurnEntity extends BaseAuditableEntity {
     @Column(name = "content", nullable = false, columnDefinition = "text")
     private String content;
 
+    /** The id the client chose for this question, so a retry finds this turn instead of starting another. */
+    @Column(name = "client_turn_id")
+    private UUID clientTurnId;
+
     /** 0 rule · 1 template · 2 local model · 3 frontier model. Null on a user turn. */
     @Column(name = "tier")
     private Integer tier;
@@ -70,6 +74,14 @@ public class CoachTurnEntity extends BaseAuditableEntity {
     /** {@code PASSED}, {@code REFUSED_UNSAFE}, {@code REFUSED_OUT_OF_SCOPE}, and so on. */
     @Column(name = "guardrail_verdict", length = GUARDRAIL_VERDICT_LENGTH)
     private String guardrailVerdict;
+
+    public UUID getClientTurnId() {
+        return clientTurnId;
+    }
+
+    public void setClientTurnId(UUID clientTurnId) {
+        this.clientTurnId = clientTurnId;
+    }
 
     public UUID getTurnId() {
         return turnId;

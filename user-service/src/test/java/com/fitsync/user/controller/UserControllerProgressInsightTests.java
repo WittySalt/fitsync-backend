@@ -2,7 +2,7 @@ package com.fitsync.user.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -67,7 +67,7 @@ class UserControllerProgressInsightTests {
                 List.of(new ProgressInsightPoint(LocalDate.parse("2026-08-05"), new BigDecimal("74.1"))));
         when(userService.getProgressInsight(any(), eq(ZoneId.of("Asia/Singapore")))).thenReturn(response);
 
-        mockMvc.perform(get(PATH).param("timezone", "Asia/Singapore").with(authentication(authToken())))
+        mockMvc.perform(get(PATH).header("X-Timezone", "Asia/Singapore").with(authentication(authToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timezone").value("Asia/Singapore"))
                 .andExpect(jsonPath("$.referenceDate").value("2026-09-30"))
@@ -84,8 +84,9 @@ class UserControllerProgressInsightTests {
     }
 
     @Test
-    void missingTimezoneDefaultsToUtc() throws Exception {
-        when(userService.getProgressInsight(any(), eq(ZoneId.of("UTC")))).thenReturn(
+    void missingTimezoneLeavesTheChoiceToTheService() throws Exception {
+        // No zone is sent, so the controller passes null and the service reads the profile zone, else UTC.
+        when(userService.getProgressInsight(any(), isNull())).thenReturn(
                 new ProgressInsightResponse("UTC", LocalDate.parse("2026-09-30"),
                         null, null, 0, null, null, null, null, null, List.of()));
 
@@ -103,11 +104,15 @@ class UserControllerProgressInsightTests {
     }
 
     @Test
-    void rejectsAnInvalidTimezone() throws Exception {
-        mockMvc.perform(get(PATH).param("timezone", "Mars/Olympus").with(authentication(authToken())))
-                .andExpect(status().isBadRequest());
+    void ignoresAnInvalidTimezoneHeader() throws Exception {
+        when(userService.getProgressInsight(any(), isNull())).thenReturn(
+                new ProgressInsightResponse("UTC", LocalDate.parse("2026-09-30"),
+                        null, null, 0, null, null, null, null, null, List.of()));
 
-        verify(userService, never()).getProgressInsight(any(), any());
+        mockMvc.perform(get(PATH).header("X-Timezone", "Mars/Olympus").with(authentication(authToken())))
+                .andExpect(status().isOk());
+
+        verify(userService).getProgressInsight(any(), isNull());
     }
 
     private UsernamePasswordAuthenticationToken authToken() {

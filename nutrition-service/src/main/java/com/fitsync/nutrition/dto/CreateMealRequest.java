@@ -17,7 +17,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
           "name": "Chicken rice lunch",
           "source": "MANUAL",
           "consumedAt": "2026-06-12T04:30:00Z",
-          "timezone": "Asia/Singapore",
           "note": "Lunch after workout.",
           "items": [
             {
@@ -58,7 +57,6 @@ public record CreateMealRequest(
         @Size(max = 120) String name,
         @NotNull MealSource source,
         @NotNull Instant consumedAt,
-        @Size(max = 80) String timezone,
         @Size(max = 300) String note,
         @NotEmpty List<@Valid MealItemInput> items) {
 

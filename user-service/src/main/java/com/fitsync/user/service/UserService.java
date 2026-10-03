@@ -72,6 +72,7 @@ public interface UserService {
 
     AccountDataExportPayload downloadAccountDataExport(CurrentUserPrincipal principal, UUID exportRequestId);
 
+    /** A null zone means the request named none, so the zone kept in the profile is used, else UTC. */
     ProgressInsightResponse getProgressInsight(CurrentUserPrincipal principal, ZoneId zone);
 
     int republishActiveGoals();

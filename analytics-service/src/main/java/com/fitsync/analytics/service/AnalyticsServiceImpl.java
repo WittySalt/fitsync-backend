@@ -92,12 +92,14 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     @Override
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.DASHBOARD_CACHE,
-            key = "#principal.userId()")
+            key = "#principal.userId() + ':' + #root.target.todayForCacheKey(#principal)")
     public AnalyticsDashboardResponse getDashboard(CurrentUserPrincipal principal) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
                 .orElse(null);
+        ZoneId zone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        LocalDate today = LocalDate.now(clock.withZone(zone));
         List<AnalyticsDashboardResponse.GoalProgressSummary> goals =
-                loadGoalSummaries(principal.userId(), GoalExpiryPolicy.ACTIVE_STATUS);
+                loadGoalSummaries(principal.userId(), GoalExpiryPolicy.ACTIVE_STATUS, today);
 
         if (snapshot == null) {
             return emptyDashboard(goals);
@@ -107,8 +109,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         // whatever it last held. Fields named "today" and "week" therefore have to be re-checked
         // against the clock at read time, or they report months-old activity as current. See
         // Documents/architecture/functional-defects-2026-09-26.md, defect 4.
-        ZoneId zone = resolveZone(snapshot.getTimezone());
-        LocalDate today = LocalDate.now(clock.withZone(zone));
         LocalDate snapshotDay = snapshot.getGeneratedAt() == null
                 ? null
                 : snapshot.getGeneratedAt().atZone(zone).toLocalDate();
@@ -126,11 +126,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         latestBodyMeasurementDate(principal.userId()),
                         toDouble(snapshot.getLatestWaistCm()),
                         snapshot.getWaistMeasuredOn()),
-                new AnalyticsDashboardResponse.WorkoutSummary(
-                        sameDay ? defaultInteger(snapshot.getTodayWorkoutCount()) : 0,
-                        sameWeek ? defaultInteger(snapshot.getWeekWorkoutCount()) : 0,
-                        sameWeek ? defaultInteger(snapshot.getWeekWorkoutMinutes()) : 0,
-                        liveStreakDays(principal.userId(), snapshot.getActiveStreakDays(), today)),
+                workoutSummary(principal.userId(), snapshot, today, sameDay, sameWeek),
                 new AnalyticsDashboardResponse.NutritionSummary(
                         sameDay ? snapshot.getTodayCaloriesConsumed() : Integer.valueOf(0),
                         snapshot.getTodayCaloriesTarget(),
@@ -267,9 +263,10 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     @Override
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.COMPARE_CACHE,
-            key = "#principal.userId() + ':' + #period.name() + ':' + #root.target.todayUtcForCacheKey()")
+            key = "#principal.userId() + ':' + #period.name() + ':' + #root.target.todayForCacheKey(#principal)")
     public AnalyticsCompareResponse getSummaryCompare(CurrentUserPrincipal principal, ComparePeriod period) {
-        PeriodRanges ranges = compareRanges(todayUtcForCacheKey(), period);
+        LocalDate today = todayForUser(principal.userId());
+        PeriodRanges ranges = compareRanges(today, period);
         WorkoutSummaryAggregation currentWorkout =
                 aggregateWorkoutSummary(principal.userId(), ranges.currentFrom(), ranges.currentTo());
         WorkoutSummaryAggregation previousWorkout =
@@ -287,7 +284,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         metricComparison(currentWorkout.totalWorkoutCount(), previousWorkout.totalWorkoutCount()),
                         metricComparison(currentWorkout.totalWorkoutMinutes(), previousWorkout.totalWorkoutMinutes()),
                         metricComparison(currentWorkout.totalCaloriesBurned(), previousWorkout.totalCaloriesBurned()),
-                        metricComparison(currentWorkout.totalExerciseCount(), previousWorkout.totalExerciseCount())),
+                        metricComparison(currentWorkout.totalExerciseCount(), previousWorkout.totalExerciseCount()),
+                        new AnalyticsCompareResponse.DaysLogged(
+                                currentWorkout.daysWithWorkout(), previousWorkout.daysWithWorkout())),
                 new AnalyticsCompareResponse.NutritionComparison(
                         metricComparison(
                                 currentNutrition.totalCaloriesConsumed(),
@@ -300,18 +299,57 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                 previousNutrition.totalCarbsGrams()),
                         nullableMetricComparison(
                                 currentNutrition.totalFatGrams(),
-                                previousNutrition.totalFatGrams())));
+                                previousNutrition.totalFatGrams()),
+                        new AnalyticsCompareResponse.DaysLogged(
+                                currentNutrition.daysLogged(), previousNutrition.daysLogged()),
+                        averagePerLoggedDay(currentNutrition, previousNutrition)),
+                today.isBefore(ranges.currentPeriodEnd()));
     }
 
-    public LocalDate todayUtcForCacheKey() {
-        return LocalDate.now(clock);
+    private AnalyticsCompareResponse.AveragePerLoggedDay averagePerLoggedDay(
+            NutritionSummaryAggregation current, NutritionSummaryAggregation previous) {
+        return new AnalyticsCompareResponse.AveragePerLoggedDay(
+                averageComparison(BigDecimal.valueOf(current.totalCaloriesConsumed()), current.daysLogged(),
+                        BigDecimal.valueOf(previous.totalCaloriesConsumed()), previous.daysLogged(), 0),
+                averageComparison(current.totalProteinGrams(), current.daysLogged(),
+                        previous.totalProteinGrams(), previous.daysLogged(), 1),
+                averageComparison(current.totalCarbsGrams(), current.daysLogged(),
+                        previous.totalCarbsGrams(), previous.daysLogged(), 1),
+                averageComparison(current.totalFatGrams(), current.daysLogged(),
+                        previous.totalFatGrams(), previous.daysLogged(), 1));
+    }
+
+    private AnalyticsCompareResponse.MetricComparison averageComparison(BigDecimal currentTotal,
+                                                                       int currentDays,
+                                                                       BigDecimal previousTotal,
+                                                                       int previousDays,
+                                                                       int scale) {
+        BigDecimal currentAverage = perLoggedDay(currentTotal, currentDays, scale);
+        BigDecimal previousAverage = perLoggedDay(previousTotal, previousDays, scale);
+        if (currentAverage == null || previousAverage == null) {
+            return new AnalyticsCompareResponse.MetricComparison(
+                    currentAverage == null ? null : currentAverage.doubleValue(),
+                    previousAverage == null ? null : previousAverage.doubleValue(),
+                    null,
+                    null);
+        }
+        return metricComparison(currentAverage, previousAverage, false);
+    }
+
+    private BigDecimal perLoggedDay(BigDecimal total, int days, int scale) {
+        if (days <= 0 || total == null) {
+            return null;
+        }
+        return total.divide(BigDecimal.valueOf(days), scale, RoundingMode.HALF_UP);
     }
 
     @Override
     @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.GOAL_PROGRESS_CACHE,
-            key = "#principal.userId() + ':' + (#status == null ? '' : #status.toUpperCase(T(java.util.Locale).ROOT))")
+            key = "#principal.userId() + ':' + (#status == null ? '' : #status.toUpperCase(T(java.util.Locale).ROOT)) + ':' + #root.target.todayForCacheKey(#principal)")
     public AnalyticsGoalProgressResponse getGoalProgress(CurrentUserPrincipal principal, String status) {
         String normalizedStatus = normalizeStatus(status);
+        LocalDate today = todayForUser(principal.userId());
+        LiveNutritionDay liveDay = new LiveNutritionDay(principal.userId(), today);
         // Collapse to one row per goal type, keeping the most recently evaluated entry.
         // The read model is keyed by goalId and can hold stale rows from superseded goals
         // (e.g. re-seeded ids), so without this guard the same type renders multiple times.
@@ -330,8 +368,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                         Comparator.nullsLast(Comparator.naturalOrder()))
                                 .thenComparing(AnalyticsUserGoalProgressEntity::getGoalId))
                         .map(goal -> {
-                            boolean expired = GoalExpiryPolicy.isExpired(
-                                    goal.getTargetDate(), Instant.now(clock).atZone(ZoneOffset.UTC).toLocalDate());
+                            boolean expired = GoalExpiryPolicy.isExpired(goal.getTargetDate(), today);
+                            LiveGoalValues live = liveGoalValues(goal, liveDay);
                             return new AnalyticsGoalProgressResponse.GoalProgressView(
                                     goal.getGoalId(),
                                     goal.getGoalType(),
@@ -339,14 +377,87 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                     toDouble(goal.getTargetValue()),
                                     goal.getTargetUnit(),
                                     goal.getTargetDate(),
-                                    toDouble(goal.getCurrentValue()),
-                                    toDouble(goal.getProgressRatio()),
-                                    goal.getDaysRemaining(),
-                                    !expired && goal.isOnTrack(),
+                                    live.currentValue(),
+                                    live.progressRatio(),
+                                    goal.getTargetDate() == null
+                                            ? goal.getDaysRemaining()
+                                            : GoalExpiryPolicy.daysRemaining(goal.getTargetDate(), today),
+                                    !expired && live.onTrack(),
                                     expired,
                                     goal.getLastEvaluatedAt());
                         })
                         .toList());
+    }
+
+    /** Today's date in the user's stored profile zone (UTC when none is stored). */
+    public LocalDate todayForUser(UUID userId) {
+        String timezone = dashboardSnapshotRepository.findById(userId)
+                .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
+                .orElse(null);
+        return LocalDate.now(clock.withZone(resolveZone(timezone)));
+    }
+
+    /** Cache-key part for read models that depend on "today", so entries roll over at the user's midnight. */
+    public LocalDate todayForCacheKey(CurrentUserPrincipal principal) {
+        return todayForUser(principal.userId());
+    }
+
+    /**
+     * Daily nutrition goals (calories, protein, carbs, fat) describe one day. The stored goal row
+     * is only rewritten when an event arrives, so after midnight it kept showing yesterday's total.
+     * They are therefore evaluated again at read time against the row of today in the user's zone,
+     * and read 0 when today has no row. The pass/fail rules match {@link GoalProgressEvaluator}:
+     * calories, carbs and fat are ceilings and protein is a floor.
+     */
+    private LiveGoalValues liveGoalValues(AnalyticsUserGoalProgressEntity goal, LiveNutritionDay day) {
+        // Goal types are stored as the upper-case enum names the events carry, so they are matched as they are.
+        String type = goal.getGoalType() == null ? "" : goal.getGoalType().trim();
+        if (!GoalProgressEvaluator.NUTRITION_GOAL_TYPES.contains(type)) {
+            return new LiveGoalValues(toDouble(goal.getCurrentValue()), toDouble(goal.getProgressRatio()), goal.isOnTrack());
+        }
+        BigDecimal current = day.valueFor(type);
+        BigDecimal target = goal.getTargetValue();
+        BigDecimal ratio = target == null || target.compareTo(BigDecimal.ZERO) <= 0
+                ? null
+                : current.divide(target, 4, RoundingMode.HALF_UP);
+        boolean onTrack = ratio != null && (GoalProgressEvaluator.PROTEIN.equals(type)
+                ? current.compareTo(target) >= 0
+                : current.compareTo(target) <= 0);
+        return new LiveGoalValues(current.doubleValue(), toDouble(ratio), onTrack);
+    }
+
+    private final class LiveNutritionDay {
+        private final UUID userId;
+        private final LocalDate day;
+        private AnalyticsUserDailyNutritionEntity row;
+        private boolean loaded;
+
+        LiveNutritionDay(UUID userId, LocalDate day) {
+            this.userId = userId;
+            this.day = day;
+        }
+
+        BigDecimal valueFor(String goalType) {
+            if (!loaded) {
+                row = dailyNutritionRepository.findByUserIdAndActivityDate(userId, day).orElse(null);
+                loaded = true;
+            }
+            if (row == null) {
+                return BigDecimal.ZERO;
+            }
+            BigDecimal value = switch (goalType) {
+                case GoalProgressEvaluator.CALORIES -> row.getTotalCaloriesConsumed() == null
+                        ? null
+                        : BigDecimal.valueOf(row.getTotalCaloriesConsumed());
+                case GoalProgressEvaluator.PROTEIN -> row.getTotalProteinGrams();
+                case GoalProgressEvaluator.CARBS -> row.getTotalCarbsGrams();
+                default -> row.getTotalFatGrams();
+            };
+            return value == null ? BigDecimal.ZERO : value;
+        }
+    }
+
+    private record LiveGoalValues(Double currentValue, Double progressRatio, boolean onTrack) {
     }
 
     /**
@@ -413,7 +524,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         UUID userId = principal.userId();
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId).orElse(null);
         ZoneId userZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
-        int currentStreakDays = snapshot == null ? 0 : defaultInteger(snapshot.getActiveStreakDays());
 
         List<AnalyticsUserDailyWorkoutEntity> workoutRows = dailyWorkoutRepository
                 .findByUserIdOrderByActivityDateAsc(userId);
@@ -426,6 +536,12 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 lastActiveDate = row.getActivityDate();
             }
         }
+        // The streak achievements count the same thing as the Home streak: consecutive days with a
+        // completed workout that end today or yesterday in the user's zone.
+        int currentStreakDays = liveStreak(
+                snapshot == null ? null : snapshot.getActiveStreakDays(),
+                lastActiveDate,
+                LocalDate.now(clock.withZone(userZone)));
 
         AnalyticsUserStreakRollupEntity rollup = streakRollupRepository.findById(userId).orElse(null);
         int bestStreakDays = Math.max(
@@ -448,9 +564,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         achievements.add(workoutCountAchievement("WORKOUTS_10", "10 workouts", 10, workoutRows, totalWorkouts, userZone));
         achievements.add(workoutCountAchievement("WORKOUTS_50", "50 workouts", 50, workoutRows, totalWorkouts, userZone));
         achievements.add(workoutCountAchievement("WORKOUTS_100", "100 workouts", 100, workoutRows, totalWorkouts, userZone));
-        achievements.add(streakAchievement("STREAK_7", "7-day streak", 7,
+        achievements.add(streakAchievement("STREAK_7", "7 days in a row", 7,
                 bestStreakDays, rollup, currentStreakDays, lastActiveDate, userZone));
-        achievements.add(streakAchievement("STREAK_30", "30-day streak", 30,
+        achievements.add(streakAchievement("STREAK_30", "30 days in a row", 30,
                 bestStreakDays, rollup, currentStreakDays, lastActiveDate, userZone));
         achievements.add(firstEventAchievement("FIRST_MEAL_LOGGED", "First meal logged", firstMealDate, userZone));
         achievements.add(firstEventAchievement("FIRST_WEIGHT_LOGGED", "First weigh-in", firstWeightDate, userZone));
@@ -696,9 +812,11 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return weights.get(weights.size() - 1).subtract(weights.get(0)).doubleValue();
     }
 
-    private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(UUID userId, String status) {
+    private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(
+            UUID userId, String status, LocalDate today) {
         String normalizedStatus = normalizeStatus(status);
         Map<String, AnalyticsUserGoalProgressEntity> latestByGoalType = new HashMap<>();
+        LiveNutritionDay liveDay = new LiveNutritionDay(userId, today);
         goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, normalizedStatus)
                 .forEach(entity -> latestByGoalType.merge(
                         entity.getGoalType(),
@@ -709,7 +827,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .sorted(Comparator.comparing(AnalyticsUserGoalProgressEntity::getTargetDate,
                                 Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(AnalyticsUserGoalProgressEntity::getGoalId))
-                .map(this::toGoalProgressSummary)
+                .map(goal -> toGoalProgressSummary(goal, today, liveDay))
                 .toList();
     }
 
@@ -730,7 +848,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 rows.stream().mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount())).sum(),
                 rows.stream().mapToInt(row -> defaultInteger(row.getTotalWorkoutMinutes())).sum(),
                 rows.stream().mapToInt(row -> defaultInteger(row.getTotalCaloriesBurned())).sum(),
-                rows.stream().mapToInt(row -> defaultInteger(row.getTotalExerciseCount())).sum());
+                rows.stream().mapToInt(row -> defaultInteger(row.getTotalExerciseCount())).sum(),
+                (int) rows.stream().filter(row -> defaultInteger(row.getCompletedWorkoutCount()) > 0).count());
     }
 
     private NutritionSummaryAggregation aggregateNutritionSummary(java.util.UUID userId, LocalDate from, LocalDate to) {
@@ -778,7 +897,31 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 totalProteinTarget,
                 average(calorieRatios),
                 average(proteinScores),
-                daysWithinBand);
+                daysWithinBand,
+                (int) rows.stream().filter(row -> defaultInteger(row.getMealCount()) > 0).count());
+    }
+
+    /**
+     * One definition of "this week" (Monday to Sunday in the user's zone) and of a streak
+     * (consecutive days with a completed workout, ending today or yesterday). The three old fields
+     * keep their rolling-seven-day meaning for existing clients.
+     */
+    private AnalyticsDashboardResponse.WorkoutSummary workoutSummary(UUID userId,
+                                                                    AnalyticsUserDashboardSnapshotEntity snapshot,
+                                                                    LocalDate today,
+                                                                    boolean sameDay,
+                                                                    boolean sameWeek) {
+        LocalDate monday = today.with(DayOfWeek.MONDAY);
+        WorkoutSummaryAggregation thisWeek = aggregateWorkoutSummary(userId, monday, monday.plusDays(6));
+        int streak = liveStreakDays(userId, snapshot.getActiveStreakDays(), today);
+        return new AnalyticsDashboardResponse.WorkoutSummary(
+                sameDay ? defaultInteger(snapshot.getTodayWorkoutCount()) : 0,
+                sameWeek ? defaultInteger(snapshot.getWeekWorkoutCount()) : 0,
+                sameWeek ? defaultInteger(snapshot.getWeekWorkoutMinutes()) : 0,
+                streak,
+                thisWeek.totalWorkoutCount(),
+                thisWeek.totalWorkoutMinutes(),
+                streak);
     }
 
     private AnalyticsDashboardResponse emptyDashboard(List<AnalyticsDashboardResponse.GoalProgressSummary> goals) {
@@ -786,13 +929,13 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 Instant.now(clock),
                 DEFAULT_TIMEZONE,
                 new AnalyticsDashboardResponse.BodySummary(null, null, null, null, null, null, null),
-                new AnalyticsDashboardResponse.WorkoutSummary(0, 0, 0, 0),
+                new AnalyticsDashboardResponse.WorkoutSummary(0, 0, 0, 0, 0, 0, 0),
                 new AnalyticsDashboardResponse.NutritionSummary(null, null, null, null),
                 goals);
     }
 
     /**
-     * Builds compare windows from the UTC date supplied by the injected clock. WEEK uses ISO-Monday
+     * Builds compare windows from today in the user's own zone (UTC when none is stored). WEEK uses ISO-Monday
      * calendar weeks and compares the elapsed part of this week with the same weekday span last week.
      * MONTH compares the elapsed part of this calendar month with the same day-of-month span last
      * month; when the previous month is shorter, the previous end date is clamped to that month's
@@ -805,7 +948,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 LocalDate currentFrom = todayUtc.with(WeekFields.ISO.dayOfWeek(), 1);
                 long elapsedDays = ChronoUnit.DAYS.between(currentFrom, todayUtc);
                 LocalDate previousFrom = currentFrom.minusWeeks(1);
-                yield new PeriodRanges(currentFrom, todayUtc, previousFrom, previousFrom.plusDays(elapsedDays));
+                yield new PeriodRanges(
+                        currentFrom, todayUtc, previousFrom, previousFrom.plusDays(elapsedDays), currentFrom.plusDays(6));
             }
             case MONTH -> {
                 LocalDate currentFrom = todayUtc.withDayOfMonth(1);
@@ -815,7 +959,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         currentFrom,
                         todayUtc,
                         previousFrom,
-                        previousFrom.withDayOfMonth(previousEndDay));
+                        previousFrom.withDayOfMonth(previousEndDay),
+                        currentFrom.withDayOfMonth(currentFrom.lengthOfMonth()));
             }
         };
     }
@@ -996,18 +1141,18 @@ public class AnalyticsServiceImpl implements AnalyticsService {
      * on track. See Documents/architecture/functional-defects-2026-09-26.md, defect 7.
      */
     private AnalyticsDashboardResponse.GoalProgressSummary toGoalProgressSummary(
-            AnalyticsUserGoalProgressEntity entity) {
-        boolean expired = GoalExpiryPolicy.isExpired(
-                entity.getTargetDate(), Instant.now(clock).atZone(ZoneOffset.UTC).toLocalDate());
+            AnalyticsUserGoalProgressEntity entity, LocalDate today, LiveNutritionDay liveDay) {
+        boolean expired = GoalExpiryPolicy.isExpired(entity.getTargetDate(), today);
+        LiveGoalValues live = liveGoalValues(entity, liveDay);
         return new AnalyticsDashboardResponse.GoalProgressSummary(
                 entity.getGoalId(),
                 entity.getGoalType(),
                 toDouble(entity.getTargetValue()),
                 entity.getTargetUnit(),
                 entity.getTargetDate(),
-                toDouble(entity.getCurrentValue()),
-                toDouble(entity.getProgressRatio()),
-                !expired && entity.isOnTrack(),
+                live.currentValue(),
+                live.progressRatio(),
+                !expired && live.onTrack(),
                 expired,
                 entity.getLastEvaluatedAt());
     }
@@ -1044,14 +1189,16 @@ public class AnalyticsServiceImpl implements AnalyticsService {
             LocalDate currentFrom,
             LocalDate currentTo,
             LocalDate previousFrom,
-            LocalDate previousTo) {
+            LocalDate previousTo,
+            LocalDate currentPeriodEnd) {
     }
 
     private record WorkoutSummaryAggregation(
             int totalWorkoutCount,
             int totalWorkoutMinutes,
             int totalCaloriesBurned,
-            int totalExerciseCount) {
+            int totalExerciseCount,
+            int daysWithWorkout) {
     }
 
     private record NutritionSummaryAggregation(
@@ -1063,7 +1210,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
             BigDecimal totalProteinTarget,
             Double averageCalorieAdherence,
             Double averageMacroAdherence,
-            int daysWithinBand) {
+            int daysWithinBand,
+            int daysLogged) {
     }
 
     private static final class WorkoutSeriesBucketAccumulator {

@@ -2,6 +2,7 @@ package com.fitsync.recommendation.coach.repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.recommendation.coach.entity.CoachTurnEntity;
@@ -23,6 +24,22 @@ public interface CoachTurnRepository extends JpaRepository<CoachTurnEntity, UUID
      * millisecond still order correctly.
      */
     List<CoachTurnEntity> findByThreadIdOrderBySeqDesc(UUID threadId);
+
+    /** The user turn a retried question refers to, by the id the client gave it. */
+    Optional<CoachTurnEntity> findByThreadIdAndClientTurnId(UUID threadId, UUID clientTurnId);
+
+    Optional<CoachTurnEntity> findByThreadIdAndSeq(UUID threadId, Integer seq);
+
+    /**
+     * When a user's questions were asked since a moment, oldest first, across all of their threads
+     * (archived or not, since archiving must not reset a limit). Only the timestamps are read.
+     */
+    @Query("select t.dateTimeCreated from CoachTurnEntity t, CoachThreadEntity th "
+            + "where t.threadId = th.threadId and th.userId = :userId and t.role = :role "
+            + "and t.dateTimeCreated >= :since order by t.dateTimeCreated asc")
+    List<Instant> findTurnTimesSince(@Param("userId") UUID userId,
+                                     @Param("role") CoachTurnRole role,
+                                     @Param("since") Instant since);
 
     @Query("select coalesce(max(t.seq), 0) from CoachTurnEntity t where t.threadId = :threadId")
     int findMaxSeq(@Param("threadId") UUID threadId);

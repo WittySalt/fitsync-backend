@@ -8,7 +8,7 @@ import java.util.List;
  * logged workout calories of the day, never a full TDEE on top of exercise.
  *
  * @param status       OK, NO_PROFILE (no BMR is known) or TOO_FEW_DAYS (fewer than 3 logged days)
- * @param daysLogged   days of the week with at least one meal
+ * @param daysLogged   days of the week with at least two meals (a day with one meal is only partly logged)
  * @param bmrKcal      the BMR valid on the last day of the week, null without a profile
  * @param average      per logged day, null when no day is logged
  * @param mealSplit    average per logged day, null when no day is logged
@@ -54,6 +54,8 @@ public record AnalyticsEnergyWeeklyResponse(
     /**
      * Eaten, balance and runningTotal are null on a day without a logged meal. Today (still going) shows
      * what is logged so far but has no balance or running total and is left out of every count.
+     * A day counts as logged from two meals. A day with exactly one meal is {@code partlyLogged}: it shows
+     * its eaten value, has no balance or running total and is left out of every count.
      */
     public record Day(
             LocalDate date,
@@ -64,7 +66,8 @@ public record AnalyticsEnergyWeeklyResponse(
             Integer workouts,
             boolean workoutsEstimated,
             Integer balance,
-            Integer runningTotal) {
+            Integer runningTotal,
+            boolean partlyLogged) {
     }
 
     /** Cumulative from the first of the eight weeks. */

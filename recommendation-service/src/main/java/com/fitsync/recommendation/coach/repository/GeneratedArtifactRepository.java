@@ -1,5 +1,6 @@
 package com.fitsync.recommendation.coach.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,6 +31,14 @@ public interface GeneratedArtifactRepository extends JpaRepository<GeneratedArti
     @Modifying
     @Query("delete from GeneratedArtifactEntity a where a.userId = :userId")
     int deleteByUserId(@Param("userId") UUID userId);
+
+    /** When a user's artifacts of one kind were generated since a moment, oldest first. */
+    @Query("select a.dateTimeCreated from GeneratedArtifactEntity a "
+            + "where a.userId = :userId and a.kind = :kind and a.dateTimeCreated >= :since "
+            + "order by a.dateTimeCreated asc")
+    List<Instant> findCreatedTimesSince(@Param("userId") UUID userId,
+                                        @Param("kind") ArtifactKind kind,
+                                        @Param("since") Instant since);
 
     List<GeneratedArtifactEntity> findByUserIdAndKindOrderByDateTimeCreatedDesc(UUID userId, ArtifactKind kind);
 

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
@@ -18,7 +19,10 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
+import com.fitsync.recommendation.coach.client.UserProfileClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
+import com.fitsync.recommendation.coach.reading.ProgressFactsBuilder;
+import com.fitsync.recommendation.coach.reading.ProgressInsight;
 import com.fitsync.recommendation.coach.orchestrator.AnswerValidator;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
@@ -39,8 +43,9 @@ class ReadFactsToolTests {
     private final WorkoutCatalogueClient workoutClient = mock(WorkoutCatalogueClient.class);
     private final NutritionCatalogueClient nutritionClient = mock(NutritionCatalogueClient.class);
     private final UserCalendar calendar = mock(UserCalendar.class);
+    private final UserProfileClient userClient = mock(UserProfileClient.class);
     private final ReadFactsTool tool = new ReadFactsTool(repository, coachFacts, objectMapper, workoutClient,
-            nutritionClient, calendar);
+            nutritionClient, calendar, userClient);
 
     @BeforeEach
     void todayIsTheFirstOfOctoberInSingapore() {
@@ -229,6 +234,82 @@ class ReadFactsToolTests {
         assertThat(result.summary()).isEqualTo("no facts yet");
     }
 
+    private static ProgressInsight liveInsight() {
+        return new ProgressInsight("Asia/Singapore", LocalDate.parse("2026-10-03"), new BigDecimal("70.4"),
+                LocalDate.parse("2026-10-02"), 12, new BigDecimal("-0.41"), 28, new BigDecimal("68.0"),
+                LocalDate.parse("2026-12-11"), LocalDate.parse("2026-11-25"));
+    }
+
+    @Test
+    @DisplayName("goalPace is read live and states the same weight, rate, goal date and projected date as the reading")
+    void goalPaceMatchesTheProgressReading() throws Exception {
+        userWithFacts("Asia/Singapore");
+        Map<String, Object> stale = new LinkedHashMap<>();
+        stale.put("status", "BEHIND");
+        stale.put("requiredRatePerWeekKg", "0.32");
+        facts.put("goalPace", stale);
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(userClient.progressInsight(CALL.bearerToken(), "Asia/Singapore")).thenReturn(liveInsight());
+
+        JsonNode pace = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation())
+                .path("goalPace");
+
+        List<com.fitsync.recommendation.coach.reading.ReadingFact> reading =
+                new ProgressFactsBuilder().build(liveInsight(), null);
+        assertThat(pace.path("latestWeightKg").asText()).isEqualTo(reading.get(0).value());
+        assertThat(pace.path("weeklyChangeKg").asText()).isEqualTo(reading.get(1).value());
+        assertThat(pace.path("weeklyChangeDirection").asText()).isEqualToIgnoringCase(reading.get(1).note());
+        assertThat("by " + pace.path("targetDate").asText()).isEqualTo(reading.get(2).note());
+        assertThat(pace.path("projectedDateAtThisRate").asText() + " at this rate")
+                .isEqualTo(reading.get(2).detail());
+        assertThat(pace.path("status").asText()).isEqualTo("AHEAD");
+        assertThat(pace.has("requiredRatePerWeekKg")).isFalse();
+    }
+
+    @Test
+    @DisplayName("the stored goalPace stays when the live read fails or holds nothing")
+    void keepsTheStoredPaceWhenTheLiveReadFails() throws Exception {
+        userWithFacts("Asia/Singapore");
+        Map<String, Object> stale = new LinkedHashMap<>();
+        stale.put("status", "BEHIND");
+        facts.put("goalPace", stale);
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(userClient.progressInsight(any(), any())).thenReturn(null);
+        assertThat(objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation())
+                .path("goalPace").path("status").asText()).isEqualTo("BEHIND");
+
+        when(userClient.progressInsight(any(), any())).thenThrow(new IllegalStateException("down"));
+        assertThat(objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation())
+                .path("goalPace").path("status").asText()).isEqualTo("BEHIND");
+    }
+
+    @Test
+    @DisplayName("the zone the client reports beats the stored one, and an unknown name falls back to it")
+    void theReportedZoneWinsOverTheStoredOne() {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        CoachCallContext tokyo = new CoachCallContext(USER, "caller", UUID.randomUUID(), "Asia/Tokyo");
+        CoachCallContext nonsense = new CoachCallContext(USER, "caller", UUID.randomUUID(), "Not/AZone");
+
+        tool.invoke(tokyo, objectMapper.createObjectNode());
+        tool.invoke(nonsense, objectMapper.createObjectNode());
+
+        org.mockito.Mockito.verify(userClient).progressInsight(CALL.bearerToken(), "Asia/Tokyo");
+        org.mockito.Mockito.verify(userClient).progressInsight(CALL.bearerToken(), "Asia/Singapore");
+    }
+
+    @Test
+    @DisplayName("the tool texts state facts and carry no instruction or dash")
+    void toolTextsStateFactsOnly() {
+        when(repository.findById(USER)).thenReturn(Optional.empty());
+
+        String text = tool.invoke(CALL, objectMapper.createObjectNode()).observation() + tool.promptSignature();
+
+        assertThat(text).doesNotContainIgnoringCase("encourage").doesNotContain("—").doesNotContain("–");
+    }
+
+    private final Map<String, Object> facts = new LinkedHashMap<>();
+
     private void userWithFacts(String timezone) {
         RecommendationContextEntity entity = new RecommendationContextEntity();
         entity.setUserId(USER);
@@ -237,7 +318,7 @@ class ReadFactsToolTests {
         training.put("period", "LAST_FULL_WEEK");
         training.put("workoutCount", 4);
         training.put("totalMinutes", 170);
-        Map<String, Object> facts = new LinkedHashMap<>();
+        facts.clear();
         facts.put("training", training);
         Map<String, Object> nutritionToday = new LinkedHashMap<>();
         nutritionToday.put("consumedCalories", 1200);

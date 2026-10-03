@@ -1,9 +1,12 @@
 package com.fitsync.recommendation.coach.controller;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Optional;
 
 import com.fitsync.recommendation.coach.dto.CoachQualityResponse;
 import com.fitsync.recommendation.coach.service.CoachQualityService;
+import com.fitsync.web.timezone.RequestTimezone;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -44,14 +47,14 @@ public class CoachQualityController {
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Aggregates returned"),
-            @ApiResponse(responseCode = "400", description = "Invalid date range or timezone"),
+            @ApiResponse(responseCode = "400", description = "Invalid date range"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
             @ApiResponse(responseCode = "403", description = "Caller is not an admin")
     })
     public CoachQualityResponse quality(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam(required = false) String timezone) {
-        return qualityService.quality(from, to, timezone);
+            @RequestTimezone Optional<ZoneId> zone) {
+        return qualityService.quality(from, to, zone.map(ZoneId::getId).orElse(null));
     }
 }

@@ -59,7 +59,7 @@ class CoachThreadControllerRequestValidationTests {
     @Test
     void aBodyWithNoContextStillWorks() throws Exception {
         when(conversationService.send(eq(USER_ID), eq(THREAD_ID), any(String.class), eq("Should I train today?"),
-                isNull()))
+                isNull(), isNull(), isNull()))
                 .thenReturn(new CoachMessageResponse(THREAD_ID, TURN_ID, "Rest today.", 2, List.of(), 10, null));
 
         mockMvc.perform(post("/api/v1/coach/threads/{threadId}/messages", THREAD_ID)
@@ -116,7 +116,7 @@ class CoachThreadControllerRequestValidationTests {
     void aRecipeIdIsAcceptedAndReachesTheServiceAndOldClientsWithoutOneStillWork() throws Exception {
         String id = "6c6a1ac5-5b6b-584e-9e3f-40e36949cdfb";
         when(conversationService.send(eq(USER_ID), eq(THREAD_ID), any(String.class), eq("Tell me about this."),
-                any(CoachMessageContext.class)))
+                any(CoachMessageContext.class), isNull(), isNull()))
                 .thenReturn(new CoachMessageResponse(THREAD_ID, TURN_ID, "Fine.", 1, List.of(), 10, null));
 
         mockMvc.perform(post("/api/v1/coach/threads/{threadId}/messages", THREAD_ID)
@@ -136,28 +136,45 @@ class CoachThreadControllerRequestValidationTests {
 
         org.mockito.ArgumentCaptor<CoachMessageContext> sent = org.mockito.ArgumentCaptor.forClass(CoachMessageContext.class);
         org.mockito.Mockito.verify(conversationService, org.mockito.Mockito.times(2))
-                .send(eq(USER_ID), eq(THREAD_ID), any(String.class), eq("Tell me about this."), sent.capture());
+                .send(eq(USER_ID), eq(THREAD_ID), any(String.class), eq("Tell me about this."), sent.capture(), isNull(), isNull());
         org.assertj.core.api.Assertions.assertThat(sent.getAllValues().get(0).recipeId()).isEqualTo(id);
         org.assertj.core.api.Assertions.assertThat(sent.getAllValues().get(1).recipeId()).isNull();
     }
 
     @Test
-    void aTimezoneContainingASpaceIsRejected() throws Exception {
+    void theTurnZoneComesFromTheTimezoneHeaderAndAnInvalidOneIsIgnored() throws Exception {
+        when(conversationService.send(eq(USER_ID), eq(THREAD_ID), any(String.class), eq("Where am I?"),
+                isNull(), isNull(), any()))
+                .thenReturn(new CoachMessageResponse(THREAD_ID, TURN_ID, "Fine.", 1, List.of(), 10, null));
+
+        for (String zone : List.of("Asia/Singapore", "Asia/Singa pore")) {
+            mockMvc.perform(post("/api/v1/coach/threads/{threadId}/messages", THREAD_ID)
+                            .header("Authorization", "Bearer token")
+                            .header("X-Timezone", zone)
+                            .with(authentication(authToken()))
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\":\"Where am I?\"}"))
+                    .andExpect(status().isOk());
+        }
         mockMvc.perform(post("/api/v1/coach/threads/{threadId}/messages", THREAD_ID)
                         .header("Authorization", "Bearer token")
                         .with(authentication(authToken()))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"message":"Tell me about this.","context":{"surface":"WORKOUT","timezone":"Asia/Singa pore"}}
-                                """))
-                .andExpect(status().isBadRequest());
+                        .content("{\"message\":\"Where am I?\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(conversationService).send(eq(USER_ID), eq(THREAD_ID), any(String.class),
+                eq("Where am I?"), isNull(), isNull(), eq("Asia/Singapore"));
+        org.mockito.Mockito.verify(conversationService, org.mockito.Mockito.times(2)).send(eq(USER_ID), eq(THREAD_ID),
+                any(String.class), eq("Where am I?"), isNull(), isNull(), isNull());
     }
 
     @Test
     void aFullyValidContextIsAccepted() throws Exception {
         when(conversationService.send(eq(USER_ID), eq(THREAD_ID), any(String.class), eq("Tell me about this."),
-                any(CoachMessageContext.class)))
+                any(CoachMessageContext.class), isNull(), isNull()))
                 .thenReturn(new CoachMessageResponse(THREAD_ID, TURN_ID, "You moved more weight.", 2, List.of(),
                         10, "9f2c4e1ab03d77aa"));
 
@@ -168,7 +185,7 @@ class CoachThreadControllerRequestValidationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"message":"Tell me about this.",\
-                                "context":{"surface":"WORKOUT","readingId":"9f2c4e1ab03d77aa","timezone":"Asia/Singapore"}}
+                                "context":{"surface":"WORKOUT","readingId":"9f2c4e1ab03d77aa"}}
                                 """))
                 .andExpect(status().isOk());
     }

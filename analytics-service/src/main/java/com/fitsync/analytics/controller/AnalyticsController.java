@@ -1,6 +1,8 @@
 package com.fitsync.analytics.controller;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Optional;
 
 import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
@@ -26,7 +28,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.constraints.Size;
+import com.fitsync.web.timezone.RequestTimezone;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
@@ -235,12 +237,12 @@ public class AnalyticsController {
     @Operation(summary = "Get energy this week",
             description = "Returns eaten, resting and workout energy and the balance of the logged days of a week, "
                     + "the meal split, a running total and eight weeks of expected against actual weight change. "
-                    + "weekStart must be a Monday and defaults to the current week; timezone is an IANA zone and "
+                    + "weekStart must be a Monday and defaults to the current week; the zone is read from the X-Timezone header and "
                     + "defaults to the user's stored zone, then UTC. The caller comes from the token only.",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Energy week returned"),
-            @ApiResponse(responseCode = "400", description = "weekStart is not a Monday or timezone is not valid"),
+            @ApiResponse(responseCode = "400", description = "weekStart is not a Monday "),
             @ApiResponse(responseCode = "401", description = "Authentication required")
     })
     public AnalyticsEnergyWeeklyResponse energyWeekly(Authentication authentication,
@@ -248,9 +250,9 @@ public class AnalyticsController {
                                                       @RequestParam(required = false)
                                                       @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                                                       LocalDate weekStart,
-                                                      @Parameter(description = "IANA time zone, for example Asia/Singapore.")
-                                                      @RequestParam(required = false) @Size(max = 64) String timezone) {
-        return analyticsEnergyService.getWeekly(currentPrincipal(authentication).userId(), weekStart, timezone);
+                                                      @RequestTimezone Optional<ZoneId> zone) {
+        return analyticsEnergyService.getWeekly(currentPrincipal(authentication).userId(), weekStart,
+                zone.map(ZoneId::getId).orElse(null));
     }
 
     @GetMapping("/summary/compare")

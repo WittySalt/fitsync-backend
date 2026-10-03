@@ -85,7 +85,7 @@ class CoachQualityControllerTests {
         mockMvc.perform(get("/api/v1/internal/coach/quality")
                         .param("from", "2026-09-01")
                         .param("to", "2026-09-07")
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .with(authentication(authToken("ADMIN"))))
                 .andExpect(status().isOk());
     }
@@ -121,16 +121,13 @@ class CoachQualityControllerTests {
     }
 
     @Test
-    void anUnknownTimezoneIsRejectedByTheService() throws Exception {
-        when(qualityService.quality(null, null, "Mars/Base"))
-                .thenThrow(new com.fitsync.web.error.ApiException(
-                        org.springframework.http.HttpStatus.BAD_REQUEST, "COACH_QUALITY_INVALID_PARAMS",
-                        "The date range or timezone for the coach quality report is invalid."));
+    void anUnknownTimezoneHeaderIsIgnored() throws Exception {
+        when(qualityService.quality(null, null, null)).thenReturn(sampleResponse());
 
         mockMvc.perform(get("/api/v1/internal/coach/quality")
-                        .param("timezone", "Mars/Base")
+                        .header("X-Timezone", "Mars/Base")
                         .with(authentication(authToken("ADMIN"))))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk());
     }
 
     @Test

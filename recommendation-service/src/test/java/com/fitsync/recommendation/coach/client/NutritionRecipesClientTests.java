@@ -66,12 +66,14 @@ class NutritionRecipesClientTests {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(method(HttpMethod.GET))
                 .andExpect(requestTo(endsWith("/api/v1/nutrition/recipes?scope=library&sort=fit"
-                        + "&timezone=Asia/Singapore&q=chicken&diet=VEGAN&tag=HIGH_PROTEIN&page=1&size=50")))
+                        + "&q=chicken&diet=VEGAN&tag=HIGH_PROTEIN&page=1&size=50")))
+                .andExpect(header("X-Timezone", "Asia/Singapore"))
                 .andExpect(header("Authorization", "Bearer " + CALLER))
                 .andRespond(withSuccess("{\"content\":[]}", MediaType.APPLICATION_JSON));
         server.expect(method(HttpMethod.GET))
                 .andExpect(requestTo(endsWith(
-                        "/api/v1/nutrition/recipes?scope=library&sort=fit&timezone=UTC&page=0&size=50")))
+                        "/api/v1/nutrition/recipes?scope=library&sort=fit&page=0&size=50")))
+                .andExpect(header("X-Timezone", "UTC"))
                 .andRespond(withSuccess("{\"content\":[]}", MediaType.APPLICATION_JSON));
         NutritionCatalogueClient client = new NutritionCatalogueClient(builder, properties, new ObjectMapper());
 

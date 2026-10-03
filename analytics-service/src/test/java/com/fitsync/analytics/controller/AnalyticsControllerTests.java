@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -73,7 +74,7 @@ class AnalyticsControllerTests {
                 "Asia/Singapore",
                 new AnalyticsDashboardResponse.BodySummary(78.4, 19.8, 24.7, -1.6, LocalDate.parse("2026-06-14"),
                         85.5, LocalDate.parse("2026-06-12")),
-                new AnalyticsDashboardResponse.WorkoutSummary(1, 4, 205, 3),
+                new AnalyticsDashboardResponse.WorkoutSummary(1, 4, 205, 3, 2, 90, 3),
                 new AnalyticsDashboardResponse.NutritionSummary(1860, 2100, 132.5, 150.0),
                 List.of(new AnalyticsDashboardResponse.GoalProgressSummary(
                         goalId, "WEIGHT", 75.0, "kg", LocalDate.parse("2026-08-01"), 77.0, 0.42, true, false,
@@ -205,12 +206,20 @@ class AnalyticsControllerTests {
                         new AnalyticsCompareResponse.MetricComparison(3.0, 2.0, 1.0, 50.0),
                         new AnalyticsCompareResponse.MetricComparison(90.0, 45.0, 45.0, 100.0),
                         new AnalyticsCompareResponse.MetricComparison(750.0, 300.0, 450.0, 150.0),
-                        new AnalyticsCompareResponse.MetricComparison(12.0, 6.0, 6.0, 100.0)),
+                        new AnalyticsCompareResponse.MetricComparison(12.0, 6.0, 6.0, 100.0),
+                        new AnalyticsCompareResponse.DaysLogged(3, 2)),
                 new AnalyticsCompareResponse.NutritionComparison(
                         new AnalyticsCompareResponse.MetricComparison(4000.0, 3000.0, 1000.0, 33.3333),
                         new AnalyticsCompareResponse.MetricComparison(260.0, 200.0, 60.0, 30.0),
                         new AnalyticsCompareResponse.MetricComparison(420.0, 300.0, 120.0, 40.0),
-                        new AnalyticsCompareResponse.MetricComparison(130.0, 100.0, 30.0, 30.0))));
+                        new AnalyticsCompareResponse.MetricComparison(130.0, 100.0, 30.0, 30.0),
+                        new AnalyticsCompareResponse.DaysLogged(4, 4),
+                        new AnalyticsCompareResponse.AveragePerLoggedDay(
+                                new AnalyticsCompareResponse.MetricComparison(1000.0, 750.0, 250.0, 33.3333),
+                                new AnalyticsCompareResponse.MetricComparison(65.0, 50.0, 15.0, 30.0),
+                                new AnalyticsCompareResponse.MetricComparison(105.0, 75.0, 30.0, 40.0),
+                                new AnalyticsCompareResponse.MetricComparison(32.5, 25.0, 7.5, 30.0))),
+                true));
 
         mockMvc.perform(get("/api/v1/analytics/summary/compare")
                         .with(authentication(authToken(principal)))
@@ -220,7 +229,10 @@ class AnalyticsControllerTests {
                 .andExpect(jsonPath("$.currentWindow.from").value("2026-06-15"))
                 .andExpect(jsonPath("$.previousWindow.to").value("2026-06-11"))
                 .andExpect(jsonPath("$.workout.completedWorkoutCount.delta").value(1.0))
-                .andExpect(jsonPath("$.nutrition.totalCaloriesConsumed.deltaPct").value(33.3333));
+                .andExpect(jsonPath("$.nutrition.totalCaloriesConsumed.deltaPct").value(33.3333))
+                .andExpect(jsonPath("$.currentToDate").value(true))
+                .andExpect(jsonPath("$.workout.daysLogged.current").value(3))
+                .andExpect(jsonPath("$.nutrition.averagePerLoggedDay.calories.current").value(1000.0));
     }
 
     @Test
@@ -310,7 +322,7 @@ class AnalyticsControllerTests {
                 new AnalyticsAchievementsResponse.AchievementView(
                         "FIRST_WORKOUT", "First workout", true, Instant.parse("2026-05-01T10:00:00Z"), 1.0),
                 new AnalyticsAchievementsResponse.AchievementView(
-                        "STREAK_7", "7-day streak", false, null, 0.86))));
+                        "STREAK_7", "7 days in a row", false, null, 0.86))));
 
         mockMvc.perform(get("/api/v1/analytics/achievements")
                         .with(authentication(authToken(principal))))
@@ -384,7 +396,7 @@ class AnalyticsControllerTests {
         mockMvc.perform(get("/api/v1/analytics/energy/weekly")
                         .with(authentication(authToken(principal)))
                         .param("weekStart", "2026-09-28")
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .param("userId", UUID.randomUUID().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("TOO_FEW_DAYS"))
@@ -395,15 +407,16 @@ class AnalyticsControllerTests {
     }
 
     @Test
-    void energyWeeklyRejectsMalformedWeekStartAndOverlongTimezone() throws Exception {
+    void energyWeeklyRejectsMalformedWeekStartAndIgnoresAnInvalidTimezoneHeader() throws Exception {
         mockMvc.perform(get("/api/v1/analytics/energy/weekly")
                         .with(authentication(authToken(principal())))
                         .param("weekStart", "not-a-date"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/analytics/energy/weekly")
                         .with(authentication(authToken(principal())))
-                        .param("timezone", "x".repeat(65)))
-                .andExpect(status().isBadRequest());
+                        .header("X-Timezone", "x".repeat(65)))
+                .andExpect(status().isOk());
+        verify(analyticsEnergyService).getWeekly(any(), isNull(), isNull());
     }
 
     @Test

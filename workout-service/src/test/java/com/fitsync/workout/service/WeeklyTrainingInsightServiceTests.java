@@ -326,6 +326,54 @@ class WeeklyTrainingInsightServiceTests {
         return new WorkoutPlanDayInput(null, dayOfWeek, kind, title, sportActivity, estimatedMinutes, List.of());
     }
 
+    @Test
+    void comparesWithLastWeekUpToTheSameWeekdayNotTheWholeOfLastWeek() {
+        seedFourWeekScenario(currentUser);
+
+        // Thursday 24 September: last week up to Thursday 17 September holds the strength day on the
+        // 16th (1,716 kg) and the cardio day on the 14th. The whole of last week is the same here, since
+        // the 18th is a cardio day without weight.
+        WeeklyTrainingInsightView thursday = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-24"));
+        assertEquals(0, new BigDecimal("1923.00").compareTo(thursday.volume().thisWeekKg()));
+        assertEquals(0, new BigDecimal("1716.00").compareTo(thursday.volume().previousWeekSameDaysKg()));
+        assertEquals(1, thursday.volume().previousWeekSameDaysSessionsWithVolume());
+        assertEquals(2, thursday.previousWeekSameDaysCompletedSessions());
+        assertEquals(85, thursday.previousWeekSameDaysTotalMinutes());
+        assertEquals(3, thursday.previousWeekCompletedSessions());
+
+        // Tuesday 22 September: last week up to Tuesday 15 September has only the cardio day on the 14th,
+        // so there is no lifting to compare with, although the whole of last week lifted 1,716 kg.
+        WeeklyTrainingInsightView tuesday = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-22"));
+        assertEquals(0, new BigDecimal("1923.00").compareTo(tuesday.volume().thisWeekKg()));
+        assertEquals(0, new BigDecimal("1716.00").compareTo(tuesday.volume().previousWeekKg()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(tuesday.volume().previousWeekSameDaysKg()));
+        assertEquals(0, tuesday.volume().previousWeekSameDaysSessionsWithVolume());
+        assertEquals(1, tuesday.previousWeekSameDaysCompletedSessions());
+        assertEquals(35, tuesday.previousWeekSameDaysTotalMinutes());
+
+        // Sunday, the last day of the week: the same-days window is the whole of last week.
+        WeeklyTrainingInsightView sunday = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-27"));
+        assertEquals(0, sunday.volume().previousWeekKg().compareTo(sunday.volume().previousWeekSameDaysKg()));
+        assertEquals(sunday.previousWeekCompletedSessions(), sunday.previousWeekSameDaysCompletedSessions());
+        assertEquals(sunday.previousWeekTotalMinutes(), sunday.previousWeekSameDaysTotalMinutes());
+    }
+
+    @Test
+    void aMondayCompareCoversOnlyLastMonday() {
+        seedFourWeekScenario(currentUser);
+
+        WeeklyTrainingInsightView monday = weeklyTrainingInsightService.getWeeklyTrainingInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-28"));
+
+        // Monday 28 September against Monday 21 September, which had the 1,923 kg strength day.
+        assertEquals(0, new BigDecimal("1923.00").compareTo(monday.volume().previousWeekSameDaysKg()));
+        assertEquals(1, monday.previousWeekSameDaysCompletedSessions());
+        assertEquals(50, monday.previousWeekSameDaysTotalMinutes());
+    }
+
     private void saveDaySession(CurrentUserPrincipal user,
                                 SessionKind kind,
                                 WorkoutType workoutType,

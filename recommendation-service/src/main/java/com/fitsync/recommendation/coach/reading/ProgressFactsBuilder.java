@@ -4,7 +4,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
@@ -37,6 +39,58 @@ public class ProgressFactsBuilder {
             chosen.add(calories);
         }
         return ReadingFactsBuilder.numbered(chosen);
+    }
+
+    /**
+     * The weight, rate and goal group the coach reads, taken from the same insight and written with
+     * the same formatting as the facts above, so the coach and the page reading cannot disagree about
+     * a figure or a date. Empty when the insight holds neither a weight nor a goal.
+     */
+    public static Map<String, Object> paceFacts(ProgressInsight insight) {
+        Map<String, Object> pace = new LinkedHashMap<>();
+        if (insight == null) {
+            return pace;
+        }
+        if (insight.weightKg() != null) {
+            pace.put("latestWeightKg", insight.weightKg().setScale(1, RoundingMode.HALF_UP).toPlainString());
+            if (insight.measuredOn() != null) {
+                pace.put("weighedOn", shortDate(insight.measuredOn(), false));
+            }
+        }
+        BigDecimal rate = insight.weeklyRateKg();
+        if (rate != null) {
+            int direction = rate.setScale(2, RoundingMode.HALF_UP).signum();
+            pace.put("weeklyChangeKg", ReadingFactsBuilder.upToTwoDecimals(rate.abs()));
+            pace.put("weeklyChangeDirection", direction < 0 ? "down" : direction > 0 ? "up" : "unchanged");
+            pace.put("weeklyChangeWindowDays", ProgressInsight.PERIOD_DAYS);
+        }
+        if (insight.goalWeightKg() != null) {
+            pace.put("targetWeightKg", ReadingFactsBuilder.upToOneDecimal(insight.goalWeightKg()));
+            if (insight.goalDate() != null) {
+                pace.put("targetDate", dateFor(insight.goalDate(), insight));
+            }
+            if (insight.projectedDate() != null) {
+                pace.put("projectedDateAtThisRate", dateFor(insight.projectedDate(), insight));
+            }
+            String status = paceStatus(insight);
+            if (status != null) {
+                pace.put("status", status);
+            }
+        }
+        return pace;
+    }
+
+    /** Where the projection lands against the goal date, or null when there is nothing to compare. */
+    private static String paceStatus(ProgressInsight insight) {
+        LocalDate goalDate = insight.goalDate();
+        if (goalDate == null || insight.weeklyRateKg() == null) {
+            return null;
+        }
+        LocalDate projected = insight.projectedDate();
+        if (projected == null || projected.isAfter(goalDate)) {
+            return "BEHIND";
+        }
+        return projected.isBefore(goalDate) ? "AHEAD" : "ON_TRACK";
     }
 
     private static void addWeight(List<ReadingFact> facts, ProgressInsight insight) {

@@ -109,8 +109,7 @@ public class WorkoutCatalogueClient extends CatalogueClient {
      */
     public String weeklyInsight(String bearerToken, String timezone) {
         Map<String, Object> params = params();
-        params.put("timezone", timezone);
-        return get(WEEKLY_INSIGHT, params, bearerToken);
+        return get(WEEKLY_INSIGHT, params, bearerToken, timezone);
     }
 
     /**
@@ -125,8 +124,7 @@ public class WorkoutCatalogueClient extends CatalogueClient {
      */
     public TrainingInsight trainingInsight(String bearerToken, String timezone) {
         Map<String, Object> params = params();
-        params.put("timezone", timezone);
-        String body = get(TRAINING_INSIGHT, params, bearerToken);
+        String body = get(TRAINING_INSIGHT, params, bearerToken, timezone);
         if (body == null) {
             return null;
         }

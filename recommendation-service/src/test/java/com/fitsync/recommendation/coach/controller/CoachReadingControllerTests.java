@@ -64,7 +64,7 @@ class CoachReadingControllerTests {
                         List.of()));
 
         mockMvc.perform(get("/api/v1/coach/readings/workout")
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .header("Authorization", "Bearer token")
                         .with(authentication(authToken())))
                 .andExpect(status().isOk())
@@ -90,21 +90,25 @@ class CoachReadingControllerTests {
     }
 
     @Test
-    void rejectsATimezoneContainingASpace() throws Exception {
+    void ignoresATimezoneHeaderContainingASpace() throws Exception {
         mockMvc.perform(get("/api/v1/coach/readings/workout")
-                        .param("timezone", "Asia/Singa pore")
+                        .header("X-Timezone", "Asia/Singa pore")
                         .header("Authorization", "Bearer token")
                         .with(authentication(authToken())))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(readingService).workoutReading(eq(USER_ID), any(String.class), eq("UTC"));
     }
 
     @Test
-    void rejectsATimezoneOverSixtyFourCharacters() throws Exception {
+    void ignoresATimezoneHeaderOverSixtyFourCharacters() throws Exception {
         mockMvc.perform(get("/api/v1/coach/readings/workout")
-                        .param("timezone", "A".repeat(65))
+                        .header("X-Timezone", "A".repeat(65))
                         .header("Authorization", "Bearer token")
                         .with(authentication(authToken())))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(readingService).workoutReading(eq(USER_ID), any(String.class), eq("UTC"));
     }
 
     @Test
@@ -138,7 +142,7 @@ class CoachReadingControllerTests {
                         List.of()));
 
         mockMvc.perform(get("/api/v1/coach/readings/nutrition")
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .header("Authorization", "Bearer token")
                         .with(authentication(authToken())))
                 .andExpect(status().isOk())
@@ -148,13 +152,7 @@ class CoachReadingControllerTests {
     }
 
     @Test
-    void nutritionRejectsAnImplausibleTimezoneAndSurfacesAnUnavailableUpstream() throws Exception {
-        mockMvc.perform(get("/api/v1/coach/readings/nutrition")
-                        .param("timezone", "Asia/Singa pore")
-                        .header("Authorization", "Bearer token")
-                        .with(authentication(authToken())))
-                .andExpect(status().isBadRequest());
-
+    void nutritionSurfacesAnUnavailableUpstream() throws Exception {
         when(readingService.nutritionReading(eq(USER_ID), any(String.class), eq("UTC")))
                 .thenThrow(new ReadingUnavailableException("The nutrition service could not be read."));
         mockMvc.perform(get("/api/v1/coach/readings/nutrition")
@@ -188,13 +186,7 @@ class CoachReadingControllerTests {
     }
 
     @Test
-    void progressRejectsAnImplausibleTimezoneAndSurfacesAnUnavailableUpstream() throws Exception {
-        mockMvc.perform(get("/api/v1/coach/readings/progress")
-                        .param("timezone", "A".repeat(65))
-                        .header("Authorization", "Bearer token")
-                        .with(authentication(authToken())))
-                .andExpect(status().isBadRequest());
-
+    void progressSurfacesAnUnavailableUpstream() throws Exception {
         when(readingService.progressReading(eq(USER_ID), any(String.class), eq("UTC")))
                 .thenThrow(new ReadingUnavailableException("The user service could not be read."));
         mockMvc.perform(get("/api/v1/coach/readings/progress")

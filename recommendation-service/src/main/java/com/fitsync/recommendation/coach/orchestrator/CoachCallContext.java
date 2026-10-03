@@ -16,10 +16,15 @@ import java.util.UUID;
  * matters because those catalogues contain per-owner rows — a user's custom exercises and foods are
  * visible to them and should be visible to their coach, and to nobody else. It is never logged.
  */
-public record CoachCallContext(UUID userId, String bearerToken, UUID turnId) {
+public record CoachCallContext(UUID userId, String bearerToken, UUID turnId, String timezone) {
+
+    /** A call with no timezone from the client, so tools fall back to the stored profile zone. */
+    public CoachCallContext(UUID userId, String bearerToken, UUID turnId) {
+        this(userId, bearerToken, turnId, null);
+    }
 
     public CoachCallContext withTurn(UUID newTurnId) {
-        return new CoachCallContext(userId, bearerToken, newTurnId);
+        return new CoachCallContext(userId, bearerToken, newTurnId, timezone);
     }
 
     /** Guards against the token reaching a log line or an error message by accident. */

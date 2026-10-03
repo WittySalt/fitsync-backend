@@ -36,7 +36,8 @@ class NutritionMealsClientTests {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(method(HttpMethod.GET))
-                .andExpect(requestTo(endsWith("/api/v1/nutrition/summary/daily?date=2026-09-30&timezone=Asia/Singapore")))
+                .andExpect(requestTo(endsWith("/api/v1/nutrition/summary/daily?date=2026-09-30")))
+                .andExpect(header("X-Timezone", "Asia/Singapore"))
                 .andExpect(header("Authorization", "Bearer " + CALLER))
                 .andRespond(withSuccess("{\"totalCalories\":1850}", MediaType.APPLICATION_JSON));
 
@@ -72,11 +73,13 @@ class NutritionMealsClientTests {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(method(HttpMethod.GET))
                 .andExpect(requestTo(endsWith(
-                        "/api/v1/nutrition/nutrients/summary?from=2026-09-24&to=2026-09-30&timezone=Asia/Singapore")))
+                        "/api/v1/nutrition/nutrients/summary?from=2026-09-24&to=2026-09-30")))
+                .andExpect(header("X-Timezone", "Asia/Singapore"))
                 .andExpect(header("Authorization", "Bearer " + CALLER))
                 .andRespond(withSuccess("{\"daysLogged\":5}", MediaType.APPLICATION_JSON));
         server.expect(method(HttpMethod.GET))
-                .andExpect(requestTo(endsWith("/api/v1/nutrition/water?date=2026-09-30&timezone=Asia/Singapore")))
+                .andExpect(requestTo(endsWith("/api/v1/nutrition/water?date=2026-09-30")))
+                .andExpect(header("X-Timezone", "Asia/Singapore"))
                 .andExpect(header("Authorization", "Bearer " + CALLER))
                 .andRespond(withSuccess("{\"fromDrinksMl\":350}", MediaType.APPLICATION_JSON));
         NutritionCatalogueClient client = new NutritionCatalogueClient(builder, properties, new ObjectMapper());

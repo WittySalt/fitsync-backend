@@ -1,6 +1,8 @@
 package com.fitsync.recommendation.coach.controller;
 
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.fitsync.recommendation.coach.dto.AcceptSessionDraftResponse;
@@ -9,7 +11,9 @@ import com.fitsync.recommendation.coach.dto.RejectSessionDraftRequest;
 import com.fitsync.recommendation.coach.dto.DraftSessionRequest;
 import com.fitsync.recommendation.coach.dto.SessionDraftView;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
+import com.fitsync.recommendation.coach.service.CoachRateLimiter;
 import com.fitsync.recommendation.coach.service.SessionDraftService;
+import com.fitsync.web.timezone.RequestTimezone;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -43,9 +47,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class SessionDraftController {
 
     private final SessionDraftService draftService;
+    private final CoachRateLimiter rateLimiter;
 
-    public SessionDraftController(SessionDraftService draftService) {
+    public SessionDraftController(SessionDraftService draftService, CoachRateLimiter rateLimiter) {
         this.draftService = draftService;
+        this.rateLimiter = rateLimiter;
     }
 
     @PostMapping
@@ -59,18 +65,21 @@ public class SessionDraftController {
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Drafted"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "429", description = "Coach limit reached: {code:COACH_LIMIT, retryAfterSeconds, message}"),
             @ApiResponse(responseCode = "503", description = "Neither the model nor the rules could build one")
     })
     public SessionDraftView draft(Authentication authentication,
                                   @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
                                   @RequestParam(required = false) UUID threadId,
-                                  @Valid @RequestBody(required = false) DraftSessionRequest request) {
+                                  @Valid @RequestBody(required = false) DraftSessionRequest request,
+                                  @RequestTimezone Optional<ZoneId> zone) {
         // The caller's own token goes to the catalogue and the questionnaire, so the draft is built
         // from exactly what this user is allowed to see.
-        CoachCallContext call = new CoachCallContext(
-                CoachPrincipal.userId(authentication),
-                CoachPrincipal.bearerToken(authorization),
-                null);
+        UUID userId = CoachPrincipal.userId(authentication);
+        // Drafts share the per-user limit with chat turns, because each one costs a model call.
+        String timezone = zone.map(ZoneId::getId).orElse(null);
+        rateLimiter.check(userId, timezone);
+        CoachCallContext call = new CoachCallContext(userId, CoachPrincipal.bearerToken(authorization), null, timezone);
         return draftService.draft(call, request == null ? null : request.request(), threadId);
     }
 

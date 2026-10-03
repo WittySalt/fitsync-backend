@@ -36,15 +36,15 @@ import org.springframework.data.domain.Page;
 
 public interface NutritionService {
 
-    MealView createMeal(CurrentUserPrincipal principal, CreateMealRequest request);
+    MealView createMeal(CurrentUserPrincipal principal, CreateMealRequest request, String timezone);
 
-    MealView quickAddMeal(CurrentUserPrincipal principal, QuickAddMealRequest request);
+    MealView quickAddMeal(CurrentUserPrincipal principal, QuickAddMealRequest request, String timezone);
 
     List<MealView> listMeals(CurrentUserPrincipal principal, Instant from, Instant to, MealType mealType);
 
     MealView getMeal(CurrentUserPrincipal principal, UUID mealId);
 
-    MealView updateMeal(CurrentUserPrincipal principal, UUID mealId, CreateMealRequest request);
+    MealView updateMeal(CurrentUserPrincipal principal, UUID mealId, CreateMealRequest request, String timezone);
 
     void deleteMeal(CurrentUserPrincipal principal, UUID mealId);
 
@@ -52,7 +52,7 @@ public interface NutritionService {
 
     MealView copyMeal(CurrentUserPrincipal principal, UUID mealId, CopyMealRequest request);
 
-    List<MealView> copyDay(CurrentUserPrincipal principal, LocalDate sourceDate, CopyDayRequest request);
+    List<MealView> copyDay(CurrentUserPrincipal principal, LocalDate sourceDate, CopyDayRequest request, String timezone);
 
     CustomFoodView createCustomFood(CurrentUserPrincipal principal, CreateCustomFoodRequest request);
 
@@ -110,13 +110,14 @@ public interface NutritionService {
 
     void deleteMealTemplate(CurrentUserPrincipal principal, UUID templateId);
 
-    MealView createMealFromTemplate(CurrentUserPrincipal principal, UUID templateId, MaterializeTemplateRequest request);
+    MealView createMealFromTemplate(CurrentUserPrincipal principal, UUID templateId, MaterializeTemplateRequest request,
+                                    String timezone);
 
-    MealView createMealFromRecipe(CurrentUserPrincipal principal, UUID recipeId, RecipeMealRequest request);
+    MealView createMealFromRecipe(CurrentUserPrincipal principal, UUID recipeId, RecipeMealRequest request, String timezone);
 
     MealView addRecipeToMeal(CurrentUserPrincipal principal, UUID mealId, UUID recipeId, RecipeAddItemsRequest request);
 
-    WaterLogView logWater(CurrentUserPrincipal principal, LogWaterRequest request);
+    WaterLogView logWater(CurrentUserPrincipal principal, LogWaterRequest request, String timezone);
 
     WaterDaySummaryView getWaterDay(CurrentUserPrincipal principal, LocalDate date, String timezone);
 

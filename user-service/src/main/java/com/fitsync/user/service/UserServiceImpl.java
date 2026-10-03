@@ -536,8 +536,9 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional(readOnly = true)
-    public ProgressInsightResponse getProgressInsight(CurrentUserPrincipal principal, ZoneId zone) {
+    public ProgressInsightResponse getProgressInsight(CurrentUserPrincipal principal, ZoneId requestedZone) {
         UUID userId = principal.userId();
+        ZoneId zone = requestedZone != null ? requestedZone : storedZone(userId);
         LocalDate referenceDate = LocalDate.now(Clock.system(zone));
         Instant windowStart = referenceDate.minusDays(ProgressInsightCalculator.SERIES_DAYS)
                 .atStartOfDay(zone).toInstant();
@@ -718,6 +719,27 @@ public class UserServiceImpl implements UserService {
             }
         } while (page.hasNext());
         return new PersonFactsReconcileResponse(referenceProfiles, preferences, bodyMetrics, energyProfiles);
+    }
+
+    /**
+     * The zone kept in the profile, else the one in the app preferences, else UTC. A request without a
+     * timezone is read in this zone so the page agrees with the rest of the app about today.
+     */
+    private ZoneId storedZone(UUID userId) {
+        String profileZone = userProfileRepository.findById(userId)
+                .map(UserProfileEntity::getTimezone).orElse(null);
+        String appZone = userAppPreferencesRepository.findById(userId)
+                .map(UserAppPreferencesEntity::getTimezone).orElse(null);
+        for (String candidate : new String[] {profileZone, appZone}) {
+            if (candidate != null && !candidate.isBlank()) {
+                try {
+                    return ZoneId.of(candidate.trim());
+                } catch (java.time.DateTimeException ex) {
+                    // A stored zone that cannot be read is skipped, since the person did not send it now.
+                }
+            }
+        }
+        return ZoneId.of("UTC");
     }
 
     @Override

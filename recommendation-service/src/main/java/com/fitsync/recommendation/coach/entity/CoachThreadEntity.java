@@ -40,6 +40,18 @@ public class CoachThreadEntity extends BaseAuditableEntity {
     @Column(name = "last_active_at", nullable = false)
     private Instant lastActiveAt;
 
+    /** The page the thread was started from, or null when it was started without one. */
+    @Column(name = "surface", length = 20)
+    private String surface;
+
+    public String getSurface() {
+        return surface;
+    }
+
+    public void setSurface(String surface) {
+        this.surface = surface;
+    }
+
     public UUID getThreadId() {
         return threadId;
     }

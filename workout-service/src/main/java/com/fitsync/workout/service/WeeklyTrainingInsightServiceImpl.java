@@ -88,6 +88,10 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
 
         WeeklyTotals thisWeek = new WeeklyTotals();
         WeeklyTotals previousWeek = new WeeklyTotals();
+        WeeklyTotals previousWeekSameDays = new WeeklyTotals();
+        // Last week up to the same weekday as the reference date: the same number of elapsed days.
+        LocalDate previousWeekSameDaysEnd = previousWeekStart.plusDays(
+                java.time.temporal.ChronoUnit.DAYS.between(weekStart, referenceDate));
         BigDecimal weekBeforePreviousKg = BigDecimal.ZERO;
 
         for (DatedSession dated : sessions) {
@@ -99,6 +103,9 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 thisWeek.accumulate(minutes, sessionVolume);
             } else if (!sessionDate.isBefore(previousWeekStart) && !sessionDate.isAfter(previousWeekEnd)) {
                 previousWeek.accumulate(minutes, sessionVolume);
+                if (!sessionDate.isAfter(previousWeekSameDaysEnd)) {
+                    previousWeekSameDays.accumulate(minutes, sessionVolume);
+                }
             } else if (!sessionDate.isBefore(weekBeforePreviousStart) && !sessionDate.isAfter(weekBeforePreviousEnd)) {
                 weekBeforePreviousKg = weekBeforePreviousKg.add(sessionVolume);
             }
@@ -109,7 +116,9 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 scaleKg(previousWeek.volumeKg),
                 scaleKg(weekBeforePreviousKg),
                 thisWeek.sessionsWithVolume,
-                previousWeek.sessionsWithVolume);
+                previousWeek.sessionsWithVolume,
+                scaleKg(previousWeekSameDays.volumeKg),
+                previousWeekSameDays.sessionsWithVolume);
 
         WorkoutPlanEntity activePlan = findActivePlan(currentUser.userId());
         List<MuscleGroupInsightView> muscleGroups = buildMuscleGroupInsights(
@@ -132,7 +141,9 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 weekByDay.days(),
                 weekByDay.today(),
                 weekByDay.nextTraining(),
-                usualStartTime(sessions, zoneId, lookbackStart, referenceDate));
+                usualStartTime(sessions, zoneId, lookbackStart, referenceDate),
+                previousWeekSameDays.sessions,
+                previousWeekSameDays.minutes);
     }
 
     /** The usual local start time over the 28-day lookback, from the sessions already loaded (no

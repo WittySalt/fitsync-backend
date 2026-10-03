@@ -1,5 +1,6 @@
 package com.fitsync.recommendation.coach.tool;
 
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -14,7 +15,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
+import com.fitsync.recommendation.coach.client.UserProfileClient;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
+import com.fitsync.recommendation.coach.reading.ProgressFactsBuilder;
+import com.fitsync.recommendation.coach.reading.ProgressInsight;
+import com.fitsync.recommendation.domain.UserTimeZones;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.service.ai.CoachFacts;
@@ -45,19 +50,22 @@ public class ReadFactsTool implements CoachTool {
     private final WorkoutCatalogueClient workoutClient;
     private final NutritionCatalogueClient nutritionClient;
     private final UserCalendar calendar;
+    private final UserProfileClient userClient;
 
     public ReadFactsTool(RecommendationContextRepository contextRepository,
                          CoachFacts coachFacts,
                          ObjectMapper objectMapper,
                          WorkoutCatalogueClient workoutClient,
                          NutritionCatalogueClient nutritionClient,
-                         UserCalendar calendar) {
+                         UserCalendar calendar,
+                         UserProfileClient userClient) {
         this.contextRepository = contextRepository;
         this.coachFacts = coachFacts;
         this.objectMapper = objectMapper;
         this.workoutClient = workoutClient;
         this.nutritionClient = nutritionClient;
         this.calendar = calendar;
+        this.userClient = userClient;
     }
 
     /** The name of the group that holds the current week so far. */
@@ -71,8 +79,6 @@ public class ReadFactsTool implements CoachTool {
 
     static final String CURRENT_WEEK_PERIOD = "CURRENT_WEEK_SO_FAR";
 
-    private static final String DEFAULT_TIMEZONE = "UTC";
-
     private static final DateTimeFormatter SPOKEN_DAY = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH);
 
     @Override
@@ -84,8 +90,7 @@ public class ReadFactsTool implements CoachTool {
      * The current week as workout-service reports it, or nothing when it cannot be reached or read.
      * Both the week's totals and today's kind of day come out of this one response.
      */
-    private Optional<JsonNode> weeklyInsight(CoachCallContext context, String timezone) {
-        String zone = timezone == null || timezone.isBlank() ? DEFAULT_TIMEZONE : timezone;
+    private Optional<JsonNode> weeklyInsight(CoachCallContext context, String zone) {
         try {
             String body = workoutClient.weeklyInsight(context.bearerToken(), zone);
             return body == null ? Optional.empty() : Optional.of(objectMapper.readTree(body));
@@ -102,13 +107,13 @@ public class ReadFactsTool implements CoachTool {
      */
     private void addDiaryFigures(CoachCallContext context, Map<String, Object> facts) {
         try {
-            ZoneId zone = calendar.zone(context.userId());
+            ZoneId zone = zoneOf(context, null);
             LocalDate today = calendar.today(zone);
             String token = context.bearerToken();
             JsonNode summary = DiaryFigures.read(objectMapper.reader(),
-                    nutritionClient.dailySummary(token, today, zone.getId()));
+                    nutritionClient.dailySummary(token, today, zoneName(zone)));
             JsonNode todayNutrients = DiaryFigures.read(objectMapper.reader(),
-                    nutritionClient.nutrientsSummary(token, today, today, zone.getId()));
+                    nutritionClient.nutrientsSummary(token, today, today, zoneName(zone)));
             Map<String, Object> diary = DiaryFigures.day(summary, todayNutrients);
             if (!diary.isEmpty()) {
                 Object existing = facts.get("nutritionToday");
@@ -120,7 +125,7 @@ public class ReadFactsTool implements CoachTool {
                 facts.put("nutritionToday", nutritionToday);
             }
             JsonNode week = DiaryFigures.read(objectMapper.reader(),
-                    nutritionClient.nutrientsSummary(token, today.minusDays(6), today, zone.getId()));
+                    nutritionClient.nutrientsSummary(token, today.minusDays(6), today, zoneName(zone)));
             Map<String, Object> micronutrients = DiaryFigures.micronutrients(week);
             if (!micronutrients.isEmpty()) {
                 facts.put(MICRONUTRIENTS_WEEK_GROUP, micronutrients);
@@ -128,6 +133,44 @@ public class ReadFactsTool implements CoachTool {
         } catch (RuntimeException ex) {
             // The diary is an addition. A turn is still answered from the rest of the facts.
         }
+    }
+
+    /**
+     * The zone this turn speaks in: the one the client reported, else the stored profile zone, else
+     * UTC. Dates the coach says and the live reads it makes all use the same one.
+     */
+    private ZoneId zoneOf(CoachCallContext context, RecommendationContextEntity stored) {
+        String reported = context.timezone();
+        if (reported != null && !reported.isBlank()) {
+            try {
+                return ZoneId.of(reported);
+            } catch (DateTimeException ex) {
+                // An unknown zone name falls through to the stored one.
+            }
+        }
+        if (stored != null) {
+            return UserTimeZones.resolve(stored.getTimezone());
+        }
+        return calendar.zone(context.userId());
+    }
+
+    /**
+     * The goal pace as the Progress reading sees it, read live from user-service with the caller's
+     * token, or empty when that read fails or holds nothing, in which case the stored pace stays.
+     */
+    private Optional<Map<String, Object>> livePace(CoachCallContext context, ZoneId zone) {
+        try {
+            ProgressInsight insight = userClient.progressInsight(context.bearerToken(), zoneName(zone));
+            Map<String, Object> pace = ProgressFactsBuilder.paceFacts(insight);
+            return pace.isEmpty() ? Optional.empty() : Optional.of(pace);
+        } catch (RuntimeException ex) {
+            return Optional.empty();
+        }
+    }
+
+    /** The zone as the other services expect it: UTC is written "UTC", not the offset id "Z". */
+    private static String zoneName(ZoneId zone) {
+        return zone.getId().equals("Z") ? "UTC" : zone.getId();
     }
 
     private static Optional<Map<String, Object>> currentWeek(JsonNode week) {
@@ -195,7 +238,7 @@ public class ReadFactsTool implements CoachTool {
                   no arguments
                   returns the user's computed facts as JSON: training, nutritionToday, goalPace,
                   loggingStreak, personalRecord, foodGroupWeek, focusAreas, today, micronutrientsWeek.
-                  Every number here is already calculated — quote it, never recompute it. When the
+                  Every number here is already calculated, so quote it and never recompute it. When the
                   service has them, nutritionToday also carries today's fibre, sugar, saturated fat,
                   sodium and potassium against their references, water, protein at each meal and the
                   lowest vitamins and minerals, and micronutrientsWeek the lowest three over the last
@@ -217,11 +260,12 @@ public class ReadFactsTool implements CoachTool {
         if (facts.isEmpty()) {
             return ToolResult.of("no facts yet",
                     "This user has no computed facts yet, which means they have not logged enough "
-                            + "for the rules to fire. Encourage a first workout or meal rather than "
-                            + "inventing numbers.");
+                            + "for the rules to fire. There are no numbers to quote.");
         }
 
-        weeklyInsight(context, entity.map(RecommendationContextEntity::getTimezone).orElse(null)).ifPresent(week -> {
+        ZoneId zone = zoneOf(context, entity.orElse(null));
+        livePace(context, zone).ifPresent(pace -> facts.put("goalPace", pace));
+        weeklyInsight(context, zoneName(zone)).ifPresent(week -> {
             currentWeek(week).ifPresent(group -> facts.put(CURRENT_WEEK_GROUP, group));
             today(week).ifPresent(group -> facts.put(TODAY_GROUP, group));
         });

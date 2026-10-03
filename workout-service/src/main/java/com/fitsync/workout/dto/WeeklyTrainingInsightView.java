@@ -18,13 +18,17 @@ import io.swagger.v3.oas.annotations.media.Schema;
           "totalMinutes": 170,
           "previousWeekCompletedSessions": 2,
           "previousWeekTotalMinutes": 85,
+          "previousWeekSameDaysCompletedSessions": 2,
+          "previousWeekSameDaysTotalMinutes": 85,
           "muscleGroups": [],
           "volume": {
             "thisWeekKg": 3846.00,
             "previousWeekKg": 1716.00,
             "weekBeforePreviousKg": 0.00,
             "thisWeekSessionsWithVolume": 2,
-            "previousWeekSessionsWithVolume": 1
+            "previousWeekSessionsWithVolume": 1,
+            "previousWeekSameDaysKg": 1716.00,
+            "previousWeekSameDaysSessionsWithVolume": 1
           },
           "days": [],
           "today": {
@@ -57,11 +61,34 @@ public record WeeklyTrainingInsightView(
         List<DayInsightView> days,
         TodayInsightView today,
         NextTrainingView nextTraining,
-        String usualStartTime) {
+        String usualStartTime,
+        int previousWeekSameDaysCompletedSessions,
+        int previousWeekSameDaysTotalMinutes) {
 
     public WeeklyTrainingInsightView {
         muscleGroups = muscleGroups == null ? List.of() : List.copyOf(muscleGroups);
         days = days == null ? List.of() : List.copyOf(days);
+    }
+
+    /** The view before the same-days figures existed; they default to last week's totals. */
+    public WeeklyTrainingInsightView(
+            String timezone,
+            LocalDate referenceDate,
+            LocalDate weekStart,
+            LocalDate weekEnd,
+            int completedSessions,
+            int totalMinutes,
+            int previousWeekCompletedSessions,
+            int previousWeekTotalMinutes,
+            List<MuscleGroupInsightView> muscleGroups,
+            WeeklyVolumeView volume,
+            List<DayInsightView> days,
+            TodayInsightView today,
+            NextTrainingView nextTraining,
+            String usualStartTime) {
+        this(timezone, referenceDate, weekStart, weekEnd, completedSessions, totalMinutes,
+                previousWeekCompletedSessions, previousWeekTotalMinutes, muscleGroups, volume, days, today,
+                nextTraining, usualStartTime, previousWeekCompletedSessions, previousWeekTotalMinutes);
     }
 
     /** A view without a day-by-day breakdown, today's detail or the next training day, used by

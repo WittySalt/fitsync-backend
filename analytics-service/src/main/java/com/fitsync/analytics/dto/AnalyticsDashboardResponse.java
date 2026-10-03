@@ -39,11 +39,21 @@ public record AnalyticsDashboardResponse(
             LocalDate waistMeasuredAt) {
     }
 
+    /**
+     * {@code weekWorkoutCount}, {@code weekWorkoutMinutes} and {@code activeStreakDays} are the old
+     * fields (the first two count the rolling last seven days). {@code workoutsThisWeek} and
+     * {@code minutesThisWeek} cover Monday to Sunday of this week in the user's zone, and
+     * {@code currentStreakDays} counts consecutive days with a completed workout that end today or
+     * yesterday. New code should read the three new fields.
+     */
     public record WorkoutSummary(
             int todayWorkoutCount,
             int weekWorkoutCount,
             int weekWorkoutMinutes,
-            int activeStreakDays) {
+            int activeStreakDays,
+            int workoutsThisWeek,
+            int minutesThisWeek,
+            int currentStreakDays) {
     }
 
     public record NutritionSummary(

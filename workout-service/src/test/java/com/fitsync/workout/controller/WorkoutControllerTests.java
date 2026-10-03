@@ -240,7 +240,7 @@ class WorkoutControllerTests {
 
         mockMvc.perform(get("/api/v1/workouts/insights/weekly")
                         .with(authentication(authToken(principal)))
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .param("date", "2026-09-27"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timezone").value("Asia/Singapore"))
@@ -254,7 +254,10 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.muscleGroups[0].muscleGroup").value("CHEST"))
                 .andExpect(jsonPath("$.muscleGroups[0].lastTrainedOn").value("2026-09-25"))
                 .andExpect(jsonPath("$.volume.thisWeekKg").value(3846.00))
-                .andExpect(jsonPath("$.volume.thisWeekSessionsWithVolume").value(2));
+                .andExpect(jsonPath("$.volume.thisWeekSessionsWithVolume").value(2))
+                .andExpect(jsonPath("$.volume.previousWeekSameDaysKg").value(1716.00))
+                .andExpect(jsonPath("$.previousWeekSameDaysCompletedSessions").value(3))
+                .andExpect(jsonPath("$.previousWeekSameDaysTotalMinutes").value(120));
 
         verify(weeklyTrainingInsightService).getWeeklyTrainingInsight(
                 eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-27")));
@@ -297,7 +300,7 @@ class WorkoutControllerTests {
 
         mockMvc.perform(get("/api/v1/workouts/insights/weekly")
                         .with(authentication(authToken(principal)))
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .param("date", "2026-09-29"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.days[0].kind").value("STRENGTH"))
@@ -313,17 +316,15 @@ class WorkoutControllerTests {
     }
 
     @Test
-    void shouldReturnBadRequestForInvalidTimezone() throws Exception {
+    void shouldIgnoreAnInvalidTimezoneHeader() throws Exception {
         CurrentUserPrincipal principal = principal();
-
-        when(weeklyTrainingInsightService.getWeeklyTrainingInsight(any(), eq("Not/AZone"), any()))
-                .thenThrow(new IllegalArgumentException("The timezone is not a recognised zone id."));
 
         mockMvc.perform(get("/api/v1/workouts/insights/weekly")
                         .with(authentication(authToken(principal)))
-                        .param("timezone", "Not/AZone"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("The timezone is not a recognised zone id."));
+                        .header("X-Timezone", "Not/AZone"))
+                .andExpect(status().isOk());
+
+        verify(weeklyTrainingInsightService).getWeeklyTrainingInsight(any(), eq("UTC"), any());
     }
 
     @Test
@@ -366,7 +367,7 @@ class WorkoutControllerTests {
 
         mockMvc.perform(get("/api/v1/workouts/insights/monthly")
                         .with(authentication(authToken(principal)))
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .param("month", "2026-09"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timezone").value("Asia/Singapore"))
@@ -425,17 +426,24 @@ class WorkoutControllerTests {
     }
 
     @Test
-    void shouldReturnBadRequestForInvalidTimezoneOnMonthlyInsight() throws Exception {
+    void shouldIgnoreAnInvalidTimezoneHeaderOnMonthlyInsight() throws Exception {
         CurrentUserPrincipal principal = principal();
-
-        when(monthlyTrainingInsightService.getMonthlyTrainingInsight(any(), eq("Not/AZone"), any()))
-                .thenThrow(new IllegalArgumentException("The timezone is not a recognised zone id."));
 
         mockMvc.perform(get("/api/v1/workouts/insights/monthly")
                         .with(authentication(authToken(principal)))
-                        .param("timezone", "Not/AZone"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("The timezone is not a recognised zone id."));
+                        .header("X-Timezone", "Not/AZone"))
+                .andExpect(status().isOk());
+
+        verify(monthlyTrainingInsightService).getMonthlyTrainingInsight(any(), eq("UTC"), any());
+    }
+
+    @Test
+    void shouldFallBackToUtcWhenNoTimezoneHeaderIsSent() throws Exception {
+        mockMvc.perform(get("/api/v1/workouts/insights/monthly")
+                        .with(authentication(authToken(principal()))))
+                .andExpect(status().isOk());
+
+        verify(monthlyTrainingInsightService).getMonthlyTrainingInsight(any(), eq("UTC"), any());
     }
 
     @Test
@@ -471,7 +479,7 @@ class WorkoutControllerTests {
 
         mockMvc.perform(get("/api/v1/workouts/insights/training")
                         .with(authentication(authToken(principal)))
-                        .param("timezone", "Asia/Singapore")
+                        .header("X-Timezone", "Asia/Singapore")
                         .param("date", "2026-09-28"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timezone").value("Asia/Singapore"))
@@ -501,17 +509,15 @@ class WorkoutControllerTests {
     }
 
     @Test
-    void shouldReturnBadRequestForInvalidTimezoneOnTrainingPageInsight() throws Exception {
+    void shouldIgnoreAnInvalidTimezoneHeaderOnTrainingPageInsight() throws Exception {
         CurrentUserPrincipal principal = principal();
-
-        when(trainingPageInsightService.getTrainingPageInsight(any(), eq("Not/AZone"), any()))
-                .thenThrow(new IllegalArgumentException("The timezone is not a recognised zone id."));
 
         mockMvc.perform(get("/api/v1/workouts/insights/training")
                         .with(authentication(authToken(principal)))
-                        .param("timezone", "Not/AZone"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("The timezone is not a recognised zone id."));
+                        .header("X-Timezone", "Not/AZone"))
+                .andExpect(status().isOk());
+
+        verify(trainingPageInsightService).getTrainingPageInsight(any(), eq("UTC"), any());
     }
 
     @Test
@@ -696,7 +702,7 @@ class WorkoutControllerTests {
                         .with(authentication(authToken(principal)))
                         .with(csrf())
                         .param("planDayId", planDayId.toString())
-                        .param("timezone", "Asia/Singapore"))
+                        .header("X-Timezone", "Asia/Singapore"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sessionId").value(sessionId.toString()));
 
@@ -704,19 +710,17 @@ class WorkoutControllerTests {
     }
 
     @Test
-    void shouldReturnBadRequestWhenStartPlanTimezoneIsInvalid() throws Exception {
+    void shouldIgnoreAnInvalidTimezoneHeaderOnStartPlan() throws Exception {
         UUID planId = UUID.randomUUID();
         CurrentUserPrincipal principal = principal();
-
-        when(workoutService.startPlan(any(), eq(planId), any(), eq("Not/AZone")))
-                .thenThrow(new IllegalArgumentException("The timezone is not a recognised zone id."));
 
         mockMvc.perform(post("/api/v1/workouts/plans/{planId}/start", planId)
                         .with(authentication(authToken(principal)))
                         .with(csrf())
-                        .param("timezone", "Not/AZone"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("The timezone is not a recognised zone id."));
+                        .header("X-Timezone", "Not/AZone"))
+                .andExpect(status().isCreated());
+
+        verify(workoutService).startPlan(eq(principal), eq(planId), any(), eq("UTC"));
     }
 
     @Test

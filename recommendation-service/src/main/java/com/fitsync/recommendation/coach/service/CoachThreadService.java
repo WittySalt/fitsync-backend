@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -21,6 +22,9 @@ import com.fitsync.recommendation.coach.repository.CoachThreadRepository;
 import com.fitsync.recommendation.coach.repository.CoachTurnRepository;
 import com.fitsync.recommendation.coach.repository.ToolInvocationRepository;
 import com.fitsync.web.error.ResourceNotFoundException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +46,9 @@ public class CoachThreadService {
      * facts out of a small model's context.
      */
     public static final int CONTEXT_WINDOW_TURNS = 12;
+
+    /** The most threads one page of the history list may hold. */
+    public static final int MAX_PAGE_SIZE = 50;
 
     private static final int MAX_TITLE_LENGTH = 200;
     private static final int DERIVED_TITLE_LENGTH = 60;
@@ -74,13 +81,24 @@ public class CoachThreadService {
         return toThreadView(entity, 0);
     }
 
+    /** The first page of the caller's live threads, newest first. */
     @Transactional(readOnly = true)
     public List<CoachThreadView> listThreads(UUID userId) {
-        List<CoachThreadEntity> threads =
-                threadRepository.findByUserIdAndArchivedFalseOrderByLastActiveAtDesc(userId);
-        return threads.stream()
-                .map(thread -> toThreadView(thread, turnRepository.findMaxSeq(thread.getThreadId())))
-                .toList();
+        return listThreads(userId, 0, MAX_PAGE_SIZE).getContent();
+    }
+
+    /**
+     * One page of the caller's live threads, most recently used first, for the history list.
+     * Archived threads never appear, and another user's threads are never reachable because the
+     * query itself is scoped to the caller. A size above {@link #MAX_PAGE_SIZE} is cut to it.
+     */
+    @Transactional(readOnly = true)
+    public Page<CoachThreadView> listThreads(UUID userId, int page, int size) {
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        PageRequest request = PageRequest.of(Math.max(page, 0), safeSize,
+                Sort.by(Sort.Order.desc("lastActiveAt"), Sort.Order.desc("dateTimeCreated")));
+        return threadRepository.findByUserIdAndArchivedFalse(userId, request)
+                .map(thread -> toThreadView(thread, turnRepository.findMaxSeq(thread.getThreadId())));
     }
 
     @Transactional(readOnly = true)
@@ -112,6 +130,17 @@ public class CoachThreadService {
      */
     @Transactional
     public CoachTurnEntity appendTurn(UUID userId, UUID threadId, CoachTurnRole role, String content) {
+        return appendTurn(userId, threadId, role, content, null, null);
+    }
+
+    /**
+     * Appends a turn that may carry the client's id for it and, on the opening question, the page
+     * the thread was started from. A second turn with the same client id in the same thread is
+     * refused by the database, which is what makes a retried question find its first attempt.
+     */
+    @Transactional
+    public CoachTurnEntity appendTurn(UUID userId, UUID threadId, CoachTurnRole role, String content,
+                                      UUID clientTurnId, String surface) {
         CoachThreadEntity thread = requireOwnedThread(userId, threadId);
         Instant now = Instant.now(clock);
 
@@ -121,9 +150,13 @@ public class CoachThreadService {
         turn.setSeq(turnRepository.findMaxSeq(threadId) + 1);
         turn.setRole(role);
         turn.setContent(content);
-        turnRepository.save(turn);
+        turn.setClientTurnId(clientTurnId);
+        turnRepository.saveAndFlush(turn);
 
         thread.setLastActiveAt(now);
+        if (thread.getSurface() == null && surface != null) {
+            thread.setSurface(surface);
+        }
         if (thread.getTitle() == null && role == CoachTurnRole.USER) {
             thread.setTitle(deriveTitle(content));
         }
@@ -204,6 +237,32 @@ public class CoachThreadService {
         return window;
     }
 
+    /** The user turn a client id was given to, or empty when this thread has no such turn. */
+    @Transactional(readOnly = true)
+    public Optional<CoachTurnEntity> findByClientTurnId(UUID userId, UUID threadId, UUID clientTurnId) {
+        requireOwnedThread(userId, threadId);
+        return turnRepository.findByThreadIdAndClientTurnId(threadId, clientTurnId);
+    }
+
+    /** The turn straight after another, which for a user turn is the answer that was opened for it. */
+    @Transactional(readOnly = true)
+    public Optional<CoachTurnEntity> turnAfter(UUID threadId, int seq) {
+        return turnRepository.findByThreadIdAndSeq(threadId, seq + 1);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<CoachTurnEntity> findTurn(UUID turnId) {
+        return turnRepository.findById(turnId);
+    }
+
+    /** The names of the tools a turn called, in order. */
+    @Transactional(readOnly = true)
+    public List<String> toolNames(UUID turnId) {
+        return toolRepository.findByTurnIdOrderBySeqAsc(turnId).stream()
+                .map(ToolInvocationEntity::getTool)
+                .toList();
+    }
+
     @Transactional
     public void archiveThread(UUID userId, UUID threadId) {
         CoachThreadEntity thread = requireOwnedThread(userId, threadId);
@@ -250,7 +309,9 @@ public class CoachThreadService {
                 entity.getTitle(),
                 turnCount,
                 entity.getLastActiveAt(),
-                entity.getDateTimeCreated());
+                entity.getDateTimeCreated(),
+                entity.getSurface(),
+                entity.getLastActiveAt());
     }
 
     private CoachTurnView toTurnView(CoachTurnEntity turn, List<ToolInvocationEntity> tools) {

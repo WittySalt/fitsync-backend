@@ -83,14 +83,12 @@ class AnalyticsCachingTests {
 
         assertThat(first.timezone()).isEqualTo("Asia/Singapore");
         assertThat(second.body().latestWeightKg()).isEqualTo(78.4);
-        verify(dashboardSnapshotRepository, times(1)).findById(userId);
         verify(goalProgressRepository, times(1))
                 .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE");
 
         cacheInvalidationService.evictForUser(userId);
         analyticsService.getDashboard(principal);
 
-        verify(dashboardSnapshotRepository, times(2)).findById(userId);
         verify(goalProgressRepository, times(2))
                 .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE");
     }
@@ -124,8 +122,10 @@ class AnalyticsCachingTests {
         analyticsService.getDashboard(targetPrincipal);
         analyticsService.getDashboard(otherPrincipal);
 
-        verify(dashboardSnapshotRepository, times(2)).findById(targetUserId);
-        verify(dashboardSnapshotRepository, times(1)).findById(otherUserId);
+        verify(goalProgressRepository, times(2))
+                .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(targetUserId, "ACTIVE");
+        verify(goalProgressRepository, times(1))
+                .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(otherUserId, "ACTIVE");
     }
 
     @Test
@@ -302,6 +302,7 @@ class AnalyticsCachingTests {
     }
 
     private void setClockDate(String date) {
+        setUserZoneClockInstant(LocalDate.parse(date).atStartOfDay().toInstant(ZoneOffset.UTC).toString());
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         when(clock.instant()).thenReturn(LocalDate.parse(date).atStartOfDay().toInstant(ZoneOffset.UTC));
     }

@@ -20,6 +20,10 @@ public final class CoachVoice {
     /** A hyphen with a space on each side, or two in a row, stands in for a dash. */
     public static final Pattern DASH_AS_PUNCTUATION = Pattern.compile("\\s-\\s|--");
 
+    /** A status code or field name copied from a tool result, such as AHEAD or ON_TRACK, instead of plain words. */
+    public static final Pattern RAW_STATUS_WORD = Pattern.compile(
+            "\\b(?:AHEAD|BEHIND|ON_TRACK|OFF_TRACK|MISSED|NOT_LOGGED|[A-Z]{2,}_[A-Z_]{2,})\\b");
+
     private static final Pattern TRY_AT_SENTENCE_START = Pattern.compile("(?i)(?:^|[.]\\s+)try\\s");
 
     /** A word that says a measured thing rose. */
@@ -92,6 +96,9 @@ public final class CoachVoice {
         }
         if (DASH_AS_PUNCTUATION.matcher(text).find()) {
             violations.add("DASH_AS_PUNCTUATION");
+        }
+        if (RAW_STATUS_WORD.matcher(text).find()) {
+            violations.add("RAW_STATUS_WORD");
         }
         return violations;
     }

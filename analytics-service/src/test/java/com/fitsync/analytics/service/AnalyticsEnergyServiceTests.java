@@ -204,6 +204,7 @@ class AnalyticsEnergyServiceTests {
         loggedDay(MONDAY.plusDays(4), 932, 2);
         workoutDay(MONDAY.plusDays(4), 400, 0);
         meal(MONDAY.plusDays(2), "LUNCH", 2040);
+        meal(MONDAY.plusDays(2), "DINNER", 0);
         meal(MONDAY.plusDays(4), "BREAKFAST", 932);
         wire();
 
@@ -225,6 +226,73 @@ class AnalyticsEnergyServiceTests {
         assertThat(response.mealSplit().lunch()).isEqualTo(680);
         assertThat(response.days().get(2).runningTotal()).isZero();
         assertThat(response.weeks().get(7).expectedKgChange()).isEqualTo(0.0);
+    }
+
+    @Test
+    void aDayWithOneMealIsPartlyLoggedAndCountsForNothing() {
+        profile(Instant.parse("2026-09-01T00:00:00Z"), 1700, false);
+        // resting 2040. Monday, Tuesday and Thursday have two meals. Wednesday has only a snack, so it is partly logged.
+        loggedDay(MONDAY, 2040, 2);
+        meal(MONDAY, "BREAKFAST", 1000);
+        meal(MONDAY, "DINNER", 1040);
+        loggedDay(MONDAY.plusDays(1), 2040, 2);
+        meal(MONDAY.plusDays(1), "LUNCH", 1000);
+        meal(MONDAY.plusDays(1), "SNACK", 1040);
+        loggedDay(MONDAY.plusDays(2), 932, 1);
+        meal(MONDAY.plusDays(2), "SNACK", 932);
+        loggedDay(MONDAY.plusDays(3), 2040, 2);
+        meal(MONDAY.plusDays(3), "BREAKFAST", 1000);
+        meal(MONDAY.plusDays(3), "SNACK", 1040);
+        wire();
+
+        AnalyticsEnergyWeeklyResponse response = service.getWeekly(userId, MONDAY, UTC);
+
+        Day wednesday = response.days().get(2);
+        assertThat(wednesday.partlyLogged()).isTrue();
+        assertThat(wednesday.logged()).isFalse();
+        assertThat(wednesday.eaten()).isEqualTo(932);
+        assertThat(wednesday.balance()).isNull();
+        assertThat(wednesday.runningTotal()).isNull();
+        assertThat(response.days().get(0).partlyLogged()).isFalse();
+        assertThat(response.days().get(0).logged()).isTrue();
+        assertThat(response.daysLogged()).isEqualTo(3);
+        assertThat(response.status()).isEqualTo("OK");
+        // Averages, split and the running total ignore Wednesday: (2040 x 3) / 3.
+        assertThat(response.average().eaten()).isEqualTo(2040);
+        assertThat(response.average().balance()).isZero();
+        assertThat(response.mealSplit().snack()).isEqualTo(693);
+        assertThat(response.days().get(3).runningTotal()).isZero();
+        assertThat(response.weeks().get(7).expectedKgChange()).isEqualTo(0.0);
+    }
+
+    @Test
+    void aPartlyLoggedDayDoesNotLiftAWeekOverTheThreeDayRule() {
+        profile(Instant.parse("2026-09-01T00:00:00Z"), 1700, false);
+        loggedDay(MONDAY, 2040, 2);
+        loggedDay(MONDAY.plusDays(1), 2040, 2);
+        loggedDay(MONDAY.plusDays(2), 900, 1);
+        meal(MONDAY.plusDays(2), "LUNCH", 900);
+        wire();
+
+        AnalyticsEnergyWeeklyResponse response = service.getWeekly(userId, MONDAY, UTC);
+
+        assertThat(response.daysLogged()).isEqualTo(2);
+        assertThat(response.status()).isEqualTo("TOO_FEW_DAYS");
+        assertThat(response.days().get(2).partlyLogged()).isTrue();
+    }
+
+    @Test
+    void mealsOfOneDayAreCountedByDistinctMealIdNotByDailyRowCount() {
+        profile(Instant.parse("2026-09-01T00:00:00Z"), 1700, false);
+        // The daily row says 3 meals, but only one meal contribution exists for the day.
+        loggedDay(MONDAY, 800, 3);
+        meal(MONDAY, "LUNCH", 800);
+        wire();
+
+        Day monday = service.getWeekly(userId, MONDAY, UTC).days().get(0);
+
+        assertThat(monday.partlyLogged()).isTrue();
+        assertThat(monday.logged()).isFalse();
     }
 
     @Test
