@@ -25,11 +25,37 @@ public record WorkoutPlanView(
         /** Empty for a flat plan; one entry per scheduled day of the week otherwise. */
         List<WorkoutPlanDayView> days,
         /** The number of scheduled days, or null for a flat plan. */
-        Integer sessionsPerWeek) {
+        Integer sessionsPerWeek,
+        /** What the plan trains; given when one plan is read, created or updated, else null. */
+        PlanCoverageView coverage) {
 
     public WorkoutPlanView {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
         days = days == null ? List.of() : List.copyOf(days);
+    }
+
+    /** A view without coverage. */
+    public WorkoutPlanView(UUID planId,
+            String name,
+            String description,
+            GoalFocus goalFocus,
+            WorkoutType workoutType,
+            WorkoutDifficulty difficulty,
+            Integer estimatedDurationMinutes,
+            WorkoutPlanStatus status,
+            List<WorkoutPlanExerciseView> exercises,
+            Instant createdAt,
+            Instant updatedAt,
+            List<WorkoutPlanDayView> days,
+            Integer sessionsPerWeek) {
+        this(planId, name, description, goalFocus, workoutType, difficulty, estimatedDurationMinutes, status,
+                exercises, createdAt, updatedAt, days, sessionsPerWeek, null);
+    }
+
+    /** The same view with its coverage. */
+    public WorkoutPlanView withCoverage(PlanCoverageView planCoverage) {
+        return new WorkoutPlanView(planId, name, description, goalFocus, workoutType, difficulty,
+                estimatedDurationMinutes, status, exercises, createdAt, updatedAt, days, sessionsPerWeek, planCoverage);
     }
 
     /** A view of a flat plan, which has no week. */

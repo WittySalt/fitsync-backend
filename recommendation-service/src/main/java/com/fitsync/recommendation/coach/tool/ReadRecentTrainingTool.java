@@ -51,7 +51,8 @@ public class ReadRecentTrainingTool implements CoachTool {
         return """
                 readRecentTraining(days?)
                   days: 1 to 90, default 7
-                  returns one line per completed session: "date | name | type | minutes\"""";
+                  returns one line per completed session: "date | name | type | minutes", and for a
+                  session with time segments how long each ran against its plan""";
     }
 
     @Override
@@ -80,11 +81,13 @@ public class ReadRecentTrainingTool implements CoachTool {
             JsonNode content = objectMapper.readTree(body).path("content");
             for (JsonNode item : content) {
                 String completedAt = item.path("completedAt").asText("");
-                rows.add("%s | %s | %s | %s min".formatted(
+                String row = "%s | %s | %s | %s min".formatted(
                         completedAt.length() >= 10 ? completedAt.substring(0, 10) : completedAt,
                         item.path("name").asText(""),
                         item.path("workoutType").asText(""),
-                        item.path("durationMinutes").asText("?")));
+                        item.path("durationMinutes").asText("?"));
+                String segments = segmentWords(item.path("entries"));
+                rows.add(segments.isEmpty() ? row : row + " | " + segments);
             }
         } catch (JsonProcessingException ex) {
             // A catalogue that answered with something unparseable is a missing result, not a
@@ -92,5 +95,51 @@ public class ReadRecentTrainingTool implements CoachTool {
             return List.of();
         }
         return rows;
+    }
+
+    /**
+     * The time segments of a session in words: "steady ran 26 minutes against 20 planned" for each
+     * one, the intervals counted together ("work intervals: 7 of 8 done"), "skipped" or "not run" for
+     * the others. Empty for a session without segments.
+     */
+    static String segmentWords(JsonNode entries) {
+        List<String> parts = new ArrayList<>();
+        int workDone = 0;
+        int work = 0;
+        for (JsonNode entry : entries) {
+            if (!"SEGMENT".equals(entry.path("entryType").asText())) {
+                continue;
+            }
+            String kind = entry.path("kind").asText("");
+            String status = entry.path("status").asText("");
+            if ("WORK".equals(kind)) {
+                work++;
+                if ("DONE".equals(status)) {
+                    workDone++;
+                }
+                continue;
+            }
+            if ("EASY".equals(kind)) {
+                continue;
+            }
+            String label = ReadPlanTool.WORDS.getOrDefault(kind, entry.path("label").asText(kind).strip());
+            int planned = minutes(entry.path("plannedSeconds"));
+            if ("SKIPPED".equals(status)) {
+                parts.add(label + " skipped");
+            } else if (entry.path("actualSeconds").isNumber()) {
+                parts.add(label + " ran " + minutes(entry.path("actualSeconds")) + " minutes against "
+                        + planned + " planned");
+            } else {
+                parts.add(label + " not run, " + planned + " minutes planned");
+            }
+        }
+        if (work > 0) {
+            parts.add("work intervals: " + workDone + " of " + work + " done");
+        }
+        return String.join("; ", parts);
+    }
+
+    private static int minutes(JsonNode seconds) {
+        return Math.round(seconds.asInt(0) / 60f);
     }
 }

@@ -42,7 +42,7 @@ import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.entity.ExerciseEntity;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.messaging.DomainEventPublisher;
@@ -639,7 +639,7 @@ class WorkoutSessionLifecycleTests {
         session.setStartedAt(startedAt);
         if (exerciseId != null && (!doneAt.isEmpty() || !skippedAt.isEmpty())) {
             ExerciseEntity exercise = exerciseRepository.findById(exerciseId).orElseThrow();
-            WorkoutExerciseLogEntity log = new WorkoutExerciseLogEntity();
+            SessionEntry log = new SessionEntry();
             log.setExerciseLogId(UUID.randomUUID());
             log.setSession(session);
             log.setExercise(exercise);
@@ -652,12 +652,12 @@ class WorkoutSessionLifecycleTests {
             for (Instant at : skippedAt) {
                 log.getSets().add(set(log, setNumber++, WorkoutSetStatus.SKIPPED, at));
             }
-            session.getExercises().add(log);
+            session.getEntries().add(log);
         }
         return workoutSessionRepository.save(session).getSessionId();
     }
 
-    private WorkoutExerciseSetLogEntity set(WorkoutExerciseLogEntity log, int number, WorkoutSetStatus status, Instant at) {
+    private WorkoutExerciseSetLogEntity set(SessionEntry log, int number, WorkoutSetStatus status, Instant at) {
         WorkoutExerciseSetLogEntity set = new WorkoutExerciseSetLogEntity();
         set.setSetLogId(UUID.randomUUID());
         set.setExerciseLog(log);

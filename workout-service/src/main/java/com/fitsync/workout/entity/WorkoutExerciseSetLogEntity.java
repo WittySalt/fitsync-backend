@@ -25,7 +25,7 @@ public class WorkoutExerciseSetLogEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "exercise_log_id", nullable = false)
-    private WorkoutExerciseLogEntity exerciseLog;
+    private SessionEntry exerciseLog;
 
     @Column(name = "set_number", nullable = false)
     private Integer setNumber;
@@ -68,8 +68,8 @@ public class WorkoutExerciseSetLogEntity {
 
     public UUID getSetLogId() { return setLogId; }
     public void setSetLogId(UUID setLogId) { this.setLogId = setLogId; }
-    public WorkoutExerciseLogEntity getExerciseLog() { return exerciseLog; }
-    public void setExerciseLog(WorkoutExerciseLogEntity exerciseLog) { this.exerciseLog = exerciseLog; }
+    public SessionEntry getExerciseLog() { return exerciseLog; }
+    public void setExerciseLog(SessionEntry exerciseLog) { this.exerciseLog = exerciseLog; }
     public Integer getSetNumber() { return setNumber; }
     public void setSetNumber(Integer setNumber) { this.setNumber = setNumber; }
     public Integer getReps() { return reps; }

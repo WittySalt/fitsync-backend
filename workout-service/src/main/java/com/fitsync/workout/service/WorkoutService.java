@@ -23,6 +23,10 @@ import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.PlanCoverageView;
+import com.fitsync.workout.dto.PlanDraftRequest;
+import com.fitsync.workout.dto.PlanProposalRequest;
+import com.fitsync.workout.dto.SessionEntryUpdateRequest;
 import com.fitsync.workout.dto.SetRestRequest;
 import com.fitsync.workout.dto.SessionEffortRequest;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -40,6 +44,12 @@ public interface WorkoutService {
     WorkoutPlanView getPlan(CurrentUserPrincipal currentUser, UUID planId);
 
     WorkoutPlanView getActivePlan(CurrentUserPrincipal currentUser);
+
+    /** What a plan being built trains: hard sets a week per group and the editor's notes. */
+    PlanCoverageView previewCoverage(CurrentUserPrincipal currentUser, PlanDraftRequest request);
+
+    /** A default week built from the profile the client sends, the person's habit days and the catalogue. */
+    WorkoutPlanView proposePlan(CurrentUserPrincipal currentUser, PlanProposalRequest request, String timezone);
 
     WorkoutPlanView duplicatePlan(CurrentUserPrincipal currentUser, UUID planId);
 
@@ -66,6 +76,9 @@ public interface WorkoutService {
     WorkoutSessionView startPlan(CurrentUserPrincipal currentUser, UUID planId, UUID planDayId, String timezone);
 
     WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request);
+
+    /** Creates a session whose entries are dated on its start's local date in the given zone. */
+    WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request, String timezone);
 
     ImportWorkoutSessionsResponse importSessions(CurrentUserPrincipal currentUser, ImportWorkoutSessionsRequest request);
 
@@ -123,6 +136,10 @@ public interface WorkoutService {
                                  UUID exerciseLogId,
                                  int setNumber,
                                  UpsertWorkoutExerciseSetRequest request);
+
+    /** Gives one entry of a session in progress its actual values: a segment its time, a move one set. */
+    WorkoutSessionView updateEntry(CurrentUserPrincipal currentUser, UUID sessionId, UUID entryId,
+                                   SessionEntryUpdateRequest request);
 
     void deleteSession(CurrentUserPrincipal currentUser, UUID sessionId);
 }

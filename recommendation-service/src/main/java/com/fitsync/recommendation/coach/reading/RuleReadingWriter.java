@@ -3,11 +3,13 @@ package com.fitsync.recommendation.coach.reading;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.fitsync.recommendation.coach.guardrail.CoachVoice;
 import org.springframework.stereotype.Component;
 
 /**
@@ -57,7 +59,7 @@ public class RuleReadingWriter {
      * when the facts leave nothing to say.
      */
     public Optional<RuleReading> write(TrainingInsight insight, List<ReadingFact> facts) {
-        ReadingFact volumeFact = findFact(facts, "VOLUME_PER_SESSION");
+        ReadingFact singleFact = findFact(facts, "BEST_SINGLE");
         ReadingFact lengthFact = findFact(facts, "SESSION_LENGTH");
         ReadingFact recordFact = findFact(facts, "RECORD");
         ReadingFact mostTrainedFact = findFact(facts, "MOST_TRAINED");
@@ -67,7 +69,7 @@ public class RuleReadingWriter {
         ReadingFact cardioLengthFact = findFact(facts, "CARDIO_LENGTH");
         ReadingFact mobilityFact = findFact(facts, "MOBILITY_TIME");
         ReadingFact sportFact = findFact(facts, "SPORT_TIME");
-        boolean hasLifting = volumeFact != null || lengthFact != null || recordFact != null
+        boolean hasLifting = singleFact != null || lengthFact != null || recordFact != null
                 || mostTrainedFact != null;
 
         // The sentences for everything but lifting, in fact order. They follow the lifting sentences
@@ -80,13 +82,17 @@ public class RuleReadingWriter {
         addIfPresent(otherSentences, sportSentence(sportFact));
         String cardioHeadline = cardioHeadline(distanceFact, cardioLengthFact);
 
-        String sentenceOne = sentenceOne(volumeFact, lengthFact, insight);
+        String sentenceOne = sentenceOne(singleFact, lengthFact, insight);
+        if (sentenceOne != null && !sentenceOne.equals(lengthSentence(lengthFact))) {
+            // The lift's name comes from a user; a sentence that names it is kept only when it is safe.
+            sentenceOne = safeOrLength(sentenceOne, lengthFact);
+        }
         String sentenceTwo = sentenceTwo(recordFact, insight);
         String sentenceThree = sentenceThree(mostTrainedFact, insight);
 
         String baseHeadline = !hasLifting && cardioHeadline != null
                 ? cardioHeadline
-                : baseHeadline(volumeFact, lengthFact, recordFact, facts.size());
+                : baseHeadline(singleFact, lengthFact, recordFact, facts.size());
 
         for (Candidate candidate : Candidate.IN_ORDER) {
             StringBuilder body = new StringBuilder();
@@ -208,31 +214,25 @@ public class RuleReadingWriter {
      * The headline the fact directions call for, before any candidate-specific dropping of the
      * record sentence is taken into account.
      */
-    private static String baseHeadline(ReadingFact volumeFact, ReadingFact lengthFact,
+    private static String baseHeadline(ReadingFact singleFact, ReadingFact lengthFact,
                                         ReadingFact recordFact, int factCount) {
-        Direction volumeDirection = directionOf(volumeFact);
+        Direction singleDirection = directionOf(singleFact);
         Direction lengthDirection = directionOf(lengthFact);
 
-        if (volumeDirection == Direction.UP && lengthDirection == Direction.UNCHANGED) {
-            return "Your lifts grew while your sessions stayed the same length.";
+        if (singleDirection == Direction.UP && lengthDirection == Direction.UNCHANGED) {
+            return "Your best single rose while your sessions stayed the same length.";
         }
-        if (volumeDirection == Direction.UP && lengthDirection == Direction.DOWN) {
-            return "You moved more weight in shorter sessions.";
+        if (singleDirection == Direction.UP && lengthDirection == Direction.DOWN) {
+            return "Your best single rose in shorter sessions.";
         }
-        if (volumeDirection == Direction.UP && lengthDirection == Direction.UP) {
-            return "Your sessions grew longer and moved more weight.";
+        if (singleDirection == Direction.UP) {
+            return "Your best single rose.";
         }
-        if (volumeDirection == Direction.UP) {
-            return "You moved more weight a session than the week before.";
+        if (singleDirection == Direction.DOWN) {
+            return "Your best single slipped.";
         }
-        if (volumeDirection == Direction.DOWN && lengthDirection == Direction.DOWN) {
-            return "Your sessions were shorter and moved less weight.";
-        }
-        if (volumeDirection == Direction.DOWN) {
-            return "You moved less weight a session than the week before.";
-        }
-        if (volumeDirection == Direction.UNCHANGED) {
-            return "Your sessions moved the same weight as the week before.";
+        if (singleDirection == Direction.UNCHANGED) {
+            return "Your best single held.";
         }
         if (recordFact != null) {
             return RECORD_HEADLINE;
@@ -253,39 +253,41 @@ public class RuleReadingWriter {
         };
     }
 
-    private static String sentenceOne(ReadingFact volumeFact, ReadingFact lengthFact, TrainingInsight insight) {
-        if (volumeFact != null && lengthFact != null) {
-            String minutesClause = ", in " + lengthFact.value() + " min " + cite(lengthFact);
-            return switch (directionOf(volumeFact)) {
-                case UP -> "You moved " + volumeFact.value() + " kg a session " + cite(volumeFact)
-                        + ", up from " + earlierVolume(insight) + " kg" + minutesClause + ".";
-                case DOWN -> "You moved " + volumeFact.value() + " kg a session " + cite(volumeFact)
-                        + ", down from " + earlierVolume(insight) + " kg" + minutesClause + ".";
-                case UNCHANGED -> "You moved " + volumeFact.value() + " kg a session " + cite(volumeFact)
-                        + ", the same as the week before" + minutesClause + ".";
-                case NONE -> "You moved " + volumeFact.value() + " kg a session " + cite(volumeFact)
-                        + " in " + lengthFact.value() + " min " + cite(lengthFact) + ".";
+    /**
+     * The first sentence: the main lift's estimated best single and its change, in the person's own
+     * words for the lift ("Your bench press best single rose 12% to 30 kg"), then the session length.
+     * The lift's name is written in lower case, so a name typed in capitals never reads as a status code.
+     */
+    private static String sentenceOne(ReadingFact singleFact, ReadingFact lengthFact, TrainingInsight insight) {
+        if (singleFact != null) {
+            TrainingInsight.BestSingle lift = insight.bestSingles().isEmpty() ? null : insight.bestSingles().get(0);
+            String name = lift == null ? "" : trimAndCutExerciseName(lift.name()).toLowerCase(Locale.ROOT).replace('_', ' ');
+            String lead = "Your " + name + " best single";
+            String percent = lift == null || lift.changePct() == null ? "" : Math.abs(lift.changePct()) + "% ";
+            String single = switch (directionOf(singleFact)) {
+                case UP -> lead + " rose " + percent + "to " + singleFact.value() + " kg " + cite(singleFact) + ".";
+                case DOWN -> lead + " slipped " + percent + "to " + singleFact.value() + " kg " + cite(singleFact) + ".";
+                case UNCHANGED -> lead + " held at " + singleFact.value() + " kg " + cite(singleFact) + ".";
+                case NONE -> lead + " is " + singleFact.value() + " kg " + cite(singleFact) + ".";
             };
+            String length = lengthSentence(lengthFact);
+            return length == null ? single : single + " " + length;
         }
-        if (volumeFact != null) {
-            return switch (directionOf(volumeFact)) {
-                case UP -> "You moved " + volumeFact.value() + " kg a session " + cite(volumeFact)
-                        + ", up from " + earlierVolume(insight) + " kg.";
-                case DOWN -> "You moved " + volumeFact.value() + " kg a session " + cite(volumeFact)
-                        + ", down from " + earlierVolume(insight) + " kg.";
-                case UNCHANGED -> "You moved " + volumeFact.value() + " kg a session " + cite(volumeFact)
-                        + ", the same as the week before.";
-                case NONE -> "You moved " + volumeFact.value() + " kg a session " + cite(volumeFact) + ".";
-            };
-        }
-        if (lengthFact != null) {
-            return "Your sessions took " + lengthFact.value() + " min each " + cite(lengthFact) + ".";
-        }
-        return null;
+        return lengthSentence(lengthFact);
     }
 
-    private static String earlierVolume(TrainingInsight insight) {
-        return ReadingFactsBuilder.wholeWithCommas(insight.earlierVolumePerSessionKg());
+    private static String lengthSentence(ReadingFact lengthFact) {
+        if (lengthFact == null) {
+            return null;
+        }
+        return "Your sessions took " + lengthFact.value() + " min each " + cite(lengthFact) + ".";
+    }
+
+    /** The sentence as written when it is printable and plain, else the session length on its own. */
+    private static String safeOrLength(String sentence, ReadingFact lengthFact) {
+        boolean plain = !CoachVoice.RAW_STATUS_WORD.matcher(sentence).find()
+                && sentence.chars().allMatch(ch -> ch >= 32 && ch < 127);
+        return plain ? sentence : lengthSentence(lengthFact);
     }
 
     /**

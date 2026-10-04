@@ -65,9 +65,9 @@ class CoachReadingServiceGenerationTests {
     private static final String TOKEN = "a-very-secret-bearer-token";
     private static final Instant NOW = Instant.parse("2026-09-28T12:00:00Z");
 
-    private static final String HEADLINE = "Your lifts grew while your sessions stayed the same length.";
+    private static final String HEADLINE = "Your best single rose while your sessions stayed the same length.";
     private static final String BODY =
-            "You moved 1,923 kg a session [1], up from 1,716 kg, and each one still took 50 min [2].";
+            "Your dumbbell bench press best single rose 12% to 30 kg [1], and each session still took 50 min [2].";
 
     @Autowired
     private CoachReadingService service;
@@ -226,7 +226,8 @@ class CoachReadingServiceGenerationTests {
                 .doesNotContain(TOKEN)
                 .doesNotContain(userId.toString())
                 .contains("PREVIOUS_WEEK")
-                .contains("Weight moved per session");
+                .contains("Estimated best single, Dumbbell Bench Press")
+                .doesNotContain("Weight moved");
     }
 
     @Test
@@ -400,7 +401,8 @@ class CoachReadingServiceGenerationTests {
                 new TrainingInsight.MostTrainedInfo("CORE", 4, List.of("Plank Hold")),
                 List.of(new TrainingInsight.LiftProgress("Dumbbell Bench Press",
                         new BigDecimal("20.00"), LocalDate.parse("2026-09-16"),
-                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))));
+                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))))
+                .withBestSingles(List.of(ReadingFactsBuilderTests.BENCH));
     }
 
     /**
@@ -418,7 +420,7 @@ class CoachReadingServiceGenerationTests {
                 new TrainingInsight.RecordInfo("Dumbbell Bench Press", new BigDecimal("22.50"),
                         LocalDate.parse("2026-09-22"), new BigDecimal("20.00")),
                 new TrainingInsight.MostTrainedInfo("CORE", 4, List.of("Plank Hold")),
-                List.of());
+                List.of()).withBestSingles(List.of(ReadingFactsBuilderTests.BENCH));
     }
 
     @TestConfiguration

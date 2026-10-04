@@ -21,7 +21,7 @@ public class WorkoutPlanExerciseSetTargetEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "plan_exercise_id", nullable = false)
-    private WorkoutPlanExerciseEntity planExercise;
+    private PlanEntry planExercise;
 
     @Column(name = "set_number", nullable = false)
     private Integer setNumber;
@@ -43,8 +43,8 @@ public class WorkoutPlanExerciseSetTargetEntity {
 
     public UUID getSetTargetId() { return setTargetId; }
     public void setSetTargetId(UUID setTargetId) { this.setTargetId = setTargetId; }
-    public WorkoutPlanExerciseEntity getPlanExercise() { return planExercise; }
-    public void setPlanExercise(WorkoutPlanExerciseEntity planExercise) { this.planExercise = planExercise; }
+    public PlanEntry getPlanExercise() { return planExercise; }
+    public void setPlanExercise(PlanEntry planExercise) { this.planExercise = planExercise; }
     public Integer getSetNumber() { return setNumber; }
     public void setSetNumber(Integer setNumber) { this.setNumber = setNumber; }
     public Integer getTargetReps() { return targetReps; }

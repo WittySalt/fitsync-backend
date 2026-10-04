@@ -331,6 +331,16 @@ class CoachOrchestratorTests {
     }
 
     @Test
+    @DisplayName("a question about the plan reads the plan, and one about a run reads the sessions")
+    void plansForPlanAndRunQuestions() {
+        CoachOrchestrator orchestrator = orchestrator("{\"answer\":\"done\"}");
+
+        assertThat(orchestrator.plannedTools("What does my plan leave out?")).containsExactly("readPlan");
+        assertThat(orchestrator.plannedTools("How did my last run go against the plan?"))
+                .containsExactly("readFacts", "readRecentTraining", "readPlan");
+    }
+
+    @Test
     @DisplayName("a nutrition question plans only the facts it needs")
     void plansForNutritionQuestions() {
         assertThat(orchestrator("{\"answer\":\"done\"}").plannedTools("What should I eat tonight?"))

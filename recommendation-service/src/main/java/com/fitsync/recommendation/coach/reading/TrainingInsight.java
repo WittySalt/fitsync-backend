@@ -36,13 +36,49 @@ public record TrainingInsight(
         List<LiftProgress> lifts,
         CardioInfo cardio,
         MobilityInfo mobility,
-        SportInfo sport) {
+        SportInfo sport,
+        List<BestSingle> bestSingles) {
 
     /** period value meaning "nothing recent enough to talk about". */
     public static final String PERIOD_NONE = "NONE";
 
     public TrainingInsight {
         lifts = lifts == null ? List.of() : List.copyOf(lifts);
+        bestSingles = bestSingles == null ? List.of() : List.copyOf(bestSingles);
+    }
+
+    /** The shape without the main lifts' estimated best singles, which the weekly insight carries. */
+    public TrainingInsight(String timezone, LocalDate referenceDate, String period, LocalDate periodStart,
+                           LocalDate periodEnd, Integer sessions, Integer liftingSessions,
+                           BigDecimal volumePerSessionKg, BigDecimal earlierVolumePerSessionKg,
+                           Integer minutesPerLiftingSession, Integer earlierMinutesPerLiftingSession,
+                           RecordInfo personalRecord, MostTrainedInfo mostTrained, List<LiftProgress> lifts,
+                           CardioInfo cardio, MobilityInfo mobility, SportInfo sport) {
+        this(timezone, referenceDate, period, periodStart, periodEnd, sessions, liftingSessions,
+                volumePerSessionKg, earlierVolumePerSessionKg, minutesPerLiftingSession,
+                earlierMinutesPerLiftingSession, personalRecord, mostTrained, lifts, cardio, mobility, sport,
+                List.of());
+    }
+
+    /** The same insight with the main lifts' estimated best singles from the weekly insight. */
+    public TrainingInsight withBestSingles(List<BestSingle> singles) {
+        return new TrainingInsight(timezone, referenceDate, period, periodStart, periodEnd, sessions,
+                liftingSessions, volumePerSessionKg, earlierVolumePerSessionKg, minutesPerLiftingSession,
+                earlierMinutesPerLiftingSession, personalRecord, mostTrained, lifts, cardio, mobility, sport, singles);
+    }
+
+    // Same re-wrapping as lifts(), for the same findsecbugs reason.
+    @Override
+    public List<BestSingle> bestSingles() {
+        return List.copyOf(bestSingles);
+    }
+
+    /**
+     * One main lift's estimated best single at the start and the end of the weekly insight's four
+     * weeks, and the change as a whole percent. The coach reads strength this way, never as weight moved.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BestSingle(String name, BigDecimal e1rmStart, BigDecimal e1rmNow, Integer changePct) {
     }
 
     /** The shape from before cardio, mobility and sport were reported; those groups read as absent. */
@@ -53,7 +89,7 @@ public record TrainingInsight(
                            RecordInfo personalRecord, MostTrainedInfo mostTrained, List<LiftProgress> lifts) {
         this(timezone, referenceDate, period, periodStart, periodEnd, sessions, liftingSessions,
                 volumePerSessionKg, earlierVolumePerSessionKg, minutesPerLiftingSession,
-                earlierMinutesPerLiftingSession, personalRecord, mostTrained, lifts, null, null, null);
+                earlierMinutesPerLiftingSession, personalRecord, mostTrained, lifts, null, null, null, List.of());
     }
 
     // Re-wraps in an immutable copy on every call, the same belt-and-braces pattern

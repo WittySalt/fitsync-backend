@@ -35,6 +35,10 @@ import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.PlanCoverageView;
+import com.fitsync.workout.dto.PlanDraftRequest;
+import com.fitsync.workout.dto.PlanProposalRequest;
+import com.fitsync.workout.dto.SessionEntryUpdateRequest;
 import com.fitsync.workout.dto.SetRestRequest;
 import com.fitsync.workout.dto.SessionEffortRequest;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -217,6 +221,21 @@ public class WorkoutController {
         return workoutService.createPlan(currentPrincipal(authentication), request);
     }
 
+    @Operation(summary = "Read what a plan being built trains: hard sets a week per muscle group and notes")
+    @PostMapping("/plans/coverage")
+    public PlanCoverageView planCoverage(Authentication authentication,
+                                         @Valid @RequestBody PlanDraftRequest request) {
+        return workoutService.previewCoverage(currentPrincipal(authentication), request);
+    }
+
+    @Operation(summary = "Propose a default week from the profile the client holds; nothing is saved")
+    @PostMapping("/plans/proposal")
+    public WorkoutPlanView planProposal(Authentication authentication,
+                                        @Valid @RequestBody PlanProposalRequest request,
+                                        @RequestTimezone Optional<ZoneId> zone) {
+        return workoutService.proposePlan(currentPrincipal(authentication), request, zoneId(zone));
+    }
+
     @GetMapping("/plans")
     public PageResponse<WorkoutPlanView> listPlans(
             Authentication authentication,
@@ -280,8 +299,9 @@ public class WorkoutController {
     @PostMapping("/sessions")
     @ResponseStatus(HttpStatus.CREATED)
     public WorkoutSessionView createSession(Authentication authentication,
-                                            @Valid @RequestBody UpsertWorkoutSessionRequest request) {
-        return workoutService.createSession(currentPrincipal(authentication), request);
+                                            @Valid @RequestBody UpsertWorkoutSessionRequest request,
+                                            @RequestTimezone Optional<ZoneId> zone) {
+        return workoutService.createSession(currentPrincipal(authentication), request, zoneId(zone));
     }
 
     @Operation(summary = "Import externally sourced workout sessions")
@@ -422,6 +442,15 @@ public class WorkoutController {
                                         @PathVariable @Min(1) int setNumber,
                                         @Valid @RequestBody UpsertWorkoutExerciseSetRequest request) {
         return workoutService.upsertSet(currentPrincipal(authentication), sessionId, exerciseLogId, setNumber, request);
+    }
+
+    @Operation(summary = "Give one entry of a workout in progress its actual values: a segment its time, a move one set")
+    @PutMapping("/sessions/{sessionId}/entries/{entryId}")
+    public WorkoutSessionView updateEntry(Authentication authentication,
+                                          @PathVariable UUID sessionId,
+                                          @PathVariable UUID entryId,
+                                          @Valid @RequestBody SessionEntryUpdateRequest request) {
+        return workoutService.updateEntry(currentPrincipal(authentication), sessionId, entryId, request);
     }
 
     @DeleteMapping("/sessions/{sessionId}")

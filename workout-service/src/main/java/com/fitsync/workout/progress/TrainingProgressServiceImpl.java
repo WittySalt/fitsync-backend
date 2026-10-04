@@ -27,7 +27,7 @@ import com.fitsync.workout.dto.progress.ExerciseProgressView;
 import com.fitsync.workout.dto.progress.TrainingProgressView;
 import com.fitsync.workout.entity.ExerciseEntity;
 import com.fitsync.workout.entity.ExerciseSecondaryMuscleEntity;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import com.fitsync.workout.entity.WorkoutPlanDayEntity;
 import com.fitsync.workout.entity.WorkoutPlanEntity;
@@ -124,20 +124,20 @@ public class TrainingProgressServiceImpl implements TrainingProgressService {
         }
         Set<MuscleGroup> secondarySet = secondary.isEmpty() ? Set.of() : EnumSet.copyOf(secondary);
 
-        Map<UUID, List<WorkoutExerciseLogEntity>> bySession = new LinkedHashMap<>();
+        Map<UUID, List<SessionEntry>> bySession = new LinkedHashMap<>();
         Map<UUID, WorkoutSessionEntity> sessions = new HashMap<>();
-        for (WorkoutExerciseLogEntity log : workoutExerciseLogRepository.findExerciseHistoryWithSets(
+        for (SessionEntry log : workoutExerciseLogRepository.findExerciseHistoryWithSets(
                 userId, exerciseId, WorkoutSessionStatus.COMPLETED)) {
             WorkoutSessionEntity session = log.getSession();
             sessions.put(session.getSessionId(), session);
             bySession.computeIfAbsent(session.getSessionId(), id -> new ArrayList<>()).add(log);
         }
         List<SessionSnap> history = new ArrayList<>();
-        for (Map.Entry<UUID, List<WorkoutExerciseLogEntity>> entry : bySession.entrySet()) {
+        for (Map.Entry<UUID, List<SessionEntry>> entry : bySession.entrySet()) {
             WorkoutSessionEntity session = sessions.get(entry.getKey());
             List<SetSnap> sets = new ArrayList<>();
             String name = exercise.getName();
-            for (WorkoutExerciseLogEntity log : entry.getValue()) {
+            for (SessionEntry log : entry.getValue()) {
                 sets.addAll(performedSets(log));
                 name = log.getExerciseNameSnapshot();
             }
@@ -197,10 +197,10 @@ public class TrainingProgressServiceImpl implements TrainingProgressService {
             }
         }
 
-        Map<UUID, List<WorkoutExerciseLogEntity>> logsBySession = new HashMap<>();
+        Map<UUID, List<SessionEntry>> logsBySession = new HashMap<>();
         Set<UUID> exerciseIds = new LinkedHashSet<>();
         for (List<UUID> chunk : chunks(withSets)) {
-            for (WorkoutExerciseLogEntity log : workoutExerciseLogRepository.findWithSetsBySessionIds(userId, chunk)) {
+            for (SessionEntry log : workoutExerciseLogRepository.findWithSetsBySessionIds(userId, chunk)) {
                 logsBySession.computeIfAbsent(log.getSession().getSessionId(), id -> new ArrayList<>()).add(log);
                 exerciseIds.add(log.getExercise().getExerciseId());
             }
@@ -215,12 +215,12 @@ public class TrainingProgressServiceImpl implements TrainingProgressService {
 
         List<SessionSnap> snaps = new ArrayList<>();
         for (WorkoutSessionEntity session : placed) {
-            List<WorkoutExerciseLogEntity> logs = new ArrayList<>(logsBySession.getOrDefault(session.getSessionId(),
+            List<SessionEntry> logs = new ArrayList<>(logsBySession.getOrDefault(session.getSessionId(),
                     List.of()));
-            logs.sort(Comparator.comparing(WorkoutExerciseLogEntity::getSequence,
+            logs.sort(Comparator.comparing(SessionEntry::getSequence,
                     Comparator.nullsLast(Comparator.naturalOrder())));
             List<ExerciseSnap> exercises = new ArrayList<>();
-            for (WorkoutExerciseLogEntity log : logs) {
+            for (SessionEntry log : logs) {
                 ExerciseEntity exercise = log.getExercise();
                 exercises.add(new ExerciseSnap(exercise.getExerciseId(), log.getExerciseNameSnapshot(),
                         exercise.getPrimaryMuscleGroup(),
@@ -279,7 +279,7 @@ public class TrainingProgressServiceImpl implements TrainingProgressService {
     }
 
     /** Sets that were performed: logged and not skipped, in set order. */
-    static List<SetSnap> performedSets(WorkoutExerciseLogEntity log) {
+    static List<SetSnap> performedSets(SessionEntry log) {
         List<WorkoutExerciseSetLogEntity> sets = new ArrayList<>(log.getSets());
         sets.sort(Comparator.comparing(WorkoutExerciseSetLogEntity::getSetNumber,
                 Comparator.nullsLast(Comparator.naturalOrder())));

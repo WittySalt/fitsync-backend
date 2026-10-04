@@ -3,7 +3,7 @@ package com.fitsync.workout.service;
 import java.math.BigDecimal;
 
 import com.fitsync.workout.domain.WorkoutSetStatus;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -19,19 +19,19 @@ class TrainingPageInsightServiceImplStaticHelpersTests {
 
     @Test
     void topSetWeightReturnsNullWhenNoSetHasAWeight() {
-        WorkoutExerciseLogEntity log = logWithSets(setWithWeight(null), setWithWeight(null));
+        SessionEntry log = logWithSets(setWithWeight(null), setWithWeight(null));
         assertNull(TrainingPageInsightServiceImpl.topSetWeight(log));
     }
 
     @Test
     void topSetWeightIgnoresNullWeightsAmongOtherSets() {
-        WorkoutExerciseLogEntity log = logWithSets(setWithWeight(null), setWithWeight(new BigDecimal("18.00")));
+        SessionEntry log = logWithSets(setWithWeight(null), setWithWeight(new BigDecimal("18.00")));
         assertEquals(0, new BigDecimal("18.00").compareTo(TrainingPageInsightServiceImpl.topSetWeight(log)));
     }
 
     @Test
     void topSetWeightReturnsTheHeaviestSet() {
-        WorkoutExerciseLogEntity log = logWithSets(
+        SessionEntry log = logWithSets(
                 setWithWeight(new BigDecimal("16.00")),
                 setWithWeight(new BigDecimal("22.50")),
                 setWithWeight(new BigDecimal("18.00")));
@@ -40,7 +40,7 @@ class TrainingPageInsightServiceImplStaticHelpersTests {
 
     @Test
     void topSetWeightLeavesOutSetsThatWereNeverPerformed() {
-        WorkoutExerciseLogEntity log = logWithSets(
+        SessionEntry log = logWithSets(
                 set(new BigDecimal("40.00"), false, WorkoutSetStatus.PENDING),
                 set(new BigDecimal("35.00"), true, WorkoutSetStatus.SKIPPED),
                 set(new BigDecimal("20.00"), true, WorkoutSetStatus.DONE));
@@ -50,7 +50,7 @@ class TrainingPageInsightServiceImplStaticHelpersTests {
     @Test
     void topSetWeightCountsALoggedSetWithoutAStatusOfDone() {
         // Imported and seeded sessions are logged with the default status.
-        WorkoutExerciseLogEntity log = logWithSets(set(new BigDecimal("22.50"), true, WorkoutSetStatus.PENDING));
+        SessionEntry log = logWithSets(set(new BigDecimal("22.50"), true, WorkoutSetStatus.PENDING));
         assertEquals(0, new BigDecimal("22.50").compareTo(TrainingPageInsightServiceImpl.topSetWeight(log)));
     }
 
@@ -80,8 +80,8 @@ class TrainingPageInsightServiceImplStaticHelpersTests {
         assertEquals(51, TrainingPageInsightServiceImpl.averageMinutes(101, 2));
     }
 
-    private WorkoutExerciseLogEntity logWithSets(WorkoutExerciseSetLogEntity... sets) {
-        WorkoutExerciseLogEntity log = new WorkoutExerciseLogEntity();
+    private SessionEntry logWithSets(WorkoutExerciseSetLogEntity... sets) {
+        SessionEntry log = new SessionEntry();
         for (WorkoutExerciseSetLogEntity set : sets) {
             log.getSets().add(set);
         }

@@ -505,7 +505,8 @@ public class CoachOrchestrator {
         String lower = question.toLowerCase(Locale.ROOT);
         Set<String> planned = new LinkedHashSet<>();
 
-        boolean aboutTraining = containsAny(lower, "train", "workout", "session", "exercise", "gym", "lift");
+        boolean aboutTraining = containsAny(lower, "train", "workout", "session", "exercise", "gym", "lift",
+                "my run", "last run");
         // "day" and "today" were missing at first, and the harness's very first question, "how is
         // my day going?", got "outside what I know" because nothing had been read.
         boolean aboutProgress = containsAny(lower, "week", "pace", "goal", "streak", "progress", "on track",
@@ -517,6 +518,9 @@ public class CoachOrchestrator {
         }
         if (aboutTraining) {
             planned.add("readRecentTraining");
+        }
+        if (containsAny(lower, "my plan", "the plan", "plan cover", "plan train", "plan miss")) {
+            planned.add("readPlan");
         }
         return planned;
     }

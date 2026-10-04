@@ -54,14 +54,14 @@ class ReadingPromptTests {
             Example input:
             period: THIS_WEEK
             facts: [
-              {"number":1,"label":"Weight moved per session","value":"2,480","unit":"kg","note":"Down 6%","detail":"2,640 kg the week before"},
+              {"number":1,"label":"Estimated best single, Bench Press","value":"30","unit":"kg","note":"Up 12%","detail":"26.8 kg four weeks before"},
               {"number":2,"label":"Session length","value":"45","unit":"min","note":"Down 10 min","detail":"55 min the week before"},
               {"number":3,"label":"Barbell Deadlift record","value":"80","unit":"kg","note":"Thursday","detail":"75 kg before"},
               {"number":4,"label":"Sessions with leg work","value":"3","unit":"of 5","note":"","detail":"Back Squat"}
             ]
 
             Example output:
-            {"headline": "Shorter sessions moved less weight and still set a record.", "body": "Each session moved 2,480 kg [1] in 45 min [2], both lower than the week before. Thursday still brought a deadlift of 80 kg [3], up from 75 kg [3]."}""";
+            {"headline": "Your bench press best single rose in shorter sessions.", "body": "Your bench press best single rose 12% to 30 kg [1]. Sessions took 45 min [2], 10 min shorter than the week before. Thursday brought a deadlift of 80 kg [3], up from 75 kg [3]."}""";
 
     @Test
     @DisplayName("the workout prompt is the text it always was")

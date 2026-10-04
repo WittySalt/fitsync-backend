@@ -111,7 +111,7 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
 
     @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sequence asc")
-    private List<WorkoutExerciseLogEntity> exercises = new ArrayList<>();
+    private List<SessionEntry> entries = new ArrayList<>();
 
     public UUID getSessionId() { return sessionId; }
     public void setSessionId(UUID sessionId) { this.sessionId = sessionId; }
@@ -159,6 +159,17 @@ public class WorkoutSessionEntity extends BaseAuditableEntity {
     public void setEffortEstimated(boolean effortEstimated) { this.effortEstimated = effortEstimated; }
     public Instant getDeletedAt() { return deletedAt; }
     public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
-    public List<WorkoutExerciseLogEntity> getExercises() { return exercises; }
-    public void setExercises(List<WorkoutExerciseLogEntity> exercises) { this.exercises = exercises; }
+    /** Every entry of the session, moves and time segments, in order. The collection the session owns. */
+    public List<SessionEntry> getEntries() { return entries; }
+    public void setEntries(List<SessionEntry> entries) { this.entries = entries; }
+
+    /** The SET entries only, the moves: what sets, records, volume and events read. A read-only copy. */
+    public List<SessionEntry> getSetEntries() {
+        return entries.stream().filter(SessionEntry::isSet).toList();
+    }
+
+    /** The SEGMENT entries only, the time segments, in order. A read-only copy. */
+    public List<SessionEntry> getSegmentEntries() {
+        return entries.stream().filter(entry -> !entry.isSet()).toList();
+    }
 }

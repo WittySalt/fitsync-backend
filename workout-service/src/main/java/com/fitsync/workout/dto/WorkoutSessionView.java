@@ -40,11 +40,33 @@ public record WorkoutSessionView(
         boolean caloriesEstimated,
         boolean effortEstimated,
         /** Personal records the session set; given only when it was just completed or counted, else empty. */
-        List<NewRecordView> newRecords) {
+        List<NewRecordView> newRecords,
+        /** Every entry of the session, moves and time segments, by position. */
+        List<SessionEntryView> entries) {
 
     public WorkoutSessionView {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
         newRecords = newRecords == null ? List.of() : List.copyOf(newRecords);
+        entries = entries == null ? List.of() : List.copyOf(entries);
+    }
+
+    /** A view without entries. */
+    public WorkoutSessionView(UUID sessionId, UUID planId, String name, WorkoutType workoutType,
+            WorkoutSessionStatus status, WorkoutSource source, Instant startedAt, Instant completedAt,
+            Integer durationMinutes, Integer caloriesBurned, Integer perceivedExertion, String notes,
+            Integer exerciseCount, List<WorkoutExerciseLogView> exercises, Instant createdAt, Instant updatedAt,
+            SessionKind kind, SportActivity sportActivity, String sportLabel, BigDecimal distanceKm, UUID planDayId,
+            Instant autoClosedAt, Instant endedAt, boolean caloriesEstimated, boolean effortEstimated,
+            List<NewRecordView> newRecords) {
+        this(sessionId, planId, name, workoutType, status, source, startedAt, completedAt, durationMinutes,
+                caloriesBurned, perceivedExertion, notes, exerciseCount, exercises, createdAt, updatedAt, kind,
+                sportActivity, sportLabel, distanceKm, planDayId, autoClosedAt, endedAt, caloriesEstimated,
+                effortEstimated, newRecords, List.of());
+    }
+
+    @Override
+    public List<SessionEntryView> entries() {
+        return List.copyOf(entries);
     }
 
     /** A view without the end, the estimate flags and the new records. */
@@ -81,7 +103,7 @@ public record WorkoutSessionView(
         return new WorkoutSessionView(sessionId, planId, name, workoutType, status, source, startedAt, completedAt,
                 durationMinutes, caloriesBurned, perceivedExertion, notes, exerciseCount, exercises, createdAt, updatedAt,
                 kind, sportActivity, sportLabel, distanceKm, planDayId, autoClosedAt, endedAt, caloriesEstimated,
-                effortEstimated, records);
+                effortEstimated, records, entries);
     }
 
     @Override

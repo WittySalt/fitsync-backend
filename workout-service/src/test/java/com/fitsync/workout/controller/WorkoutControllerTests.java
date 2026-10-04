@@ -1291,7 +1291,7 @@ class WorkoutControllerTests {
                 "Basketball",
                 null);
 
-        when(workoutService.createSession(any(), any())).thenReturn(response);
+        when(workoutService.createSession(any(), any(), any())).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/workouts/sessions")
                         .with(authentication(authToken(principal)))
@@ -1377,7 +1377,7 @@ class WorkoutControllerTests {
                 null,
                 List.of());
 
-        when(workoutService.createSession(any(), any()))
+        when(workoutService.createSession(any(), any(), any()))
                 .thenThrow(new IllegalArgumentException("startedAt must not be in the future"));
 
         mockMvc.perform(post("/api/v1/workouts/sessions")

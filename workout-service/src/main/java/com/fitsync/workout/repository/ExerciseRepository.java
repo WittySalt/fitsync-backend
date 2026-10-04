@@ -64,4 +64,21 @@ public interface ExerciseRepository extends JpaRepository<ExerciseEntity, UUID>,
             where sm.exercise.exerciseId in :exerciseIds
             """)
     List<ExerciseSecondaryRow> findSecondaryGroups(@Param("exerciseIds") List<UUID> exerciseIds);
+
+    /**
+     * The shared catalogue's exercises of one type at the given levels and with the given equipment, for
+     * the default week. Custom exercises are left out; the caller ranks the rows.
+     */
+    @Query("""
+            select exercise from ExerciseEntity exercise
+            where exercise.ownerUserId is null
+              and exercise.status = :status
+              and exercise.exerciseType = :type
+              and exercise.difficulty in :levels
+              and exercise.equipment in :equipment
+            """)
+    List<ExerciseEntity> findProposalCandidates(@Param("status") ExerciseStatus status,
+                                                @Param("type") ExerciseType type,
+                                                @Param("levels") List<WorkoutDifficulty> levels,
+                                                @Param("equipment") List<ExerciseEquipment> equipment);
 }
