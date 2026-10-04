@@ -136,31 +136,34 @@ public final class PlanProposalPlanner {
         }
     }
 
-    // The curated moves of each slot, the owner's list first; the catalogue's own names for the same moves
-    // follow, so a list still matches where the free-exercise-db names differ ("Pullups", "Plank").
-    static final Slot PUSH = new Slot(MuscleGroup.CHEST, List.of("Barbell Bench Press", "Dumbbell Bench Press",
-            "Push-Up", "Incline Dumbbell Press", "Machine Chest Press", "Leverage Chest Press"),
+    // The curated moves of each slot, the owner's list in order; where the free-exercise-db name differs,
+    // the catalogue's own name for the same move follows the owner's name directly ("Pullups", "Plank").
+    static final Slot PUSH = new Slot(MuscleGroup.CHEST, List.of("Barbell Bench Press",
+            "Barbell Bench Press - Medium Grip", "Dumbbell Bench Press", "Push-Up", "Pushups",
+            "Incline Dumbbell Press", "Machine Chest Press", "Leverage Chest Press"),
             List.of("bench press", "push-up", "pushup"), true);
     static final Slot VERTICAL_PULL = new Slot(MuscleGroup.BACK, List.of("Pull-Up", "Lat Pulldown",
             "Wide-Grip Lat Pulldown", "Band Assisted Pull-Up"),
             List.of("pulldown", "pull-up", "pullup", "chin"), true);
-    static final Slot HORIZONTAL_PULL = new Slot(MuscleGroup.BACK, List.of("Barbell Row", "Bent-Over Row",
-            "Seated Cable Row", "Single-Arm Row", "Bent Over Two-Dumbbell Row", "One-Arm Dumbbell Row"),
-            List.of("bent over row", "row"), true);
-    static final Slot SQUAT = new Slot(MuscleGroup.LEGS, List.of("Back Squat", "Goblet Squat", "Leg Press",
-            "Barbell Squat", "Bodyweight Squat"), List.of("squat"), true);
-    static final Slot HINGE = new Slot(MuscleGroup.GLUTES, List.of("Romanian Deadlift", "Deadlift", "Hip Thrust",
-            "Stiff-Legged Dumbbell Deadlift"), List.of("deadlift", "hip thrust", "glute bridge"), true);
-    static final Slot LUNGE = new Slot(MuscleGroup.LEGS, List.of("Lunge", "Bulgarian Split Squat",
-            "Split Squat with Dumbbells"), List.of("lunge", "split squat"), true);
-    static final Slot CORE = new Slot(MuscleGroup.CORE, List.of("Plank Hold", "Dead Bug", "Hanging Knee Raise",
-            "Plank", "Hanging Leg Raise"), List.of("plank", "crunch"), false);
-    static final Slot SHOULDERS = new Slot(MuscleGroup.SHOULDERS, List.of("Overhead Press", "Dumbbell Shoulder Press",
-            "Lateral Raise", "Standing Military Press", "Side Lateral Raise"),
+    static final Slot HORIZONTAL_PULL = new Slot(MuscleGroup.BACK, List.of("Barbell Row", "Bent Over Barbell Row",
+            "Bent-Over Row", "Seated Cable Row", "Seated Cable Rows", "Single-Arm Row", "One-Arm Dumbbell Row",
+            "Bent Over Two-Dumbbell Row"), List.of("bent over row", "row"), true);
+    static final Slot SQUAT = new Slot(MuscleGroup.LEGS, List.of("Back Squat", "Barbell Squat", "Goblet Squat",
+            "Leg Press", "Bodyweight Squat"), List.of("squat"), true);
+    static final Slot HINGE = new Slot(MuscleGroup.GLUTES, List.of("Romanian Deadlift", "Deadlift",
+            "Barbell Deadlift", "Hip Thrust", "Stiff-Legged Dumbbell Deadlift"),
+            List.of("deadlift", "hip thrust", "glute bridge"), true);
+    static final Slot LUNGE = new Slot(MuscleGroup.LEGS, List.of("Lunge", "Barbell Lunge", "Dumbbell Lunges",
+            "Bulgarian Split Squat", "Split Squat with Dumbbells", "Bodyweight Walking Lunge"),
+            List.of("lunge", "split squat"), true);
+    static final Slot CORE = new Slot(MuscleGroup.CORE, List.of("Plank Hold", "Plank", "Dead Bug",
+            "Hanging Knee Raise", "Hanging Leg Raise", "Crunches"), List.of("plank", "crunch"), false);
+    static final Slot SHOULDER_PRESS = new Slot(MuscleGroup.SHOULDERS, List.of("Overhead Press",
+            "Standing Military Press", "Dumbbell Shoulder Press", "Seated Dumbbell Press", "Standing Dumbbell Press",
+            "Barbell Shoulder Press", "Leverage Shoulder Press", "Shoulder Press - With Bands"),
             List.of("shoulder press", "military press"), true);
-    static final Slot LATERAL = new Slot(MuscleGroup.SHOULDERS, List.of("Lateral Raise", "Side Lateral Raise"),
-            List.of("lateral raise", "raise"), false);
-    static final Slot CALF = new Slot(MuscleGroup.LEGS, List.of("Standing Calf Raises", "Calf Raise"),
+    static final Slot CALF = new Slot(MuscleGroup.LEGS, List.of("Standing Calf Raises", "Standing Barbell Calf Raise",
+            "Standing Dumbbell Calf Raise", "Calf Raises - With Bands", "Calf Raise"),
             List.of("calf raise"), false);
     static final Slot CURL = new Slot(MuscleGroup.ARMS, List.of("Barbell Curl", "Dumbbell Bicep Curl",
             "Hammer Curls"), List.of("curl"), false);
@@ -172,51 +175,130 @@ public final class PlanProposalPlanner {
             "Thoracic Rotation", "Hamstring Floss", "Child's Pose", "Hip Flexor Stretch", "Downward Dog",
             "Cat Stretch", "90/90 Hamstring", "Hamstring Stretch", "Kneeling Hip Flexor");
 
-    private static final List<Slot> FULL_BODY_A = List.of(SQUAT, PUSH, HORIZONTAL_PULL, SHOULDERS, CORE, CALF, HINGE);
-    private static final List<Slot> FULL_BODY_B = List.of(LUNGE, VERTICAL_PULL, PUSH, CALF, LATERAL, CURL, CORE);
-    private static final List<Slot> FULL_BODY_C = List.of(HINGE, PUSH, HORIZONTAL_PULL, SHOULDERS, CALF, TRICEPS,
-            CORE);
-    private static final List<Slot> UPPER = List.of(PUSH, VERTICAL_PULL, SHOULDERS, HORIZONTAL_PULL, CURL, TRICEPS,
-            LATERAL);
-    private static final List<Slot> LOWER = List.of(SQUAT, HINGE, LUNGE, CALF, CORE, LATERAL, CURL);
+    // Five slots a day; the slots after the fifth are used only when the day is long enough for more moves.
+    // Upright rows and lateral raises fill no slot.
+    private static final List<Slot> FULL_BODY_A = List.of(SQUAT, PUSH, HORIZONTAL_PULL, SHOULDER_PRESS, CORE,
+            CALF, VERTICAL_PULL);
+    private static final List<Slot> FULL_BODY_B = List.of(LUNGE, PUSH, VERTICAL_PULL, CALF, CORE,
+            SHOULDER_PRESS, CURL);
+    private static final List<Slot> FULL_BODY_C = List.of(HINGE, PUSH, HORIZONTAL_PULL, SHOULDER_PRESS, CORE,
+            CALF, TRICEPS);
+    private static final List<Slot> UPPER = List.of(PUSH, VERTICAL_PULL, HORIZONTAL_PULL, SHOULDER_PRESS, CURL,
+            TRICEPS, PUSH);
+    private static final List<Slot> LOWER = List.of(SQUAT, HINGE, LUNGE, CALF, CORE, SQUAT, CORE);
+    private static final List<Slot> FULL_BODY = List.of(SQUAT, PUSH, HORIZONTAL_PULL, SHOULDER_PRESS, CORE,
+            CALF, VERTICAL_PULL);
 
     private static final Set<ExerciseEquipment> BEGINNER_EQUIPMENT = Set.of(ExerciseEquipment.BODYWEIGHT,
             ExerciseEquipment.NONE, ExerciseEquipment.DUMBBELL);
     private static final Set<ExerciseEquipment> LOADED_EQUIPMENT = Set.of(ExerciseEquipment.BARBELL,
             ExerciseEquipment.MACHINE, ExerciseEquipment.CABLE);
 
+    /** Words that make a move a variant; a name carrying one ranks after the plain moves. */
+    static final List<String> QUALIFIERS = List.of("decline", "incline", "narrow", "wide", "close", "one arm",
+            "single arm", "sprint", "seated", "cable", "upright", "reverse", "alternating", "smith", "kneeling",
+            "standing");
+
+    private static final int EXACT = 0;
+    private static final int PLAIN = 1;
+    private static final int QUALIFIED = 2;
+    private static final int NO_MATCH = 3;
+
     /**
-     * The curated choice among the catalogue's candidates, or null when no curated name matches. Each
-     * curated name matches a catalogue name that is the same or contains it, ignoring case, spaces and
-     * punctuation; the same name ranks first, then the shorter. A beginner takes the first match with
-     * bodyweight or dumbbells, a person with some experience the first with a barbell, a machine or a
-     * cable; without one of those, the first match of any equipment.
+     * The curated choice among the catalogue's candidates, or null when no curated name matches.
+     *
+     * <p>A catalogue name matches a curated one when it is the same, ignoring case, spaces, punctuation
+     * and a plural s, or when it holds the curated name's words in order with at most one word more. The
+     * same name anywhere in the list always wins; then a plain match; a match that carries a qualifier
+     * word the curated name does not ("decline", "seated", "one arm" and the others in {@link #QUALIFIERS})
+     * comes last. Within one of these ranks the curated order decides, then the shorter name.
+     *
+     * <p>A beginner takes the first match with bodyweight or dumbbells, a person with some experience the
+     * first with a barbell, a machine or a cable; without one of those, the first match of any equipment.
      */
     public static Candidate chooseCurated(List<Candidate> candidates, List<String> curated, boolean beginner,
                                           Set<UUID> used) {
         Set<ExerciseEquipment> preferred = beginner ? BEGINNER_EQUIPMENT : LOADED_EQUIPMENT;
-        Candidate fallback = null;
-        for (String wanted : curated) {
-            String key = plain(wanted);
-            List<Candidate> matches = new ArrayList<>();
-            for (Candidate candidate : candidates) {
-                if (!used.contains(candidate.exerciseId()) && plain(candidate.name()).contains(key)) {
-                    matches.add(candidate);
+        for (int rank : List.of(EXACT, PLAIN, QUALIFIED)) {
+            Candidate fallback = null;
+            for (String wanted : curated) {
+                List<Candidate> matches = new ArrayList<>();
+                for (Candidate candidate : candidates) {
+                    if (!used.contains(candidate.exerciseId()) && matchRank(candidate.name(), wanted) == rank) {
+                        matches.add(candidate);
+                    }
+                }
+                matches.sort(Comparator.comparingInt((Candidate candidate) -> candidate.name().length())
+                        .thenComparing(Candidate::name));
+                for (Candidate match : matches) {
+                    if (preferred.contains(match.equipment())) {
+                        return match;
+                    }
+                    if (fallback == null) {
+                        fallback = match;
+                    }
                 }
             }
-            matches.sort(Comparator.comparing((Candidate candidate) -> !plain(candidate.name()).equals(key))
-                    .thenComparingInt(candidate -> candidate.name().length())
-                    .thenComparing(Candidate::name));
-            for (Candidate match : matches) {
-                if (preferred.contains(match.equipment())) {
-                    return match;
-                }
-                if (fallback == null) {
-                    fallback = match;
-                }
+            if (fallback != null) {
+                return fallback;
             }
         }
-        return fallback;
+        return null;
+    }
+
+    /** How a catalogue name matches a curated one: the same, a plain match, a qualified match, or none. */
+    static int matchRank(String catalogueName, String curatedName) {
+        String plainCatalogue = plain(catalogueName);
+        String plainCurated = plain(curatedName);
+        if (plainCatalogue.equals(plainCurated) || plainCatalogue.equals(plainCurated + "s")
+                || plainCatalogue.equals(plainCurated + "es")) {
+            return EXACT;
+        }
+        List<String> have = words(catalogueName);
+        List<String> want = words(curatedName);
+        if (have.size() > want.size() + 1 || !holdsInOrder(have, want)) {
+            return NO_MATCH;
+        }
+        String spaced = " " + String.join(" ", have) + " ";
+        String wantSpaced = " " + String.join(" ", want) + " ";
+        for (String qualifier : QUALIFIERS) {
+            String word = " " + qualifier + " ";
+            if (spaced.contains(word) && !wantSpaced.contains(word)) {
+                return QUALIFIED;
+            }
+        }
+        return PLAIN;
+    }
+
+    private static boolean holdsInOrder(List<String> have, List<String> want) {
+        int next = 0;
+        for (String word : have) {
+            if (next < want.size() && sameWord(word, want.get(next))) {
+                next++;
+            }
+        }
+        return next == want.size();
+    }
+
+    private static boolean sameWord(String have, String want) {
+        return have.equals(want) || have.equals(want + "s") || have.equals(want + "es");
+    }
+
+    /** A name's words in lower case, split at anything that is not a letter or a digit. */
+    static List<String> words(String name) {
+        List<String> words = new ArrayList<>();
+        StringBuilder word = new StringBuilder();
+        for (int index = 0; index <= name.length(); index++) {
+            char ch = index < name.length() ? name.charAt(index) : ' ';
+            String lower = plain(String.valueOf(ch));
+            if (!lower.isEmpty() && ch != '\'') {
+                word.append(lower);
+            } else if (ch != '\'' && word.length() > 0) {
+                words.add(word.toString());
+                word.setLength(0);
+            }
+        }
+        return words;
     }
 
     /** A name in lower-case letters and digits only, without any case mapping of the platform. */
@@ -359,9 +441,9 @@ public final class PlanProposalPlanner {
             return List.of(FULL_BODY_A, FULL_BODY_B, FULL_BODY_C).subList(0, days);
         }
         if (days == 1) {
-            return List.of(FULL_BODY_A);
+            return List.of(FULL_BODY);
         }
-        return List.of(UPPER, LOWER, FULL_BODY_A).subList(0, days);
+        return List.of(UPPER, LOWER, FULL_BODY).subList(0, days);
     }
 
     private static List<PlanEntryInput> strengthEntries(List<Slot> template, int minutes, Profile profile,

@@ -89,8 +89,8 @@ class PlanProposalPlannerTests {
         assertEquals(8, barbell.targetReps());
         assertEquals(90, barbell.restSeconds());
 
-        PlanEntryInput isolation = PlanProposalPlanner.strengthEntry(PlanProposalPlanner.LATERAL,
-                move("Side Lateral Raise", ExerciseEquipment.DUMBBELL), false, 1);
+        PlanEntryInput isolation = PlanProposalPlanner.strengthEntry(PlanProposalPlanner.CURL,
+                move("Barbell Curl", ExerciseEquipment.BARBELL), false, 1);
         assertEquals(12, isolation.targetReps());
         assertEquals(60, isolation.restSeconds());
 
@@ -98,6 +98,44 @@ class PlanProposalPlannerTests {
                 move("Plank", ExerciseEquipment.BODYWEIGHT), true, 1);
         assertNull(plank.targetReps());
         assertEquals(45, plank.targetDurationSeconds());
+    }
+
+    @Test
+    void plainNamesBeatVariantsAndLongerNames() {
+        List<PlanProposalPlanner.Candidate> catalogue = List.of(
+                candidate("Decline Barbell Bench Press", ExerciseEquipment.BARBELL),
+                candidate("Wide-Grip Barbell Bench Press", ExerciseEquipment.BARBELL),
+                candidate("Barbell Bench Press - Medium Grip", ExerciseEquipment.BARBELL),
+                candidate("One Arm Lat Pulldown", ExerciseEquipment.CABLE),
+                candidate("Wide-Grip Lat Pulldown", ExerciseEquipment.CABLE),
+                candidate("Upright Barbell Row", ExerciseEquipment.BARBELL),
+                candidate("Bent Over Barbell Row", ExerciseEquipment.BARBELL),
+                candidate("Lunge Sprint", ExerciseEquipment.BARBELL),
+                candidate("Barbell Lunge", ExerciseEquipment.BARBELL),
+                candidate("Narrow Stance Leg Press", ExerciseEquipment.MACHINE),
+                candidate("Leg Press", ExerciseEquipment.MACHINE),
+                candidate("Standing Calf Raises", ExerciseEquipment.MACHINE));
+        Set<UUID> none = Set.of();
+
+        assertEquals("Barbell Bench Press - Medium Grip", pick(catalogue, PlanProposalPlanner.PUSH, none));
+        assertEquals("Wide-Grip Lat Pulldown", pick(catalogue, PlanProposalPlanner.VERTICAL_PULL, none));
+        assertEquals("Bent Over Barbell Row", pick(catalogue, PlanProposalPlanner.HORIZONTAL_PULL, none));
+        assertEquals("Barbell Lunge", pick(catalogue, PlanProposalPlanner.LUNGE, none));
+        assertEquals("Leg Press", pick(catalogue, PlanProposalPlanner.SQUAT, none));
+        assertEquals("Standing Calf Raises", pick(catalogue, PlanProposalPlanner.CALF, none));
+        assertEquals(PlanProposalPlanner.matchRank("Decline Barbell Bench Press", "Barbell Bench Press"),
+                PlanProposalPlanner.matchRank("Upright Barbell Row", "Barbell Row"));
+        assertTrue(PlanProposalPlanner.matchRank("Close-Grip Barbell Bench Press", "Barbell Bench Press")
+                > PlanProposalPlanner.matchRank("Decline Barbell Bench Press", "Barbell Bench Press"));
+        assertEquals(0, PlanProposalPlanner.matchRank("Pullups", "Pull-Up"));
+
+        Set<UUID> plainBenchUsed = Set.of(catalogue.get(2).exerciseId());
+        assertEquals("Decline Barbell Bench Press", pick(catalogue, PlanProposalPlanner.PUSH, plainBenchUsed));
+    }
+
+    private static String pick(List<PlanProposalPlanner.Candidate> catalogue, PlanProposalPlanner.Slot slot,
+                               Set<UUID> used) {
+        return PlanProposalPlanner.chooseCurated(catalogue, slot.curated(), false, used).name();
     }
 
     private static PlanProposalPlanner.Candidate candidate(String name, ExerciseEquipment equipment) {
