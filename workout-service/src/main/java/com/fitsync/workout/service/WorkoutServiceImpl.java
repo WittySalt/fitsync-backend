@@ -43,6 +43,8 @@ import com.fitsync.workout.dto.ExerciseRecordSetRow;
 import com.fitsync.workout.dto.ExerciseRecordValueView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
+import com.fitsync.workout.dto.PlanCoverageView;
+import com.fitsync.workout.dto.PlanDraftRequest;
 import com.fitsync.workout.dto.PlanEntryInput;
 import com.fitsync.workout.dto.PlanEntryView;
 import com.fitsync.workout.dto.SessionEntryUpdateRequest;
@@ -157,6 +159,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     private final TransactionTemplate importRowTransactionTemplate;
     private final TransactionTemplate sweepTransactionTemplate;
     private final AutoCloseProperties autoCloseProperties;
+    private final PlanCoverageService planCoverageService;
 
     public WorkoutServiceImpl(@Value("${fitsync.kafka.topics.workout-events:workout-events}") String workoutEventsTopic,
                               @Value("${fitsync.workout.exercise-history.max-range-days:370}") int exerciseHistoryMaxRangeDays,
@@ -170,7 +173,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                               Validator validator,
                               SessionKindResolver sessionKindResolver,
                               PlatformTransactionManager transactionManager,
-                              AutoCloseProperties autoCloseProperties) {
+                              AutoCloseProperties autoCloseProperties,
+                              PlanCoverageService planCoverageService) {
         this.workoutEventsTopic = workoutEventsTopic;
         this.exerciseHistoryMaxRangeDays = exerciseHistoryMaxRangeDays;
         this.clock = clock;
@@ -187,6 +191,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         this.sweepTransactionTemplate = new TransactionTemplate(transactionManager);
         this.sweepTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.autoCloseProperties = autoCloseProperties;
+        this.planCoverageService = planCoverageService;
     }
 
     @Override
@@ -205,7 +210,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setEstimatedDurationMinutes(request.estimatedDurationMinutes());
         entity.setStatus(WorkoutPlanStatus.DRAFT);
         replacePlanExercisesAndDays(currentUser.userId(), entity, request.exercises(), request.days());
-        return toPlanView(workoutPlanRepository.save(entity));
+        return toPlanViewWithCoverage(workoutPlanRepository.save(entity));
     }
 
     @Override
@@ -224,7 +229,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     @Override
     @Transactional(readOnly = true)
     public WorkoutPlanView getPlan(CurrentUserPrincipal currentUser, UUID planId) {
-        return toPlanView(findPlan(currentUser.userId(), planId));
+        return toPlanViewWithCoverage(findPlan(currentUser.userId(), planId));
     }
 
     @Override
@@ -235,7 +240,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                         WorkoutPlanStatus.ACTIVE)
                 .stream()
                 .findFirst()
-                .map(this::toPlanView)
+                .map(this::toPlanViewWithCoverage)
                 .orElseThrow(() -> new ResourceNotFoundException("Active workout plan not found"));
     }
 
@@ -308,7 +313,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setDifficulty(request.difficulty());
         entity.setEstimatedDurationMinutes(request.estimatedDurationMinutes());
         replacePlanExercisesAndDays(currentUser.userId(), entity, request.exercises(), request.days());
-        return toPlanView(workoutPlanRepository.save(entity));
+        return toPlanViewWithCoverage(workoutPlanRepository.save(entity));
     }
 
     @Override
@@ -2358,6 +2363,16 @@ public class WorkoutServiceImpl implements WorkoutService {
             return null;
         }
         return exercise.getImages().get(0).getUrl();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PlanCoverageView previewCoverage(CurrentUserPrincipal currentUser, PlanDraftRequest request) {
+        return planCoverageService.forDraft(currentUser.userId(), request);
+    }
+
+    private WorkoutPlanView toPlanViewWithCoverage(WorkoutPlanEntity entity) {
+        return toPlanView(entity).withCoverage(planCoverageService.forPlan(entity));
     }
 
     private WorkoutPlanView toPlanView(WorkoutPlanEntity entity) {

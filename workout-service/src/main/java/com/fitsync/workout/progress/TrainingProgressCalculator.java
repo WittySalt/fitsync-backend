@@ -50,8 +50,7 @@ import com.fitsync.workout.progress.ProgressFacts.SessionExercise;
 public final class TrainingProgressCalculator {
 
     /** The seven groups the catalogue tracks; FULL_BODY and CARDIO are not muscle groups here. */
-    public static final List<MuscleGroup> GROUPS = List.of(MuscleGroup.CHEST, MuscleGroup.BACK,
-            MuscleGroup.SHOULDERS, MuscleGroup.ARMS, MuscleGroup.CORE, MuscleGroup.GLUTES, MuscleGroup.LEGS);
+    public static final List<MuscleGroup> GROUPS = MuscleCredit.GROUPS;
 
     static final int USUAL_LOW = 10;
     static final int USUAL_HIGH = 20;
@@ -61,7 +60,6 @@ public final class TrainingProgressCalculator {
     static final double FORM_BAND = 0.15;
     static final int MAX_HIGHLIGHTS = 4;
     private static final double LOAD_LEVEL_PCT = 5.0;
-    private static final BigDecimal HALF = new BigDecimal("0.5");
     private static final double DAYS_PER_WEEK = 7.0;
 
     private TrainingProgressCalculator() {
@@ -314,15 +312,8 @@ public final class TrainingProgressCalculator {
                     continue;
                 }
                 names.put(exercise.exerciseId(), exercise.name());
-                BigDecimal count = BigDecimal.valueOf(hardSets);
-                if (GROUPS.contains(exercise.primary())) {
-                    credit(totals, byExercise, exercise.primary(), exercise.exerciseId(), count);
-                }
-                for (MuscleGroup secondary : exercise.secondary()) {
-                    if (GROUPS.contains(secondary) && secondary != exercise.primary()) {
-                        credit(totals, byExercise, secondary, exercise.exerciseId(), count.multiply(HALF));
-                    }
-                }
+                MuscleCredit.credit(exercise.primary(), exercise.secondary(), BigDecimal.valueOf(hardSets),
+                        (group, amount) -> credit(totals, byExercise, group, exercise.exerciseId(), amount));
             }
         }
         List<MuscleGroupSets> groups = new ArrayList<>();

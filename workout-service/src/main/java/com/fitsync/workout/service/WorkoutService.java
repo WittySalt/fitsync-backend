@@ -23,6 +23,8 @@ import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.PlanCoverageView;
+import com.fitsync.workout.dto.PlanDraftRequest;
 import com.fitsync.workout.dto.SessionEntryUpdateRequest;
 import com.fitsync.workout.dto.SetRestRequest;
 import com.fitsync.workout.dto.SessionEffortRequest;
@@ -41,6 +43,9 @@ public interface WorkoutService {
     WorkoutPlanView getPlan(CurrentUserPrincipal currentUser, UUID planId);
 
     WorkoutPlanView getActivePlan(CurrentUserPrincipal currentUser);
+
+    /** What a plan being built trains: hard sets a week per group and the editor's notes. */
+    PlanCoverageView previewCoverage(CurrentUserPrincipal currentUser, PlanDraftRequest request);
 
     WorkoutPlanView duplicatePlan(CurrentUserPrincipal currentUser, UUID planId);
 

@@ -35,6 +35,8 @@ import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.PlanCoverageView;
+import com.fitsync.workout.dto.PlanDraftRequest;
 import com.fitsync.workout.dto.SessionEntryUpdateRequest;
 import com.fitsync.workout.dto.SetRestRequest;
 import com.fitsync.workout.dto.SessionEffortRequest;
@@ -216,6 +218,13 @@ public class WorkoutController {
     public WorkoutPlanView createPlan(Authentication authentication,
                                       @Valid @RequestBody CreateWorkoutPlanRequest request) {
         return workoutService.createPlan(currentPrincipal(authentication), request);
+    }
+
+    @Operation(summary = "Read what a plan being built trains: hard sets a week per muscle group and notes")
+    @PostMapping("/plans/coverage")
+    public PlanCoverageView planCoverage(Authentication authentication,
+                                         @Valid @RequestBody PlanDraftRequest request) {
+        return workoutService.previewCoverage(currentPrincipal(authentication), request);
     }
 
     @GetMapping("/plans")
