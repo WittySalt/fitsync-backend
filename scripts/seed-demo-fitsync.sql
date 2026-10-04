@@ -959,11 +959,11 @@ begin
     ) as d(plan_day_id, day_of_week, kind, title, sport_activity, minutes);
 
     -- 5c. plan exercises by day, and their targets set by set. A sport day has no exercises.
-    insert into workout.workout_plan_exercises
-        (plan_exercise_id, plan_id, plan_day_id, exercise_id, exercise_name_snapshot, sequence_no,
+    insert into workout.workout_plan_entries
+        (plan_exercise_id, plan_id, plan_day_id, exercise_id, exercise_name_snapshot, sequence_no, position,
          target_sets, target_reps, target_weight_kg, target_duration_seconds,
          target_distance_km, rest_seconds, notes)
-    select gen_random_uuid(), v_plan, d.plan_day_id, x.exercise_id, x.name, x.sequence_no,
+    select gen_random_uuid(), v_plan, d.plan_day_id, x.exercise_id, x.name, x.sequence_no, x.sequence_no,
            x.target_sets, x.target_reps, x.target_weight_kg, x.target_duration_seconds,
            null, x.rest_seconds, x.notes
     from (values (v_day_mon), (v_day_fri)) as d(plan_day_id)
@@ -975,20 +975,20 @@ begin
     ) as x(exercise_id, name, sequence_no, target_sets, target_reps, target_weight_kg,
            target_duration_seconds, rest_seconds, notes);
 
-    insert into workout.workout_plan_exercises
-        (plan_exercise_id, plan_id, plan_day_id, exercise_id, exercise_name_snapshot, sequence_no,
+    insert into workout.workout_plan_entries
+        (plan_exercise_id, plan_id, plan_day_id, exercise_id, exercise_name_snapshot, sequence_no, position,
          target_sets, target_reps, target_weight_kg, target_duration_seconds,
          target_distance_km, rest_seconds, notes)
     values
-        (gen_random_uuid(), v_plan, v_day_thu, ex_run,   'Treadmill Run', 1, 1, null, null, 1800, 5.00, 0,  'Conversational pace.'),
-        (gen_random_uuid(), v_plan, v_day_thu, ex_plank, 'Plank Hold',    2, 3, null, null, 45,   null, 45, 'Brace and keep hips level.');
+        (gen_random_uuid(), v_plan, v_day_thu, ex_run,   'Treadmill Run', 1, 1, 1, null, null, 1800, 5.00, 0,  'Conversational pace.'),
+        (gen_random_uuid(), v_plan, v_day_thu, ex_plank, 'Plank Hold',    2, 2, 3, null, null, 45,   null, 45, 'Brace and keep hips level.');
 
     insert into workout.workout_plan_exercise_set_targets
         (set_target_id, plan_exercise_id, set_number, target_reps, target_weight_kg,
          target_duration_seconds, target_distance_km, rest_seconds)
     select gen_random_uuid(), pe.plan_exercise_id, s.set_number,
            pe.target_reps, pe.target_weight_kg, pe.target_duration_seconds, pe.target_distance_km, pe.rest_seconds
-    from workout.workout_plan_exercises pe
+    from workout.workout_plan_entries pe
     cross join (values (1),(2),(3)) as s(set_number)
     where pe.plan_id = v_plan
       and s.set_number <= pe.target_sets;
@@ -1019,11 +1019,11 @@ begin
 
             -- bench
             v_log := gen_random_uuid();
-            insert into workout.workout_exercise_logs
-                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_bench, 'Dumbbell Bench Press', 1, 3, 30, 3 * 10 * r.bench_w, null, 360, 128, 145, null);
+            values (v_log, v_session, ex_bench, 'Dumbbell Bench Press', 1, 1, 3, 30, 3 * 10 * r.bench_w, null, 360, 128, 145, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1032,11 +1032,11 @@ begin
 
             -- squat
             v_log := gen_random_uuid();
-            insert into workout.workout_exercise_logs
-                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_squat, 'Goblet Squat', 2, 3, 36, 3 * 12 * r.squat_w, null, 420, 132, 150, null);
+            values (v_log, v_session, ex_squat, 'Goblet Squat', 2, 2, 3, 36, 3 * 12 * r.squat_w, null, 420, 132, 150, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1045,11 +1045,11 @@ begin
 
             -- row
             v_log := gen_random_uuid();
-            insert into workout.workout_exercise_logs
-                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_row, 'Bent-Over Row', 3, 3, 30, 3 * 10 * r.row_w, null, 360, 130, 147, null);
+            values (v_log, v_session, ex_row, 'Bent-Over Row', 3, 3, 3, 30, 3 * 10 * r.row_w, null, 360, 130, 147, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1058,11 +1058,11 @@ begin
 
             -- plank
             v_log := gen_random_uuid();
-            insert into workout.workout_exercise_logs
-                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_plank, 'Plank Hold', 4, 3, null, null, null, 135, 118, 128, 'Held all prescribed durations.');
+            values (v_log, v_session, ex_plank, 'Plank Hold', 4, 4, 3, null, null, null, 135, 118, 128, 'Held all prescribed durations.');
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1096,11 +1096,11 @@ begin
 
             -- treadmill run
             v_log := gen_random_uuid();
-            insert into workout.workout_exercise_logs
-                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_run, 'Treadmill Run', 1, 1, null, null, r.run_km, 1800, 150, 168, null);
+            values (v_log, v_session, ex_run, 'Treadmill Run', 1, 1, 1, null, null, r.run_km, 1800, 150, 168, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1108,11 +1108,11 @@ begin
 
             -- plank finisher
             v_log := gen_random_uuid();
-            insert into workout.workout_exercise_logs
-                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no,
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
                  average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_plank, 'Plank Hold', 2, 3, null, null, null, 135, 120, 130, null);
+            values (v_log, v_session, ex_plank, 'Plank Hold', 2, 2, 3, null, null, null, 135, 120, 130, null);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1179,7 +1179,7 @@ insert into analytics.analytics_workout_contributions
 select
     ws.session_id, ws.user_id, (ws.started_at at time zone c.tz)::date,
     ws.duration_minutes, ws.calories_burned,
-    (select count(*) from workout.workout_exercise_logs el where el.session_id = ws.session_id)::int,
+    (select count(*) from workout.workout_session_entries el where el.session_id = ws.session_id)::int,
     now(), now(), now(), 'demo-seed', 'demo-seed', 0
 from demo_config c
 join workout.workout_sessions ws on ws.user_id = c.user_id and ws.created_by = 'demo-seed';
@@ -1194,7 +1194,7 @@ with sess as (
     select ws.user_id,
            (ws.started_at at time zone c.tz)::date as activity_date,
            ws.session_id, ws.duration_minutes, ws.calories_burned,
-           (select count(*) from workout.workout_exercise_logs el where el.session_id = ws.session_id) as exc
+           (select count(*) from workout.workout_session_entries el where el.session_id = ws.session_id) as exc
     from demo_config c
     join workout.workout_sessions ws
       on ws.user_id = c.user_id and ws.created_by = 'demo-seed' and ws.status = 'COMPLETED'
@@ -1419,7 +1419,7 @@ begin
                 select s.completed_at as achieved_at, e.exercise_name_snapshot as exercise_name,
                        max(sl.weight_kg) as weight_kg
                 from workout.workout_sessions s
-                join workout.workout_exercise_logs e on e.session_id = s.session_id
+                join workout.workout_session_entries e on e.session_id = s.session_id
                 join workout.workout_exercise_set_logs sl on sl.exercise_log_id = e.exercise_log_id
                 where s.user_id = v_user and s.created_by = 'demo-seed' and sl.weight_kg is not null
                 group by s.completed_at, e.exercise_name_snapshot
@@ -1659,7 +1659,7 @@ begin
                sl.weight_kg             as record_value,
                min(s.completed_at)      as achieved_at
           from workout.workout_sessions s
-          join workout.workout_exercise_logs e on e.session_id = s.session_id
+          join workout.workout_session_entries e on e.session_id = s.session_id
           join workout.workout_exercise_set_logs sl on sl.exercise_log_id = e.exercise_log_id
          where s.user_id = c.user_id
            and s.completed_at is not null

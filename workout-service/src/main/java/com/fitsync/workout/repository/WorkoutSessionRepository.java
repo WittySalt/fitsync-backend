@@ -18,7 +18,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEntity, UUID>, WorkoutSessionRepositoryCustom {
 
-    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    @EntityGraph(attributePaths = {"entries", "entries.exercise"})
     Optional<WorkoutSessionEntity> findBySessionIdAndUserId(UUID sessionId, UUID userId);
 
     Optional<WorkoutSessionEntity> findByUserIdAndSourceAndExternalId(UUID userId, WorkoutSource source, String externalId);
@@ -28,7 +28,7 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
     // graph by id via findBySessionIdAndUserId.
     Optional<WorkoutSessionEntity> findTopByUserIdAndStatusOrderByCompletedAtDesc(UUID userId, WorkoutSessionStatus status);
 
-    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    @EntityGraph(attributePaths = {"entries", "entries.exercise"})
     List<WorkoutSessionEntity> findByUserIdOrderByStartedAtDesc(UUID userId);
 
     /** The person's latest finished sessions of a kind, for the effort estimate; deleted ones are left out. */
@@ -43,7 +43,7 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
     @Query(value = "delete from workout_sessions where user_id = :userId", nativeQuery = true)
     int purgeAllByUserId(@Param("userId") UUID userId);
 
-    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    @EntityGraph(attributePaths = {"entries", "entries.exercise"})
     @Query("""
             select distinct session from WorkoutSessionEntity session
             where session.userId = :userId
@@ -55,7 +55,7 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSessionEn
     // Single-query load for the weekly training insight window. All four parameters are always
     // supplied (never null): a query built with optional/nullable bind parameters hid a production
     // bug on PostgreSQL where Hibernate sends an untyped null parameter, which H2 does not reproduce.
-    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    @EntityGraph(attributePaths = {"entries", "entries.exercise"})
     List<WorkoutSessionEntity> findByUserIdAndStatusAndStartedAtBetween(UUID userId,
                                                                         WorkoutSessionStatus status,
                                                                         Instant from,

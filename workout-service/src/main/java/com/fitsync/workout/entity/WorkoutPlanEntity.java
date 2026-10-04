@@ -57,7 +57,7 @@ public class WorkoutPlanEntity extends BaseAuditableEntity {
 
     @OneToMany(mappedBy = "plan", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sequence asc")
-    private List<WorkoutPlanExerciseEntity> exercises = new ArrayList<>();
+    private List<PlanEntry> entries = new ArrayList<>();
 
     /** Empty for a flat plan; one entry per scheduled day of the week otherwise. */
     @OneToMany(mappedBy = "plan", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -82,8 +82,14 @@ public class WorkoutPlanEntity extends BaseAuditableEntity {
     public void setEstimatedDurationMinutes(Integer estimatedDurationMinutes) { this.estimatedDurationMinutes = estimatedDurationMinutes; }
     public WorkoutPlanStatus getStatus() { return status; }
     public void setStatus(WorkoutPlanStatus status) { this.status = status; }
-    public List<WorkoutPlanExerciseEntity> getExercises() { return exercises; }
-    public void setExercises(List<WorkoutPlanExerciseEntity> exercises) { this.exercises = exercises; }
+    /** Every entry of the plan, moves and time segments, across its days. The collection the plan owns. */
+    public List<PlanEntry> getEntries() { return entries; }
+    public void setEntries(List<PlanEntry> entries) { this.entries = entries; }
+
+    /** The SET entries only, the moves. A read-only copy. */
+    public List<PlanEntry> getSetEntries() {
+        return entries.stream().filter(PlanEntry::isSet).toList();
+    }
     public List<WorkoutPlanDayEntity> getDays() { return days; }
     public void setDays(List<WorkoutPlanDayEntity> days) { this.days = days; }
 }

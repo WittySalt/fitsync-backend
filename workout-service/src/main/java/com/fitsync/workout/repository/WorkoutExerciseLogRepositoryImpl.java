@@ -10,7 +10,7 @@ import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordSetRow;
 import com.fitsync.workout.entity.ExerciseEntity;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import jakarta.persistence.EntityManager;
@@ -41,9 +41,9 @@ public class WorkoutExerciseLogRepositoryImpl extends AbstractCriteriaRepository
         CriteriaQuery<ExerciseHistoryEntryView> queryDefinition =
                 criteriaBuilder.createQuery(ExerciseHistoryEntryView.class);
         Root<WorkoutExerciseSetLogEntity> setLog = queryDefinition.from(WorkoutExerciseSetLogEntity.class);
-        Join<WorkoutExerciseSetLogEntity, WorkoutExerciseLogEntity> exerciseLog = setLog.join("exerciseLog");
-        Join<WorkoutExerciseLogEntity, WorkoutSessionEntity> session = exerciseLog.join("session");
-        Join<WorkoutExerciseLogEntity, ExerciseEntity> exercise = exerciseLog.join("exercise");
+        Join<WorkoutExerciseSetLogEntity, SessionEntry> exerciseLog = setLog.join("exerciseLog");
+        Join<SessionEntry, WorkoutSessionEntity> session = exerciseLog.join("session");
+        Join<SessionEntry, ExerciseEntity> exercise = exerciseLog.join("exercise");
         List<Predicate> predicates = basePredicates(
                 criteriaBuilder,
                 setLog,
@@ -85,9 +85,9 @@ public class WorkoutExerciseLogRepositoryImpl extends AbstractCriteriaRepository
 
         CriteriaQuery<Long> countDefinition = criteriaBuilder.createQuery(Long.class);
         Root<WorkoutExerciseSetLogEntity> countSetLog = countDefinition.from(WorkoutExerciseSetLogEntity.class);
-        Join<WorkoutExerciseSetLogEntity, WorkoutExerciseLogEntity> countExerciseLog = countSetLog.join("exerciseLog");
-        Join<WorkoutExerciseLogEntity, WorkoutSessionEntity> countSession = countExerciseLog.join("session");
-        Join<WorkoutExerciseLogEntity, ExerciseEntity> countExercise = countExerciseLog.join("exercise");
+        Join<WorkoutExerciseSetLogEntity, SessionEntry> countExerciseLog = countSetLog.join("exerciseLog");
+        Join<SessionEntry, WorkoutSessionEntity> countSession = countExerciseLog.join("session");
+        Join<SessionEntry, ExerciseEntity> countExercise = countExerciseLog.join("exercise");
         countDefinition.select(criteriaBuilder.count(countSetLog))
                 .where(basePredicates(
                         criteriaBuilder,
@@ -109,9 +109,9 @@ public class WorkoutExerciseLogRepositoryImpl extends AbstractCriteriaRepository
         CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
         CriteriaQuery<ExerciseRecordSetRow> queryDefinition = criteriaBuilder.createQuery(ExerciseRecordSetRow.class);
         Root<WorkoutExerciseSetLogEntity> setLog = queryDefinition.from(WorkoutExerciseSetLogEntity.class);
-        Join<WorkoutExerciseSetLogEntity, WorkoutExerciseLogEntity> exerciseLog = setLog.join("exerciseLog");
-        Join<WorkoutExerciseLogEntity, WorkoutSessionEntity> session = exerciseLog.join("session");
-        Join<WorkoutExerciseLogEntity, ExerciseEntity> exercise = exerciseLog.join("exercise");
+        Join<WorkoutExerciseSetLogEntity, SessionEntry> exerciseLog = setLog.join("exerciseLog");
+        Join<SessionEntry, WorkoutSessionEntity> session = exerciseLog.join("session");
+        Join<SessionEntry, ExerciseEntity> exercise = exerciseLog.join("exercise");
         List<Predicate> predicates = basePredicates(
                 criteriaBuilder,
                 setLog,
@@ -144,9 +144,9 @@ public class WorkoutExerciseLogRepositoryImpl extends AbstractCriteriaRepository
 
     private List<Predicate> basePredicates(CriteriaBuilder criteriaBuilder,
                                            Root<WorkoutExerciseSetLogEntity> setLog,
-                                           Join<WorkoutExerciseSetLogEntity, WorkoutExerciseLogEntity> exerciseLog,
-                                           Join<WorkoutExerciseLogEntity, WorkoutSessionEntity> session,
-                                           Join<WorkoutExerciseLogEntity, ExerciseEntity> exercise,
+                                           Join<WorkoutExerciseSetLogEntity, SessionEntry> exerciseLog,
+                                           Join<SessionEntry, WorkoutSessionEntity> session,
+                                           Join<SessionEntry, ExerciseEntity> exercise,
                                            UUID userId,
                                            UUID exerciseId,
                                            Instant from,

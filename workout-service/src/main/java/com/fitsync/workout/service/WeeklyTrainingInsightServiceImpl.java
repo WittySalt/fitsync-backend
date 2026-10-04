@@ -24,10 +24,10 @@ import com.fitsync.workout.dto.progress.ActivitySummaryView;
 import com.fitsync.workout.dto.progress.LiftChangeView;
 import com.fitsync.workout.dto.progress.SeriesPoint;
 import com.fitsync.workout.dto.progress.TrainingProgressView;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutPlanDayEntity;
 import com.fitsync.workout.entity.WorkoutPlanEntity;
-import com.fitsync.workout.entity.WorkoutPlanExerciseEntity;
+import com.fitsync.workout.entity.PlanEntry;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.progress.TrainingProgressCalculator;
 import com.fitsync.workout.progress.TrainingProgressService;
@@ -261,7 +261,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         List<WeekByDayCalculator.PlanDaySnapshot> planDays = new ArrayList<>();
         for (WorkoutPlanDayEntity day : activePlan.getDays()) {
             int moves = 0;
-            for (WorkoutPlanExerciseEntity planExercise : activePlan.getExercises()) {
+            for (PlanEntry planExercise : activePlan.getSetEntries()) {
                 if (day.getPlanDayId().equals(planDayIdOf(planExercise))) {
                     moves++;
                 }
@@ -278,7 +278,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         return planDays;
     }
 
-    private UUID planDayIdOf(WorkoutPlanExerciseEntity planExercise) {
+    private UUID planDayIdOf(PlanEntry planExercise) {
         return planExercise.getPlanDay() == null ? null : planExercise.getPlanDay().getPlanDayId();
     }
 
@@ -374,7 +374,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 continue;
             }
             sessionsThisWeek++;
-            for (WorkoutExerciseLogEntity log : dated.session().getExercises()) {
+            for (SessionEntry log : dated.session().getSetEntries()) {
                 if (log.getExercise().getPrimaryMuscleGroup() == group && exerciseNames.size() < MAX_EXERCISE_NAMES) {
                     exerciseNames.add(log.getExerciseNameSnapshot());
                 }
@@ -417,7 +417,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         if (activePlan == null) {
             return groups;
         }
-        activePlan.getExercises().forEach(planExercise ->
+        activePlan.getSetEntries().forEach(planExercise ->
                 groups.add(planExercise.getExercise().getPrimaryMuscleGroup()));
         return groups;
     }
@@ -426,14 +426,14 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
      * monthly insight so both describe a session's muscles the same way. */
     static Set<MuscleGroup> trainedMuscleGroups(WorkoutSessionEntity session) {
         Set<MuscleGroup> groups = EnumSet.noneOf(MuscleGroup.class);
-        for (WorkoutExerciseLogEntity log : session.getExercises()) {
+        for (SessionEntry log : session.getSetEntries()) {
             groups.add(log.getExercise().getPrimaryMuscleGroup());
         }
         return groups;
     }
 
     private boolean trainsGroup(WorkoutSessionEntity session, MuscleGroup group) {
-        for (WorkoutExerciseLogEntity log : session.getExercises()) {
+        for (SessionEntry log : session.getSetEntries()) {
             if (log.getExercise().getPrimaryMuscleGroup() == group) {
                 return true;
             }
@@ -443,7 +443,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
 
     private BigDecimal sumVolume(WorkoutSessionEntity session) {
         BigDecimal total = BigDecimal.ZERO;
-        for (WorkoutExerciseLogEntity log : session.getExercises()) {
+        for (SessionEntry log : session.getSetEntries()) {
             if (log.getTotalVolumeKg() != null) {
                 total = total.add(log.getTotalVolumeKg());
             }

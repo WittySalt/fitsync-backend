@@ -10,21 +10,22 @@ import com.fitsync.workout.dto.ExerciseHistoryEntryView;
 import com.fitsync.workout.dto.ExerciseRecordSetRow;
 import com.fitsync.workout.dto.ExerciseTopWeightRow;
 import com.fitsync.workout.dto.SessionExerciseTopWeightRow;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerciseLogEntity, UUID>,
+public interface WorkoutExerciseLogRepository extends JpaRepository<SessionEntry, UUID>,
         WorkoutExerciseLogRepositoryCustom {
 
-    // The exercise names of one session of the user, in sequence order. Bounded by the page, so the
+    // The exercise names of one session of the user, in sequence order; time segments have none. Bounded by the page, so the
     // weekly insight reads only a handful of names for the one session it points at.
     @Query("""
-            select el.exerciseNameSnapshot from WorkoutExerciseLogEntity el
+            select el.exerciseNameSnapshot from SessionEntry el
             where el.session.sessionId = :sessionId
               and el.session.userId = :userId
+              and el.entryType = com.fitsync.workout.domain.EntryType.SET
             order by el.sequence asc
             """)
     List<String> findExerciseNames(@Param("userId") UUID userId,
@@ -37,7 +38,7 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerc
     @Query("""
             select new com.fitsync.workout.repository.SessionActivityRow(
                        el.session.sessionId, max(s.updatedAt), sum(case when s.status = :doneStatus then 1L else 0L end))
-            from WorkoutExerciseLogEntity el
+            from SessionEntry el
               join el.sets s
             where el.session.sessionId in :sessionIds
               and s.status in :activeStatuses
@@ -58,7 +59,7 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerc
     // applies to the period's own sets.
     @Query("""
             select new com.fitsync.workout.dto.ExerciseTopWeightRow(el.exercise.exerciseId, max(s.weightKg))
-            from WorkoutExerciseLogEntity el
+            from SessionEntry el
               join el.sets s
               join el.session sess
             where sess.userId = :userId
@@ -79,7 +80,7 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerc
     // the sets. Same set rule as above: logged and not skipped, with a weight.
     @Query("""
             select new com.fitsync.workout.dto.SessionExerciseTopWeightRow(sess.sessionId, el.exercise.exerciseId, max(s.weightKg))
-            from WorkoutExerciseLogEntity el
+            from SessionEntry el
               join el.sets s
               join el.session sess
             where sess.userId = :userId
@@ -95,16 +96,17 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerc
                                                                          @Param("skippedStatus") WorkoutSetStatus skippedStatus,
                                                                          @Param("from") Instant from,
                                                                          @Param("to") Instant to);
-    // The progress pages read the sets of many sessions at once: every exercise log of the given
+    // The progress pages read the sets of many sessions at once: every SET entry of the given
     // sessions of the user, with its exercise and its sets, in one query per chunk of ids.
     @Query("""
-            select distinct el from WorkoutExerciseLogEntity el
+            select distinct el from SessionEntry el
               join fetch el.exercise
               left join fetch el.sets
             where el.session.userId = :userId
               and el.session.sessionId in :sessionIds
+              and el.entryType = com.fitsync.workout.domain.EntryType.SET
             """)
-    List<WorkoutExerciseLogEntity> findWithSetsBySessionIds(@Param("userId") UUID userId,
+    List<SessionEntry> findWithSetsBySessionIds(@Param("userId") UUID userId,
                                                             @Param("sessionIds") List<UUID> sessionIds);
 
     // Each exercise's best estimated single before a moment, as max(weight x (30 + reps)); the
@@ -113,7 +115,7 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerc
     @Query("""
             select new com.fitsync.workout.repository.ExerciseBestRow(
                        el.exercise.exerciseId, cast(max(s.weightKg * (30 + s.reps)) as BigDecimal))
-            from WorkoutExerciseLogEntity el
+            from SessionEntry el
               join el.sets s
               join el.session sess
             where sess.userId = :userId
@@ -133,14 +135,15 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<WorkoutExerc
     // Every log of one exercise in the user's completed sessions, with its session and sets, for the
     // exercise page. One query; bounded by how often one person did one exercise.
     @Query("""
-            select distinct el from WorkoutExerciseLogEntity el
+            select distinct el from SessionEntry el
               join fetch el.session sess
               left join fetch el.sets
             where sess.userId = :userId
               and sess.status = :status
+              and el.entryType = com.fitsync.workout.domain.EntryType.SET
               and el.exercise.exerciseId = :exerciseId
             """)
-    List<WorkoutExerciseLogEntity> findExerciseHistoryWithSets(@Param("userId") UUID userId,
+    List<SessionEntry> findExerciseHistoryWithSets(@Param("userId") UUID userId,
                                                                @Param("exerciseId") UUID exerciseId,
                                                                @Param("status") WorkoutSessionStatus status);
 }

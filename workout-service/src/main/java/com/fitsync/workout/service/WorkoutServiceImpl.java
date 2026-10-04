@@ -67,11 +67,11 @@ import com.fitsync.workout.dto.SetRestRequest;
 import com.fitsync.workout.dto.SessionEffortRequest;
 import com.fitsync.workout.dto.NewRecordView;
 import com.fitsync.workout.entity.ExerciseEntity;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import com.fitsync.workout.entity.WorkoutPlanDayEntity;
 import com.fitsync.workout.entity.WorkoutPlanEntity;
-import com.fitsync.workout.entity.WorkoutPlanExerciseEntity;
+import com.fitsync.workout.entity.PlanEntry;
 import com.fitsync.workout.entity.WorkoutPlanExerciseSetTargetEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.messaging.DomainEventPublisher;
@@ -353,8 +353,8 @@ public class WorkoutServiceImpl implements WorkoutService {
             }
             session.setName(plan.getName());
             session.setWorkoutType(plan.getWorkoutType());
-            for (WorkoutPlanExerciseEntity planExercise : plan.getExercises()) {
-                session.getExercises().add(toSeededExerciseLog(session, planExercise));
+            for (PlanEntry planExercise : plan.getEntries()) {
+                session.getEntries().add(toSeededExerciseLog(session, planExercise));
             }
         } else {
             WorkoutPlanDayEntity day = resolvePlanDay(plan, planDayId, timezone);
@@ -362,9 +362,9 @@ public class WorkoutServiceImpl implements WorkoutService {
             session.setName(day.getTitle());
             session.setWorkoutType(toWorkoutType(day.getKind()));
             session.setSportActivity(day.getSportActivity());
-            for (WorkoutPlanExerciseEntity planExercise : plan.getExercises()) {
+            for (PlanEntry planExercise : plan.getEntries()) {
                 if (day.getPlanDayId().equals(planDayIdOf(planExercise))) {
-                    session.getExercises().add(toSeededExerciseLog(session, planExercise));
+                    session.getEntries().add(toSeededExerciseLog(session, planExercise));
                 }
             }
         }
@@ -393,7 +393,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 .orElseThrow(() -> new IllegalArgumentException(PLAN_HAS_NOTHING_ON_THIS_DAY_MESSAGE));
     }
 
-    private UUID planDayIdOf(WorkoutPlanExerciseEntity planExercise) {
+    private UUID planDayIdOf(PlanEntry planExercise) {
         return planExercise.getPlanDay() == null ? null : planExercise.getPlanDay().getPlanDayId();
     }
 
@@ -773,7 +773,7 @@ public class WorkoutServiceImpl implements WorkoutService {
      * completes only sessions that have a done set and cancels the others.
      */
     private void requireLoggedSetWhenGuided(WorkoutSessionEntity entity) {
-        List<WorkoutExerciseLogEntity> exercises = entity.getExercises();
+        List<SessionEntry> exercises = entity.getSetEntries();
         if (!exercises.isEmpty() && exercises.stream().noneMatch(
                 exercise -> exercise.getSets().stream().anyMatch(this::isDoneSet))) {
             throw new BadRequestException(NOTHING_LOGGED_CODE, NOTHING_LOGGED_MESSAGE);
@@ -869,11 +869,11 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (entity.getStatus() != WorkoutSessionStatus.CANCELLED) {
             throw new IllegalArgumentException("Only a cancelled workout session can be counted");
         }
-        if (entity.getExercises().stream().noneMatch(exercise -> exercise.getSets().stream().anyMatch(this::isDoneSet))) {
+        if (entity.getSetEntries().stream().noneMatch(exercise -> exercise.getSets().stream().anyMatch(this::isDoneSet))) {
             throw new BadRequestException(NOTHING_LOGGED_CODE, NOTHING_LOGGED_MESSAGE);
         }
         // Counted as it happened: it ends at its last done or skipped set, or when it was cancelled.
-        Instant lastSet = entity.getExercises().stream()
+        Instant lastSet = entity.getSetEntries().stream()
                 .flatMap(exercise -> exercise.getSets().stream())
                 .map(WorkoutExerciseSetLogEntity::getUpdatedAt)
                 .filter(Objects::nonNull)
@@ -924,14 +924,16 @@ public class WorkoutServiceImpl implements WorkoutService {
         validateExerciseLog(request);
         WorkoutSessionEntity session = findSession(currentUser.userId(), sessionId);
         validateLiveEditable(session);
-        boolean replaced = session.getExercises()
-                .removeIf(exercise -> exercise.getExercise().getExerciseId().equals(request.exerciseId()));
+        boolean replaced = session.getEntries()
+                .removeIf(exercise -> exercise.isSet()
+                        && exercise.getExercise() != null
+                        && exercise.getExercise().getExerciseId().equals(request.exerciseId()));
         if (replaced) {
             // Hibernate writes inserts before orphan deletes, so the replaced row is removed first or the new
             // row collides with it on the (session, sequence) unique index.
             workoutSessionRepository.flush();
         }
-        session.getExercises().add(toSessionExerciseLog(currentUser.userId(), session, request, true));
+        session.getEntries().add(toSessionExerciseLog(currentUser.userId(), session, request, true));
         validateSessionExerciseSequences(session);
         deriveSessionMetrics(session);
         // A free session starts without exercises. Its kind follows the exercises as they are added.
@@ -951,7 +953,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         }
         WorkoutSessionEntity session = findSession(currentUser.userId(), sessionId);
         validateLiveEditable(session);
-        WorkoutExerciseLogEntity exercise = findExerciseLog(session, exerciseLogId);
+        SessionEntry exercise = findExerciseLog(session, exerciseLogId);
         WorkoutExerciseSetLogEntity setLog = exercise.getSets().stream()
                 .filter(set -> set.getSetNumber().equals(setNumber))
                 .findFirst()
@@ -1160,11 +1162,11 @@ public class WorkoutServiceImpl implements WorkoutService {
             copy.getDays().add(copyDay);
             copyDayBySourceDayId.put(sourceDay.getPlanDayId(), copyDay);
         }
-        for (WorkoutPlanExerciseEntity sourceExercise : source.getExercises()) {
+        for (PlanEntry sourceExercise : source.getEntries()) {
             WorkoutPlanDayEntity copyDay = sourceExercise.getPlanDay() == null
                     ? null
                     : copyDayBySourceDayId.get(sourceExercise.getPlanDay().getPlanDayId());
-            copy.getExercises().add(toDuplicatePlanExercise(copy, copyDay, sourceExercise));
+            copy.getEntries().add(toDuplicatePlanExercise(copy, copyDay, sourceExercise));
         }
         return copy;
     }
@@ -1187,16 +1189,22 @@ public class WorkoutServiceImpl implements WorkoutService {
         return copy;
     }
 
-    private WorkoutPlanExerciseEntity toDuplicatePlanExercise(WorkoutPlanEntity plan,
+    private PlanEntry toDuplicatePlanExercise(WorkoutPlanEntity plan,
                                                               WorkoutPlanDayEntity planDay,
-                                                              WorkoutPlanExerciseEntity source) {
-        WorkoutPlanExerciseEntity copy = new WorkoutPlanExerciseEntity();
+                                                              PlanEntry source) {
+        PlanEntry copy = new PlanEntry();
         copy.setPlanExerciseId(UUID.randomUUID());
         copy.setPlan(plan);
         copy.setPlanDay(planDay);
         copy.setExercise(source.getExercise());
         copy.setExerciseNameSnapshot(source.getExerciseNameSnapshot());
+        copy.setEntryType(source.getEntryType());
         copy.setSequence(source.getSequence());
+        copy.setPosition(source.getPosition());
+        copy.setKind(source.getKind());
+        copy.setLabel(source.getLabel());
+        copy.setPlannedSeconds(source.getPlannedSeconds());
+        copy.setRounds(source.getRounds());
         copy.setTargetSets(source.getTargetSets());
         copy.setTargetReps(source.getTargetReps());
         copy.setTargetWeightKg(source.getTargetWeightKg());
@@ -1211,7 +1219,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         return copy;
     }
 
-    private WorkoutPlanExerciseSetTargetEntity toDuplicateSetTarget(WorkoutPlanExerciseEntity exercise,
+    private WorkoutPlanExerciseSetTargetEntity toDuplicateSetTarget(PlanEntry exercise,
                                                                     WorkoutPlanExerciseSetTargetEntity source) {
         WorkoutPlanExerciseSetTargetEntity copy = new WorkoutPlanExerciseSetTargetEntity();
         copy.setSetTargetId(UUID.randomUUID());
@@ -1237,22 +1245,22 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setStartedAt(Instant.now(clock));
         repeated.setSportActivity(source.getSportActivity());
         repeated.setPlanDayId(source.getPlanDayId());
-        for (WorkoutExerciseLogEntity sourceExercise : source.getExercises()) {
+        for (SessionEntry sourceExercise : source.getSetEntries()) {
             List<WorkoutExerciseSetLogEntity> loggedSets = sourceExercise.getSets().stream()
                     .filter(this::isDoneSet)
                     .toList();
             if (!loggedSets.isEmpty()) {
-                repeated.getExercises().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets));
+                repeated.getEntries().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets));
             }
         }
         applySessionKind(repeated);
         return repeated;
     }
 
-    private WorkoutExerciseLogEntity toRepeatedExerciseLog(WorkoutSessionEntity session,
-                                                           WorkoutExerciseLogEntity source,
+    private SessionEntry toRepeatedExerciseLog(WorkoutSessionEntity session,
+                                                           SessionEntry source,
                                                            List<WorkoutExerciseSetLogEntity> loggedSets) {
-        WorkoutExerciseLogEntity repeated = new WorkoutExerciseLogEntity();
+        SessionEntry repeated = new SessionEntry();
         repeated.setExerciseLogId(UUID.randomUUID());
         repeated.setSession(session);
         repeated.setExercise(source.getExercise());
@@ -1266,7 +1274,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         return repeated;
     }
 
-    private WorkoutExerciseSetLogEntity toRepeatedSetLog(WorkoutExerciseLogEntity exercise,
+    private WorkoutExerciseSetLogEntity toRepeatedSetLog(SessionEntry exercise,
                                                          WorkoutExerciseSetLogEntity source) {
         WorkoutExerciseSetLogEntity repeated = new WorkoutExerciseSetLogEntity();
         repeated.setSetLogId(UUID.randomUUID());
@@ -1315,8 +1323,8 @@ public class WorkoutServiceImpl implements WorkoutService {
      * final state and before the entity is first saved, since the kind column is not null.
      */
     private void applySessionKind(WorkoutSessionEntity session) {
-        List<ExerciseType> exerciseTypesInOrder = session.getExercises().stream()
-                .sorted(Comparator.comparing(WorkoutExerciseLogEntity::getSequence))
+        List<ExerciseType> exerciseTypesInOrder = session.getSetEntries().stream()
+                .sorted(Comparator.comparing(SessionEntry::getSequence))
                 .map(exercise -> exercise.getExercise() == null ? null : exercise.getExercise().getExerciseType())
                 .toList();
         session.setKind(sessionKindResolver.resolve(session.getWorkoutType(), exerciseTypesInOrder));
@@ -1331,8 +1339,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                                              WorkoutPlanEntity plan,
                                              List<WorkoutPlanExerciseInput> flatExercises,
                                              List<WorkoutPlanDayInput> dayInputs) {
-        boolean hadExisting = !plan.getExercises().isEmpty();
-        plan.getExercises().clear();
+        boolean hadExisting = !plan.getEntries().isEmpty();
+        plan.getEntries().clear();
         if (hadExisting) {
             // Force the orphan-removal DELETEs to run BEFORE the replacement rows are inserted.
             // Without this flush, Hibernate orders the INSERTs before the DELETEs within a single
@@ -1403,7 +1411,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             return;
         }
         for (WorkoutPlanExerciseInput input : inputs.stream().sorted(java.util.Comparator.comparing(WorkoutPlanExerciseInput::sequence)).toList()) {
-            WorkoutPlanExerciseEntity exercise = new WorkoutPlanExerciseEntity();
+            PlanEntry exercise = new PlanEntry();
             ExerciseEntity sourceExercise = findAccessibleExercise(userId, input.exerciseId());
             exercise.setPlanExerciseId(UUID.randomUUID());
             exercise.setPlan(plan);
@@ -1420,11 +1428,11 @@ public class WorkoutServiceImpl implements WorkoutService {
             exercise.setTempoSeconds(input.tempoSeconds());
             exercise.setNotes(input.notes());
             replaceSetTargets(exercise, input.setTargets());
-            plan.getExercises().add(exercise);
+            plan.getEntries().add(exercise);
         }
     }
 
-    private void replaceSetTargets(WorkoutPlanExerciseEntity exercise,
+    private void replaceSetTargets(PlanEntry exercise,
                                    List<WorkoutPlanExerciseSetTargetInput> inputs) {
         exercise.getSetTargets().clear();
         if (inputs == null) {
@@ -1450,15 +1458,16 @@ public class WorkoutServiceImpl implements WorkoutService {
         // The rest taken after a set is measured by the exercise screen, never typed, so an edit that
         // rebuilds the sets keeps it for the same exercise and set number.
         Map<String, Integer> restTaken = new LinkedHashMap<>();
-        for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
+        for (SessionEntry exercise : session.getSetEntries()) {
             for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
                 if (set.getRestTakenSeconds() != null && exercise.getExercise() != null) {
                     restTaken.putIfAbsent(exercise.getExercise().getExerciseId() + "#" + set.getSetNumber(), set.getRestTakenSeconds());
                 }
             }
         }
-        boolean hadExisting = !session.getExercises().isEmpty();
-        session.getExercises().clear();
+        // Only the moves are replaced: an edit that sends exercises keeps the session's time segments.
+        boolean hadExisting = session.getEntries().stream().anyMatch(SessionEntry::isSet);
+        session.getEntries().removeIf(SessionEntry::isSet);
         if (hadExisting && session.getSessionId() != null && workoutSessionRepository.existsById(session.getSessionId())) {
             // As for plans: run the removals before the new rows go in, or a new (session, sequence)
             // row collides with the old one still in the table.
@@ -1468,11 +1477,11 @@ public class WorkoutServiceImpl implements WorkoutService {
             return;
         }
         for (WorkoutExerciseLogInput input : inputs.stream().sorted(java.util.Comparator.comparing(WorkoutExerciseLogInput::sequence)).toList()) {
-            WorkoutExerciseLogEntity exercise = toSessionExerciseLog(userId, session, input, true);
+            SessionEntry exercise = toSessionExerciseLog(userId, session, input, true);
             for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
                 set.setRestTakenSeconds(restTaken.get(input.exerciseId() + "#" + set.getSetNumber()));
             }
-            session.getExercises().add(exercise);
+            session.getEntries().add(exercise);
         }
     }
 
@@ -1481,7 +1490,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             long minutes = Duration.between(session.getStartedAt(), session.getCompletedAt()).toMinutes();
             session.setDurationMinutes(Math.toIntExact(minutes));
         }
-        session.getExercises().forEach(this::deriveExerciseMetrics);
+        session.getSetEntries().forEach(this::deriveExerciseMetrics);
         // Distances logged on the exercises are the measurement, so their sum replaces whatever the
         // session held and follows them as they change. A session without any, such as a sport
         // session, keeps the distance it was given.
@@ -1494,7 +1503,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     /** The sum of the distances of the session's exercise logs, or null when none has one. */
     private BigDecimal sumExerciseDistance(WorkoutSessionEntity session) {
         BigDecimal total = null;
-        for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
+        for (SessionEntry exercise : session.getSetEntries()) {
             if (exercise.getDistanceKm() != null) {
                 total = (total == null ? BigDecimal.ZERO : total).add(exercise.getDistanceKm());
             }
@@ -1502,7 +1511,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         return total;
     }
 
-    private void deriveExerciseMetrics(WorkoutExerciseLogEntity exercise) {
+    private void deriveExerciseMetrics(SessionEntry exercise) {
         List<WorkoutExerciseSetLogEntity> loggedSets = exercise.getSets().stream()
                 .filter(this::isDoneSet)
                 .toList();
@@ -1526,11 +1535,11 @@ public class WorkoutServiceImpl implements WorkoutService {
         exercise.setTotalVolumeKg(totalVolumeKg);
     }
 
-    private WorkoutExerciseLogEntity toSessionExerciseLog(UUID userId,
+    private SessionEntry toSessionExerciseLog(UUID userId,
                                                           WorkoutSessionEntity session,
                                                           WorkoutExerciseLogInput input,
                                                           boolean logged) {
-        WorkoutExerciseLogEntity exercise = new WorkoutExerciseLogEntity();
+        SessionEntry exercise = new SessionEntry();
         ExerciseEntity sourceExercise = findAccessibleExercise(userId, input.exerciseId());
         exercise.setExerciseLogId(UUID.randomUUID());
         exercise.setSession(session);
@@ -1551,7 +1560,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         return exercise;
     }
 
-    private void replaceSetLogs(WorkoutExerciseLogEntity exercise,
+    private void replaceSetLogs(SessionEntry exercise,
                                 List<WorkoutExerciseSetLogInput> inputs,
                                 boolean logged) {
         exercise.getSets().clear();
@@ -1570,16 +1579,25 @@ public class WorkoutServiceImpl implements WorkoutService {
         }
     }
 
-    private WorkoutExerciseLogEntity toSeededExerciseLog(WorkoutSessionEntity session,
-                                                         WorkoutPlanExerciseEntity planExercise) {
-        WorkoutExerciseLogEntity exercise = new WorkoutExerciseLogEntity();
+    private SessionEntry toSeededExerciseLog(WorkoutSessionEntity session,
+                                                         PlanEntry planExercise) {
+        SessionEntry exercise = new SessionEntry();
         exercise.setExerciseLogId(UUID.randomUUID());
         exercise.setSession(session);
         exercise.setExercise(planExercise.getExercise());
         exercise.setExerciseNameSnapshot(planExercise.getExerciseNameSnapshot());
+        exercise.setEntryType(planExercise.getEntryType());
         exercise.setSequence(planExercise.getSequence());
+        exercise.setPosition(planExercise.getPosition());
         exercise.setTempoSeconds(planExercise.getTempoSeconds());
         exercise.setNotes(planExercise.getNotes());
+        if (!planExercise.isSet()) {
+            exercise.setKind(planExercise.getKind());
+            exercise.setLabel(planExercise.getLabel());
+            exercise.setPlannedSeconds(planExercise.getPlannedSeconds());
+            exercise.setStatus(WorkoutSetStatus.PENDING);
+            return exercise;
+        }
 
         for (WorkoutPlanExerciseSetTargetEntity setTarget : planExercise.getSetTargets()) {
             exercise.getSets().add(toSeededSetLog(exercise, setTarget));
@@ -1594,8 +1612,8 @@ public class WorkoutServiceImpl implements WorkoutService {
         return exercise;
     }
 
-    private WorkoutExerciseSetLogEntity toSeededSetLog(WorkoutExerciseLogEntity exercise,
-                                                       WorkoutPlanExerciseEntity planExercise,
+    private WorkoutExerciseSetLogEntity toSeededSetLog(SessionEntry exercise,
+                                                       PlanEntry planExercise,
                                                        int setNumber) {
         WorkoutExerciseSetLogEntity setLog = new WorkoutExerciseSetLogEntity();
         setLog.setSetLogId(UUID.randomUUID());
@@ -1610,7 +1628,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         return setLog;
     }
 
-    private WorkoutExerciseSetLogEntity toSeededSetLog(WorkoutExerciseLogEntity exercise,
+    private WorkoutExerciseSetLogEntity toSeededSetLog(SessionEntry exercise,
                                                        WorkoutPlanExerciseSetTargetEntity setTarget) {
         WorkoutExerciseSetLogEntity setLog = new WorkoutExerciseSetLogEntity();
         setLog.setSetLogId(UUID.randomUUID());
@@ -1625,8 +1643,8 @@ public class WorkoutServiceImpl implements WorkoutService {
         return setLog;
     }
 
-    private WorkoutExerciseLogEntity findExerciseLog(WorkoutSessionEntity session, UUID exerciseLogId) {
-        return session.getExercises().stream()
+    private SessionEntry findExerciseLog(WorkoutSessionEntity session, UUID exerciseLogId) {
+        return session.getEntries().stream()
                 .filter(exercise -> exercise.getExerciseLogId().equals(exerciseLogId))
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Workout exercise log not found"));
@@ -1801,8 +1819,8 @@ public class WorkoutServiceImpl implements WorkoutService {
 
     private void validateSessionExerciseSequences(WorkoutSessionEntity session) {
         validateUniqueNumbers(
-                session.getExercises().stream()
-                        .map(WorkoutExerciseLogEntity::getSequence)
+                session.getEntries().stream()
+                        .map(SessionEntry::getSequence)
                         .toList(),
                 "Exercise sequence values must be unique within the session");
     }
@@ -1865,7 +1883,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     /** The records of one exercise that a session beat. */
-    private record ExerciseRecords(WorkoutExerciseLogEntity exercise,
+    private record ExerciseRecords(SessionEntry exercise,
                                    String exerciseName,
                                    List<PersonalRecordAchievedPayload.RecordAchievement> achievements) {
     }
@@ -1873,7 +1891,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     /** Each exercise of the session that set a personal record, against the person's other sessions. */
     private List<ExerciseRecords> findNewRecords(WorkoutSessionEntity session) {
         List<ExerciseRecords> found = new ArrayList<>();
-        for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
+        for (SessionEntry exercise : session.getSetEntries()) {
             PersonalRecordSnapshot current = snapshotExercise(exercise);
             if (current.isEmpty()) {
                 continue;
@@ -1892,7 +1910,7 @@ public class WorkoutServiceImpl implements WorkoutService {
 
     private void publishPersonalRecords(WorkoutSessionEntity session, List<ExerciseRecords> records) {
         for (ExerciseRecords record : records) {
-            WorkoutExerciseLogEntity exercise = record.exercise();
+            SessionEntry exercise = record.exercise();
             List<PersonalRecordAchievedPayload.RecordAchievement> achievements = record.achievements();
             domainEventPublisher.publish(workoutEventsTopic(), "WorkoutSession", session.getSessionId().toString(), new FitSyncDomainEvent<>(
                     UUID.randomUUID(),
@@ -1930,7 +1948,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         }
     }
 
-    private PersonalRecordSnapshot snapshotExercise(WorkoutExerciseLogEntity exercise) {
+    private PersonalRecordSnapshot snapshotExercise(SessionEntry exercise) {
         List<ExerciseRecordSetRow> rows = exercise.getSets().stream()
                 .filter(this::isDoneSet)
                 .map(set -> new ExerciseRecordSetRow(
@@ -2058,7 +2076,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 session.getCompletedAt(),
                 session.getDurationMinutes(),
                 session.getCaloriesBurned(),
-                session.getExercises().size(),
+                session.getSetEntries().size(),
                 session.getSource().name(),
                 session.isCaloriesEstimated());
     }
@@ -2075,9 +2093,9 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private WorkoutPlanView toPlanView(WorkoutPlanEntity entity) {
-        List<WorkoutPlanExerciseEntity> flatExercises = new ArrayList<>();
-        Map<UUID, List<WorkoutPlanExerciseEntity>> dayExercisesByDayId = new LinkedHashMap<>();
-        for (WorkoutPlanExerciseEntity exercise : entity.getExercises()) {
+        List<PlanEntry> flatExercises = new ArrayList<>();
+        Map<UUID, List<PlanEntry>> dayExercisesByDayId = new LinkedHashMap<>();
+        for (PlanEntry exercise : entity.getSetEntries()) {
             if (exercise.getPlanDay() == null) {
                 flatExercises.add(exercise);
             } else {
@@ -2107,7 +2125,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 days.isEmpty() ? null : days.size());
     }
 
-    private WorkoutPlanDayView toPlanDayView(WorkoutPlanDayEntity day, List<WorkoutPlanExerciseEntity> exercises) {
+    private WorkoutPlanDayView toPlanDayView(WorkoutPlanDayEntity day, List<PlanEntry> exercises) {
         return new WorkoutPlanDayView(
                 day.getPlanDayId(),
                 day.getDayOfWeek(),
@@ -2117,12 +2135,12 @@ public class WorkoutServiceImpl implements WorkoutService {
                 day.getSportActivity() == null ? null : day.getSportActivity().label(),
                 day.getEstimatedDurationMinutes(),
                 exercises.stream()
-                        .sorted(Comparator.comparing(WorkoutPlanExerciseEntity::getSequence))
+                        .sorted(Comparator.comparing(PlanEntry::getSequence))
                         .map(this::toPlanExerciseView)
                         .toList());
     }
 
-    private WorkoutPlanExerciseView toPlanExerciseView(WorkoutPlanExerciseEntity exercise) {
+    private WorkoutPlanExerciseView toPlanExerciseView(PlanEntry exercise) {
         return new WorkoutPlanExerciseView(
                 exercise.getPlanExerciseId(),
                 exercise.getExercise().getExerciseId(),
@@ -2155,10 +2173,10 @@ public class WorkoutServiceImpl implements WorkoutService {
         int pendingSets = 0;
         WorkoutResumeSetView nextSet = null;
 
-        List<WorkoutExerciseLogEntity> exercises = session.getExercises().stream()
-                .sorted(Comparator.comparing(WorkoutExerciseLogEntity::getSequence))
+        List<SessionEntry> exercises = session.getSetEntries().stream()
+                .sorted(Comparator.comparing(SessionEntry::getSequence))
                 .toList();
-        for (WorkoutExerciseLogEntity exercise : exercises) {
+        for (SessionEntry exercise : exercises) {
             List<WorkoutExerciseSetLogEntity> sets = exercise.getSets().stream()
                     .sorted(Comparator.comparing(WorkoutExerciseSetLogEntity::getSetNumber))
                     .toList();
@@ -2191,7 +2209,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 || session.getStatus() == WorkoutSessionStatus.IN_PROGRESS;
     }
 
-    private WorkoutResumeSetView toResumeSetView(WorkoutExerciseLogEntity exercise,
+    private WorkoutResumeSetView toResumeSetView(SessionEntry exercise,
                                                  WorkoutExerciseSetLogEntity setLog) {
         return new WorkoutResumeSetView(
                 exercise.getExerciseLogId(),
@@ -2211,7 +2229,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private WorkoutSessionView toSessionView(WorkoutSessionEntity entity) {
-        List<WorkoutExerciseLogView> exercises = entity.getExercises().stream()
+        List<WorkoutExerciseLogView> exercises = entity.getSetEntries().stream()
                 .map(exercise -> new WorkoutExerciseLogView(
                         exercise.getExerciseLogId(),
                         exercise.getExercise().getExerciseId(),

@@ -12,14 +12,14 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface WorkoutPlanRepository extends JpaRepository<WorkoutPlanEntity, UUID>, WorkoutPlanRepositoryCustom {
 
     // "days" is deliberately left out of these graphs: Hibernate cannot join-fetch two List
-    // ("bag") collections in one query (MultipleBagFetchException), and exercises already needs
-    // its join for exercise.exercise. Reading entity.getDays() still costs only one extra query
+    // ("bag") collections in one query (MultipleBagFetchException), and entries already needs
+    // its join for entries.exercise. Reading entity.getDays() still costs only one extra query
     // per plan, lazily, inside the surrounding @Transactional method — the same characteristic
-    // reading entity.getExercises() already has on every other finder in this repository.
-    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    // reading entity.getEntries() already has on every other finder in this repository.
+    @EntityGraph(attributePaths = {"entries", "entries.exercise"})
     Optional<WorkoutPlanEntity> findByPlanIdAndUserId(UUID planId, UUID userId);
 
-    @EntityGraph(attributePaths = {"exercises", "exercises.exercise"})
+    @EntityGraph(attributePaths = {"entries", "entries.exercise"})
     List<WorkoutPlanEntity> findByUserIdOrderByDateTimeUpdatedDesc(UUID userId);
 
     List<WorkoutPlanEntity> findByUserIdAndStatusOrderByDateTimeUpdatedDesc(UUID userId, WorkoutPlanStatus status);

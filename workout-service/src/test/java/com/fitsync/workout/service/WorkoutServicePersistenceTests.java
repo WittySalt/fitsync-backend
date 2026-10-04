@@ -175,7 +175,7 @@ class WorkoutServicePersistenceTests {
         WorkoutPlanView archived = workoutService.getPlan(currentUser, created.planId());
         assertEquals("Leg Day", archived.name());
         assertEquals(WorkoutPlanStatus.ARCHIVED, archived.status());
-        assertEquals(1, workoutPlanRepository.findByPlanIdAndUserId(created.planId(), currentUser.userId()).orElseThrow().getExercises().size());
+        assertEquals(1, workoutPlanRepository.findByPlanIdAndUserId(created.planId(), currentUser.userId()).orElseThrow().getEntries().size());
     }
 
     @Test

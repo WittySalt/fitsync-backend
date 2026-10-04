@@ -10,7 +10,7 @@ import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.entity.ExerciseEntity;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.service.EffortEstimator.Load;
@@ -22,7 +22,7 @@ class EffortEstimatorTests {
     private static WorkoutSessionEntity session(WorkoutDifficulty difficulty, Integer minutes, Object[]... sets) {
         ExerciseEntity exercise = new ExerciseEntity();
         exercise.setDifficulty(difficulty);
-        WorkoutExerciseLogEntity log = new WorkoutExerciseLogEntity();
+        SessionEntry log = new SessionEntry();
         log.setExercise(exercise);
         int number = 1;
         for (Object[] values : sets) {
@@ -37,7 +37,7 @@ class EffortEstimatorTests {
         }
         WorkoutSessionEntity session = new WorkoutSessionEntity();
         session.setDurationMinutes(minutes);
-        session.getExercises().add(log);
+        session.getEntries().add(log);
         return session;
     }
 

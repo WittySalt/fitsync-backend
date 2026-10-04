@@ -8,7 +8,7 @@ import java.util.List;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.domain.WorkoutType;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 
@@ -53,7 +53,7 @@ public final class EffortEstimator {
         List<WorkoutExerciseSetLogEntity> done = new ArrayList<>();
         int total = 0;
         double difficultySum = 0;
-        for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
+        for (SessionEntry exercise : session.getSetEntries()) {
             for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
                 total++;
                 if (isDone(set)) {
@@ -102,7 +102,7 @@ public final class EffortEstimator {
         double weight = 0;
         double reps = 0;
         double seconds = 0;
-        for (WorkoutExerciseLogEntity exercise : session.getExercises()) {
+        for (SessionEntry exercise : session.getSetEntries()) {
             for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
                 if (!isDone(set)) {
                     continue;
@@ -154,7 +154,7 @@ public final class EffortEstimator {
         return set.getStatus() == WorkoutSetStatus.DONE;
     }
 
-    private static double difficultyStep(WorkoutExerciseLogEntity exercise) {
+    private static double difficultyStep(SessionEntry exercise) {
         WorkoutDifficulty difficulty = exercise.getExercise() == null ? null : exercise.getExercise().getDifficulty();
         if (difficulty == WorkoutDifficulty.BEGINNER) {
             return -1;

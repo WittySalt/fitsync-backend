@@ -33,7 +33,7 @@ import com.fitsync.workout.dto.SportActivityInsightView;
 import com.fitsync.workout.dto.SportInsightView;
 import com.fitsync.workout.dto.TrainingPageInsightView;
 import com.fitsync.workout.dto.TrainingRecordView;
-import com.fitsync.workout.entity.WorkoutExerciseLogEntity;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutExerciseSetLogEntity;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.repository.WorkoutExerciseLogRepository;
@@ -224,7 +224,7 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
     private TrainingRecordView computeRecord(UUID userId, ZoneId zoneId, List<DatedSession> periodSessions, LocalDate periodStart) {
         Map<UUID, ExerciseBest> periodBests = new LinkedHashMap<>();
         for (DatedSession dated : periodSessions) {
-            for (WorkoutExerciseLogEntity log : dated.session().getExercises()) {
+            for (SessionEntry log : dated.session().getSetEntries()) {
                 BigDecimal topSet = topSetWeight(log);
                 if (topSet == null) {
                     continue;
@@ -286,7 +286,7 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
 
         for (DatedSession dated : periodSessions) {
             Set<MuscleGroup> groupsInSession = EnumSet.noneOf(MuscleGroup.class);
-            for (WorkoutExerciseLogEntity log : dated.session().getExercises()) {
+            for (SessionEntry log : dated.session().getSetEntries()) {
                 anyExerciseLog = true;
                 MuscleGroup group = log.getExercise().getPrimaryMuscleGroup();
                 groupsInSession.add(group);
@@ -328,7 +328,7 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
         Map<UUID, String> namesByExercise = new HashMap<>();
 
         for (DatedSession dated : liftsWindowSessions) {
-            for (WorkoutExerciseLogEntity log : dated.session().getExercises()) {
+            for (SessionEntry log : dated.session().getSetEntries()) {
                 BigDecimal topSet = topSetWeight(log);
                 if (topSet == null) {
                     continue;
@@ -499,7 +499,7 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
 
     private BigDecimal sumVolume(WorkoutSessionEntity session) {
         BigDecimal total = BigDecimal.ZERO;
-        for (WorkoutExerciseLogEntity log : session.getExercises()) {
+        for (SessionEntry log : session.getSetEntries()) {
             if (log.getTotalVolumeKg() != null) {
                 total = total.add(log.getTotalVolumeKg());
             }
@@ -513,7 +513,7 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
      * and those must not read as lifts. The status is not required to be DONE, because imported
      * and seeded sessions are logged without one.
      */
-    static BigDecimal topSetWeight(WorkoutExerciseLogEntity log) {
+    static BigDecimal topSetWeight(SessionEntry log) {
         BigDecimal max = null;
         for (WorkoutExerciseSetLogEntity set : log.getSets()) {
             BigDecimal weight = set.getWeightKg();
