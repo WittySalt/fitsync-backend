@@ -37,6 +37,7 @@ import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.dto.PlanCoverageView;
 import com.fitsync.workout.dto.PlanDraftRequest;
+import com.fitsync.workout.dto.PlanProposalRequest;
 import com.fitsync.workout.dto.SessionEntryUpdateRequest;
 import com.fitsync.workout.dto.SetRestRequest;
 import com.fitsync.workout.dto.SessionEffortRequest;
@@ -225,6 +226,14 @@ public class WorkoutController {
     public PlanCoverageView planCoverage(Authentication authentication,
                                          @Valid @RequestBody PlanDraftRequest request) {
         return workoutService.previewCoverage(currentPrincipal(authentication), request);
+    }
+
+    @Operation(summary = "Propose a default week from the profile the client holds; nothing is saved")
+    @PostMapping("/plans/proposal")
+    public WorkoutPlanView planProposal(Authentication authentication,
+                                        @Valid @RequestBody PlanProposalRequest request,
+                                        @RequestTimezone Optional<ZoneId> zone) {
+        return workoutService.proposePlan(currentPrincipal(authentication), request, zoneId(zone));
     }
 
     @GetMapping("/plans")

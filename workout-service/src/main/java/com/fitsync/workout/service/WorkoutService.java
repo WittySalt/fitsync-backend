@@ -25,6 +25,7 @@ import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
 import com.fitsync.workout.dto.PlanCoverageView;
 import com.fitsync.workout.dto.PlanDraftRequest;
+import com.fitsync.workout.dto.PlanProposalRequest;
 import com.fitsync.workout.dto.SessionEntryUpdateRequest;
 import com.fitsync.workout.dto.SetRestRequest;
 import com.fitsync.workout.dto.SessionEffortRequest;
@@ -46,6 +47,9 @@ public interface WorkoutService {
 
     /** What a plan being built trains: hard sets a week per group and the editor's notes. */
     PlanCoverageView previewCoverage(CurrentUserPrincipal currentUser, PlanDraftRequest request);
+
+    /** A default week built from the profile the client sends, the person's habit days and the catalogue. */
+    WorkoutPlanView proposePlan(CurrentUserPrincipal currentUser, PlanProposalRequest request, String timezone);
 
     WorkoutPlanView duplicatePlan(CurrentUserPrincipal currentUser, UUID planId);
 

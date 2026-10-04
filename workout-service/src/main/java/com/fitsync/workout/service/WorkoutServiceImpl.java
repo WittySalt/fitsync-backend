@@ -47,6 +47,7 @@ import com.fitsync.workout.dto.PlanCoverageView;
 import com.fitsync.workout.dto.PlanDraftRequest;
 import com.fitsync.workout.dto.PlanEntryInput;
 import com.fitsync.workout.dto.PlanEntryView;
+import com.fitsync.workout.dto.PlanProposalRequest;
 import com.fitsync.workout.dto.SessionEntryUpdateRequest;
 import com.fitsync.workout.dto.SessionEntryView;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowResult;
@@ -160,6 +161,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     private final TransactionTemplate sweepTransactionTemplate;
     private final AutoCloseProperties autoCloseProperties;
     private final PlanCoverageService planCoverageService;
+    private final PlanProposalService planProposalService;
 
     public WorkoutServiceImpl(@Value("${fitsync.kafka.topics.workout-events:workout-events}") String workoutEventsTopic,
                               @Value("${fitsync.workout.exercise-history.max-range-days:370}") int exerciseHistoryMaxRangeDays,
@@ -174,7 +176,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                               SessionKindResolver sessionKindResolver,
                               PlatformTransactionManager transactionManager,
                               AutoCloseProperties autoCloseProperties,
-                              PlanCoverageService planCoverageService) {
+                              PlanCoverageService planCoverageService,
+                              PlanProposalService planProposalService) {
         this.workoutEventsTopic = workoutEventsTopic;
         this.exerciseHistoryMaxRangeDays = exerciseHistoryMaxRangeDays;
         this.clock = clock;
@@ -192,6 +195,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         this.sweepTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.autoCloseProperties = autoCloseProperties;
         this.planCoverageService = planCoverageService;
+        this.planProposalService = planProposalService;
     }
 
     @Override
@@ -2369,6 +2373,12 @@ public class WorkoutServiceImpl implements WorkoutService {
     @Transactional(readOnly = true)
     public PlanCoverageView previewCoverage(CurrentUserPrincipal currentUser, PlanDraftRequest request) {
         return planCoverageService.forDraft(currentUser.userId(), request);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public WorkoutPlanView proposePlan(CurrentUserPrincipal currentUser, PlanProposalRequest request, String timezone) {
+        return planProposalService.propose(currentUser.userId(), request, timezone);
     }
 
     private WorkoutPlanView toPlanViewWithCoverage(WorkoutPlanEntity entity) {
