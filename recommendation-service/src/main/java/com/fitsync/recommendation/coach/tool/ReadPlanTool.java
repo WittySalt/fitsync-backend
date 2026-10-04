@@ -6,6 +6,7 @@ import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -30,6 +31,15 @@ public class ReadPlanTool implements CoachTool {
     private static final int EASY_EFFORT = 3;
     private static final int MODERATE_EFFORT = 6;
     private static final int HARD_EFFORT = 8;
+
+    /** Codes in the words the coach uses, so no code and no case mapping reaches the answer. */
+    static final Map<String, String> WORDS = Map.ofEntries(
+            Map.entry("STRENGTH", "strength"), Map.entry("CARDIO", "cardio"), Map.entry("MOBILITY", "mobility"),
+            Map.entry("SPORT", "sport"), Map.entry("WARMUP", "warm-up"), Map.entry("STEADY", "steady"),
+            Map.entry("WORK", "work"), Map.entry("EASY", "easy"), Map.entry("COOLDOWN", "cool-down"),
+            Map.entry("CHEST", "chest"), Map.entry("BACK", "back"), Map.entry("SHOULDERS", "shoulders"),
+            Map.entry("ARMS", "arms"), Map.entry("CORE", "core"), Map.entry("GLUTES", "glutes"),
+            Map.entry("LEGS", "legs"));
 
     private final WorkoutCatalogueClient client;
     private final ObjectMapper objectMapper;
@@ -97,8 +107,8 @@ public class ReadPlanTool implements CoachTool {
         JsonNode coverage = plan.path("coverage");
         List<String> groups = new ArrayList<>();
         for (JsonNode group : coverage.path("groups")) {
-            groups.add(text(group.path("group")).toLowerCase(Locale.ROOT).replace('_', ' ') + " "
-                    + number(group.path("setsPerWeek")));
+            String code = text(group.path("group"));
+            groups.add(WORDS.getOrDefault(code, code) + " " + number(group.path("setsPerWeek")));
         }
         if (!groups.isEmpty()) {
             lines.add("Planned hard sets a week by muscle group: " + String.join(", ", groups) + ".");
@@ -117,7 +127,8 @@ public class ReadPlanTool implements CoachTool {
     }
 
     private static String dayLine(JsonNode day) {
-        String kind = text(day.path("kind")).toLowerCase(Locale.ROOT);
+        String code = text(day.path("kind"));
+        String kind = WORDS.getOrDefault(code, code);
         StringBuilder line = new StringBuilder(weekday(day.path("dayOfWeek").asInt(0)))
                 .append(": ").append(text(day.path("title"))).append(", ").append(kind);
         if (day.path("estimatedDurationMinutes").isNumber()) {
@@ -153,11 +164,9 @@ public class ReadPlanTool implements CoachTool {
     }
 
     private static String segmentWords(JsonNode entry) {
-        String label = text(entry.path("label"));
-        if (label.isEmpty()) {
-            label = text(entry.path("kind"));
-        }
-        String words = label.toLowerCase(Locale.ROOT) + " " + duration(entry.path("plannedSeconds").asInt(0));
+        String kind = text(entry.path("kind"));
+        String words = WORDS.getOrDefault(kind, text(entry.path("label"))) + " "
+                + duration(entry.path("plannedSeconds").asInt(0));
         int rounds = entry.path("rounds").asInt(1);
         return rounds > 1 ? words + " " + rounds + " times" : words;
     }

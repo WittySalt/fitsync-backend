@@ -63,6 +63,9 @@ public class PlanProposalService {
             "MACHINES", EnumSet.of(ExerciseEquipment.MACHINE, ExerciseEquipment.CABLE),
             "MACHINE", EnumSet.of(ExerciseEquipment.MACHINE, ExerciseEquipment.CABLE));
 
+    private static final Set<String> FOCUS_AREAS = Set.of("FULL_BODY", "UPPER", "LOWER", "CORE", "MOBILITY",
+            "CARDIO", "STRENGTH");
+
     private final Clock clock;
     private final ExerciseRepository exerciseRepository;
     private final WorkoutSessionRepository workoutSessionRepository;
@@ -83,7 +86,12 @@ public class PlanProposalService {
     public WorkoutPlanView propose(UUID userId, PlanProposalRequest request, String timezone) {
         WorkoutDifficulty level = levelOf(request.fitnessLevel());
         Set<String> focus = new LinkedHashSet<>();
-        request.focusAreas().forEach(area -> focus.add(area.toUpperCase(Locale.ROOT)));
+        request.focusAreas().forEach(area -> {
+            String known = canonical(area, FOCUS_AREAS);
+            if (known != null) {
+                focus.add(known);
+            }
+        });
         PlanProposalPlanner.Profile profile = new PlanProposalPlanner.Profile(level, request.weeklyWorkoutDays(),
                 request.preferredDurationMinutes(), focus);
 
@@ -118,9 +126,8 @@ public class PlanProposalService {
         if (code == null || code.isBlank()) {
             return WorkoutDifficulty.BEGINNER;
         }
-        String upper = code.toUpperCase(Locale.ROOT);
         for (WorkoutDifficulty level : WorkoutDifficulty.values()) {
-            if (level.name().equals(upper)) {
+            if (sameCode(level.name(), code)) {
                 return level;
             }
         }
@@ -129,14 +136,32 @@ public class PlanProposalService {
 
     /** The catalogue equipment a person can use: bodyweight always, plus what they own; everything without a list. */
     static List<ExerciseEquipment> equipmentOf(List<String> codes) {
-        if (codes.isEmpty() || codes.stream().anyMatch(code -> "FULL_GYM".equalsIgnoreCase(code))) {
+        if (codes.isEmpty() || codes.stream().anyMatch(code -> sameCode("FULL_GYM", code))) {
             return List.of(ExerciseEquipment.values());
         }
         Set<ExerciseEquipment> allowed = EnumSet.of(ExerciseEquipment.BODYWEIGHT, ExerciseEquipment.NONE);
         for (String code : codes) {
-            allowed.addAll(EQUIPMENT.getOrDefault(code.toUpperCase(Locale.ROOT), Set.of()));
+            String known = canonical(code, EQUIPMENT.keySet());
+            if (known != null) {
+                allowed.addAll(EQUIPMENT.get(known));
+            }
         }
         return new ArrayList<>(allowed);
+    }
+
+    /** Two codes are the same in any case; compared by the case-insensitive order, without changing case. */
+    private static boolean sameCode(String known, String sent) {
+        return sent != null && String.CASE_INSENSITIVE_ORDER.compare(known, sent) == 0;
+    }
+
+    /** The known code a sent one matches in any case, or null. Compared without changing case. */
+    private static String canonical(String code, Set<String> known) {
+        for (String candidate : known) {
+            if (sameCode(candidate, code)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     static List<WorkoutDifficulty> levelsUpTo(WorkoutDifficulty level) {

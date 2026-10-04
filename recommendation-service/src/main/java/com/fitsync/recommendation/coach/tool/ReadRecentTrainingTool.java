@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -123,7 +122,7 @@ public class ReadRecentTrainingTool implements CoachTool {
             if ("EASY".equals(kind)) {
                 continue;
             }
-            String label = entry.path("label").asText(kind).strip().toLowerCase(Locale.ROOT);
+            String label = ReadPlanTool.WORDS.getOrDefault(kind, entry.path("label").asText(kind).strip());
             int planned = minutes(entry.path("plannedSeconds"));
             if ("SKIPPED".equals(status)) {
                 parts.add(label + " skipped");

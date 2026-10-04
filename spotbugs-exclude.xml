@@ -603,6 +603,11 @@
     </Match>
 
     <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.ReadPlanTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
         <Class name="com.fitsync.recommendation.coach.tool.SearchExercisesTool"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>

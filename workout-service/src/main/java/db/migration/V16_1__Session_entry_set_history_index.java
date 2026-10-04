@@ -32,7 +32,11 @@ public class V16_1__Session_entry_set_history_index extends BaseJavaMigration {
         String product = connection.getMetaData().getDatabaseProductName();
         boolean postgres = product != null && product.toLowerCase(Locale.ROOT).contains("postgres");
         try (Statement statement = connection.createStatement()) {
-            statement.execute(postgres ? POSTGRES_INDEX : PLAIN_INDEX);
+            if (postgres) {
+                statement.execute(POSTGRES_INDEX);
+            } else {
+                statement.execute(PLAIN_INDEX);
+            }
         }
     }
 }
