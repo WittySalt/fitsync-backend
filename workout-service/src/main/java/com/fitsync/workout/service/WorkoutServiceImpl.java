@@ -24,6 +24,7 @@ import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
 import com.fitsync.workout.config.AutoCloseProperties;
+import com.fitsync.workout.domain.EntryType;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
 import com.fitsync.workout.domain.SessionKind;
@@ -41,6 +42,8 @@ import com.fitsync.workout.dto.ExerciseRecordSetRow;
 import com.fitsync.workout.dto.ExerciseRecordValueView;
 import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
+import com.fitsync.workout.dto.PlanEntryInput;
+import com.fitsync.workout.dto.PlanEntryView;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowResult;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
 import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
@@ -1186,6 +1189,10 @@ public class WorkoutServiceImpl implements WorkoutService {
         copy.setTitle(source.getTitle());
         copy.setSportActivity(source.getSportActivity());
         copy.setEstimatedDurationMinutes(source.getEstimatedDurationMinutes());
+        copy.setTargetKind(source.getTargetKind());
+        copy.setTargetValue(source.getTargetValue());
+        copy.setLocation(source.getLocation());
+        copy.setEffortTarget(source.getEffortTarget());
         return copy;
     }
 
@@ -1359,7 +1366,16 @@ public class WorkoutServiceImpl implements WorkoutService {
         Map<Integer, WorkoutPlanDayEntity> daysByDayOfWeek = plan.getDays().stream()
                 .collect(Collectors.toMap(WorkoutPlanDayEntity::getDayOfWeek, day -> day));
         for (WorkoutPlanDayInput dayInput : dayInputs) {
-            addPlanExercises(userId, plan, daysByDayOfWeek.get(dayInput.dayOfWeek()), dayInput.exercises());
+            WorkoutPlanDayEntity day = daysByDayOfWeek.get(dayInput.dayOfWeek());
+            if (!dayInput.entries().isEmpty()) {
+                addPlanEntries(userId, plan, day, dayInput.entries());
+            } else if (!dayInput.exercises().isEmpty()) {
+                addPlanExercises(userId, plan, day, dayInput.exercises());
+            } else if (PlanEntryRules.holdsSegments(dayInput.kind())) {
+                // A cardio or sport day sent without any entry gets the default shape of its duration.
+                addPlanEntries(userId, plan, day,
+                        PlanEntryRules.defaultSegments(day.getEstimatedDurationMinutes(), day.getSportActivity()));
+            }
         }
     }
 
@@ -1395,7 +1411,70 @@ public class WorkoutServiceImpl implements WorkoutService {
             day.setKind(input.kind());
             day.setTitle(input.title());
             day.setSportActivity(input.kind() == SessionKind.SPORT ? input.sportActivity() : null);
-            day.setEstimatedDurationMinutes(input.estimatedDurationMinutes());
+            day.setEstimatedDurationMinutes(durationOf(input));
+            day.setTargetKind(input.targetKind());
+            day.setTargetValue(input.targetKind() == null ? null : input.targetValue());
+            day.setLocation(input.location());
+            day.setEffortTarget(input.effortTarget());
+        }
+    }
+
+    /** The day's duration; a day of segments sent without one takes the minutes its segments add up to. */
+    private static Integer durationOf(WorkoutPlanDayInput input) {
+        if (input.estimatedDurationMinutes() != null) {
+            return input.estimatedDurationMinutes();
+        }
+        int seconds = PlanEntryRules.totalSeconds(input.entries());
+        return seconds > 0 ? Math.max(1, Math.round(seconds / 60f)) : null;
+    }
+
+    /**
+     * Adds a day's entries, moves or time segments, to the plan's single owning entry collection, in
+     * the order of their positions. A move takes its sequence from its position; a segment numbers its
+     * sequence from {@link PlanEntryRules#SEGMENT_SEQUENCE_BASE}.
+     */
+    private void addPlanEntries(UUID userId,
+                                WorkoutPlanEntity plan,
+                                WorkoutPlanDayEntity day,
+                                List<PlanEntryInput> inputs) {
+        List<Integer> order = new ArrayList<>();
+        for (int index = 0; index < inputs.size(); index++) {
+            order.add(index);
+        }
+        order.sort(Comparator.comparing(index -> PlanEntryRules.positionOf(inputs.get(index), index)));
+        for (int index : order) {
+            PlanEntryInput input = inputs.get(index);
+            int position = PlanEntryRules.positionOf(input, index);
+            PlanEntry entry = new PlanEntry();
+            entry.setPlanExerciseId(UUID.randomUUID());
+            entry.setPlan(plan);
+            entry.setPlanDay(day);
+            entry.setEntryType(input.type());
+            entry.setNotes(input.notes());
+            if (input.type() == EntryType.SET) {
+                ExerciseEntity sourceExercise = findAccessibleExercise(userId, input.exerciseId());
+                entry.setExercise(sourceExercise);
+                entry.setExerciseNameSnapshot(sourceExercise.getName());
+                entry.setSequence(position);
+                entry.setTargetSets(input.targetSets());
+                entry.setTargetReps(input.targetReps());
+                entry.setTargetWeightKg(input.targetWeightKg());
+                // A time-based move keeps its seconds where the older shape kept them, so a session seeds them.
+                entry.setTargetDurationSeconds(input.plannedSeconds());
+                entry.setPlannedSeconds(input.plannedSeconds());
+                entry.setRestSeconds(input.restSeconds());
+                entry.setTempoSeconds(input.tempoSeconds());
+            } else {
+                String label = PlanEntryRules.labelOf(input.kind(), input.label());
+                entry.setKind(input.kind());
+                entry.setLabel(label);
+                entry.setExerciseNameSnapshot(label);
+                entry.setPlannedSeconds(input.plannedSeconds());
+                entry.setRounds(input.rounds());
+                entry.setSequence(PlanEntryRules.SEGMENT_SEQUENCE_BASE + position);
+                entry.setPosition(position);
+            }
+            plan.getEntries().add(entry);
         }
     }
 
@@ -1793,6 +1872,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 throw new IllegalArgumentException(SPORT_DAY_HAS_NO_EXERCISES_MESSAGE);
             }
             validatePlanExerciseList(day.exercises());
+            PlanEntryRules.validateDay(day);
         }
     }
 
@@ -2104,9 +2184,17 @@ public class WorkoutServiceImpl implements WorkoutService {
             }
         }
 
+        Map<UUID, List<PlanEntry>> dayEntriesByDayId = new LinkedHashMap<>();
+        for (PlanEntry entry : entity.getEntries()) {
+            if (entry.getPlanDay() != null) {
+                dayEntriesByDayId.computeIfAbsent(entry.getPlanDay().getPlanDayId(), id -> new ArrayList<>()).add(entry);
+            }
+        }
+
         List<WorkoutPlanDayView> days = entity.getDays().stream()
                 .sorted(Comparator.comparing(WorkoutPlanDayEntity::getDayOfWeek))
-                .map(day -> toPlanDayView(day, dayExercisesByDayId.getOrDefault(day.getPlanDayId(), List.of())))
+                .map(day -> toPlanDayView(day, dayExercisesByDayId.getOrDefault(day.getPlanDayId(), List.of()),
+                        dayEntriesByDayId.getOrDefault(day.getPlanDayId(), List.of())))
                 .toList();
 
         return new WorkoutPlanView(
@@ -2125,7 +2213,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                 days.isEmpty() ? null : days.size());
     }
 
-    private WorkoutPlanDayView toPlanDayView(WorkoutPlanDayEntity day, List<PlanEntry> exercises) {
+    private WorkoutPlanDayView toPlanDayView(WorkoutPlanDayEntity day, List<PlanEntry> exercises,
+                                             List<PlanEntry> entries) {
         return new WorkoutPlanDayView(
                 day.getPlanDayId(),
                 day.getDayOfWeek(),
@@ -2137,7 +2226,38 @@ public class WorkoutServiceImpl implements WorkoutService {
                 exercises.stream()
                         .sorted(Comparator.comparing(PlanEntry::getSequence))
                         .map(this::toPlanExerciseView)
+                        .toList(),
+                day.getTargetKind(),
+                day.getTargetValue(),
+                day.getLocation(),
+                day.getEffortTarget(),
+                entries.stream()
+                        .sorted(Comparator.comparing(PlanEntry::getPosition).thenComparing(PlanEntry::getSequence))
+                        .map(this::toPlanEntryView)
                         .toList());
+    }
+
+    private PlanEntryView toPlanEntryView(PlanEntry entry) {
+        ExerciseEntity exercise = entry.getExercise();
+        return new PlanEntryView(
+                entry.getPlanExerciseId(),
+                entry.getEntryType(),
+                entry.getPosition(),
+                exercise == null ? null : exercise.getExerciseId(),
+                entry.isSet() ? entry.getExerciseNameSnapshot() : null,
+                entry.getKind(),
+                entry.getLabel(),
+                entry.isSet() ? entry.getTargetDurationSeconds() : entry.getPlannedSeconds(),
+                entry.getRounds(),
+                entry.getTargetSets(),
+                entry.getTargetReps(),
+                entry.getTargetWeightKg(),
+                entry.getTargetDurationSeconds(),
+                entry.getTargetDistanceKm(),
+                entry.getRestSeconds(),
+                entry.getTempoSeconds(),
+                entry.getNotes(),
+                primaryImageUrl(exercise));
     }
 
     private WorkoutPlanExerciseView toPlanExerciseView(PlanEntry exercise) {
