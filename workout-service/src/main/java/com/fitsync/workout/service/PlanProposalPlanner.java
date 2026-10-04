@@ -301,7 +301,7 @@ public final class PlanProposalPlanner {
         List<PlanEntryInput> entries = new ArrayList<>();
         for (Move move : picker.mobility(MOBILITY_MOVES)) {
             entries.add(new PlanEntryInput(EntryType.SET, move.exerciseId(), null, null, entries.size() + 1, 2, null,
-                    null, 15, null, MOBILITY_HOLD_SECONDS, null, null));
+                    null, MOBILITY_HOLD_SECONDS, 15, null, null, null, null));
         }
         return entries;
     }

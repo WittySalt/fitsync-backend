@@ -1663,8 +1663,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entry.setTargetReps(input.targetReps());
                 entry.setTargetWeightKg(input.targetWeightKg());
                 // A time-based move keeps its seconds where the older shape kept them, so a session seeds them.
-                entry.setTargetDurationSeconds(input.plannedSeconds());
-                entry.setPlannedSeconds(input.plannedSeconds());
+                entry.setTargetDurationSeconds(input.setSeconds());
+                entry.setPlannedSeconds(input.setSeconds());
                 entry.setRestSeconds(input.restSeconds());
                 entry.setTempoSeconds(input.tempoSeconds());
             } else {

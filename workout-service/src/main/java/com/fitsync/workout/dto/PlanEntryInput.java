@@ -14,8 +14,9 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 
 /**
- * One entry of a plan day. A SET entry (the default) is a move: exerciseId with sets, reps, weight,
- * rest and tempo, and plannedSeconds for a time-based move. A SEGMENT entry is a stretch of time on a
+ * One entry of a plan day. A SET entry (the default) is a move: exerciseId with targetSets, targetReps,
+ * targetWeightKg, restSeconds and tempoSeconds, and targetDurationSeconds (or plannedSeconds) for a
+ * time-based move. A SEGMENT entry is a stretch of time on a
  * cardio or sport day: kind, label, plannedSeconds and rounds for a repeated interval. The position
  * orders the entries of the day; without one, the order of the list is used.
  */
@@ -38,6 +39,8 @@ public record PlanEntryInput(
         @Min(0) @Max(50) Integer targetSets,
         @Min(0) @Max(1000) Integer targetReps,
         @DecimalMin("0.0") @DecimalMax("1000.0") BigDecimal targetWeightKg,
+        /** The seconds of one set of a time-based move; plannedSeconds is read when this is empty. */
+        @Min(0) @Max(36000) Integer targetDurationSeconds,
         @Min(0) @Max(3600) Integer restSeconds,
         @DecimalMin("1.0") @DecimalMax("10.0") @Digits(integer = 2, fraction = 1) BigDecimal tempoSeconds,
         @Min(1) @Max(36000) Integer plannedSeconds,
@@ -49,17 +52,22 @@ public record PlanEntryInput(
         return entryType == null ? EntryType.SET : entryType;
     }
 
+    /** The seconds of one set of a time-based move: targetDurationSeconds, else plannedSeconds. */
+    public Integer setSeconds() {
+        return targetDurationSeconds != null ? targetDurationSeconds : plannedSeconds;
+    }
+
     /** A move entry. */
     public static PlanEntryInput set(UUID exerciseId, Integer position, Integer targetSets, Integer targetReps,
                                      BigDecimal targetWeightKg, Integer restSeconds) {
         return new PlanEntryInput(EntryType.SET, exerciseId, null, null, position, targetSets, targetReps,
-                targetWeightKg, restSeconds, null, null, null, null);
+                targetWeightKg, null, restSeconds, null, null, null, null);
     }
 
     /** A time segment entry. */
     public static PlanEntryInput segment(SegmentKind kind, String label, Integer position, Integer plannedSeconds,
                                          Integer rounds) {
         return new PlanEntryInput(EntryType.SEGMENT, null, kind, label, position, null, null, null, null, null,
-                plannedSeconds, rounds, null);
+                null, plannedSeconds, rounds, null);
     }
 }

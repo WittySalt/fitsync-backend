@@ -168,9 +168,10 @@ public class PlanProposalService {
             boolean set = entry.type() == EntryType.SET;
             entries.add(new PlanEntryView(null, entry.type(), entry.position(), entry.exerciseId(),
                     exercise == null ? null : exercise.getName(), entry.kind(),
-                    set ? null : PlanEntryRules.labelOf(entry.kind(), entry.label()), entry.plannedSeconds(),
+                    set ? null : PlanEntryRules.labelOf(entry.kind(), entry.label()),
+                    set ? entry.setSeconds() : entry.plannedSeconds(),
                     entry.rounds(), entry.targetSets(), entry.targetReps(), entry.targetWeightKg(),
-                    set ? entry.plannedSeconds() : null, null, entry.restSeconds(), entry.tempoSeconds(), entry.notes(),
+                    set ? entry.setSeconds() : null, null, entry.restSeconds(), entry.tempoSeconds(), entry.notes(),
                     exercise == null || exercise.getImages().isEmpty() ? null : exercise.getImages().get(0).getUrl()));
         }
         return new WorkoutPlanDayView(null, day.dayOfWeek(), day.kind(), day.title(), day.sportActivity(),

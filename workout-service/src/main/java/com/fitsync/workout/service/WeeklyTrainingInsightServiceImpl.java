@@ -11,6 +11,7 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -141,6 +142,13 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         TrainingProgressCalculator.CardFacts cardFacts =
                 trainingProgressService.getCardFacts(currentUser.userId(), zoneId, referenceDate);
 
+        // The weekday each activity is usually done on, from the sessions already loaded (no extra query).
+        Map<String, HabitDays.Run> runs = HabitDays.runs(sessions.stream()
+                .map(dated -> new HabitDays.SessionDay(dated.date(), dated.session().getKind(),
+                        dated.session().getSportActivity(),
+                        dated.session().getDurationMinutes() == null ? 0 : dated.session().getDurationMinutes()))
+                .toList(), referenceDate);
+
         return new WeeklyTrainingInsightView(
                 zoneId.getId(),
                 referenceDate,
@@ -160,7 +168,11 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                 previousWeekSameDays.minutes,
                 cardFacts.lifts().stream().map(WeeklyTrainingInsightServiceImpl::toLiftChange).toList(),
                 cardFacts.activities().stream()
-                        .map(activity -> new ActivitySummaryView(activity.key(), activity.name(), activity.summary()))
+                        .map(activity -> {
+                            HabitDays.Run run = runs.get(activity.key());
+                            return new ActivitySummaryView(activity.key(), activity.name(), activity.summary(),
+                                    run == null ? null : run.weekday().getValue(), run == null ? null : run.weeks());
+                        })
                         .toList());
     }
 
