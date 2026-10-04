@@ -2,6 +2,7 @@ package com.fitsync.workout.service;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -13,6 +14,7 @@ import java.util.UUID;
 
 import com.fitsync.workout.domain.DayTargetKind;
 import com.fitsync.workout.domain.EntryType;
+import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.SessionKind;
 import com.fitsync.workout.domain.WorkoutDifficulty;
@@ -41,6 +43,13 @@ public final class PlanProposalPlanner {
     static final int MINUTES_PER_MOVE = 8;
     static final int MIN_MOVES = 4;
     static final int MAX_MOVES = 7;
+    static final int SETS = 3;
+    static final int BEGINNER_REPS = 10;
+    static final int BARBELL_COMPOUND_REPS = 8;
+    static final int ISOLATION_REPS = 12;
+    static final int COMPOUND_REST_SECONDS = 90;
+    static final int OTHER_REST_SECONDS = 60;
+    static final int HOLD_SECONDS = 45;
 
     private static final List<Integer> STRENGTH_PREFERENCE = List.of(1, 4, 6, 3, 5, 2, 7);
     private static final int SUNDAY = 7;
@@ -84,67 +93,145 @@ public final class PlanProposalPlanner {
         }
     }
 
-    /** A move the catalogue offered: its id and name. */
-    public record Move(UUID exerciseId, String name) {
+    /** A move the catalogue offered: its id, name and equipment. */
+    public record Move(UUID exerciseId, String name, ExerciseEquipment equipment) {
+    }
+
+    /** One catalogue exercise the curated lists are matched against. */
+    public record Candidate(UUID exerciseId, String name, ExerciseEquipment equipment) {
     }
 
     /** Picks moves from the catalogue. */
     public interface MovePicker {
 
         /**
-         * The best move of a group not used yet: one whose name matches the earliest hint, else any. The
-         * variant picks the second or third best, so Full body A, B and C differ.
+         * The move for a slot that is not used yet: the curated choice for the person's level when the
+         * catalogue has one with their equipment, else the best by the slot's name hints.
          */
-        Optional<Move> pick(MuscleGroup group, List<String> hints, int variant, Set<UUID> used);
+        Optional<Move> pick(Slot slot, boolean beginner, Set<UUID> used);
 
-        /** Up to {@code count} stretching moves for a mobility flow. */
-        List<Move> mobility(int count);
+        /** Up to {@code count} moves for a mobility flow, from the curated flow first. */
+        List<Move> mobility(int count, boolean beginner);
     }
 
-    /** One slot of a strength day: the group and the names to look for, best first. */
-    record Slot(MuscleGroup group, List<String> hints) {
+    /**
+     * One slot of a strength day: its group, the curated moves in order of preference, the name hints the
+     * older ranking falls back on, and whether the move is a compound one.
+     */
+    public record Slot(MuscleGroup group, List<String> curated, List<String> hints, boolean compound) {
+
+        public Slot {
+            curated = List.copyOf(curated);
+            hints = List.copyOf(hints);
+        }
+
+        @Override
+        public List<String> curated() {
+            return List.copyOf(curated);
+        }
+
+        @Override
+        public List<String> hints() {
+            return List.copyOf(hints);
+        }
     }
 
-    private static final List<Slot> FULL_BODY_A = List.of(
-            new Slot(MuscleGroup.LEGS, List.of("goblet squat", "squat")),
-            new Slot(MuscleGroup.CHEST, List.of("bench press", "push-up", "pushup")),
-            new Slot(MuscleGroup.BACK, List.of("bent over row", "row")),
-            new Slot(MuscleGroup.SHOULDERS, List.of("shoulder press", "overhead press")),
-            new Slot(MuscleGroup.CORE, List.of("plank", "crunch")),
-            new Slot(MuscleGroup.LEGS, List.of("calf raise")),
-            new Slot(MuscleGroup.GLUTES, List.of("glute bridge", "hip thrust")));
-    private static final List<Slot> FULL_BODY_B = List.of(
-            new Slot(MuscleGroup.LEGS, List.of("lunge", "split squat")),
-            new Slot(MuscleGroup.BACK, List.of("pulldown", "pull-up", "pullup", "chin-up", "chin up")),
-            new Slot(MuscleGroup.CHEST, List.of("incline", "press")),
-            new Slot(MuscleGroup.LEGS, List.of("calf raise")),
-            new Slot(MuscleGroup.SHOULDERS, List.of("lateral raise", "raise")),
-            new Slot(MuscleGroup.ARMS, List.of("curl")),
-            new Slot(MuscleGroup.CORE, List.of("plank", "crunch")));
-    private static final List<Slot> FULL_BODY_C = List.of(
-            new Slot(MuscleGroup.GLUTES, List.of("romanian deadlift", "deadlift", "hip thrust")),
-            new Slot(MuscleGroup.CHEST, List.of("push-up", "pushup", "fly")),
-            new Slot(MuscleGroup.BACK, List.of("one arm", "row")),
-            new Slot(MuscleGroup.SHOULDERS, List.of("arnold", "press")),
-            new Slot(MuscleGroup.LEGS, List.of("calf raise")),
-            new Slot(MuscleGroup.ARMS, List.of("triceps", "extension")),
-            new Slot(MuscleGroup.CORE, List.of("crunch", "plank")));
-    private static final List<Slot> UPPER = List.of(
-            new Slot(MuscleGroup.CHEST, List.of("bench press", "press")),
-            new Slot(MuscleGroup.BACK, List.of("pulldown", "pull-up", "pullup", "chin-up", "chin up")),
-            new Slot(MuscleGroup.SHOULDERS, List.of("shoulder press", "overhead press")),
-            new Slot(MuscleGroup.BACK, List.of("bent over row", "row")),
-            new Slot(MuscleGroup.ARMS, List.of("curl")),
-            new Slot(MuscleGroup.ARMS, List.of("triceps", "extension")),
-            new Slot(MuscleGroup.CHEST, List.of("fly")));
-    private static final List<Slot> LOWER = List.of(
-            new Slot(MuscleGroup.LEGS, List.of("squat")),
-            new Slot(MuscleGroup.GLUTES, List.of("romanian deadlift", "deadlift", "hip thrust")),
-            new Slot(MuscleGroup.LEGS, List.of("lunge", "split squat")),
-            new Slot(MuscleGroup.LEGS, List.of("calf raise")),
-            new Slot(MuscleGroup.CORE, List.of("plank", "crunch")),
-            new Slot(MuscleGroup.LEGS, List.of("leg curl", "curl")),
-            new Slot(MuscleGroup.GLUTES, List.of("glute bridge", "bridge")));
+    // The curated moves of each slot, the owner's list first; the catalogue's own names for the same moves
+    // follow, so a list still matches where the free-exercise-db names differ ("Pullups", "Plank").
+    static final Slot PUSH = new Slot(MuscleGroup.CHEST, List.of("Barbell Bench Press", "Dumbbell Bench Press",
+            "Push-Up", "Incline Dumbbell Press", "Machine Chest Press", "Leverage Chest Press"),
+            List.of("bench press", "push-up", "pushup"), true);
+    static final Slot VERTICAL_PULL = new Slot(MuscleGroup.BACK, List.of("Pull-Up", "Lat Pulldown",
+            "Wide-Grip Lat Pulldown", "Band Assisted Pull-Up"),
+            List.of("pulldown", "pull-up", "pullup", "chin"), true);
+    static final Slot HORIZONTAL_PULL = new Slot(MuscleGroup.BACK, List.of("Barbell Row", "Bent-Over Row",
+            "Seated Cable Row", "Single-Arm Row", "Bent Over Two-Dumbbell Row", "One-Arm Dumbbell Row"),
+            List.of("bent over row", "row"), true);
+    static final Slot SQUAT = new Slot(MuscleGroup.LEGS, List.of("Back Squat", "Goblet Squat", "Leg Press",
+            "Barbell Squat", "Bodyweight Squat"), List.of("squat"), true);
+    static final Slot HINGE = new Slot(MuscleGroup.GLUTES, List.of("Romanian Deadlift", "Deadlift", "Hip Thrust",
+            "Stiff-Legged Dumbbell Deadlift"), List.of("deadlift", "hip thrust", "glute bridge"), true);
+    static final Slot LUNGE = new Slot(MuscleGroup.LEGS, List.of("Lunge", "Bulgarian Split Squat",
+            "Split Squat with Dumbbells"), List.of("lunge", "split squat"), true);
+    static final Slot CORE = new Slot(MuscleGroup.CORE, List.of("Plank Hold", "Dead Bug", "Hanging Knee Raise",
+            "Plank", "Hanging Leg Raise"), List.of("plank", "crunch"), false);
+    static final Slot SHOULDERS = new Slot(MuscleGroup.SHOULDERS, List.of("Overhead Press", "Dumbbell Shoulder Press",
+            "Lateral Raise", "Standing Military Press", "Side Lateral Raise"),
+            List.of("shoulder press", "military press"), true);
+    static final Slot LATERAL = new Slot(MuscleGroup.SHOULDERS, List.of("Lateral Raise", "Side Lateral Raise"),
+            List.of("lateral raise", "raise"), false);
+    static final Slot CALF = new Slot(MuscleGroup.LEGS, List.of("Standing Calf Raises", "Calf Raise"),
+            List.of("calf raise"), false);
+    static final Slot CURL = new Slot(MuscleGroup.ARMS, List.of("Barbell Curl", "Dumbbell Bicep Curl",
+            "Hammer Curls"), List.of("curl"), false);
+    static final Slot TRICEPS = new Slot(MuscleGroup.ARMS, List.of("Triceps Pushdown", "Bench Dips",
+            "Dips - Triceps Version"), List.of("triceps", "extension"), false);
+
+    /** The curated mobility flow, the owner's list first, then the catalogue's names for the same stretches. */
+    static final List<String> MOBILITY_FLOW = List.of("Cat-Cow", "90/90 Hip Switch", "World's Greatest Stretch",
+            "Thoracic Rotation", "Hamstring Floss", "Child's Pose", "Hip Flexor Stretch", "Downward Dog",
+            "Cat Stretch", "90/90 Hamstring", "Hamstring Stretch", "Kneeling Hip Flexor");
+
+    private static final List<Slot> FULL_BODY_A = List.of(SQUAT, PUSH, HORIZONTAL_PULL, SHOULDERS, CORE, CALF, HINGE);
+    private static final List<Slot> FULL_BODY_B = List.of(LUNGE, VERTICAL_PULL, PUSH, CALF, LATERAL, CURL, CORE);
+    private static final List<Slot> FULL_BODY_C = List.of(HINGE, PUSH, HORIZONTAL_PULL, SHOULDERS, CALF, TRICEPS,
+            CORE);
+    private static final List<Slot> UPPER = List.of(PUSH, VERTICAL_PULL, SHOULDERS, HORIZONTAL_PULL, CURL, TRICEPS,
+            LATERAL);
+    private static final List<Slot> LOWER = List.of(SQUAT, HINGE, LUNGE, CALF, CORE, LATERAL, CURL);
+
+    private static final Set<ExerciseEquipment> BEGINNER_EQUIPMENT = Set.of(ExerciseEquipment.BODYWEIGHT,
+            ExerciseEquipment.NONE, ExerciseEquipment.DUMBBELL);
+    private static final Set<ExerciseEquipment> LOADED_EQUIPMENT = Set.of(ExerciseEquipment.BARBELL,
+            ExerciseEquipment.MACHINE, ExerciseEquipment.CABLE);
+
+    /**
+     * The curated choice among the catalogue's candidates, or null when no curated name matches. Each
+     * curated name matches a catalogue name that is the same or contains it, ignoring case, spaces and
+     * punctuation; the same name ranks first, then the shorter. A beginner takes the first match with
+     * bodyweight or dumbbells, a person with some experience the first with a barbell, a machine or a
+     * cable; without one of those, the first match of any equipment.
+     */
+    public static Candidate chooseCurated(List<Candidate> candidates, List<String> curated, boolean beginner,
+                                          Set<UUID> used) {
+        Set<ExerciseEquipment> preferred = beginner ? BEGINNER_EQUIPMENT : LOADED_EQUIPMENT;
+        Candidate fallback = null;
+        for (String wanted : curated) {
+            String key = plain(wanted);
+            List<Candidate> matches = new ArrayList<>();
+            for (Candidate candidate : candidates) {
+                if (!used.contains(candidate.exerciseId()) && plain(candidate.name()).contains(key)) {
+                    matches.add(candidate);
+                }
+            }
+            matches.sort(Comparator.comparing((Candidate candidate) -> !plain(candidate.name()).equals(key))
+                    .thenComparingInt(candidate -> candidate.name().length())
+                    .thenComparing(Candidate::name));
+            for (Candidate match : matches) {
+                if (preferred.contains(match.equipment())) {
+                    return match;
+                }
+                if (fallback == null) {
+                    fallback = match;
+                }
+            }
+        }
+        return fallback;
+    }
+
+    /** A name in lower-case letters and digits only, without any case mapping of the platform. */
+    static String plain(String name) {
+        StringBuilder plain = new StringBuilder(name.length());
+        for (int index = 0; index < name.length(); index++) {
+            char ch = name.charAt(index);
+            if (ch >= 'A' && ch <= 'Z') {
+                plain.append((char) (ch + ('a' - 'A')));
+            } else if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
+                plain.append(ch);
+            }
+        }
+        return plain.toString();
+    }
 
     /** The proposed week, as plan day inputs ordered by weekday. */
     public static List<WorkoutPlanDayInput> propose(Profile profile, List<HabitDays.Habit> habits, MovePicker picker) {
@@ -182,7 +269,7 @@ public final class PlanProposalPlanner {
                 int weekday = strengthDays.get(index);
                 week.put(weekday, new WorkoutPlanDayInput(null, weekday, SessionKind.STRENGTH, titles.get(index), null,
                         minutes, List.of(), null, null, null, null,
-                        strengthEntries(templates.get(index), index, minutes, profile, picker, used)));
+                        strengthEntries(templates.get(index), minutes, profile, picker, used)));
             }
         }
 
@@ -196,7 +283,7 @@ public final class PlanProposalPlanner {
         }
 
         if (week.size() < count) {
-            List<PlanEntryInput> flow = mobilityEntries(picker);
+            List<PlanEntryInput> flow = mobilityEntries(picker, profile.beginner());
             for (int offset = 0; offset < 7 && week.size() < count; offset++) {
                 int weekday = (SUNDAY - 1 + offset) % 7 + 1;
                 if (!week.containsKey(weekday)) {
@@ -277,29 +364,49 @@ public final class PlanProposalPlanner {
         return List.of(UPPER, LOWER, FULL_BODY_A).subList(0, days);
     }
 
-    private static List<PlanEntryInput> strengthEntries(List<Slot> template, int variant, int minutes, Profile profile,
+    private static List<PlanEntryInput> strengthEntries(List<Slot> template, int minutes, Profile profile,
                                                         MovePicker picker, Set<UUID> used) {
         int moves = Math.max(MIN_MOVES, Math.min(MAX_MOVES, minutes / MINUTES_PER_MOVE));
-        int sets = profile.level() == WorkoutDifficulty.ADVANCED ? 4 : 3;
-        int reps = profile.level() == WorkoutDifficulty.ADVANCED ? 8 : 10;
-        int rest = profile.beginner() ? 75 : (profile.level() == WorkoutDifficulty.ADVANCED ? 120 : 90);
         List<PlanEntryInput> entries = new ArrayList<>();
         for (Slot slot : template) {
             if (entries.size() >= moves) {
                 break;
             }
-            Optional<Move> move = picker.pick(slot.group(), slot.hints(), variant, used);
+            Optional<Move> move = picker.pick(slot, profile.beginner(), used);
             if (move.isPresent()) {
                 used.add(move.get().exerciseId());
-                entries.add(PlanEntryInput.set(move.get().exerciseId(), entries.size() + 1, sets, reps, null, rest));
+                entries.add(strengthEntry(slot, move.get(), profile.beginner(), entries.size() + 1));
             }
         }
         return entries;
     }
 
-    private static List<PlanEntryInput> mobilityEntries(MovePicker picker) {
+    /**
+     * The targets of one proposed move. A beginner does 3 x 10. With some experience a barbell compound
+     * is 3 x 8, an isolation move 3 x 12 and any other compound 3 x 10. Rest is 90 s after a compound
+     * and 60 s otherwise. A plank is held for 45 s. No weight and no tempo are proposed: the person
+     * sets their own.
+     */
+    static PlanEntryInput strengthEntry(Slot slot, Move move, boolean beginner, int position) {
+        int rest = slot.compound() ? COMPOUND_REST_SECONDS : OTHER_REST_SECONDS;
+        if (plain(move.name()).contains("plank")) {
+            return new PlanEntryInput(EntryType.SET, move.exerciseId(), null, null, position, SETS, null, null,
+                    HOLD_SECONDS, OTHER_REST_SECONDS, null, null, null, null);
+        }
+        int reps;
+        if (beginner) {
+            reps = BEGINNER_REPS;
+        } else if (!slot.compound()) {
+            reps = ISOLATION_REPS;
+        } else {
+            reps = move.equipment() == ExerciseEquipment.BARBELL ? BARBELL_COMPOUND_REPS : BEGINNER_REPS;
+        }
+        return PlanEntryInput.set(move.exerciseId(), position, SETS, reps, null, rest);
+    }
+
+    private static List<PlanEntryInput> mobilityEntries(MovePicker picker, boolean beginner) {
         List<PlanEntryInput> entries = new ArrayList<>();
-        for (Move move : picker.mobility(MOBILITY_MOVES)) {
+        for (Move move : picker.mobility(MOBILITY_MOVES, beginner)) {
             entries.add(new PlanEntryInput(EntryType.SET, move.exerciseId(), null, null, entries.size() + 1, 2, null,
                     null, MOBILITY_HOLD_SECONDS, 15, null, null, null, null));
         }

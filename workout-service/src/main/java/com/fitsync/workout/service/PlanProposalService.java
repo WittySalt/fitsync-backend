@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -191,13 +192,14 @@ public class PlanProposalService {
         for (PlanEntryInput entry : day.entries()) {
             ExerciseEntity exercise = entry.exerciseId() == null ? null : chosen.get(entry.exerciseId());
             boolean set = entry.type() == EntryType.SET;
-            entries.add(new PlanEntryView(null, entry.type(), entry.position(), entry.exerciseId(),
-                    exercise == null ? null : exercise.getName(), entry.kind(),
+            entries.add(PlanEntryView.withExercise(new PlanEntryView(null, entry.type(), entry.position(),
+                    entry.exerciseId(), exercise == null ? null : exercise.getName(), entry.kind(),
                     set ? null : PlanEntryRules.labelOf(entry.kind(), entry.label()),
                     set ? entry.setSeconds() : entry.plannedSeconds(),
                     entry.rounds(), entry.targetSets(), entry.targetReps(), entry.targetWeightKg(),
                     set ? entry.setSeconds() : null, null, entry.restSeconds(), entry.tempoSeconds(), entry.notes(),
-                    exercise == null || exercise.getImages().isEmpty() ? null : exercise.getImages().get(0).getUrl()));
+                    exercise == null || exercise.getImages().isEmpty() ? null : exercise.getImages().get(0).getUrl()),
+                    exercise));
         }
         return new WorkoutPlanDayView(null, day.dayOfWeek(), day.kind(), day.title(), day.sportActivity(),
                 day.sportActivity() == null ? null : day.sportActivity().label(), day.estimatedDurationMinutes(),
@@ -205,15 +207,16 @@ public class PlanProposalService {
     }
 
     /**
-     * Picks from the shared catalogue at the person's level and with their equipment. Within a group a
-     * move whose name matches an earlier hint ranks higher; then moves with images, then shorter names.
+     * Picks from the shared catalogue at the person's level and with their equipment: the slot's curated
+     * move first ({@link PlanProposalPlanner#chooseCurated}); only when none of the list is in the
+     * catalogue, the older ranking within the slot's group (a name hint, then images, then the shorter name).
      */
     private final class CataloguePicker implements PlanProposalPlanner.MovePicker {
 
         private final WorkoutDifficulty level;
         private final List<ExerciseEquipment> equipment;
         private final Map<UUID, ExerciseEntity> chosen = new HashMap<>();
-        private Map<MuscleGroup, List<ExerciseEntity>> strengthByGroup;
+        private List<ExerciseEntity> strength;
 
         CataloguePicker(WorkoutDifficulty level, List<ExerciseEquipment> equipment) {
             this.level = level;
@@ -221,45 +224,59 @@ public class PlanProposalService {
         }
 
         @Override
-        public Optional<PlanProposalPlanner.Move> pick(MuscleGroup group, List<String> hints, int variant,
-                                                       Set<UUID> used) {
-            List<ExerciseEntity> candidates = strength().getOrDefault(group, List.of()).stream()
+        public Optional<PlanProposalPlanner.Move> pick(PlanProposalPlanner.Slot slot, boolean beginner, Set<UUID> used) {
+            List<ExerciseEntity> all = strength();
+            PlanProposalPlanner.Candidate curated = PlanProposalPlanner.chooseCurated(candidates(all),
+                    slot.curated(), beginner, used);
+            if (curated != null) {
+                return Optional.of(choose(byId(all, curated.exerciseId())));
+            }
+            List<String> hints = slot.hints();
+            return all.stream()
+                    .filter(exercise -> exercise.getPrimaryMuscleGroup() == slot.group())
                     .filter(exercise -> !used.contains(exercise.getExerciseId()))
-                    .sorted(Comparator.comparingInt((ExerciseEntity exercise) -> hintRank(exercise, hints))
+                    .min(Comparator.comparingInt((ExerciseEntity exercise) -> hintRank(exercise, hints))
                             .thenComparing(exercise -> exercise.getImages().isEmpty())
                             .thenComparingInt(exercise -> exercise.getName().length())
                             .thenComparing(ExerciseEntity::getName))
-                    .toList();
-            if (candidates.isEmpty()) {
-                return Optional.empty();
-            }
-            int bestRank = hintRank(candidates.get(0), hints);
-            List<ExerciseEntity> best = candidates.stream()
-                    .filter(exercise -> hintRank(exercise, hints) == bestRank)
-                    .toList();
-            ExerciseEntity pick = best.get(Math.min(variant, best.size() - 1));
-            chosen.put(pick.getExerciseId(), pick);
-            return Optional.of(new PlanProposalPlanner.Move(pick.getExerciseId(), pick.getName()));
+                    .map(this::choose);
         }
 
         @Override
-        public List<PlanProposalPlanner.Move> mobility(int count) {
-            List<ExerciseEntity> candidates = exerciseRepository.findProposalCandidates(ExerciseStatus.ACTIVE,
-                            ExerciseType.MOBILITY, levelsUpTo(level), equipment).stream()
+        public List<PlanProposalPlanner.Move> mobility(int count, boolean beginner) {
+            List<ExerciseEntity> all = exerciseRepository.findProposalCandidates(ExerciseStatus.ACTIVE,
+                    ExerciseType.MOBILITY, levelsUpTo(level), equipment);
+            List<PlanProposalPlanner.Move> moves = new ArrayList<>();
+            Set<UUID> used = new HashSet<>();
+            List<PlanProposalPlanner.Candidate> candidates = candidates(all);
+            // One curated stretch per name of the flow, in its order.
+            for (String name : PlanProposalPlanner.MOBILITY_FLOW) {
+                PlanProposalPlanner.Candidate match = PlanProposalPlanner.chooseCurated(candidates, List.of(name),
+                        beginner, used);
+                if (match != null && moves.size() < count) {
+                    used.add(match.exerciseId());
+                    moves.add(choose(byId(all, match.exerciseId())));
+                }
+            }
+            if (moves.size() >= count) {
+                return moves;
+            }
+            // The flow is filled up from the older ranking: one move per group first, then the next best.
+            List<ExerciseEntity> ranked = all.stream()
+                    .filter(exercise -> !used.contains(exercise.getExerciseId()))
                     .sorted(Comparator.comparing((ExerciseEntity exercise) -> exercise.getImages().isEmpty())
                             .thenComparingInt(exercise -> exercise.getName().length())
                             .thenComparing(ExerciseEntity::getName))
                     .toList();
-            List<PlanProposalPlanner.Move> moves = new ArrayList<>();
             Set<MuscleGroup> groups = EnumSet.noneOf(MuscleGroup.class);
-            // One move per group first, so the flow moves the whole body; then the next best.
-            for (ExerciseEntity exercise : candidates) {
+            for (ExerciseEntity exercise : ranked) {
                 if (moves.size() < count && groups.add(exercise.getPrimaryMuscleGroup())) {
+                    used.add(exercise.getExerciseId());
                     moves.add(choose(exercise));
                 }
             }
-            for (ExerciseEntity exercise : candidates) {
-                if (moves.size() < count && !chosen.containsKey(exercise.getExerciseId())) {
+            for (ExerciseEntity exercise : ranked) {
+                if (moves.size() < count && used.add(exercise.getExerciseId())) {
                     moves.add(choose(exercise));
                 }
             }
@@ -268,25 +285,33 @@ public class PlanProposalService {
 
         private PlanProposalPlanner.Move choose(ExerciseEntity exercise) {
             chosen.put(exercise.getExerciseId(), exercise);
-            return new PlanProposalPlanner.Move(exercise.getExerciseId(), exercise.getName());
+            return new PlanProposalPlanner.Move(exercise.getExerciseId(), exercise.getName(), exercise.getEquipment());
         }
 
-        private Map<MuscleGroup, List<ExerciseEntity>> strength() {
-            if (strengthByGroup == null) {
-                strengthByGroup = new EnumMap<>(MuscleGroup.class);
-                for (ExerciseEntity exercise : exerciseRepository.findProposalCandidates(ExerciseStatus.ACTIVE,
-                        ExerciseType.STRENGTH, levelsUpTo(level), equipment)) {
-                    strengthByGroup.computeIfAbsent(exercise.getPrimaryMuscleGroup(), group -> new ArrayList<>())
-                            .add(exercise);
-                }
+        private List<ExerciseEntity> strength() {
+            if (strength == null) {
+                strength = exerciseRepository.findProposalCandidates(ExerciseStatus.ACTIVE, ExerciseType.STRENGTH,
+                        levelsUpTo(level), equipment);
             }
-            return strengthByGroup;
+            return strength;
+        }
+
+        private List<PlanProposalPlanner.Candidate> candidates(List<ExerciseEntity> exercises) {
+            return exercises.stream()
+                    .map(exercise -> new PlanProposalPlanner.Candidate(exercise.getExerciseId(), exercise.getName(),
+                            exercise.getEquipment()))
+                    .toList();
+        }
+
+        private ExerciseEntity byId(List<ExerciseEntity> exercises, UUID exerciseId) {
+            return exercises.stream().filter(exercise -> exercise.getExerciseId().equals(exerciseId))
+                    .findFirst().orElseThrow();
         }
 
         private int hintRank(ExerciseEntity exercise, List<String> hints) {
-            String name = exercise.getName().toLowerCase(Locale.ROOT);
+            String name = PlanProposalPlanner.plain(exercise.getName());
             for (int index = 0; index < hints.size(); index++) {
-                if (name.contains(hints.get(index))) {
+                if (name.contains(PlanProposalPlanner.plain(hints.get(index)))) {
                     return index;
                 }
             }

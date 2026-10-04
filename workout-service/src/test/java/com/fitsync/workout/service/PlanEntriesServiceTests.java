@@ -307,6 +307,13 @@ class PlanEntriesServiceTests {
         assertTrue(proposal.days().get(0).entries().stream().map(PlanEntryView::exerciseId).allMatch(picked::contains));
         assertTrue(proposal.days().get(0).entries().size() >= 2);
         assertNotNull(proposal.coverage());
+        PlanEntryView first = proposal.days().get(0).entries().get(0);
+        assertEquals("Goblet Squat", first.exerciseName());
+        assertEquals(MuscleGroup.LEGS, first.primaryMuscleGroup());
+        assertEquals(ExerciseEquipment.DUMBBELL, first.equipment());
+        assertNull(first.targetWeightKg());
+        assertEquals(false, first.bodyweight());
+        assertEquals(10, first.targetReps());
     }
 
     private static List<PlanEntryInput> intervals() {

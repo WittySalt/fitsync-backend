@@ -2452,7 +2452,7 @@ public class WorkoutServiceImpl implements WorkoutService {
 
     private PlanEntryView toPlanEntryView(PlanEntry entry) {
         ExerciseEntity exercise = entry.getExercise();
-        return new PlanEntryView(
+        return PlanEntryView.withExercise(new PlanEntryView(
                 entry.getPlanExerciseId(),
                 entry.getEntryType(),
                 entry.getPosition(),
@@ -2470,7 +2470,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entry.getRestSeconds(),
                 entry.getTempoSeconds(),
                 entry.getNotes(),
-                primaryImageUrl(exercise));
+                primaryImageUrl(exercise)), exercise);
     }
 
     private WorkoutPlanExerciseView toPlanExerciseView(PlanEntry exercise) {
