@@ -27,6 +27,7 @@ import com.fitsync.workout.config.AutoCloseProperties;
 import com.fitsync.workout.domain.EntryType;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
+import com.fitsync.workout.domain.SegmentKind;
 import com.fitsync.workout.domain.SessionKind;
 import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
@@ -44,6 +45,8 @@ import com.fitsync.workout.dto.ExerciseRecordsView;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowRequest;
 import com.fitsync.workout.dto.PlanEntryInput;
 import com.fitsync.workout.dto.PlanEntryView;
+import com.fitsync.workout.dto.SessionEntryUpdateRequest;
+import com.fitsync.workout.dto.SessionEntryView;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowResult;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
 import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
@@ -136,6 +139,9 @@ public class WorkoutServiceImpl implements WorkoutService {
     private static final String WEEK_EXCLUSIVE_EXERCISES_MESSAGE = "A plan with a week lists its exercises under its days.";
     private static final String FLAT_PLAN_HAS_NO_WEEK_MESSAGE = "This plan has no week.";
     private static final String PLAN_HAS_NOTHING_ON_THIS_DAY_MESSAGE = "The plan has nothing on this day.";
+    private static final String SESSION_ENTRIES_ARE_SEGMENTS_MESSAGE =
+            "A workout starts with time segments only; moves go in exercises.";
+    private static final int MAX_SEGMENT_SECONDS = 86400;
 
     private final String workoutEventsTopic;
     private final int exerciseHistoryMaxRangeDays;
@@ -350,26 +356,23 @@ public class WorkoutServiceImpl implements WorkoutService {
         session.setSource(WorkoutSource.PLAN);
         session.setStartedAt(Instant.now(clock));
 
+        LocalDate loggedOn = LocalDate.now(clock.withZone(InsightDates.resolveZone(timezone)));
         if (plan.getDays().isEmpty()) {
             if (planDayId != null) {
                 throw new IllegalArgumentException(FLAT_PLAN_HAS_NO_WEEK_MESSAGE);
             }
             session.setName(plan.getName());
             session.setWorkoutType(plan.getWorkoutType());
-            for (PlanEntry planExercise : plan.getEntries()) {
-                session.getEntries().add(toSeededExerciseLog(session, planExercise));
-            }
+            seedEntries(session, plan.getEntries(), loggedOn);
         } else {
             WorkoutPlanDayEntity day = resolvePlanDay(plan, planDayId, timezone);
             session.setPlanDayId(day.getPlanDayId());
             session.setName(day.getTitle());
             session.setWorkoutType(toWorkoutType(day.getKind()));
             session.setSportActivity(day.getSportActivity());
-            for (PlanEntry planExercise : plan.getEntries()) {
-                if (day.getPlanDayId().equals(planDayIdOf(planExercise))) {
-                    session.getEntries().add(toSeededExerciseLog(session, planExercise));
-                }
-            }
+            seedEntries(session, plan.getEntries().stream()
+                    .filter(entry -> day.getPlanDayId().equals(planDayIdOf(entry)))
+                    .toList(), loggedOn);
         }
         applySessionKind(session);
 
@@ -396,6 +399,94 @@ public class WorkoutServiceImpl implements WorkoutService {
                 .orElseThrow(() -> new IllegalArgumentException(PLAN_HAS_NOTHING_ON_THIS_DAY_MESSAGE));
     }
 
+    /**
+     * Copies plan entries into the session: each move with its planned sets, then the time segments
+     * with their rounds expanded (Work 1, Easy 1 ... Work 8, Easy 8). Planned values are filled and
+     * actual values left empty; every entry is dated on the session's local date.
+     */
+    private void seedEntries(WorkoutSessionEntity session, List<PlanEntry> planEntries, LocalDate loggedOn) {
+        List<PlanEntry> ordered = planEntries.stream()
+                .sorted(Comparator.comparing(PlanEntry::getPosition).thenComparing(PlanEntry::getSequence))
+                .toList();
+        List<PlanEntryRules.SegmentSpec> segments = new ArrayList<>();
+        for (PlanEntry planEntry : ordered) {
+            if (planEntry.isSet()) {
+                SessionEntry entry = toSeededExerciseLog(session, planEntry);
+                entry.setLoggedOn(loggedOn);
+                session.getEntries().add(entry);
+            } else if (planEntry.getPlannedSeconds() != null) {
+                segments.add(new PlanEntryRules.SegmentSpec(planEntry.getKind(), planEntry.getLabel(),
+                        planEntry.getPlannedSeconds(), PlanEntryRules.roundsOf(planEntry.getRounds())));
+            }
+        }
+        addSegments(session, PlanEntryRules.expand(segments), loggedOn);
+    }
+
+    /** Adds time segments after any the session has, each pending with its planned seconds. */
+    private void addSegments(WorkoutSessionEntity session, List<PlanEntryRules.SegmentSpec> segments, LocalDate loggedOn) {
+        int position = session.getSegmentEntries().size();
+        for (PlanEntryRules.SegmentSpec segment : segments) {
+            position++;
+            String label = PlanEntryRules.labelOf(segment.kind(), segment.label());
+            SessionEntry entry = new SessionEntry();
+            entry.setExerciseLogId(UUID.randomUUID());
+            entry.setSession(session);
+            entry.setEntryType(EntryType.SEGMENT);
+            entry.setKind(segment.kind());
+            entry.setLabel(label);
+            entry.setExerciseNameSnapshot(label);
+            entry.setPlannedSeconds(segment.plannedSeconds());
+            entry.setStatus(WorkoutSetStatus.PENDING);
+            entry.setLoggedOn(loggedOn);
+            entry.setSequence(PlanEntryRules.SEGMENT_SEQUENCE_BASE + position);
+            entry.setPosition(position);
+            session.getEntries().add(entry);
+        }
+    }
+
+    /**
+     * The segments a new session starts with: the ones the request sends, else one steady segment of a
+     * free timer's minutes goal, else the default interval set for the HIIT type, else none. Only a
+     * session without moves gets the defaults.
+     */
+    private List<PlanEntryRules.SegmentSpec> startingSegments(UpsertWorkoutSessionRequest request) {
+        if (!request.entries().isEmpty()) {
+            List<PlanEntryInput> ordered = new ArrayList<>(request.entries());
+            List<PlanEntryRules.SegmentSpec> specs = new ArrayList<>();
+            for (int index = 0; index < ordered.size(); index++) {
+                PlanEntryInput input = ordered.get(index);
+                if (input.type() != EntryType.SEGMENT) {
+                    throw new IllegalArgumentException(SESSION_ENTRIES_ARE_SEGMENTS_MESSAGE);
+                }
+                if (input.kind() == null || input.plannedSeconds() == null) {
+                    throw new IllegalArgumentException(PlanEntryRules.SEGMENT_NEEDS_KIND_MESSAGE);
+                }
+            }
+            List<Integer> order = new ArrayList<>();
+            for (int index = 0; index < ordered.size(); index++) {
+                order.add(index);
+            }
+            order.sort(Comparator.comparing(index -> PlanEntryRules.positionOf(ordered.get(index), index)));
+            for (int index : order) {
+                PlanEntryInput input = ordered.get(index);
+                specs.add(new PlanEntryRules.SegmentSpec(input.kind(), input.label(), input.plannedSeconds(),
+                        PlanEntryRules.roundsOf(input.rounds())));
+            }
+            return specs;
+        }
+        if (!request.exercises().isEmpty() || request.status() != WorkoutSessionStatus.IN_PROGRESS) {
+            return List.of();
+        }
+        if (request.goalMinutes() != null) {
+            return List.of(new PlanEntryRules.SegmentSpec(SegmentKind.STEADY, SegmentKind.STEADY.label(),
+                    request.goalMinutes() * 60, 1));
+        }
+        if (request.workoutType() == WorkoutType.HIIT) {
+            return PlanEntryRules.defaultIntervals();
+        }
+        return List.of();
+    }
+
     private UUID planDayIdOf(PlanEntry planExercise) {
         return planExercise.getPlanDay() == null ? null : planExercise.getPlanDay().getPlanDayId();
     }
@@ -412,7 +503,15 @@ public class WorkoutServiceImpl implements WorkoutService {
     @Override
     @Transactional
     public WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request) {
+        return createSession(currentUser, request, "UTC");
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request,
+                                            String timezone) {
         validateSessionRequest(currentUser.userId(), request);
+        List<PlanEntryRules.SegmentSpec> segments = startingSegments(request);
         if (request.status() == WorkoutSessionStatus.IN_PROGRESS) {
             requireNoActiveSession(currentUser.userId(), null);
         }
@@ -420,6 +519,9 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setSessionId(UUID.randomUUID());
         entity.setUserId(currentUser.userId());
         applySessionRequest(currentUser.userId(), entity, request);
+        LocalDate loggedOn = request.startedAt().atZone(InsightDates.resolveZone(timezone)).toLocalDate();
+        entity.getEntries().forEach(entry -> entry.setLoggedOn(loggedOn));
+        addSegments(entity, PlanEntryRules.expand(segments), loggedOn);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         if (saved.getStatus() == WorkoutSessionStatus.COMPLETED) {
             publishWorkoutLoggedAndPersonalRecords(saved);
@@ -797,6 +899,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         }
         entity.setStatus(WorkoutSessionStatus.COMPLETED);
         entity.setCompletedAt(endedAt);
+        settleSegments(entity, endedAt);
         validateSessionTimingAndScalars(
                 entity.getStartedAt(),
                 entity.getCompletedAt(),
@@ -872,7 +975,10 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (entity.getStatus() != WorkoutSessionStatus.CANCELLED) {
             throw new IllegalArgumentException("Only a cancelled workout session can be counted");
         }
-        if (entity.getSetEntries().stream().noneMatch(exercise -> exercise.getSets().stream().anyMatch(this::isDoneSet))) {
+        boolean doneSegment = entity.getSegmentEntries().stream()
+                .anyMatch(segment -> segment.getStatus() == WorkoutSetStatus.DONE);
+        if (!doneSegment
+                && entity.getSetEntries().stream().noneMatch(exercise -> exercise.getSets().stream().anyMatch(this::isDoneSet))) {
             throw new BadRequestException(NOTHING_LOGGED_CODE, NOTHING_LOGGED_MESSAGE);
         }
         // Counted as it happened: it ends at its last done or skipped set, or when it was cancelled.
@@ -957,6 +1063,11 @@ public class WorkoutServiceImpl implements WorkoutService {
         WorkoutSessionEntity session = findSession(currentUser.userId(), sessionId);
         validateLiveEditable(session);
         SessionEntry exercise = findExerciseLog(session, exerciseLogId);
+        if (!exercise.isSet()) {
+            // A time segment has no sets: the set's seconds are the segment's actual time.
+            applySegmentUpdate(exercise, request.durationSeconds(), null, request.status());
+            return toSessionView(workoutSessionRepository.save(session));
+        }
         WorkoutExerciseSetLogEntity setLog = exercise.getSets().stream()
                 .filter(set -> set.getSetNumber().equals(setNumber))
                 .findFirst()
@@ -972,6 +1083,82 @@ public class WorkoutServiceImpl implements WorkoutService {
         deriveExerciseMetrics(exercise);
         deriveSessionMetrics(session);
         return toSessionView(workoutSessionRepository.save(session));
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView updateEntry(CurrentUserPrincipal currentUser,
+                                          UUID sessionId,
+                                          UUID entryId,
+                                          SessionEntryUpdateRequest request) {
+        WorkoutSessionEntity session = findSession(currentUser.userId(), sessionId);
+        validateLiveEditable(session);
+        SessionEntry entry = findExerciseLog(session, entryId);
+        if (!entry.isSet()) {
+            applySegmentUpdate(entry, request.actualSeconds(), request.startedAt(), request.status());
+            return toSessionView(workoutSessionRepository.save(session));
+        }
+        int setNumber = request.setNumber() != null ? request.setNumber() : nextSetNumber(entry);
+        return upsertSet(currentUser, sessionId, entryId, setNumber, new UpsertWorkoutExerciseSetRequest(
+                request.status(),
+                request.reps(),
+                request.weightKg(),
+                request.durationSeconds() != null ? request.durationSeconds() : request.actualSeconds(),
+                request.distanceKm(),
+                request.restSeconds(),
+                request.perceivedExertion(),
+                request.notes()));
+    }
+
+    /** The first pending set of a move, else the number after its last set. */
+    private static int nextSetNumber(SessionEntry entry) {
+        return entry.getSets().stream()
+                .filter(set -> set.getStatus() == WorkoutSetStatus.PENDING)
+                .map(WorkoutExerciseSetLogEntity::getSetNumber)
+                .min(Comparator.naturalOrder())
+                .orElseGet(() -> entry.getSets().stream()
+                        .map(WorkoutExerciseSetLogEntity::getSetNumber)
+                        .max(Comparator.naturalOrder())
+                        .orElse(0) + 1);
+    }
+
+    /** Gives a time segment its actual seconds, its start and DONE or SKIPPED (DONE when none is given). */
+    private void applySegmentUpdate(SessionEntry segment, Integer actualSeconds, Instant startedAt,
+                                    WorkoutSetStatus status) {
+        segment.setStatus(resolveLiveSetStatus(status));
+        if (actualSeconds != null) {
+            segment.setActualSeconds(actualSeconds);
+        }
+        if (startedAt != null) {
+            segment.setStartedAt(startedAt);
+        } else if (segment.getStartedAt() == null && actualSeconds != null) {
+            segment.setStartedAt(Instant.now(clock).minusSeconds(actualSeconds));
+        }
+    }
+
+    /**
+     * Settles the segments of a session that is finished: the first segment still pending is the
+     * current one and gets the time from its start (else the end of the segment before it, else the
+     * session's start) to the end of the session; the ones after it stay pending.
+     */
+    private void settleSegments(WorkoutSessionEntity session, Instant endedAt) {
+        Instant previousEnd = session.getStartedAt();
+        List<SessionEntry> segments = session.getSegmentEntries().stream()
+                .sorted(Comparator.comparing(SessionEntry::getPosition))
+                .toList();
+        for (SessionEntry segment : segments) {
+            if (segment.getStatus() == null || segment.getStatus() == WorkoutSetStatus.PENDING) {
+                Instant from = segment.getStartedAt() != null ? segment.getStartedAt() : previousEnd;
+                long seconds = from == null || endedAt.isBefore(from) ? 0 : Duration.between(from, endedAt).getSeconds();
+                segment.setStartedAt(from);
+                segment.setActualSeconds((int) Math.min(seconds, MAX_SEGMENT_SECONDS));
+                segment.setStatus(WorkoutSetStatus.DONE);
+                return;
+            }
+            if (segment.getStartedAt() != null && segment.getActualSeconds() != null) {
+                previousEnd = segment.getStartedAt().plusSeconds(segment.getActualSeconds());
+            }
+        }
     }
 
     @Override
@@ -1260,6 +1447,13 @@ public class WorkoutServiceImpl implements WorkoutService {
                 repeated.getEntries().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets));
             }
         }
+        // The time segments repeat as planned, each pending again.
+        addSegments(repeated, source.getSegmentEntries().stream()
+                .sorted(Comparator.comparing(SessionEntry::getPosition))
+                .filter(segment -> segment.getPlannedSeconds() != null)
+                .map(segment -> new PlanEntryRules.SegmentSpec(segment.getKind(), segment.getLabel(),
+                        segment.getPlannedSeconds(), 1))
+                .toList(), LocalDate.now(clock));
         applySessionKind(repeated);
         return repeated;
     }
@@ -1670,13 +1864,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         exercise.setPosition(planExercise.getPosition());
         exercise.setTempoSeconds(planExercise.getTempoSeconds());
         exercise.setNotes(planExercise.getNotes());
-        if (!planExercise.isSet()) {
-            exercise.setKind(planExercise.getKind());
-            exercise.setLabel(planExercise.getLabel());
-            exercise.setPlannedSeconds(planExercise.getPlannedSeconds());
-            exercise.setStatus(WorkoutSetStatus.PENDING);
-            return exercise;
-        }
+        exercise.setPlannedSeconds(planExercise.getPlannedSeconds());
 
         for (WorkoutPlanExerciseSetTargetEntity setTarget : planExercise.getSetTargets()) {
             exercise.getSets().add(toSeededSetLog(exercise, setTarget));
@@ -2406,7 +2594,47 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.getEndedAt(),
                 entity.isCaloriesEstimated(),
                 entity.isEffortEstimated(),
-                List.of());
+                List.of(),
+                entity.getEntries().stream()
+                        .sorted(Comparator.comparing((SessionEntry entry) -> entry.isSet() ? 0 : 1)
+                                .thenComparing(SessionEntry::getPosition)
+                                .thenComparing(SessionEntry::getSequence))
+                        .map(this::toSessionEntryView)
+                        .toList());
+    }
+
+    private SessionEntryView toSessionEntryView(SessionEntry entry) {
+        ExerciseEntity exercise = entry.getExercise();
+        return new SessionEntryView(
+                entry.getExerciseLogId(),
+                entry.getEntryType(),
+                entry.getPosition(),
+                exercise == null ? null : exercise.getExerciseId(),
+                entry.isSet() ? entry.getExerciseNameSnapshot() : null,
+                entry.getKind(),
+                entry.getLabel(),
+                entry.getPlannedSeconds(),
+                entry.getActualSeconds(),
+                entry.getStartedAt(),
+                entry.isSet() ? null : entry.getStatus(),
+                entry.getLoggedOn(),
+                entry.getSets().stream().map(this::toSetLogView).toList());
+    }
+
+    private WorkoutExerciseSetLogView toSetLogView(WorkoutExerciseSetLogEntity setLog) {
+        return new WorkoutExerciseSetLogView(
+                setLog.getSetLogId(),
+                setLog.getSetNumber(),
+                setLog.getStatus(),
+                setLog.getReps(),
+                setLog.getWeightKg(),
+                setLog.getDurationSeconds(),
+                setLog.getDistanceKm(),
+                setLog.getRestSeconds(),
+                setLog.getPerceivedExertion(),
+                setLog.isLogged(),
+                setLog.getNotes(),
+                setLog.getRestTakenSeconds());
     }
 
     private record PersonalRecordSnapshot(

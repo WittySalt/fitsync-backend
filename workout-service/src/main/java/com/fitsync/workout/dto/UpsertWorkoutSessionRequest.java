@@ -76,10 +76,42 @@ public record UpsertWorkoutSessionRequest(
         @Size(max = 1000) String notes,
         @Valid List<WorkoutExerciseLogInput> exercises,
         SportActivity sportActivity,
-        @DecimalMin("0.0") @DecimalMax("1000.0") @Digits(integer = 4, fraction = 2) BigDecimal distanceKm) {
+        @DecimalMin("0.0") @DecimalMax("1000.0") @Digits(integer = 4, fraction = 2) BigDecimal distanceKm,
+        /**
+         * Time segments to start a workout with, SEGMENT rows only (kind, label, plannedSeconds,
+         * position, rounds). Read when a session is created; an edit keeps the segments it has.
+         */
+        @Valid @Size(max = 60) List<PlanEntryInput> entries,
+        /** A free timer's minutes goal: without entries, it becomes one steady segment of that length. */
+        @Min(1) @Max(600) Integer goalMinutes) {
 
     public UpsertWorkoutSessionRequest {
         exercises = exercises == null ? List.of() : List.copyOf(exercises);
+        entries = entries == null ? List.of() : List.copyOf(entries);
+    }
+
+    /** A request without segments or a minutes goal. */
+    public UpsertWorkoutSessionRequest(UUID planId,
+            String name,
+            WorkoutType workoutType,
+            WorkoutSessionStatus status,
+            WorkoutSource source,
+            Instant startedAt,
+            Instant completedAt,
+            Integer durationMinutes,
+            Integer caloriesBurned,
+            Integer perceivedExertion,
+            String notes,
+            List<WorkoutExerciseLogInput> exercises,
+            SportActivity sportActivity,
+            BigDecimal distanceKm) {
+        this(planId, name, workoutType, status, source, startedAt, completedAt, durationMinutes,
+                caloriesBurned, perceivedExertion, notes, exercises, sportActivity, distanceKm, List.of(), null);
+    }
+
+    @Override
+    public List<PlanEntryInput> entries() {
+        return List.copyOf(entries);
     }
 
     /** A request without a sport activity or a distance, which is every request that is not a

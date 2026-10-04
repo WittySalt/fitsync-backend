@@ -31,6 +31,9 @@ public final class PlanEntryRules {
     static final int COOLDOWN_MINUTES = 5;
     static final int DURATION_TOLERANCE_SECONDS = 60;
     private static final int SECONDS_PER_MINUTE = 60;
+    static final int HIIT_ROUNDS = 8;
+    static final int HIIT_WORK_SECONDS = 30;
+    static final int HIIT_EASY_SECONDS = 60;
 
     static final String MIXED_DAY_MESSAGE = "A day holds either moves or time segments, not both.";
     static final String SEGMENTS_ON_MOVES_DAY_MESSAGE = "A strength or mobility day holds moves, not time segments.";
@@ -144,6 +147,52 @@ public final class PlanEntryRules {
         segments.add(PlanEntryInput.segment(SegmentKind.COOLDOWN, SegmentKind.COOLDOWN.label(), 3,
                 COOLDOWN_MINUTES * SECONDS_PER_MINUTE, null));
         return segments;
+    }
+
+    /** A time segment to be laid out: its kind, label, seconds and rounds. */
+    public record SegmentSpec(SegmentKind kind, String label, int plannedSeconds, int rounds) {
+    }
+
+    /** The HIIT default: 5 minutes warm-up, 8 rounds of 30 s work and 60 s easy, 5 minutes cool-down. */
+    public static List<SegmentSpec> defaultIntervals() {
+        return List.of(
+                new SegmentSpec(SegmentKind.WARMUP, SegmentKind.WARMUP.label(), WARMUP_MINUTES * SECONDS_PER_MINUTE, 1),
+                new SegmentSpec(SegmentKind.WORK, SegmentKind.WORK.label(), HIIT_WORK_SECONDS, HIIT_ROUNDS),
+                new SegmentSpec(SegmentKind.EASY, SegmentKind.EASY.label(), HIIT_EASY_SECONDS, HIIT_ROUNDS),
+                new SegmentSpec(SegmentKind.COOLDOWN, SegmentKind.COOLDOWN.label(),
+                        COOLDOWN_MINUTES * SECONDS_PER_MINUTE, 1));
+    }
+
+    /**
+     * Lays segments out in time, one row per round. Neighbouring segments with the same number of rounds
+     * (more than one) repeat together, so Work and Easy of 8 rounds become Work 1, Easy 1 ... Work 8,
+     * Easy 8. A segment of one round stays as it is.
+     */
+    public static List<SegmentSpec> expand(List<SegmentSpec> segments) {
+        List<SegmentSpec> expanded = new ArrayList<>();
+        int index = 0;
+        while (index < segments.size()) {
+            int rounds = roundsOf(segments.get(index).rounds());
+            if (rounds == 1) {
+                SegmentSpec one = segments.get(index);
+                expanded.add(new SegmentSpec(one.kind(), labelOf(one.kind(), one.label()), one.plannedSeconds(), 1));
+                index++;
+                continue;
+            }
+            int end = index;
+            while (end < segments.size() && roundsOf(segments.get(end).rounds()) == rounds) {
+                end++;
+            }
+            for (int round = 1; round <= rounds; round++) {
+                for (int member = index; member < end; member++) {
+                    SegmentSpec segment = segments.get(member);
+                    expanded.add(new SegmentSpec(segment.kind(), labelOf(segment.kind(), segment.label()) + " " + round,
+                            segment.plannedSeconds(), 1));
+                }
+            }
+            index = end;
+        }
+        return expanded;
     }
 
     /** The label a segment is shown with: its own, else its kind's. */

@@ -23,6 +23,7 @@ import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
 import com.fitsync.workout.dto.WorkoutSessionView;
+import com.fitsync.workout.dto.SessionEntryUpdateRequest;
 import com.fitsync.workout.dto.SetRestRequest;
 import com.fitsync.workout.dto.SessionEffortRequest;
 import com.fitsync.workout.security.CurrentUserPrincipal;
@@ -66,6 +67,9 @@ public interface WorkoutService {
     WorkoutSessionView startPlan(CurrentUserPrincipal currentUser, UUID planId, UUID planDayId, String timezone);
 
     WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request);
+
+    /** Creates a session whose entries are dated on its start's local date in the given zone. */
+    WorkoutSessionView createSession(CurrentUserPrincipal currentUser, UpsertWorkoutSessionRequest request, String timezone);
 
     ImportWorkoutSessionsResponse importSessions(CurrentUserPrincipal currentUser, ImportWorkoutSessionsRequest request);
 
@@ -123,6 +127,10 @@ public interface WorkoutService {
                                  UUID exerciseLogId,
                                  int setNumber,
                                  UpsertWorkoutExerciseSetRequest request);
+
+    /** Gives one entry of a session in progress its actual values: a segment its time, a move one set. */
+    WorkoutSessionView updateEntry(CurrentUserPrincipal currentUser, UUID sessionId, UUID entryId,
+                                   SessionEntryUpdateRequest request);
 
     void deleteSession(CurrentUserPrincipal currentUser, UUID sessionId);
 }

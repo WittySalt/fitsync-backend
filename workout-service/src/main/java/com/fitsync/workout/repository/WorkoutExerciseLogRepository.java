@@ -32,16 +32,23 @@ public interface WorkoutExerciseLogRepository extends JpaRepository<SessionEntry
                                    @Param("sessionId") UUID sessionId,
                                    Pageable pageable);
 
-    // For each of the given sessions that has a set marked done or skipped: when one was last marked
-    // and how many are done. Sessions without such a set have no row. One grouped query, so closing
-    // a left workout never loads its sets just to find out when it was last worked on.
+    // For each of the given sessions that has a set or a time segment marked done or skipped: when one
+    // was last marked (a segment by its start) and how many are done. Sessions without such a row have
+    // none. One grouped query, so closing a left workout never loads its sets just to find out when it
+    // was last worked on. A segment has no sets, so the outer join gives it one row with an empty set.
     @Query("""
             select new com.fitsync.workout.repository.SessionActivityRow(
-                       el.session.sessionId, max(s.updatedAt), sum(case when s.status = :doneStatus then 1L else 0L end))
+                       el.session.sessionId,
+                       max(coalesce(s.updatedAt, el.startedAt)),
+                       sum(case when s.status = :doneStatus then 1L
+                                when el.entryType = com.fitsync.workout.domain.EntryType.SEGMENT
+                                     and el.status = :doneStatus then 1L
+                                else 0L end))
             from SessionEntry el
-              join el.sets s
+              left join el.sets s
             where el.session.sessionId in :sessionIds
-              and s.status in :activeStatuses
+              and (s.status in :activeStatuses
+                   or (el.entryType = com.fitsync.workout.domain.EntryType.SEGMENT and el.status in :activeStatuses))
             group by el.session.sessionId
             """)
     List<SessionActivityRow> findSessionActivity(@Param("sessionIds") List<UUID> sessionIds,
