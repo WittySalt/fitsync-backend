@@ -27,14 +27,15 @@ class ReadingFactsBuilderTests {
         assertThat(facts).hasSize(4);
         assertThat(facts).extracting(ReadingFact::number).containsExactly(1, 2, 3, 4);
 
-        ReadingFact volume = facts.get(0);
-        assertThat(volume.key()).isEqualTo("VOLUME_PER_SESSION");
-        assertThat(volume.label()).isEqualTo("Weight moved per session");
-        assertThat(volume.value()).isEqualTo("1,923");
-        assertThat(volume.unit()).isEqualTo("kg");
-        assertThat(volume.numericValue()).isEqualByComparingTo("1923.00");
-        assertThat(volume.note()).isEqualTo("Up 12%");
-        assertThat(volume.detail()).isEqualTo("1,716 kg the week before");
+        ReadingFact single = facts.get(0);
+        assertThat(single.key()).isEqualTo("BEST_SINGLE");
+        assertThat(single.label()).isEqualTo("Estimated best single, Dumbbell Bench Press");
+        assertThat(single.value()).isEqualTo("30");
+        assertThat(single.unit()).isEqualTo("kg");
+        assertThat(single.numericValue()).isEqualByComparingTo("30.0");
+        assertThat(single.note()).isEqualTo("Up 12%");
+        assertThat(single.detail()).isEqualTo("26.8 kg four weeks before");
+        assertThat(facts).extracting(ReadingFact::label).noneMatch(label -> label.contains("moved"));
 
         ReadingFact length = facts.get(1);
         assertThat(length.key()).isEqualTo("SESSION_LENGTH");
@@ -72,12 +73,13 @@ class ReadingFactsBuilderTests {
                 null, null,
                 null,
                 new TrainingInsight.MostTrainedInfo("CORE", 4, List.of("Plank Hold")),
-                List.of());
+                List.of()).withBestSingles(List.of(
+                        new TrainingInsight.BestSingle("Back Squat", null, new BigDecimal("60.0"), null)));
 
         List<ReadingFact> facts = builder.build(insight);
 
         assertThat(facts).hasSize(2);
-        assertThat(facts.get(0).key()).isEqualTo("VOLUME_PER_SESSION");
+        assertThat(facts.get(0).key()).isEqualTo("BEST_SINGLE");
         assertThat(facts.get(0).number()).isEqualTo(1);
         assertThat(facts.get(0).note()).isEmpty();
         assertThat(facts.get(0).detail()).isEmpty();
@@ -152,7 +154,7 @@ class ReadingFactsBuilderTests {
     }
 
     @Test
-    @DisplayName("a volume decrease reports a rounded percentage down, and a shorter session reports minutes down")
+    @DisplayName("a best single decrease reports a rounded percentage down, and a shorter session reports minutes down")
     void decreasesAreReportedAsDown() {
         TrainingInsight insight = new TrainingInsight(
                 "UTC", LocalDate.parse("2026-09-28"), "PREVIOUS_WEEK",
@@ -160,7 +162,8 @@ class ReadingFactsBuilderTests {
                 4, 2,
                 new BigDecimal("1500.00"), new BigDecimal("2000.00"),
                 40, 50,
-                null, null, List.of());
+                null, null, List.of()).withBestSingles(List.of(
+                        new TrainingInsight.BestSingle("Back Squat", new BigDecimal("40.0"), new BigDecimal("30.0"), -25)));
 
         List<ReadingFact> facts = builder.build(insight);
 
@@ -174,8 +177,8 @@ class ReadingFactsBuilderTests {
         List<ReadingFact> facts = builder.build(fullInsight());
 
         assertThat(facts).containsExactly(
-                new ReadingFact(1, "VOLUME_PER_SESSION", "Weight moved per session", "1,923", "kg",
-                        new BigDecimal("1923.00"), "Up 12%", "1,716 kg the week before"),
+                new ReadingFact(1, "BEST_SINGLE", "Estimated best single, Dumbbell Bench Press", "30", "kg",
+                        new BigDecimal("30.0"), "Up 12%", "26.8 kg four weeks before"),
                 new ReadingFact(2, "SESSION_LENGTH", "Session length", "50", "min",
                         BigDecimal.valueOf(50), "Unchanged", "50 min the week before"),
                 new ReadingFact(3, "RECORD", "Dumbbell Bench Press record", "22.5", "kg",
@@ -264,7 +267,7 @@ class ReadingFactsBuilderTests {
                 cardio(new BigDecimal("5.75"), new BigDecimal("5.50"), 365, 370, 35, 35), null, null));
 
         assertThat(facts).extracting(ReadingFact::key).containsExactly(
-                "VOLUME_PER_SESSION", "SESSION_LENGTH", "CARDIO_DISTANCE", "CARDIO_PACE");
+                "BEST_SINGLE", "SESSION_LENGTH", "CARDIO_DISTANCE", "CARDIO_PACE");
         assertThat(facts).extracting(ReadingFact::number).containsExactly(1, 2, 3, 4);
     }
 
@@ -275,7 +278,7 @@ class ReadingFactsBuilderTests {
                 cardio(null, null, null, null, 35, 35), null, null));
 
         assertThat(facts).extracting(ReadingFact::key).containsExactly(
-                "VOLUME_PER_SESSION", "SESSION_LENGTH", "CARDIO_LENGTH", "RECORD");
+                "BEST_SINGLE", "SESSION_LENGTH", "CARDIO_LENGTH", "RECORD");
         assertThat(facts).extracting(ReadingFact::number).containsExactly(1, 2, 3, 4);
     }
 
@@ -316,14 +319,15 @@ class ReadingFactsBuilderTests {
                 4, 2, new BigDecimal("1923.00"), null, 50, null, null, null, List.of(), null,
                 new TrainingInsight.MobilityInfo(1, 20, null, null),
                 new TrainingInsight.SportInfo(1, 60, List.of(
-                        new TrainingInsight.SportActivity("BADMINTON", "Badminton", 1, 60))));
+                        new TrainingInsight.SportActivity("BADMINTON", "Badminton", 1, 60))))
+                .withBestSingles(List.of(BENCH));
 
         assertThat(builder.build(twoLifting)).extracting(ReadingFact::key).containsExactly(
-                "VOLUME_PER_SESSION", "SESSION_LENGTH", "MOBILITY_TIME", "SPORT_TIME");
+                "BEST_SINGLE", "SESSION_LENGTH", "MOBILITY_TIME", "SPORT_TIME");
         assertThat(builder.build(withGroups(fullInsight(), null,
                 new TrainingInsight.MobilityInfo(1, 20, null, null), null)))
                 .extracting(ReadingFact::key)
-                .containsExactly("VOLUME_PER_SESSION", "SESSION_LENGTH", "RECORD", "MOST_TRAINED");
+                .containsExactly("BEST_SINGLE", "SESSION_LENGTH", "RECORD", "MOST_TRAINED");
     }
 
     @Test
@@ -367,8 +371,12 @@ class ReadingFactsBuilderTests {
                 from.periodEnd(), from.sessions(), from.liftingSessions(), from.volumePerSessionKg(),
                 from.earlierVolumePerSessionKg(), from.minutesPerLiftingSession(),
                 from.earlierMinutesPerLiftingSession(), from.personalRecord(), from.mostTrained(), from.lifts(),
-                cardio, mobility, sport);
+                cardio, mobility, sport).withBestSingles(from.bestSingles());
     }
+
+    /** The bench press's best single, up 12% to 30 kg over the four weeks. */
+    static final TrainingInsight.BestSingle BENCH = new TrainingInsight.BestSingle("Dumbbell Bench Press",
+            new BigDecimal("26.8"), new BigDecimal("30.0"), 12);
 
     static TrainingInsight fullInsight() {
         return new TrainingInsight(
@@ -382,6 +390,7 @@ class ReadingFactsBuilderTests {
                 new TrainingInsight.MostTrainedInfo("CORE", 4, List.of("Plank Hold")),
                 List.of(new TrainingInsight.LiftProgress("Dumbbell Bench Press",
                         new BigDecimal("20.00"), LocalDate.parse("2026-09-16"),
-                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))));
+                        new BigDecimal("22.50"), LocalDate.parse("2026-09-25"))))
+                .withBestSingles(List.of(BENCH));
     }
 }

@@ -1,10 +1,13 @@
 package com.fitsync.recommendation.coach.client;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.config.CoachProperties;
 import com.fitsync.recommendation.coach.reading.TrainingInsight;
@@ -101,6 +104,14 @@ public class WorkoutCatalogueClient extends CatalogueClient {
         return get(SESSIONS + "/active", params(), bearerToken);
     }
 
+    /**
+     * The person's current plan with its days, entries and coverage, or null when there is none or the
+     * service could not be reached.
+     */
+    public String activePlan(String bearerToken) {
+        return get(PLANS + "/active", params(), bearerToken);
+    }
+
     /** Archives a plan, which is how a plan this coach created is taken back. */
     public void archivePlan(String bearerToken, UUID planId) {
         delete(PLANS + "/" + planId, bearerToken);
@@ -113,6 +124,28 @@ public class WorkoutCatalogueClient extends CatalogueClient {
     public String weeklyInsight(String bearerToken, String timezone) {
         Map<String, Object> params = params();
         return get(WEEKLY_INSIGHT, params, bearerToken, timezone);
+    }
+
+    /**
+     * The main lifts' estimated best singles from the weekly insight, empty when it could not be read.
+     * The weekly insight carries them as {@code lifts} with the best single at the start and now.
+     */
+    public List<TrainingInsight.BestSingle> weeklyBestSingles(String bearerToken, String timezone) {
+        String body = weeklyInsight(bearerToken, timezone);
+        if (body == null) {
+            return List.of();
+        }
+        try {
+            JsonNode lifts = objectMapper.readTree(body).path("lifts");
+            List<TrainingInsight.BestSingle> singles = new ArrayList<>();
+            for (JsonNode lift : lifts) {
+                singles.add(objectMapper.treeToValue(lift, TrainingInsight.BestSingle.class));
+            }
+            return singles;
+        } catch (JsonProcessingException ex) {
+            LOG.warn("event=weekly_insight_unreadable");
+            return List.of();
+        }
     }
 
     /**

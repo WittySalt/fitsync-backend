@@ -101,7 +101,7 @@ class CoachReadingServiceTests {
 
         assertThat(first.status()).isEqualTo(ReadingStatus.READY);
         assertThat(first.facts()).extracting(ReadingFact::key).containsExactly(
-                "VOLUME_PER_SESSION", "SESSION_LENGTH", "CARDIO_DISTANCE", "CARDIO_PACE");
+                "BEST_SINGLE", "SESSION_LENGTH", "CARDIO_DISTANCE", "CARDIO_PACE");
         assertThat(first.reading().source()).isEqualTo("RULES");
         assertThat(first.reading().body()).contains("Your cardio sessions averaged 5.75 km [3]");
         assertThat(second.readingId()).isNotEqualTo(first.readingId());
@@ -112,8 +112,8 @@ class CoachReadingServiceTests {
     void liftingOnlyIdIsPinned() {
         TrainingInsight insight = fullInsight();
         List<ReadingFact> pinned = List.of(
-                new ReadingFact(1, "VOLUME_PER_SESSION", "Weight moved per session", "1,923", "kg",
-                        new BigDecimal("1923.00"), "Up 12%", "1,716 kg the week before"),
+                new ReadingFact(1, "BEST_SINGLE", "Estimated best single, Dumbbell Bench Press", "30", "kg",
+                        new BigDecimal("30.0"), "Up 12%", "26.8 kg four weeks before"),
                 new ReadingFact(2, "SESSION_LENGTH", "Session length", "50", "min",
                         BigDecimal.valueOf(50), "Unchanged", "50 min the week before"),
                 new ReadingFact(3, "RECORD", "Dumbbell Bench Press record", "22.5", "kg",
@@ -129,17 +129,17 @@ class CoachReadingServiceTests {
     }
 
     @Test
-    @DisplayName("the workout reading of a fixed week is exactly what it was before other pages existed")
+    @DisplayName("the workout reading of a fixed week is pinned byte for byte, strength read as the best single")
     void workoutReadingIsPinnedByteForByte() {
         when(workoutClient.trainingInsight(anyString(), anyString())).thenReturn(fullInsight());
 
         CoachReadingResponse response = service.workoutReading(USER_ID, TOKEN, "UTC");
 
         assertThat(response.surface()).isEqualTo(ReadingSurface.WORKOUT);
-        assertThat(response.readingId()).isEqualTo("535bb3e30d09c6e5");
+        assertThat(response.readingId()).isEqualTo("a8fae74ee274798a");
         assertThat(response.period()).isEqualTo("PREVIOUS_WEEK");
-        assertThat(response.reading().headline()).isEqualTo("Your lifts grew while your sessions stayed the same length.");
-        assertThat(response.reading().body()).isEqualTo("You moved 1,923 kg a session [1], up from 1,716 kg, in 50 min [2]. Monday brought a Dumbbell Bench Press of 22.5 kg [3], up from 20 kg. Core work was part of 4 of 4 sessions [4].");
+        assertThat(response.reading().headline()).isEqualTo("Your best single rose while your sessions stayed the same length.");
+        assertThat(response.reading().body()).isEqualTo("Your dumbbell bench press best single rose 12% to 30 kg [1]. Your sessions took 50 min each [2]. Monday brought a Dumbbell Bench Press of 22.5 kg [3], up from 20 kg. Core work was part of 4 of 4 sessions [4].");
     }
 
     private static TrainingInsight withRuns(BigDecimal distance) {
@@ -166,6 +166,7 @@ class CoachReadingServiceTests {
                 new TrainingInsight.MostTrainedInfo("CORE", 4, List.of("Plank Hold")),
                 List.of(new TrainingInsight.LiftProgress("Dumbbell Bench Press",
                         new java.math.BigDecimal("20.00"), LocalDate.parse("2026-09-16"),
-                        new java.math.BigDecimal("22.50"), LocalDate.parse("2026-09-25"))));
+                        new java.math.BigDecimal("22.50"), LocalDate.parse("2026-09-25"))))
+                .withBestSingles(List.of(ReadingFactsBuilderTests.BENCH));
     }
 }

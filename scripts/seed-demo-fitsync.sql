@@ -1118,6 +1118,19 @@ begin
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
             select gen_random_uuid(), v_log, s.n, null, null, 45, null, 45, 6 + s.n - 1, null, true, 'DONE'
             from (values (1),(2),(3)) as s(n);
+
+            -- the run's time segments, planned against what ran: the steady part ran 26 minutes
+            -- against 20 planned, which the coach's session read says in words.
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
+                 entry_type, kind, label, planned_seconds, actual_seconds, started_at, logged_on, status)
+            values
+                (gen_random_uuid(), v_session, null, 'Warm-up',   1001, 1, 'SEGMENT', 'WARMUP',   'Warm-up',   300,  300,
+                 started, cast(started as date), 'DONE'),
+                (gen_random_uuid(), v_session, null, 'Steady',    1002, 2, 'SEGMENT', 'STEADY',   'Steady',    1200, 1560,
+                 started + interval '5 minutes', cast(started as date), 'DONE'),
+                (gen_random_uuid(), v_session, null, 'Cool-down', 1003, 3, 'SEGMENT', 'COOLDOWN', 'Cool-down', 300,  300,
+                 started + interval '31 minutes', cast(started as date), 'DONE');
         end if;
     end loop;
 end $$;

@@ -44,7 +44,7 @@ public class ReadingFactsBuilder {
 
     public List<ReadingFact> build(TrainingInsight insight) {
         List<ReadingFact> lifting = new ArrayList<>();
-        addVolumePerSession(lifting, insight);
+        addBestSingle(lifting, insight);
         addSessionLength(lifting, insight);
         addRecord(lifting, insight);
         addMostTrained(lifting, insight);
@@ -192,16 +192,24 @@ public class ReadingFactsBuilder {
         return scaled.toPlainString();
     }
 
-    private void addVolumePerSession(List<ReadingFact> facts, TrainingInsight insight) {
-        BigDecimal volume = insight.volumePerSessionKg();
-        if (volume == null) {
+    /**
+     * Strength is read as the estimated best single, never as weight moved: the first main lift of the
+     * weekly insight, its best single now and its change over the four weeks as a whole percent.
+     */
+    private void addBestSingle(List<ReadingFact> facts, TrainingInsight insight) {
+        if (insight.bestSingles().isEmpty()) {
             return;
         }
-        BigDecimal earlier = insight.earlierVolumePerSessionKg();
-        String detail = earlier == null ? "" : wholeWithCommas(earlier) + " kg the week before";
-        String note = earlier == null ? "" : percentChangeNote(volume, earlier);
-        facts.add(new ReadingFact(UNNUMBERED, "VOLUME_PER_SESSION", "Weight moved per session",
-                wholeWithCommas(volume), "kg", volume, note, detail));
+        TrainingInsight.BestSingle lift = insight.bestSingles().get(0);
+        if (lift.e1rmNow() == null || lift.name() == null || lift.name().isBlank()) {
+            return;
+        }
+        String note = lift.changePct() == null ? ""
+                : lift.changePct() == 0 ? "Unchanged"
+                : lift.changePct() > 0 ? "Up " + lift.changePct() + "%" : "Down " + Math.abs(lift.changePct()) + "%";
+        String detail = lift.e1rmStart() == null ? "" : upToOneDecimal(lift.e1rmStart()) + " kg four weeks before";
+        facts.add(new ReadingFact(UNNUMBERED, "BEST_SINGLE", "Estimated best single, " + trimAndCut(lift.name()),
+                upToOneDecimal(lift.e1rmNow()), "kg", lift.e1rmNow(), note, detail));
     }
 
     private void addSessionLength(List<ReadingFact> facts, TrainingInsight insight) {
