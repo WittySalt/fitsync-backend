@@ -14,8 +14,10 @@ import java.util.UUID;
  *                        day each meal was eaten, in the caller's zone
  * @param topFoods        the five foods logged most often in the period
  * @param cooks           recipes cooked in the period and the newest cook
- * @param recentWindow    the last 31 days of the period at most, the range the nutrient summary allows; it is
- *                        the range of {@code lowestNutrients} and {@code habits}
+ * @param recentWindow    the last 31 full days of the period at most, the range the nutrient summary allows; it
+ *                        is the range of {@code lowestNutrients} and {@code habits}. Today is still going and is
+ *                        never in it, so it ends yesterday when the period reaches today; when the period holds
+ *                        no full day its {@code to} is the day before {@code from} and both summaries are empty
  * @param lowestNutrients the three vitamins or minerals with the smallest share of their daily reference
  * @param habits          in {@code recentWindow}: logged days, days that met the fibre target, and days whose
  *                        plain water and drinks together reached the daily water goal
