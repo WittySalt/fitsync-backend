@@ -227,6 +227,39 @@ class ProgressGoalServiceTests {
     }
 
     @Test
+    void todayNeitherFeedsTheProteinHighlightNorBecomesAPaceWeek() {
+        fixture.profile("2026-08-01T00:00:00Z", 1750);
+        fixture.goal("PROTEIN", "140", null, "2026-10-01T00:00:00Z");
+        for (LocalDate date = LocalDate.parse("2026-09-07"); !date.isAfter(LocalDate.parse("2026-10-04"));
+             date = date.plusDays(1)) {
+            fixture.day(date, 2032, 3, "157");
+            fixture.meal(date, "BREAKFAST", 600);
+            fixture.meal(date, "DINNER", 1432);
+            fixture.body(date, "72.0");
+        }
+        LocalDate monday = LocalDate.parse("2026-10-05");
+        fixture.day(monday, 476, 1, "29");
+        fixture.meal(monday, "BREAKFAST", 476);
+        fixture.wire();
+
+        ProgressGoalResponse response = fixture.goalService(ProgressFixture.clockAt("2026-10-05T09:00:00Z"))
+                .getGoal(fixture.userId, ProgressWindow.of(LocalDate.parse("2026-09-08"), monday), "UTC");
+
+        ProgressHighlight proteinMet = response.highlights().stream()
+                .filter(highlight -> highlight.code().equals("PROTEIN_MET")).findFirst().orElseThrow();
+        assertThat(proteinMet.title()).isEqualTo("Protein was met on 27 of 27 logged days.");
+        assertThat(response.pace().weeks()).last().satisfies(week -> {
+            assertThat(week.weekStart()).isEqualTo(monday);
+            assertThat(week.expectedKg()).isNull();
+        });
+        assertThat(response.highlights()).extracting(ProgressHighlight::title)
+                .noneMatch(title -> title.contains("29 g"));
+        assertThat(response.currentWeek().weekStart()).isEqualTo(monday);
+        assertThat(response.currentWeek().included()).isFalse();
+        assertThat(response.currentWeek().daysLogged()).isZero();
+    }
+
+    @Test
     void theCallersZoneDecidesWhichDayIsToday() {
         proteinWeek();
         // 20:00 UTC on Saturday is already Sunday 4 Oct in Singapore.

@@ -20,6 +20,7 @@ import com.fitsync.analytics.dto.AnalyticsEnergyWeeklyResponse;
 import com.fitsync.analytics.dto.ProgressGoalResponse;
 import com.fitsync.analytics.dto.ProgressGoalResponse.Body;
 import com.fitsync.analytics.dto.ProgressGoalResponse.Compared;
+import com.fitsync.analytics.dto.ProgressGoalResponse.CurrentWeek;
 import com.fitsync.analytics.dto.ProgressGoalResponse.DailyWeight;
 import com.fitsync.analytics.dto.ProgressGoalResponse.DayState;
 import com.fitsync.analytics.dto.ProgressGoalResponse.Goal;
@@ -149,8 +150,15 @@ public class ProgressGoalService {
 
         AnalyticsEnergyWeeklyResponse energy = energyService.getWeekly(userId,
                 ProgressWindow.weekStart(reference.isBefore(window.from()) ? window.from() : reference), zone.getId());
+        // The food log's side of the week that holds today counts only with two logged days before today;
+        // until then that week keeps its weigh-ins and has no expected change, so no sentence compares it.
+        LocalDate thisMonday = ProgressWindow.weekStart(today);
+        boolean partialWeek = energy.weekStart().equals(thisMonday)
+                && energy.daysLogged() < ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK;
         List<PaceWeek> paceWeeks = energy.weeks().stream()
-                .map(week -> new PaceWeek(week.weekStart(), week.expectedKgChange(), week.actualKgChange()))
+                .map(week -> new PaceWeek(week.weekStart(),
+                        partialWeek && week.weekStart().equals(thisMonday) ? null : week.expectedKgChange(),
+                        week.actualKgChange()))
                 .toList();
 
         List<AnalyticsUserDailyNutritionEntity> nutritionRows = dailyNutritionRepository
@@ -173,7 +181,8 @@ public class ProgressGoalService {
         return new ProgressGoalResponse(new ProgressPeriod(window.from(), window.to()),
                 new ProgressPeriod(window.previousFrom(), window.previousTo()), goal, hero, highlights, weight, body,
                 new Pace(paceWeeks), otherGoals,
-                road(userId, weightGoal, goal, reference, zone), leadType(goal, otherGoals));
+                road(userId, weightGoal, goal, reference, zone), leadType(goal, otherGoals),
+                currentWeek(nutritionRows, thisMonday, today));
     }
 
     private Road road(UUID userId, AnalyticsUserGoalProgressEntity weightGoal, Goal goal, LocalDate reference,
@@ -313,7 +322,9 @@ public class ProgressGoalService {
         for (AnalyticsUserDailyNutritionEntity row : rows) {
             BigDecimal target = row.getProteinTargetGrams() != null ? row.getProteinTargetGrams()
                     : proteinGoal == null ? null : proteinGoal.getTargetValue();
-            if (!isLogged(row, today) || target == null || target.signum() <= 0) {
+            // Today is still going, so it never counts as met or missed here.
+            if (!isLogged(row, today) || !row.getActivityDate().isBefore(today) || target == null
+                    || target.signum() <= 0) {
                 continue;
             }
             BigDecimal grams = Objects.requireNonNullElse(row.getTotalProteinGrams(), BigDecimal.ZERO);
@@ -438,6 +449,16 @@ public class ProgressGoalService {
         }
         return new OtherGoal(GoalProgressEvaluator.WORKOUT_FREQUENCY, target,
                 unit(GoalProgressEvaluator.WORKOUT_FREQUENCY, goal.getTargetUnit()), metWeeks, countedWeeks, days, weeks);
+    }
+
+    /** The logged days of the week that holds today, today left out, and whether the week counts yet. */
+    static CurrentWeek currentWeek(List<AnalyticsUserDailyNutritionEntity> rows, LocalDate thisMonday,
+                                   LocalDate today) {
+        int days = (int) rows.stream()
+                .filter(row -> !row.getActivityDate().isBefore(thisMonday) && row.getActivityDate().isBefore(today)
+                        && isLogged(row, today))
+                .count();
+        return new CurrentWeek(thisMonday, days >= ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK, days);
     }
 
     static boolean isLogged(AnalyticsUserDailyNutritionEntity row, LocalDate today) {

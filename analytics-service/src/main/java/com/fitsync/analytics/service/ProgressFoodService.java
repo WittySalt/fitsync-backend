@@ -22,6 +22,7 @@ import com.fitsync.analytics.dto.AnalyticsEnergyWeeklyResponse;
 import com.fitsync.analytics.dto.ProgressFoodResponse;
 import com.fitsync.analytics.dto.ProgressFoodResponse.Balance;
 import com.fitsync.analytics.dto.ProgressFoodResponse.Compared;
+import com.fitsync.analytics.dto.ProgressFoodResponse.CurrentWeek;
 import com.fitsync.analytics.dto.ProgressFoodResponse.DaysLogged;
 import com.fitsync.analytics.dto.ProgressFoodResponse.Energy;
 import com.fitsync.analytics.dto.ProgressFoodResponse.Habits;
@@ -90,34 +91,44 @@ public class ProgressFoodService {
 
         List<AnalyticsUserDailyNutritionEntity> rows = dailyNutritionRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, window.previousFrom(), window.to());
+        // Today is still going: it is reported "so far" in currentWeek and never enters a figure below.
         List<AnalyticsUserDailyNutritionEntity> current = rows.stream()
-                .filter(row -> window.contains(row.getActivityDate()) && ProgressGoalService.isLogged(row, today))
+                .filter(row -> window.contains(row.getActivityDate()) && isFullDay(row, today))
                 .toList();
         List<AnalyticsUserDailyNutritionEntity> previous = rows.stream()
-                .filter(row -> window.containsPrevious(row.getActivityDate()) && ProgressGoalService.isLogged(row, today))
+                .filter(row -> window.containsPrevious(row.getActivityDate()) && isFullDay(row, today))
                 .toList();
+        LocalDate thisMonday = ProgressWindow.weekStart(today);
+        List<AnalyticsUserDailyNutritionEntity> thisWeekDays = current.stream()
+                .filter(row -> !row.getActivityDate().isBefore(thisMonday)).toList();
+        boolean currentWeekIncluded = thisWeekDays.size() >= ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK;
 
         AnalyticsEnergyWeeklyResponse thisWeek = energyService.getWeekly(userId, null, zone.getId());
         LocalDate lastMonday = ProgressWindow.weekStart(window.to().isAfter(today) ? today : window.to());
         List<WeekBalance> balances = energyService
                 .weeklyBalances(userId, ProgressWindow.weekStart(window.from()), lastMonday, zone).stream()
+                .filter(week -> !week.current() || week.daysLogged() >= ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK)
                 .map(week -> new WeekBalance(week.weekStart(), week.balance(), week.daysLogged(), week.current()))
                 .toList();
 
+        Map<String, AnalyticsUserGoalProgressEntity> goals = activeGoals(userId);
         Integer eaten = averageKcal(current);
         Hero hero = new Hero(
                 new Compared<>(eaten, averageKcal(previous)),
                 new Compared<>(averageGrams(current, AnalyticsUserDailyNutritionEntity::getTotalProteinGrams),
                         averageGrams(previous, AnalyticsUserDailyNutritionEntity::getTotalProteinGrams)),
                 new Balance(thisWeek.average() == null ? null : thisWeek.average().balance(), thisWeek.daysLogged()),
-                new DaysLogged(current.size(), previous.size(), window.days()));
+                new DaysLogged(current.size(), previous.size(), window.days()),
+                calorieTarget(goals.get(GoalProgressEvaluator.CALORIES), current));
+        CurrentWeek currentWeek = currentWeek(window, today, rows, thisMonday, thisWeekDays, currentWeekIncluded);
 
-        Map<String, AnalyticsUserGoalProgressEntity> goals = activeGoals(userId);
         BigDecimal proteinTarget = target(goals.get(GoalProgressEvaluator.PROTEIN), current);
-        Macro protein = macro(window, current, AnalyticsUserDailyNutritionEntity::getTotalProteinGrams, proteinTarget);
-        Macro carbs = macro(window, current, AnalyticsUserDailyNutritionEntity::getTotalCarbsGrams,
+        List<AnalyticsUserDailyNutritionEntity> weekly = currentWeekIncluded ? current
+                : current.stream().filter(row -> row.getActivityDate().isBefore(thisMonday)).toList();
+        Macro protein = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalProteinGrams, proteinTarget);
+        Macro carbs = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalCarbsGrams,
                 goalTarget(goals.get(GoalProgressEvaluator.CARBS)));
-        Macro fat = macro(window, current, AnalyticsUserDailyNutritionEntity::getTotalFatGrams,
+        Macro fat = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalFatGrams,
                 goalTarget(goals.get(GoalProgressEvaluator.FAT)));
         List<SummaryLine> summary = new ArrayList<>();
         addLine(summary, "Protein", protein);
@@ -147,7 +158,46 @@ public class ProgressFoodService {
         return new ProgressFoodResponse(new ProgressPeriod(window.from(), window.to()),
                 new ProgressPeriod(window.previousFrom(), window.previousTo()), hero, highlights,
                 new Energy(thisWeek, balances), new Macros(protein, carbs, fat, summary), plate, new Meals(shares),
-                new Habits(current.size()));
+                new Habits(current.size()), currentWeek);
+    }
+
+    /** A logged day that is over: at least one meal and before today. */
+    static boolean isFullDay(AnalyticsUserDailyNutritionEntity row, LocalDate today) {
+        return ProgressGoalService.isLogged(row, today) && row.getActivityDate().isBefore(today);
+    }
+
+    /** The week that holds today: its full logged days, their averages and what today holds so far. */
+    private static CurrentWeek currentWeek(ProgressWindow window, LocalDate today,
+                                           List<AnalyticsUserDailyNutritionEntity> rows, LocalDate thisMonday,
+                                           List<AnalyticsUserDailyNutritionEntity> fullDays, boolean included) {
+        Integer todayKcal = null;
+        BigDecimal todayProtein = null;
+        if (window.contains(today)) {
+            AnalyticsUserDailyNutritionEntity todayRow = rows.stream()
+                    .filter(row -> row.getActivityDate().equals(today) && ProgressGoalService.isLogged(row, today))
+                    .findFirst().orElse(null);
+            todayKcal = todayRow == null ? 0 : Objects.requireNonNullElse(todayRow.getTotalCaloriesConsumed(), 0);
+            todayProtein = todayRow == null ? BigDecimal.ZERO.setScale(1, RoundingMode.HALF_UP)
+                    : Objects.requireNonNullElse(todayRow.getTotalProteinGrams(), BigDecimal.ZERO)
+                    .setScale(1, RoundingMode.HALF_UP);
+        }
+        return new CurrentWeek(thisMonday, included, fullDays.size(), averageKcal(fullDays),
+                averageGrams(fullDays, AnalyticsUserDailyNutritionEntity::getTotalProteinGrams), todayKcal, todayProtein);
+    }
+
+    /** The calorie goal's target, else the newest calorie target a counted day carries. */
+    private static Integer calorieTarget(AnalyticsUserGoalProgressEntity goal,
+                                         List<AnalyticsUserDailyNutritionEntity> counted) {
+        if (goal != null && goal.getTargetValue() != null && goal.getTargetValue().signum() > 0) {
+            return goal.getTargetValue().setScale(0, RoundingMode.HALF_UP).intValue();
+        }
+        Integer latest = null;
+        for (AnalyticsUserDailyNutritionEntity row : counted) {
+            if (row.getCalorieTarget() != null && row.getCalorieTarget() > 0) {
+                latest = row.getCalorieTarget();
+            }
+        }
+        return latest;
     }
 
     private Map<String, AnalyticsUserGoalProgressEntity> activeGoals(UUID userId) {

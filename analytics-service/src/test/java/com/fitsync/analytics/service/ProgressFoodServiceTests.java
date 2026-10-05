@@ -20,6 +20,8 @@ class ProgressFoodServiceTests {
     private static final LocalDate FROM = LocalDate.parse("2026-09-21");
     private static final LocalDate TO = LocalDate.parse("2026-10-04");
     private static final String SATURDAY_NOON = "2026-10-03T12:00:00Z";
+    private static final LocalDate MONDAY = LocalDate.parse("2026-10-05");
+    private static final String MONDAY_MORNING = "2026-10-05T09:00:00Z";
 
     private final ProgressFixture fixture = new ProgressFixture();
 
@@ -110,6 +112,93 @@ class ProgressFoodServiceTests {
         assertThat(response.highlights()).extracting(ProgressHighlight::code)
                 .containsExactly("PROTEIN_DRIFT", "PLATE_SHIFT", "LARGEST_MEAL");
         assertThat(response.highlights().get(2).title()).isEqualTo("Dinner is your largest meal, 40% of the day.");
+    }
+
+    /** Four full weeks to Sunday 4 Oct at 157 g of protein, then Monday 5 Oct with breakfast only. */
+    private void fourWeeksAndABreakfast() {
+        fixture.profile("2026-08-01T00:00:00Z", 1750);
+        for (LocalDate date = LocalDate.parse("2026-09-07"); !date.isAfter(LocalDate.parse("2026-10-04"));
+             date = date.plusDays(1)) {
+            fixture.day(date, 2032, 3, "157");
+            fixture.meal(date, "BREAKFAST", 500);
+            fixture.meal(date, "LUNCH", 700);
+            fixture.meal(date, "DINNER", 832);
+        }
+        fixture.day(MONDAY, 476, 1, "29");
+        fixture.meal(MONDAY, "BREAKFAST", 476);
+        fixture.goal("PROTEIN", "140", null, "2026-10-01T00:00:00Z");
+        fixture.goal("CALORIES", "2050", null, "2026-10-01T00:00:00Z");
+        fixture.wire();
+    }
+
+    @Test
+    void todayIsNeverAWeekAndTheSeriesEndsAtTheLastFullWeek() {
+        fourWeeksAndABreakfast();
+
+        ProgressFoodResponse response = fixture.foodService(ProgressFixture.clockAt(MONDAY_MORNING))
+                .getFood(fixture.userId, ProgressWindow.of(LocalDate.parse("2026-09-08"), MONDAY), "UTC");
+
+        assertThat(response.macros().protein().series()).extracting(ProgressFoodResponse.WeekValue::weekStart)
+                .last().isEqualTo(LocalDate.parse("2026-09-28"));
+        assertThat(response.macros().protein().series()).hasSize(4);
+        assertThat(response.macros().protein().thisWeek()).isEqualByComparingTo("157.0");
+        assertThat(response.macros().summary().get(0).text()).isEqualTo("Protein 157 → 157 g a day");
+        assertThat(response.highlights()).extracting(ProgressHighlight::title)
+                .noneMatch(title -> title.contains("29") || title.contains("476"));
+        assertThat(response.highlights()).extracting(ProgressHighlight::code).doesNotContain("PROTEIN_DRIFT");
+
+        assertThat(response.hero().eatenPerDay().value()).isEqualTo(2032);
+        assertThat(response.hero().proteinPerDay().value()).isEqualByComparingTo("157.0");
+        assertThat(response.hero().daysLogged().value()).isEqualTo(27);
+        assertThat(response.hero().targetKcal()).isEqualTo(2050);
+        assertThat(response.habits().loggedDays()).isEqualTo(27);
+        assertThat(response.meals().share()).extracting(MealShare::kcalPerDay).containsExactly(500, 700, 832, 0);
+
+        assertThat(response.energy().weeklyBalance()).extracting(ProgressFoodResponse.WeekBalance::weekStart)
+                .last().isEqualTo(LocalDate.parse("2026-09-28"));
+        assertThat(response.energy().weeklyBalance()).noneMatch(ProgressFoodResponse.WeekBalance::current);
+
+        ProgressFoodResponse.CurrentWeek week = response.currentWeek();
+        assertThat(week.weekStart()).isEqualTo(MONDAY);
+        assertThat(week.included()).isFalse();
+        assertThat(week.daysLogged()).isZero();
+        assertThat(week.eatenPerDayKcal()).isNull();
+        assertThat(week.eatenTodaySoFarKcal()).isEqualTo(476);
+        assertThat(week.proteinTodaySoFarGrams()).isEqualByComparingTo("29.0");
+    }
+
+    @Test
+    void theCurrentWeekJoinsTheSeriesWithTwoLoggedDaysBeforeToday() {
+        fourWeeksAndABreakfast();
+        fixture.day(LocalDate.parse("2026-10-06"), 2000, 3, "150");
+        fixture.day(LocalDate.parse("2026-10-07"), 300, 1, "20");
+
+        // Wednesday 7 Oct: Monday and Tuesday are over, Wednesday is still going.
+        ProgressFoodResponse response = fixture.foodService(ProgressFixture.clockAt("2026-10-07T09:00:00Z"))
+                .getFood(fixture.userId, ProgressWindow.of(LocalDate.parse("2026-09-10"),
+                        LocalDate.parse("2026-10-07")), "UTC");
+
+        assertThat(response.macros().protein().series()).extracting(ProgressFoodResponse.WeekValue::weekStart)
+                .last().isEqualTo(MONDAY);
+        // Monday 29 g and Tuesday 150 g; Wednesday's 20 g so far is left out.
+        assertThat(response.macros().protein().thisWeek()).isEqualByComparingTo("89.5");
+        assertThat(response.currentWeek().included()).isTrue();
+        assertThat(response.currentWeek().daysLogged()).isEqualTo(2);
+        assertThat(response.currentWeek().eatenPerDayKcal()).isEqualTo(1238);
+        assertThat(response.currentWeek().eatenTodaySoFarKcal()).isEqualTo(300);
+    }
+
+    @Test
+    void aPeriodThatEndsBeforeTodayHasNoTodayFigures() {
+        fourWeeksAndABreakfast();
+
+        ProgressFoodResponse response = fixture.foodService(ProgressFixture.clockAt(MONDAY_MORNING))
+                .getFood(fixture.userId, ProgressWindow.of(LocalDate.parse("2026-09-07"), TO), "UTC");
+
+        assertThat(response.macros().protein().series()).hasSize(4);
+        assertThat(response.currentWeek().included()).isFalse();
+        assertThat(response.currentWeek().eatenTodaySoFarKcal()).isNull();
+        assertThat(response.hero().daysLogged().value()).isEqualTo(28);
     }
 
     @Test

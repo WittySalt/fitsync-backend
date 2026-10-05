@@ -17,6 +17,11 @@ import com.fitsync.web.error.BadRequestException;
 public record ProgressWindow(LocalDate from, LocalDate to, LocalDate previousFrom, LocalDate previousTo) {
 
     public static final int MAX_DAYS = 370;
+    /**
+     * The week that holds today enters a weekly series, a head or a highlight only once it has this many
+     * logged days before today; today itself never counts (progress review fixes, section 1).
+     */
+    public static final int MIN_FULL_DAYS_FOR_CURRENT_WEEK = 2;
 
     public static ProgressWindow of(LocalDate from, LocalDate to) {
         if (from == null || to == null) {
