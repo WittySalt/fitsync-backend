@@ -110,6 +110,61 @@ class WeeklyReviewServiceTests {
     }
 
     @Test
+    @DisplayName("before a day of the current week is over, food reads today so far and is never compared")
+    void currentWeekWithoutAFullDayReadsTodaySoFar() {
+        when(workoutClient.trainingProgress(CALLER, "UTC", THIS_MONDAY, THIS_SUNDAY)).thenReturn("""
+                {"hero":{"sessions":{"value":0,"previous":2},"minutes":{"value":0,"previous":90}},
+                 "load":{"currentWeek":{"weekStart":"2026-09-28","soFar":180,"sessions":1,"minutes":30}}}""");
+        when(analyticsClient.foodProgress(CALLER, "UTC", THIS_MONDAY, THIS_SUNDAY)).thenReturn("""
+                {"hero":{"eatenPerDay":{"value":null,"previous":2032},"proteinPerDay":{"value":null,"previous":157},
+                 "daysLogged":{"value":0,"previous":7,"days":7}},
+                 "currentWeek":{"included":false,"daysLogged":0,"eatenTodaySoFarKcal":476,"proteinTodaySoFarGrams":29.0}}""");
+
+        List<WeeklyReviewView> reviews = service.reviews(userId, CALLER, "UTC", 2);
+        WeeklyReviewView current = reviews.get(0);
+
+        assertThat(current.facts()).extracting(ReadingFact::key).containsExactly("SESSIONS", "MINUTES",
+                "CALORIES_PER_DAY", "PROTEIN_PER_DAY");
+        // Sessions and minutes count today, from the week in progress.
+        assertThat(current.facts().get(0).value()).isEqualTo("1");
+        assertThat(current.facts().get(1).value()).isEqualTo("30");
+        ReadingFact calories = current.facts().get(2);
+        assertThat(calories.label()).isEqualTo("Calories today");
+        assertThat(calories.value()).isEqualTo("476");
+        assertThat(calories.detail()).isEqualTo("today so far");
+        assertThat(calories.note()).isEmpty();
+        assertThat(current.facts().get(3).value()).isEqualTo("29");
+        assertThat(current.facts().get(3).detail()).isEqualTo("today so far");
+        assertThat(current.body()).contains("So far today you ate 476 kcal and 29 g of protein [3] [4].");
+        assertThat(current.eatenTodaySoFarKcal()).isEqualTo(476);
+        assertThat(current.proteinTodaySoFarGrams()).isEqualByComparingTo("29.0");
+
+        WeeklyReviewView last = reviews.get(1);
+        assertThat(last.eatenTodaySoFarKcal()).isNull();
+        assertThat(last.proteinTodaySoFarGrams()).isNull();
+    }
+
+    @Test
+    @DisplayName("with full days the current week averages them only, and still carries today so far")
+    void currentWeekWithFullDaysAveragesThemOnly() {
+        trainingFor(CALLER, THIS_MONDAY, THIS_SUNDAY, training(2, 2, 90, 90, 0));
+        when(analyticsClient.foodProgress(CALLER, "UTC", THIS_MONDAY, THIS_SUNDAY)).thenReturn("""
+                {"hero":{"eatenPerDay":{"value":1238,"previous":2032},"proteinPerDay":{"value":89.5,"previous":157},
+                 "daysLogged":{"value":2,"previous":7,"days":7}},
+                 "currentWeek":{"included":true,"daysLogged":2,"eatenTodaySoFarKcal":300,"proteinTodaySoFarGrams":20.0}}""");
+
+        WeeklyReviewView current = service.reviews(userId, CALLER, "UTC", 1).get(0);
+
+        ReadingFact calories = current.facts().stream().filter(fact -> fact.key().equals("CALORIES_PER_DAY"))
+                .findFirst().orElseThrow();
+        assertThat(calories.label()).isEqualTo("Calories a day");
+        assertThat(calories.value()).isEqualTo("1,238");
+        assertThat(calories.detail()).isEqualTo("on 2 logged days");
+        assertThat(current.eatenTodaySoFarKcal()).isEqualTo(300);
+        assertThat(current.proteinTodaySoFarGrams()).isEqualByComparingTo("20.0");
+    }
+
+    @Test
     @DisplayName("all three pages give a week's facts, each naming its card, and the rule review cites them")
     void factsFromAllThreePages() {
         trainingFor(CALLER, LAST_MONDAY, LAST_SUNDAY, training(4, 3, 190, 150, 1));
