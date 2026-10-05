@@ -83,6 +83,24 @@ class NutritionRecipesClientTests {
     }
 
     @Test
+    @DisplayName("the suggestions are read with the limit, the zone and the credential of the caller, and an unreachable service reads as null")
+    void readsTheSuggestions() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(method(HttpMethod.GET))
+                .andExpect(requestTo(endsWith("/api/v1/nutrition/recipes/suggestions?limit=2")))
+                .andExpect(header("X-Timezone", "Asia/Singapore"))
+                .andExpect(header("Authorization", "Bearer " + CALLER))
+                .andRespond(withSuccess("{\"state\":\"FITS\"}", MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withServerError());
+        NutritionCatalogueClient client = new NutritionCatalogueClient(builder, properties, new ObjectMapper());
+
+        assertThat(client.recipeSuggestions(CALLER, 2, "Asia/Singapore")).contains("FITS");
+        assertThat(client.recipeSuggestions(CALLER, 3, "UTC")).isNull();
+        server.verify();
+    }
+
+    @Test
     @DisplayName("an unreachable library reads as null")
     void anUnreachableLibraryIsNull() {
         RestClient.Builder builder = RestClient.builder();

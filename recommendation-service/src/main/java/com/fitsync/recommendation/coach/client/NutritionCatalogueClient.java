@@ -87,6 +87,16 @@ public class NutritionCatalogueClient extends CatalogueClient {
     }
 
     /**
+     * What to cook tonight, as nutrition-service works it out from today's diary: the state of the day, the facts
+     * and up to {@code limit} suggestions. Null when the service cannot be reached or predates this endpoint.
+     */
+    public String recipeSuggestions(String bearerToken, int limit, String timezone) {
+        Map<String, Object> params = params();
+        params.put("limit", limit);
+        return get(RECIPES + "/suggestions", params, bearerToken, timezone);
+    }
+
+    /**
      * One page of the shared recipe library, best fit for today first, optionally narrowed by a name text, a
      * diet and a card tag. The endpoint has no calorie or protein filter, so a caller that wants one narrows
      * the cards itself.

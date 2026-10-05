@@ -7,10 +7,12 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,6 +44,7 @@ public class ReadMealsOnDayTool implements CoachTool {
     static final int MAX_MEALS = 10;
     static final int MAX_FOODS_PER_MEAL = 12;
     static final int MAX_FOOD_NAME_LENGTH = 80;
+    private static final String FAST = "FAST";
 
     private static final DateTimeFormatter LOCAL_TIME = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -81,7 +84,9 @@ public class ReadMealsOnDayTool implements CoachTool {
                   the day's fibre, sugar, saturated fat, sodium and potassium against their references,
                   water, protein at each meal and the three lowest vitamins or minerals with their share
                   of the daily amount. An empty meals list means nothing was
-                  logged that day.""";
+                  logged that day. A meal of type FAST is a day the person marked as fasted, and carries
+                  a "said" line such as "you fasted on Tuesday". Say it that way, and never describe it
+                  as a meal or as a day of zero calories.""";
     }
 
     @Override
@@ -222,7 +227,13 @@ public class ReadMealsOnDayTool implements CoachTool {
     private static Map<String, Object> meal(JsonNode meal, ZoneId zone) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("mealType", meal.path("mealType").asText(""));
-        entry.put("time", LOCAL_TIME.format(instantOf(meal.path("consumedAt")).atZone(zone)));
+        java.time.ZonedDateTime when = instantOf(meal.path("consumedAt")).atZone(zone);
+        entry.put("time", LOCAL_TIME.format(when));
+        if (FAST.equals(meal.path("mealType").asText(""))) {
+            // A fasted day is not a meal with no calories, so no figures are given and it is said as it is.
+            entry.put("said", "you fasted on " + when.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH));
+            return entry;
+        }
         put(entry, "calories", kcal(meal.path("totalCalories")));
         put(entry, "proteinGrams", grams(meal.path("totalProteinGrams")));
         List<String> foods = new ArrayList<>();
