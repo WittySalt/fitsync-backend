@@ -25,6 +25,12 @@ public class FoodBrandEntity extends BaseEffectiveEntity {
     @Column(name = "country_code", length = 10)
     private String countryCode;
 
+    @Column(name = "domain", length = 120)
+    private String domain;
+
+    @Column(name = "logo_url", length = 300)
+    private String logoUrl;
+
     public UUID getBrandId() {
         return brandId;
     }
@@ -47,6 +53,22 @@ public class FoodBrandEntity extends BaseEffectiveEntity {
 
     public void setNormalizedName(String normalizedName) {
         this.normalizedName = normalizedName;
+    }
+
+    public String getDomain() {
+        return domain;
+    }
+
+    public void setDomain(String domain) {
+        this.domain = domain;
+    }
+
+    public String getLogoUrl() {
+        return logoUrl;
+    }
+
+    public void setLogoUrl(String logoUrl) {
+        this.logoUrl = logoUrl;
     }
 
     public String getCountryCode() {

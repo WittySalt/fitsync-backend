@@ -13,6 +13,7 @@ public record MealItemView(
         String barcode,
         String foodName,
         String brandName,
+        String brandLogoUrl,
         BigDecimal quantity,
         String unit,
         BigDecimal servingSize,

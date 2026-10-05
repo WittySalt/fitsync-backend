@@ -476,6 +476,10 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(FoodCatalogItemEntity::getBrandId)
                 .filter(java.util.Objects::nonNull)
                 .toList());
+        Map<UUID, String> brandLogos = loadBrandLogos(foods.stream()
+                .map(FoodCatalogItemEntity::getBrandId)
+                .filter(java.util.Objects::nonNull)
+                .toList());
         Map<String, String> categoryNames = loadCategoryNames(foods.stream()
                 .map(FoodCatalogItemEntity::getCategoryCode)
                 .filter(java.util.Objects::nonNull)
@@ -489,7 +493,7 @@ public class NutritionServiceImpl implements NutritionService {
         Map<String, String> foodGroups = loadFoodGroups();
         Map<UUID, FoodServingEntity> defaultServings = loadDefaultServings(foods, today);
         List<FoodSearchResultView> localResults = foods.stream()
-                .map(food -> toFoodSearchResultView(food, brandNames, categoryNames, foodGroups,
+                .map(food -> toFoodSearchResultView(food, brandNames, brandLogos, categoryNames, foodGroups,
                         profiles.get(food.getFoodId()), primaryBarcodes.get(food.getFoodId()),
                         defaultServings.get(food.getFoodId())))
                 .toList();
@@ -798,6 +802,10 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(FoodCatalogItemEntity::getBrandId)
                 .filter(java.util.Objects::nonNull)
                 .toList());
+        Map<UUID, String> brandLogos = loadBrandLogos(foods.stream()
+                .map(FoodCatalogItemEntity::getBrandId)
+                .filter(java.util.Objects::nonNull)
+                .toList());
         Map<String, String> categoryNames = loadCategoryNames(foods.stream()
                 .map(FoodCatalogItemEntity::getCategoryCode)
                 .filter(java.util.Objects::nonNull)
@@ -809,7 +817,7 @@ public class NutritionServiceImpl implements NutritionService {
         Map<String, String> foodGroups = loadFoodGroups();
         Map<UUID, FoodServingEntity> defaultServings = loadDefaultServings(foods, today);
         return foods.stream()
-                .map(food -> toFoodSearchResultView(food, brandNames, categoryNames, foodGroups,
+                .map(food -> toFoodSearchResultView(food, brandNames, brandLogos, categoryNames, foodGroups,
                         profiles.get(food.getFoodId()), primaryBarcodes.get(food.getFoodId()),
                         defaultServings.get(food.getFoodId())))
                 .toList();
@@ -944,12 +952,14 @@ public class NutritionServiceImpl implements NutritionService {
     private MealTemplateView toMealTemplateView(MealTemplateEntity template, List<MealTemplateItemEntity> items) {
         int totalCalories = 0;
         List<MealTemplateItemView> itemViews = new ArrayList<>();
+        Map<String, String> logos = loadBrandLogosByName(
+                items.stream().map(MealTemplateItemEntity::getBrandName).toList());
         for (MealTemplateItemEntity ti : items) {
             totalCalories += defaultInteger(ti.getCalories());
             itemViews.add(new MealTemplateItemView(
                     ti.getTemplateItemId(), ti.getCustomFoodId(), ti.getFoodCatalogItemId(), ti.getFoodServingId(),
-                    ti.getFoodName(), ti.getBrandName(), ti.getQuantity(), ti.getUnit(), ti.getSnapshotServingLabel(),
-                    ti.getCalories(), ti.getProteinGrams(), ti.getCarbsGrams(), ti.getFatGrams(),
+                    ti.getFoodName(), ti.getBrandName(), logoOf(logos, ti.getBrandName()), ti.getQuantity(),
+                    ti.getUnit(), ti.getSnapshotServingLabel(), ti.getCalories(), ti.getProteinGrams(), ti.getCarbsGrams(), ti.getFatGrams(),
                     ti.getFiberGrams(), ti.getSugarGrams(), ti.getSodiumMg(),
                     ti.getRecipeId(), ti.getRecipeServings()));
         }
@@ -1240,9 +1250,11 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(e -> e.getValue().getItem().getFoodCatalogItemId())
                 .filter(java.util.Objects::nonNull)
                 .toList());
+        Map<String, String> logos = loadBrandLogosByName(picked.stream()
+                .map(e -> e.getValue().getItem().getBrandName()).toList());
         return picked.stream()
                 .map(e -> toLoggedFoodView(e.getValue().getItem(), counts.get(e.getKey()),
-                        e.getValue().getConsumedAt(), foodGroups, countsTowardWater))
+                        e.getValue().getConsumedAt(), foodGroups, countsTowardWater, logos))
                 .toList();
     }
 
@@ -1287,7 +1299,8 @@ public class NutritionServiceImpl implements NutritionService {
     }
 
     private LoggedFoodView toLoggedFoodView(MealItemEntity item, long timesLogged, Instant lastLoggedAt,
-                                            Map<String, String> foodGroups, Map<UUID, Boolean> countsTowardWater) {
+                                            Map<String, String> foodGroups, Map<UUID, Boolean> countsTowardWater,
+                                            Map<String, String> logos) {
         return new LoggedFoodView(
                 item.getCustomFoodId(),
                 item.getFoodCatalogItemId(),
@@ -1296,6 +1309,7 @@ public class NutritionServiceImpl implements NutritionService {
                 item.getBarcode(),
                 item.getFoodName(),
                 item.getBrandName(),
+                logoOf(logos, item.getBrandName()),
                 item.getQuantity(),
                 item.getUnit(),
                 item.getServingSize(),
@@ -1546,10 +1560,11 @@ public class NutritionServiceImpl implements NutritionService {
 
     private MealView toMealView(MealLogEntity meal, List<MealItemEntity> items, Map<String, String> foodGroups) {
         Map<UUID, List<NutrientDetailView>> nutrientDetailsByMealItemId = loadMealItemNutrientDetails(items);
+        Map<String, String> logos = loadBrandLogosByName(items.stream().map(MealItemEntity::getBrandName).toList());
         List<MealItemView> itemViews = items.stream()
                 .sorted(Comparator.comparing(MealItemEntity::getDateTimeCreated))
                 .map(item -> toMealItemView(item,
-                        nutrientDetailsByMealItemId.getOrDefault(item.getMealItemId(), List.of()), foodGroups))
+                        nutrientDetailsByMealItemId.getOrDefault(item.getMealItemId(), List.of()), foodGroups, logos))
                 .toList();
         Totals totals = calculateTotals(items);
         return new MealView(
@@ -1588,7 +1603,7 @@ public class NutritionServiceImpl implements NutritionService {
     }
 
     private MealItemView toMealItemView(MealItemEntity entity, List<NutrientDetailView> nutrientDetails,
-                                        Map<String, String> foodGroups) {
+                                        Map<String, String> foodGroups, Map<String, String> logos) {
         return new MealItemView(
                 entity.getMealItemId(),
                 entity.getCustomFoodId(),
@@ -1598,6 +1613,7 @@ public class NutritionServiceImpl implements NutritionService {
                 entity.getBarcode(),
                 entity.getFoodName(),
                 entity.getBrandName(),
+                logoOf(logos, entity.getBrandName()),
                 entity.getQuantity(),
                 entity.getUnit(),
                 entity.getServingSize(),
@@ -1714,6 +1730,9 @@ public class NutritionServiceImpl implements NutritionService {
         Map<UUID, String> brandNames = food.getBrandId() == null
                 ? Map.of()
                 : loadBrandNames(List.of(food.getBrandId()));
+        Map<UUID, String> brandLogos = food.getBrandId() == null
+                ? Map.of()
+                : loadBrandLogos(List.of(food.getBrandId()));
         String primaryBarcode = loadPrimaryBarcodes(List.of(food.getFoodId()), today).get(food.getFoodId());
         List<FoodServingView> servings = foodServingRepository.findActiveByFoodId(food.getFoodId(), today).stream()
                 .map(this::toFoodServingView)
@@ -1732,6 +1751,7 @@ public class NutritionServiceImpl implements NutritionService {
                 food.getDisplayName(),
                 food.getNormalizedName(),
                 food.getBrandId() == null ? null : brandNames.get(food.getBrandId()),
+                food.getBrandId() == null ? null : brandLogos.get(food.getBrandId()),
                 food.getCategoryCode(),
                 food.getScope(),
                 food.getBaseFoodId(),
@@ -1766,6 +1786,7 @@ public class NutritionServiceImpl implements NutritionService {
 
     private FoodSearchResultView toFoodSearchResultView(FoodCatalogItemEntity food,
                                                         Map<UUID, String> brandNames,
+                                                        Map<UUID, String> brandLogos,
                                                         Map<String, String> categoryNames,
                                                         Map<String, String> foodGroups,
                                                         FoodNutrientProfileEntity profile,
@@ -1776,6 +1797,7 @@ public class NutritionServiceImpl implements NutritionService {
                 food.getFoodId(),
                 food.getDisplayName(),
                 food.getBrandId() == null ? null : brandNames.get(food.getBrandId()),
+                food.getBrandId() == null ? null : brandLogos.get(food.getBrandId()),
                 food.getCategoryCode(),
                 food.getCategoryCode() == null ? null : categoryNames.get(food.getCategoryCode()),
                 food.getScope(),
@@ -1849,6 +1871,48 @@ public class NutritionServiceImpl implements NutritionService {
             result.put(brand.getBrandId(), brand.getName());
         }
         return result;
+    }
+
+    private Map<UUID, String> loadBrandLogos(Collection<UUID> brandIds) {
+        List<UUID> ids = brandIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, String> result = new HashMap<>();
+        for (FoodBrandEntity brand : foodBrandRepository.findAllById(ids)) {
+            if (brand.getLogoUrl() != null) {
+                result.put(brand.getBrandId(), brand.getLogoUrl());
+            }
+        }
+        return result;
+    }
+
+    /** The logo of each known brand, by the brand name a line item stores. Brands without a logo are left out. */
+    private Map<String, String> loadBrandLogosByName(Collection<String> brandNames) {
+        List<String> normalized = brandNames.stream()
+                .map(this::blankToNull)
+                .filter(java.util.Objects::nonNull)
+                .map(this::normalizeName)
+                .distinct()
+                .toList();
+        if (normalized.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> result = new HashMap<>();
+        for (FoodBrandEntity brand : foodBrandRepository.findByNormalizedNameInAndActiveTrue(normalized)) {
+            if (brand.getLogoUrl() != null) {
+                result.put(brand.getNormalizedName(), brand.getLogoUrl());
+            }
+        }
+        return result;
+    }
+
+    private String logoOf(Map<String, String> logos, String brandName) {
+        String name = blankToNull(brandName);
+        return name == null ? null : logos.get(normalizeName(name));
     }
 
     private Map<String, String> loadCategoryNames(Collection<String> categoryCodes) {

@@ -784,6 +784,8 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.totalPages").value(1))
                 .andExpect(jsonPath("$.content[0].foodId").value(foodId.toString()))
                 .andExpect(jsonPath("$.content[0].displayName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.content[0].brandName").value("FitBrand"))
+                .andExpect(jsonPath("$.content[0].brandLogoUrl").value("https://logo.clearbit.com/fitbrand.example"))
                 .andExpect(jsonPath("$.content[0].categoryName").value("Dairy Products"))
                 .andExpect(jsonPath("$.content[0].basisLabel").value("170 g"))
                 .andExpect(jsonPath("$.content[0].primaryBarcode").value("8880001112223"));
@@ -792,6 +794,7 @@ class NutritionApiTests {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.displayName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$.brandLogoUrl").value("https://logo.clearbit.com/fitbrand.example"))
                 .andExpect(jsonPath("$.creationMode").value("MANUAL"))
                 .andExpect(jsonPath("$.servings.length()").value(2))
                 .andExpect(jsonPath("$.nutrientDetails.length()").value(3))
@@ -1145,6 +1148,7 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].foodId").value(foodId.toString()))
                 .andExpect(jsonPath("$[0].displayName").value("Greek Yogurt"))
+                .andExpect(jsonPath("$[0].brandLogoUrl").value("https://logo.clearbit.com/fitbrand.example"))
                 .andExpect(jsonPath("$[0].categoryName").value("Dairy Products"));
 
         mockMvc.perform(delete("/api/v1/nutrition/foods/{foodId}/favorite", foodId)
@@ -1216,7 +1220,15 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.items[0].snapshotServingLabel").value("1 container"))
                 .andExpect(jsonPath("$.items[0].proteinGrams").value(34.00))
                 .andExpect(jsonPath("$.items[0].nutrientDetails.length()").value(3))
-                .andExpect(jsonPath("$.items[0].nutrientDetails[0].amount").value(34.00));
+                .andExpect(jsonPath("$.items[0].nutrientDetails[0].amount").value(34.00))
+                .andExpect(jsonPath("$.items[0].brandName").value("FitBrand"))
+                .andExpect(jsonPath("$.items[0].brandLogoUrl").value("https://logo.clearbit.com/fitbrand.example"));
+
+        mockMvc.perform(get("/api/v1/nutrition/foods/recent")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].brandName").value("FitBrand"))
+                .andExpect(jsonPath("$[0].brandLogoUrl").value("https://logo.clearbit.com/fitbrand.example"));
     }
 
     @Test
@@ -1541,6 +1553,8 @@ class NutritionApiTests {
         brand.setName("FitBrand");
         brand.setNormalizedName("fitbrand");
         brand.setCountryCode("SG");
+        brand.setDomain("fitbrand.example");
+        brand.setLogoUrl("https://logo.clearbit.com/fitbrand.example");
         brand.setActive(true);
         foodBrandRepository.save(brand);
 
