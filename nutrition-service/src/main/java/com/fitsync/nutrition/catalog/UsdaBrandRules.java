@@ -91,7 +91,8 @@ public final class UsdaBrandRules {
     /**
      * Title case for the USDA's capitals. A word written in capitals becomes "Capitalised" unless it is a known
      * acronym or a small word, a single capital letter stays as it is, and a word that already has lower case
-     * letters is kept, except that "McNUGGETS" becomes "McNuggets". "w/" is written "with".
+     * letters is kept, except that "McNUGGETS" becomes "McNuggets". "w/" is written "with". The first letter is
+     * always a capital.
      */
     public static String titleCase(String text) {
         String source = WITH_SLASH.matcher(text).replaceAll("$1with");
@@ -111,6 +112,10 @@ public final class UsdaBrandRules {
             out.append(word(source.substring(i, end), first));
             first = false;
             i = end;
+        }
+        // A name that starts in lower case ("biscuit") starts with a capital as the rest of the catalogue does.
+        if (out.length() > 0 && out.charAt(0) >= 'a' && out.charAt(0) <= 'z') {
+            out.setCharAt(0, (char) (out.charAt(0) - ('a' - 'A')));
         }
         return out.toString();
     }

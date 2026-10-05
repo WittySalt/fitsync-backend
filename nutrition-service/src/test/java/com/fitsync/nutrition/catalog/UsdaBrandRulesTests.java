@@ -25,7 +25,8 @@ class UsdaBrandRulesTests {
     void acronymsStayAndSmallWordsAndWithAreLowerCased() {
         assertThat(rewrite("TACO BELL, BBQ CHICKEN W/ CHEESE AND SAUCE"))
                 .containsExactly("TACO BELL", "BBQ Chicken with Cheese and Sauce");
-        assertThat(rewrite("SUBWAY, sandwich w/ turkey")).containsExactly("SUBWAY", "sandwich with turkey");
+        assertThat(rewrite("SUBWAY, sandwich w/ turkey")).containsExactly("SUBWAY", "Sandwich with turkey");
+        assertThat(rewrite("KFC, biscuit")).containsExactly("KFC", "Biscuit");
         assertThat(UsdaBrandRules.titleCase("A TASTE OF HOME")).isEqualTo("A Taste of Home");
         assertThat(UsdaBrandRules.titleCase("FILET-O-FISH")).isEqualTo("Filet-O-Fish");
         assertThat(UsdaBrandRules.titleCase("BREAKSTONE'S Sour Cream")).isEqualTo("Breakstone's Sour Cream");
