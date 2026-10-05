@@ -254,6 +254,38 @@ class MealNutritionEventConsumerTests {
     }
 
     @Test
+    void aDeleteThatArrivesBeforeItsLogLeavesNoContribution() {
+        UUID userId = UUID.randomUUID();
+        UUID keptMeal = UUID.randomUUID();
+        UUID deletedMeal = UUID.randomUUID();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant consumedAt = today.atStartOfDay().plusHours(8).toInstant(ZoneOffset.UTC);
+        mealLoggedEventConsumer.consume(new FitSyncDomainEvent<>(UUID.randomUUID(), "MealLogged", 1,
+                consumedAt.plusSeconds(10), "nutrition-service", userId,
+                new MealLoggedPayload(keptMeal, "BREAKFAST", consumedAt, 476, new BigDecimal("29.00"),
+                        new BigDecimal("50.00"), new BigDecimal("12.00"), 2, "MANUAL")));
+
+        // The delete of a dinner is handled before the log of that dinner.
+        mealDeletedEventConsumer.consume(new FitSyncDomainEvent<>(UUID.randomUUID(), "MealDeleted", 1,
+                consumedAt.plusSeconds(120), "nutrition-service", userId,
+                new MealDeletedPayload(deletedMeal, consumedAt.plusSeconds(120))));
+        mealLoggedEventConsumer.consume(new FitSyncDomainEvent<>(UUID.randomUUID(), "MealLogged", 1,
+                consumedAt.plusSeconds(60), "nutrition-service", userId,
+                new MealLoggedPayload(deletedMeal, "DINNER", consumedAt, 900, new BigDecimal("70.00"),
+                        new BigDecimal("80.00"), new BigDecimal("28.00"), 3, "MANUAL")));
+
+        assertThat(mealContributionRepository.findById(deletedMeal)).isEmpty();
+        assertThat(dailyNutritionRepository.findByUserIdAndActivityDate(userId, today))
+                .isPresent()
+                .get()
+                .satisfies(daily -> {
+                    assertThat(daily.getMealCount()).isEqualTo(1);
+                    assertThat(daily.getTotalCaloriesConsumed()).isEqualTo(476);
+                    assertThat(daily.getTotalProteinGrams()).isEqualByComparingTo("29");
+                });
+    }
+
+    @Test
     void mealLoggedEventRecomputesTodayNutritionGoalProgressButPastMealDoesNot() {
         UUID userId = UUID.randomUUID();
         UUID calorieGoalId = UUID.randomUUID();
