@@ -40,7 +40,8 @@ public class NutritionEventsKafkaListener {
 
     private static final Logger log = LoggerFactory.getLogger(NutritionEventsKafkaListener.class);
 
-    private final ObjectMapper objectMapper;
+    // Readers are immutable, which a shared ObjectMapper is not.
+    private final ObjectReader treeReader;
     private final ObjectReader loggedReader;
     private final ObjectReader updatedReader;
     private final ObjectReader deletedReader;
@@ -58,7 +59,7 @@ public class NutritionEventsKafkaListener {
                                         @Value(LOGGED_FLAG) boolean loggedEnabled,
                                         @Value(UPDATED_FLAG) boolean updatedEnabled,
                                         @Value(DELETED_FLAG) boolean deletedEnabled) {
-        this.objectMapper = objectMapper;
+        this.treeReader = objectMapper.reader();
         this.loggedReader = DomainEventObjectReaders.readerFor(objectMapper, MealLoggedPayload.class);
         this.updatedReader = DomainEventObjectReaders.readerFor(objectMapper, MealUpdatedPayload.class);
         this.deletedReader = DomainEventObjectReaders.readerFor(objectMapper, MealDeletedPayload.class);
@@ -97,7 +98,7 @@ public class NutritionEventsKafkaListener {
 
     private String eventType(String payload) {
         try {
-            JsonNode type = objectMapper.readTree(payload).path("eventType");
+            JsonNode type = treeReader.readTree(payload).path("eventType");
             return type.isTextual() ? type.asText() : null;
         } catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("Failed to read the event type of a nutrition event", ex);
