@@ -42,6 +42,7 @@ import com.fitsync.nutrition.dto.MealTemplateItemView;
 import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
+import com.fitsync.nutrition.dto.DefaultServingView;
 import com.fitsync.nutrition.dto.DrinkWaterEntryView;
 import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchCriteria;
@@ -486,9 +487,11 @@ public class NutritionServiceImpl implements NutritionService {
                 .map(FoodCatalogItemEntity::getFoodId)
                 .toList(), today);
         Map<String, String> foodGroups = loadFoodGroups();
+        Map<UUID, FoodServingEntity> defaultServings = loadDefaultServings(foods, today);
         List<FoodSearchResultView> localResults = foods.stream()
                 .map(food -> toFoodSearchResultView(food, brandNames, categoryNames, foodGroups,
-                        profiles.get(food.getFoodId()), primaryBarcodes.get(food.getFoodId())))
+                        profiles.get(food.getFoodId()), primaryBarcodes.get(food.getFoodId()),
+                        defaultServings.get(food.getFoodId())))
                 .toList();
         if (!shouldSearchExternalFoods(criteria, normalizedQuery, page, localResults.size())) {
             return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
@@ -804,9 +807,11 @@ public class NutritionServiceImpl implements NutritionService {
         Map<UUID, String> primaryBarcodes = loadPrimaryBarcodes(foods.stream()
                 .map(FoodCatalogItemEntity::getFoodId).toList(), today);
         Map<String, String> foodGroups = loadFoodGroups();
+        Map<UUID, FoodServingEntity> defaultServings = loadDefaultServings(foods, today);
         return foods.stream()
                 .map(food -> toFoodSearchResultView(food, brandNames, categoryNames, foodGroups,
-                        profiles.get(food.getFoodId()), primaryBarcodes.get(food.getFoodId())))
+                        profiles.get(food.getFoodId()), primaryBarcodes.get(food.getFoodId()),
+                        defaultServings.get(food.getFoodId())))
                 .toList();
     }
 
@@ -1764,7 +1769,8 @@ public class NutritionServiceImpl implements NutritionService {
                                                         Map<String, String> categoryNames,
                                                         Map<String, String> foodGroups,
                                                         FoodNutrientProfileEntity profile,
-                                                        String primaryBarcode) {
+                                                        String primaryBarcode,
+                                                        FoodServingEntity defaultServing) {
         String basisLabel = profile == null ? null : profile.getBasisQuantity().stripTrailingZeros().toPlainString() + " " + profile.getBasisUnit();
         return new FoodSearchResultView(
                 food.getFoodId(),
@@ -1779,7 +1785,25 @@ public class NutritionServiceImpl implements NutritionService {
                 basisLabel,
                 primaryBarcode,
                 foodGroupOf(food.getCategoryCode(), foodGroups),
-                food.isCountsTowardWater());
+                food.isCountsTowardWater(),
+                defaultServing == null ? null : new DefaultServingView(
+                        defaultServing.getServingId(), defaultServing.getLabel(), defaultServing.getGramsEquivalent()));
+    }
+
+    /** The serving each food is shown with: the one marked default, otherwise the first by sort order. */
+    private Map<UUID, FoodServingEntity> loadDefaultServings(List<FoodCatalogItemEntity> foods, LocalDate today) {
+        if (foods.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, FoodServingEntity> byFood = new HashMap<>();
+        for (FoodServingEntity serving : foodServingRepository.findActiveByFoodIdIn(
+                foods.stream().map(FoodCatalogItemEntity::getFoodId).toList(), today)) {
+            FoodServingEntity current = byFood.get(serving.getFoodId());
+            if (current == null || (!current.isDefaultServing() && serving.isDefaultServing())) {
+                byFood.put(serving.getFoodId(), serving);
+            }
+        }
+        return byFood;
     }
 
     private FoodServingView toFoodServingView(FoodServingEntity entity) {
