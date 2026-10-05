@@ -3,7 +3,6 @@ package com.fitsync.nutrition.catalog;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -65,9 +64,9 @@ public final class UsdaBrandRules {
                 return finish(byComma.get(), trimmed.substring(comma + 1));
             }
         }
-        String upper = trimmed.toUpperCase(Locale.ROOT);
+        String upper = upper(trimmed);
         for (Brand brand : BRANDS) {
-            String prefix = brand.name().toUpperCase(Locale.ROOT) + " ";
+            String prefix = upper(brand.name()) + " ";
             if (brand.spaceForm() && upper.startsWith(prefix)) {
                 return finish(brand, trimmed.substring(prefix.length()));
             }
@@ -76,9 +75,9 @@ public final class UsdaBrandRules {
     }
 
     private static Optional<Brand> find(String head) {
-        String key = head.toUpperCase(Locale.ROOT);
+        String key = upper(head);
         String target = ALIASES.getOrDefault(key, key);
-        return BRANDS.stream().filter(b -> b.name().toUpperCase(Locale.ROOT).equals(target)).findFirst();
+        return BRANDS.stream().filter(b -> upper(b.name()).equals(target)).findFirst();
     }
 
     private static Optional<Rewrite> finish(Brand brand, String rest) {
@@ -126,25 +125,44 @@ public final class UsdaBrandRules {
     }
 
     private static String word(String word, boolean first) {
-        String upper = word.toUpperCase(Locale.ROOT);
+        String upper = upper(word);
         if (word.equals(upper)) {
             if (ACRONYMS.contains(upper)) {
                 return word;
             }
             if (SMALL_WORDS.contains(upper) && !first) {
-                return word.toLowerCase(Locale.ROOT);
+                return lower(word);
             }
             return word.length() == 1 ? word : capitalise(word);
         }
         String tail = word.length() > 3 ? word.substring(2) : "";
-        if (word.startsWith("Mc") && tail.equals(tail.toUpperCase(Locale.ROOT))) {
+        if (word.startsWith("Mc") && tail.equals(upper(tail))) {
             return "Mc" + capitalise(tail);
         }
         return word;
     }
 
     private static String capitalise(String word) {
-        return word.substring(0, 1).toUpperCase(Locale.ROOT) + word.substring(1).toLowerCase(Locale.ROOT);
+        return upper(word.substring(0, 1)) + lower(word.substring(1));
+    }
+
+    /** Upper case for the letters a-z only. The USDA names are ASCII, and a locale-aware case mapping is not wanted. */
+    private static String upper(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            out.append(c >= 'a' && c <= 'z' ? (char) (c - ('a' - 'A')) : c);
+        }
+        return out.toString();
+    }
+
+    private static String lower(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            out.append(c >= 'A' && c <= 'Z' ? (char) (c + ('a' - 'A')) : c);
+        }
+        return out.toString();
     }
 
     private static List<Brand> brands() {
