@@ -238,6 +238,8 @@ class TrainingProgressCalculatorTests {
         assertEquals(monday, view.load().weeks().get(view.load().weeks().size() - 1).weekStart());
         assertEquals(monday, view.load().currentWeek().weekStart());
         assertEquals(120, view.load().currentWeek().soFar());
+        assertEquals(1, view.load().currentWeek().sessions());
+        assertEquals(20, view.load().currentWeek().minutes());
         assertEquals(Form.BALANCED, view.load().form());
 
         Highlight load = view.highlights().stream().filter(h -> h.code().equals("LOAD_TREND")).findFirst().orElseThrow();

@@ -288,8 +288,13 @@ public final class TrainingProgressCalculator {
         if (!fatigue.isEmpty()) {
             form = form(fitness.get(fitness.size() - 1).value(), fatigue.get(fatigue.size() - 1).value());
         }
-        CurrentLoadWeek currentWeek = inProgress == null ? null
-                : new CurrentLoadWeek(inProgress.weekStart(), inProgress.total());
+        CurrentLoadWeek currentWeek = null;
+        if (inProgress != null) {
+            LocalDate monday = inProgress.weekStart();
+            List<SessionSnap> soFar = all.stream()
+                    .filter(s -> !s.date().isBefore(monday) && !s.date().isAfter(today)).toList();
+            currentWeek = new CurrentLoadWeek(monday, inProgress.total(), soFar.size(), ProgressFacts.minutes(soFar));
+        }
         return new Load(weeks, fitness, fatigue, form, currentWeek);
     }
 

@@ -166,8 +166,11 @@ public record TrainingProgressView(
         }
     }
 
-    /** The week in progress: its Monday and its load so far, a figure that is never compared. */
-    public record CurrentLoadWeek(LocalDate weekStart, long soFar) {
+    /**
+     * The week in progress: its Monday and its load, sessions and minutes so far, today included. These are
+     * "so far" figures and are never compared.
+     */
+    public record CurrentLoadWeek(LocalDate weekStart, long soFar, int sessions, long minutes) {
     }
 
     /** How fitness compares with fatigue, only ever shown in words. */
