@@ -6,7 +6,8 @@ import java.util.List;
 import com.fitsync.nutrition.domain.MealSource;
 import com.fitsync.nutrition.domain.MealType;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotEmpty;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -58,10 +59,18 @@ public record CreateMealRequest(
         @NotNull MealSource source,
         @NotNull Instant consumedAt,
         @Size(max = 300) String note,
-        @NotEmpty List<@Valid MealItemInput> items) {
+        List<@Valid MealItemInput> items) {
 
     public CreateMealRequest {
         items = items == null ? List.of() : List.copyOf(items);
+    }
+
+    /** Every meal needs foods except a fasted day, which the service refuses when it has any. */
+    @JsonIgnore
+    @Schema(hidden = true)
+    @AssertTrue(message = "items must not be empty")
+    public boolean isItemsPresent() {
+        return mealType == MealType.FAST || !items.isEmpty();
     }
 
     @Override

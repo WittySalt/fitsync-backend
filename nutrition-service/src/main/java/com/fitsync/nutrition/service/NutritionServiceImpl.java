@@ -106,6 +106,7 @@ import com.fitsync.nutrition.repository.RecipeRepository;
 import com.fitsync.nutrition.repository.WaterLogRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
+import com.fitsync.web.error.ConflictException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -120,6 +121,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class NutritionServiceImpl implements NutritionService {
 
     private static final String SOURCE = "nutrition-service";
+    private static final String FAST_HAS_NO_FOODS = "A fasted day has no foods";
     private static final String NUTRITION_EVENTS_TOPIC = "nutrition-events";
     private static final int FOOD_SEARCH_MAX_SIZE = 50;
     private static final int EXTERNAL_SEARCH_FALLBACK_THRESHOLD = 5;
@@ -214,6 +216,10 @@ public class NutritionServiceImpl implements NutritionService {
     /** Saves a new meal from the header of a request and items that are already planned, then publishes MealLogged. */
     private MealView createMealFromPlanned(UUID userId, CreateMealRequest header, String timezone,
                                           List<PlannedItem> planned) {
+        if (header.mealType() == MealType.FAST && !planned.isEmpty()) {
+            throw new BadRequestException(FAST_HAS_NO_FOODS);
+        }
+        settleFastDay(userId, header.mealType(), header.consumedAt(), timezone, null);
         MealLogEntity entity = new MealLogEntity();
         entity.setMealId(UUID.randomUUID());
         entity.setUserId(userId);
@@ -275,6 +281,10 @@ public class NutritionServiceImpl implements NutritionService {
     public MealView updateMeal(CurrentUserPrincipal principal, UUID mealId, CreateMealRequest request,
                               String timezone) {
         MealLogEntity meal = getOwnedMeal(principal.userId(), mealId);
+        if (request.mealType() == MealType.FAST && !request.items().isEmpty()) {
+            throw new BadRequestException(FAST_HAS_NO_FOODS);
+        }
+        settleFastDay(principal.userId(), request.mealType(), request.consumedAt(), timezone, mealId);
         applyMeal(meal, request, timezone);
         MealLogEntity savedMeal = mealLogRepository.save(meal);
         mealItemRepository.deleteByMealId(savedMeal.getMealId());
@@ -286,7 +296,39 @@ public class NutritionServiceImpl implements NutritionService {
     @Override
     @Transactional
     public void deleteMeal(CurrentUserPrincipal principal, UUID mealId) {
-        MealLogEntity meal = getOwnedMeal(principal.userId(), mealId);
+        softDeleteMeal(getOwnedMeal(principal.userId(), mealId));
+    }
+
+    /**
+     * A day is either fasted or has meals. Logging a fast on a day that already has meals is refused, and logging
+     * any other meal on a fasted day marks the fast as deleted in the same transaction, so the day stops being
+     * a fasted one. The meal that is being edited is left out of the check.
+     */
+    private void settleFastDay(UUID userId, MealType mealType, Instant consumedAt, String timezone, UUID ownMealId) {
+        ZoneId zone = resolveZone(timezone);
+        LocalDate day = consumedAt.atZone(zone).toLocalDate();
+        Instant from = day.atStartOfDay(zone).toInstant();
+        Instant to = day.plusDays(1).atStartOfDay(zone).minusNanos(1).toInstant();
+        List<MealLogEntity> others = mealLogRepository
+                .findByUserIdAndConsumedAtGreaterThanEqualAndConsumedAtLessThanEqualOrderByConsumedAtDesc(
+                        userId, from, to)
+                .stream()
+                .filter(meal -> !meal.getMealId().equals(ownMealId))
+                .toList();
+        if (mealType == MealType.FAST) {
+            if (!others.isEmpty()) {
+                throw new ConflictException("Meals are already logged on this day");
+            }
+            return;
+        }
+        for (MealLogEntity meal : others) {
+            if (meal.getMealType() == MealType.FAST) {
+                softDeleteMeal(meal);
+            }
+        }
+    }
+
+    private void softDeleteMeal(MealLogEntity meal) {
         // The meal and its items stay in the table, marked as deleted, and every read leaves them out.
         meal.setDeletedAt(Instant.now(Clock.systemUTC()));
         mealLogRepository.save(meal);
@@ -296,7 +338,7 @@ public class NutritionServiceImpl implements NutritionService {
                 1,
                 Instant.now(Clock.systemUTC()),
                 SOURCE,
-                principal.userId(),
+                meal.getUserId(),
                 new MealDeletedPayload(meal.getMealId(), Instant.now(Clock.systemUTC()))));
     }
 
@@ -327,6 +369,9 @@ public class NutritionServiceImpl implements NutritionService {
                         principal.userId(), from, to);
         List<MealView> copied = new ArrayList<>();
         for (MealLogEntity meal : meals) {
+            if (meal.getMealType() == MealType.FAST) {
+                continue;
+            }
             LocalTime localTime = meal.getConsumedAt().atZone(zone).toLocalTime();
             Instant target = request.targetDate().atTime(localTime).atZone(zone).toInstant();
             copied.add(copyMealTo(principal.userId(), meal, target, null));
@@ -336,6 +381,11 @@ public class NutritionServiceImpl implements NutritionService {
 
     /** Clones a meal and its item snapshots (+ nutrient details) to a new time, emitting MealLogged. */
     private MealView copyMealTo(UUID userId, MealLogEntity source, Instant targetConsumedAt, MealType mealTypeOverride) {
+        MealType copyType = mealTypeOverride != null ? mealTypeOverride : source.getMealType();
+        if (copyType == MealType.FAST) {
+            throw new BadRequestException("A fasted day cannot be copied");
+        }
+        settleFastDay(userId, copyType, targetConsumedAt, source.getTimezone(), null);
         MealLogEntity newMeal = new MealLogEntity();
         newMeal.setMealId(UUID.randomUUID());
         newMeal.setUserId(userId);

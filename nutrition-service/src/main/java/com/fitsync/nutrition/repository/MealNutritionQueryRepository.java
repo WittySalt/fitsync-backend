@@ -332,4 +332,19 @@ public interface MealNutritionQueryRepository extends Repository<MealLogEntity, 
             order by max(m.consumedAt) desc, i.recipeId asc
             """)
     List<RecentRecipeRow> findRecentRecipes(@Param("userId") UUID userId, Pageable pageable);
+
+    /**
+     * The recipes the user logged meals from since a time, one row per recipe with the time of its newest meal.
+     * Meals marked as deleted are left out by the entity's own restriction.
+     */
+    @Query("""
+            select i.recipeId as recipeId, max(m.consumedAt) as lastCookedAt
+            from MealLogEntity m, MealItemEntity i
+            where i.mealId = m.mealId
+              and m.userId = :userId
+              and i.recipeId is not null
+              and m.consumedAt >= :since
+            group by i.recipeId
+            """)
+    List<RecentRecipeRow> findRecipesLoggedSince(@Param("userId") UUID userId, @Param("since") Instant since);
 }

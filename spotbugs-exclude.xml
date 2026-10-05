@@ -171,6 +171,12 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Constructor-injected Spring services of the Cook for tonight suggestions, same noise as above. -->
+    <Match>
+        <Class name="com.fitsync.nutrition.service.RecipeSuggestionService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- The scope and diet parameters are compared with a fixed list of ASCII keywords, ignoring case, and the
          text is never used as a key or a file name afterwards. -->
     <Match>
@@ -629,6 +635,11 @@
 
     <Match>
         <Class name="com.fitsync.recommendation.coach.tool.SearchRecipesTool"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.tool.ReadRecipeSuggestionsTool"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 

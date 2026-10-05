@@ -82,7 +82,7 @@ public class NutritionPageInsightServiceImpl implements NutritionPageInsightServ
         List<MealProteinShareView> byMeal = new ArrayList<>();
         // The enum runs breakfast, lunch, dinner and then the remaining types, which is the order of a day.
         for (MealType type : MealType.values()) {
-            BigDecimal grams = period.proteinByMeal.get(type);
+            BigDecimal grams = type == MealType.FAST ? null : period.proteinByMeal.get(type);
             if (grams != null) {
                 byMeal.add(new MealProteinShareView(type, labelOf(type), perDay(grams, days)));
             }

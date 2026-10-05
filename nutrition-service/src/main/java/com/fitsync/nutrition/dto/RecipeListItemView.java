@@ -7,7 +7,9 @@ import java.util.UUID;
 
 /**
  * One recipe on a list page: what a card needs, with nutrition per serving. lastCookedAt is set only on the
- * "recent" scope, the time of the newest meal the caller logged from the recipe, and is null everywhere else.
+ * "recent" scope, the time of the newest cook or of the newest meal the caller logged from the recipe, and is
+ * null everywhere else. lastActivity says which of the two it is, COOKED when a cook record gave the time and
+ * LOGGED when a meal logged from the recipe did, and is null whenever lastCookedAt is.
  */
 public record RecipeListItemView(
         UUID id,
@@ -25,7 +27,8 @@ public record RecipeListItemView(
         List<String> dietFlags,
         List<String> topFoodGroups,
         boolean favorite,
-        Instant lastCookedAt) {
+        Instant lastCookedAt,
+        String lastActivity) {
 
     public RecipeListItemView {
         tags = tags == null ? List.of() : List.copyOf(tags);
