@@ -11,6 +11,9 @@ profile):
   Diary batch 1  the vitamins, minerals, water and drink flags for the same foods (V901):
       python generate_seed.py --micronutrients <sr_legacy_csv_dir> <V901.sql>
 
+  Nutrition review batch  the household measures (1 cup, 1 slice, 6 pieces) of the same foods (V904):
+      python generate_seed.py --portions <sr_legacy_csv_dir> <V904.sql>
+
 The dataset (public domain) is the unzipped FoodData_Central_sr_legacy_food_csv_*. Both outputs are
 deterministic: ids are uuid5 values of the fdc_id, so V901 updates and inserts by the very ids V900 wrote, and
 generating again gives the same files.
@@ -377,6 +380,123 @@ def main_micronutrients(csv_dir, out_path, v18_path):
           f"food_nutrient_details rows: {len(detail_values)}; counts_toward_water foods: {len(water_ids)}")
 
 
+# --- V904 -----------------------------------------------------------------------------------------
+
+LABEL_LIMIT = 80
+UNIT_LIMIT = 30
+# The catalogue's profile basis is "g", and a serving whose unit is "g" is read as "quantity grams", so a portion
+# the data calls "g" gets another unit name.
+GRAM_UNITS = {"g", "gram", "grams"}
+TRAILING_WEIGHT = re.compile(r"\s+\d+(\.\d+)?\s*(oz|g|fl oz|lb)$", re.IGNORECASE)
+PARENTHETICAL = re.compile(r"\s*\([^)]*\)")
+
+
+def read_measure_units(base):
+    """measure_unit.csv: id -> name. SR Legacy marks most portions 9999 (undetermined) and puts the words in `modifier`."""
+    path = base / "measure_unit.csv"
+    if not path.exists():
+        return {}
+    return {row["id"]: row["name"].strip() for row in csv.DictReader(open(path, encoding="utf-8"))}
+
+
+def portion_descriptor(row, measure_units):
+    """The words that follow the amount in a label: the measure unit when it is known, otherwise the modifier."""
+    named = measure_units.get(row.get("measure_unit_id", ""), "")
+    if named and named != "undetermined":
+        extra = (row.get("modifier") or "").strip()
+        return f"{named}, {extra}" if extra else named
+    return (row.get("modifier") or row.get("portion_description") or "").strip()
+
+
+def portion_label(amount, descriptor):
+    """'1 cup, chopped'; a weight at the end of the words ('item 7.6 oz') or an over-long note is dropped."""
+    descriptor = TRAILING_WEIGHT.sub("", descriptor).strip() or descriptor
+    amount_text = f"{amount:g}"
+    label = f"{amount_text} {descriptor}"
+    if len(label) > LABEL_LIMIT:
+        short = PARENTHETICAL.sub("", descriptor).strip()
+        label = f"{amount_text} {short}"
+    if len(label) > LABEL_LIMIT or not descriptor:
+        return None
+    return label
+
+
+def portion_unit(descriptor):
+    """The first word of the descriptor ('cup' of 'cup, chopped'), which is the unit of the amount."""
+    if descriptor.lower().startswith("fl oz"):
+        return "fl oz"
+    unit = re.split(r"[\s,(]", descriptor.strip(), maxsplit=1)[0][:UNIT_LIMIT] or "serving"
+    return "portion" if unit.lower() in GRAM_UNITS else unit
+
+
+def main_portions(csv_dir, out_path):
+    base = Path(csv_dir)
+    selected, _used_new_leaves, _nutr = select_foods(base, set())
+    wanted = {fid for fid, _desc, _code in selected}
+    measure_units = read_measure_units(base)
+
+    by_food = {}
+    for row in csv.DictReader(open(base / "food_portion.csv", encoding="utf-8")):
+        if row["fdc_id"] in wanted:
+            by_food.setdefault(row["fdc_id"], []).append(row)
+
+    serving_cols = ("serving_id, food_id, label, quantity, unit, grams_equivalent, milliliters_equivalent,"
+                    " sort_order, default_serving, date_effective_from, date_effective_to, active,"
+                    " date_time_created, date_time_updated, created_by, updated_by, version")
+    values = []        # one insert row per portion
+    old_defaults = []  # the "100 g" serving of every food that gets a household measure
+    new_defaults = []  # (food id, first household serving id)
+    for fid, _desc, _code in selected:
+        rows = sorted(by_food.get(fid, []), key=lambda r: (int(r["seq_num"] or 0), int(r["id"])))
+        seen = set()
+        first = True
+        for row in rows:
+            grams = to_float(row.get("gram_weight"))
+            amount = to_float(row.get("amount"))
+            if grams is None or grams <= 0 or amount is None or amount <= 0:
+                continue  # a portion without a weight cannot be turned into grams
+            descriptor = portion_descriptor(row, measure_units)
+            label = portion_label(amount, descriptor)
+            if label is None or label.lower() in seen:
+                continue
+            seen.add(label.lower())
+            serving_id = uid("portion", fid, row["id"])
+            # The 100 g row keeps sort order 1, so the household measures start at seq + 1.
+            values.append(
+                f"('{serving_id}','{uid('food', fid)}',{sql_str(label, LABEL_LIMIT)},{round(amount, 2)},"
+                f"{sql_str(portion_unit(descriptor), UNIT_LIMIT)},{round(grams, 2)},null,"
+                f"{int(row['seq_num'] or 0) + 1},{'true' if first else 'false'},date '2020-01-01',null,true,{AUDIT})")
+            if first:
+                old_defaults.append(uid("serving", fid))
+                new_defaults.append((uid("food", fid), serving_id))
+                first = False
+
+    out = []
+    out.append("-- Nutrition review batch: the USDA household measures of the V900 foods.")
+    out.append("-- Generated by tools/usda/generate_seed.py --portions. Prod-only (db/seed): not applied in tests.")
+    out.append("-- A food with a household measure keeps its '100 g' serving as a fallback, and the first measure")
+    out.append("-- (lowest USDA seq) becomes its default serving. Ids are uuid5 values of the USDA portion id.")
+    out.append("")
+    for i in range(0, len(old_defaults), 200):
+        ids = ",".join(f"'{sid}'" for sid in old_defaults[i:i + 200])
+        out.append(f"update food_servings set default_serving = false where serving_id in ({ids});")
+    out.append("")
+    for i in range(0, len(values), 500):
+        out.append(f"insert into food_servings ({serving_cols}) values")
+        out.append(",\n".join(values[i:i + 500]) + ";")
+        out.append("")
+    for i in range(0, len(new_defaults), 500):
+        pairs = ",\n".join(f"('{food_id}','{serving_id}')" for food_id, serving_id in new_defaults[i:i + 500])
+        out.append("update food_catalog_items set default_serving_id = cast(v.serving_id as uuid)")
+        out.append(f"from (values\n{pairs}\n) as v(food_id, serving_id)")
+        out.append("where food_catalog_items.food_id = cast(v.food_id as uuid);")
+        out.append("")
+
+    Path(out_path).write_text("\n".join(out), encoding="utf-8")
+    print(f"foods: {len(selected)}; foods with household measures: {len(new_defaults)}; "
+          f"food_servings rows: {len(values)}")
+
+
 def to_float(value):
     if value is None or value == "":
         return None
@@ -392,10 +512,14 @@ if __name__ == "__main__":
     parser.add_argument("output", help="the SQL file to write")
     parser.add_argument("--micronutrients", action="store_true",
                         help="write the V901 micronutrient seed instead of the V900 food seed")
+    parser.add_argument("--portions", action="store_true",
+                        help="write the V904 household measure seed (food_portion.csv) instead of the V900 food seed")
     parser.add_argument("--nutrients-sql", default=str(DEFAULT_V18),
                         help="the V18 migration that defines the nutrients table (V901 only)")
     args = parser.parse_args()
-    if args.micronutrients:
+    if args.portions:
+        main_portions(args.csv_dir, args.output)
+    elif args.micronutrients:
         main_micronutrients(args.csv_dir, args.output, args.nutrients_sql)
     else:
         main(args.csv_dir, args.output)

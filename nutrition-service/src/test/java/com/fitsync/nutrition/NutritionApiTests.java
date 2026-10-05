@@ -968,7 +968,8 @@ class NutritionApiTests {
                 .andExpect(jsonPath("$.number").value(1))
                 .andExpect(jsonPath("$.first").value(false))
                 .andExpect(jsonPath("$.last").value(true))
-                .andExpect(jsonPath("$.content[0].displayName").value("Apple Cider"));
+                // Same tier, same brand: the shorter name comes first, so Apple Cider (11) precedes Apple Butter (12).
+                .andExpect(jsonPath("$.content[0].displayName").value("Apple Butter"));
     }
 
     @Test

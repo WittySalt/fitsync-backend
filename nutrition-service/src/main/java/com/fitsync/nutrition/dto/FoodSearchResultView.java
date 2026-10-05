@@ -18,13 +18,14 @@ public record FoodSearchResultView(
         String basisLabel,
         String primaryBarcode,
         String foodGroup,
-        boolean countsTowardWater) {
+        boolean countsTowardWater,
+        DefaultServingView defaultServing) {
 
     /** A result from a source that knows neither the plate group nor the water content, such as Open Food Facts. */
     public FoodSearchResultView(UUID foodId, String displayName, String brandName, String categoryCode,
                                 String categoryName, FoodCatalogScope scope, FoodCatalogSource source,
                                 boolean verified, Integer calories, String basisLabel, String primaryBarcode) {
         this(foodId, displayName, brandName, categoryCode, categoryName, scope, source, verified, calories,
-                basisLabel, primaryBarcode, null, false);
+                basisLabel, primaryBarcode, null, false, null);
     }
 }

@@ -7,6 +7,7 @@ from the USDA FoodData Central **SR Legacy** dataset (public domain):
 | --- | --- | --- |
 | `V900__seed_usda_foods.sql` | The foods: catalog rows, a "100 g" serving and a per-100 g nutrient profile each | `python tools/usda/generate_seed.py <csv_dir> <V900.sql>` |
 | `V901__usda_micronutrients.sql` | Vitamins, minerals, water, the drink flag and the plate group of the categories V900 adds | `python tools/usda/generate_seed.py --micronutrients <csv_dir> <V901.sql>` |
+| `V904__usda_food_portions.sql` | The household measures (1 cup, 1 slice, 6 pieces) of the same foods | `python tools/usda/generate_seed.py --portions <csv_dir> <V904.sql>` |
 
 ## Regenerate
 
@@ -24,9 +25,12 @@ python tools/usda/generate_seed.py \
 python tools/usda/generate_seed.py --micronutrients \
   sr/FoodData_Central_sr_legacy_food_csv_2018-04 \
   nutrition-service/src/main/resources/db/seed/V901__usda_micronutrients.sql
+
+# 4. The household measures (V904), for the same foods
+python tools/usda/generate_seed.py --portions   sr/FoodData_Central_sr_legacy_food_csv_2018-04   nutrition-service/src/main/resources/db/seed/V904__usda_food_portions.sql
 ```
 
-The dataset CSVs are **not** committed (only the generated SQL is). Both outputs are deterministic: ids are
+The dataset CSVs are **not** committed (only the generated SQL is). All outputs are deterministic: ids are
 `uuid5` values of the USDA `fdc_id`, so generating again gives the same files, and V901 lands on exactly the rows
 V900 wrote. Current V900 output: 7,448 foods (those with calories and a mappable category).
 
@@ -50,6 +54,32 @@ name, unit and USDA nutrient number), so that list is kept in one place. The scr
 the migration lives somewhere else. The USDA number (`nutrient_nbr`, for example 401 for vitamin C) is turned into
 the id that `food_nutrient.csv` uses through `nutrient.csv`, and the script stops if a unit in V18 does not match
 the unit USDA gives.
+
+## What V904 does
+
+For every food V900 writes, one `food_servings` row per household measure in `food_portion.csv`:
+
+- SR Legacy marks nearly every portion as measure unit 9999 ("undetermined") and puts the words in `modifier`, so
+  the label is the amount and those words ("1 cup, chopped", "6 pieces", "1 sandwich"). When a portion does name a
+  unit in `measure_unit.csv`, that name is used. A trailing weight ("item 7.6 oz") is dropped from the label, and a
+  portion with no gram weight, a repeated label or a label over 80 characters is skipped.
+- `quantity` is the amount, `unit` the first word of the label, `grams_equivalent` the weight of the whole portion
+  (`quantity` of that unit), and `sort_order` the USDA `seq_num` plus one, so the "100 g" row stays first.
+- The portion with the lowest `seq_num` becomes the default: its row gets `default_serving = true`, the food's
+  "100 g" row loses it, and `food_catalog_items.default_serving_id` points at the new row. A food with no usable
+  portion keeps "100 g" as its default.
+- Ids are `uuid5` values of the USDA portion id. Current output: 13,531 rows for 7,183 of the 7,448 foods.
+
+## Brands (V25 and V905)
+
+V900 stores the brand inside the name ("McDONALD'S, BIG MAC"). `V25__brand_usda_foods` (a Java migration in
+`db/migration`, rules in `UsdaBrandRules`) moves a listed chain or maker into `brand_id`, rewrites the display name
+to the rest in title case and keeps the full original in `normalized_name`. Flyway runs V25 before V900 on a new
+database, so V25 only has an effect on a database that already holds the V900 foods. On a new database the same
+rules run again as `V905__brand_usda_foods` in `db/seed`, after V900 to V904. Regenerating V900 does not undo
+this: V900 keeps writing the USDA names and V25 or V905 rewrite them, in that order. New brands go into the list in
+`UsdaBrandRules`; the next run of V905 does not repeat on foods that already have a brand, so a new brand needs its own
+migration that calls `UsdaBrandBackfill`.
 
 ## Try it without the real data
 

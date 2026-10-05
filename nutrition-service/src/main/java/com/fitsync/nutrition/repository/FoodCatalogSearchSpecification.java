@@ -7,8 +7,11 @@ import java.util.Locale;
 import java.util.UUID;
 
 import com.fitsync.nutrition.domain.FoodCatalogScope;
+import com.fitsync.nutrition.entity.FoodBrandEntity;
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
 import com.fitsync.nutrition.entity.FoodCategoryEntity;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
@@ -27,7 +30,44 @@ public final class FoodCatalogSearchSpecification {
 
     private static final String FOOD_GROUP_OTHER = "OTHER";
 
+    private static final char LIKE_ESCAPE = '\\';
+
     private FoodCatalogSearchSpecification() {
+    }
+
+    /** The characters a word may follow, so "nugget" starts a word in "Chicken, (nuggets)" and "stick/nugget". */
+    private static final String[] WORD_SEPARATORS = {" ", ",", "(", "/", "-"};
+
+    static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    /**
+     * Relevance of a match, lower is better: 0 the name is the query, 1 the name (or the brand) starts with it,
+     * 2 a word of the name starts with it, 3 it is only contained somewhere, for example in the full USDA
+     * name that a branded item keeps in its normalized name. Built as a CASE in the query so that the order
+     * holds across pages.
+     */
+    private static Expression<Integer> relevanceTier(Root<FoodCatalogItemEntity> root, CriteriaQuery<?> cq,
+                                                     CriteriaBuilder cb, String lowered) {
+        Expression<String> name = cb.lower(root.<String>get("displayName"));
+        String escaped = escapeLike(lowered);
+
+        Subquery<Long> brandStarts = cq.subquery(Long.class);
+        Root<FoodBrandEntity> brand = brandStarts.from(FoodBrandEntity.class);
+        brandStarts.select(cb.literal(1L)).where(
+                cb.equal(brand.get("brandId"), root.get("brandId")),
+                cb.like(cb.lower(brand.<String>get("name")), escaped + "%", LIKE_ESCAPE));
+
+        Predicate[] wordStarts = new Predicate[WORD_SEPARATORS.length];
+        for (int i = 0; i < WORD_SEPARATORS.length; i++) {
+            wordStarts[i] = cb.like(name, "%" + WORD_SEPARATORS[i] + escaped + "%", LIKE_ESCAPE);
+        }
+        return cb.<Integer>selectCase()
+                .when(cb.equal(name, lowered), 0)
+                .when(cb.or(cb.like(name, escaped + "%", LIKE_ESCAPE), cb.exists(brandStarts)), 1)
+                .when(cb.or(wordStarts), 2)
+                .otherwise(3);
     }
 
     public static Specification<FoodCatalogItemEntity> accessibleSearch(
@@ -46,10 +86,10 @@ public final class FoodCatalogSearchSpecification {
 
             String lowered = query == null ? null : query.toLowerCase(Locale.ROOT);
             if (lowered != null) {
-                String like = "%" + lowered + "%";
+                String like = "%" + escapeLike(lowered) + "%";
                 predicates.add(cb.or(
-                        cb.like(cb.lower(root.<String>get("displayName")), like),
-                        cb.like(cb.lower(root.<String>get("normalizedName")), like)));
+                        cb.like(cb.lower(root.<String>get("displayName")), like, LIKE_ESCAPE),
+                        cb.like(cb.lower(root.<String>get("normalizedName")), like, LIKE_ESCAPE)));
             }
             if (categoryCode != null) {
                 predicates.add(cb.equal(root.get("categoryCode"), categoryCode));
@@ -91,18 +131,21 @@ public final class FoodCatalogSearchSpecification {
 
             List<Order> orders = new ArrayList<>();
             if (lowered != null) {
-                Expression<Integer> relevance = cb.<Integer>selectCase()
-                        .when(cb.equal(cb.lower(root.<String>get("normalizedName")), lowered), 0)
-                        .when(cb.like(cb.lower(root.<String>get("normalizedName")), lowered + "%"), 1)
-                        .otherwise(2);
-                orders.add(cb.asc(relevance));
+                orders.add(cb.asc(relevanceTier(root, cq, cb, lowered)));
             }
             Expression<Integer> ownerRank = cb.<Integer>selectCase()
                     .when(cb.equal(root.get("ownerUserId"), userId), 0)
                     .otherwise(1);
             orders.add(cb.asc(ownerRank));
-            orders.add(cb.desc(root.get("verified")));
+            // A branded item (brand_id set) comes before an unbranded one, then the shorter name, then the
+            // name, then the id so that two rows never tie and paging stays stable.
+            Expression<Integer> brandRank = cb.<Integer>selectCase()
+                    .when(cb.isNull(root.get("brandId")), 1)
+                    .otherwise(0);
+            orders.add(cb.asc(brandRank));
+            orders.add(cb.asc(cb.length(root.<String>get("displayName"))));
             orders.add(cb.asc(root.get("displayName")));
+            orders.add(cb.asc(root.get("foodId")));
             cq.orderBy(orders);
 
             return cb.and(predicates.toArray(new Predicate[0]));
