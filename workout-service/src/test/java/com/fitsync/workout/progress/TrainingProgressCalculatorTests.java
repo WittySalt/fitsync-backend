@@ -205,11 +205,49 @@ class TrainingProgressCalculatorTests {
 
         assertEquals("Load rose for two weeks, and this week is lighter so far.", load.title());
         assertEquals("+5% on the 4 weeks before, effort × minutes each week", load.context());
-        assertEquals(4, load.series().size());
+        // The series ends at the last finished week; the week in progress is the labelled "so far" bar.
+        assertEquals(3, load.series().size());
         assertEquals("2026-09-07", load.series().get(0).label());
+        assertEquals(LocalDate.parse("2026-09-28"), view.load().currentWeek().weekStart());
+        assertEquals(180, view.load().currentWeek().soFar());
         assertEquals(1260, view.hero().load().value());
         assertEquals(1200, view.hero().load().previous());
-        assertEquals(Form.FRESH, view.load().form());
+        // Form reads the last finished week (420 against a six-week mean of 330), not the week in progress.
+        assertEquals(Form.TIRED, view.load().form());
+    }
+
+    @Test
+    void todayIsNeverAWeekAndNoComparisonCountsIt() {
+        // Four full weeks to Sunday 4 Oct, a strength session every Tuesday, then a short one on Monday 5 Oct.
+        LocalDate monday = LocalDate.parse("2026-10-05");
+        ProgressPeriod period = new ProgressPeriod(LocalDate.parse("2026-09-08"), monday);
+        List<SessionSnap> sessions = new java.util.ArrayList<>();
+        for (LocalDate tuesday = LocalDate.parse("2026-08-11"); tuesday.isBefore(monday); tuesday = tuesday.plusWeeks(1)) {
+            sessions.add(strength(tuesday.toString(), 60, 6));
+        }
+        sessions.add(strength(monday.toString(), 20, 6));
+
+        TrainingProgressView view = TrainingProgressCalculator.compute(new TrainingProgressCalculator.Inputs(period,
+                monday, sessions, Map.of(), null, Set.of()));
+
+        assertEquals(4, view.hero().sessions().value());
+        assertEquals(4, view.hero().sessions().previous());
+        assertEquals(view.hero().load().previous(), view.hero().load().value());
+        assertEquals(LocalDate.parse("2026-09-28"), view.load().fatigue().get(view.load().fatigue().size() - 1).weekStart());
+        assertEquals(LocalDate.parse("2026-09-28"), view.load().fitness().get(view.load().fitness().size() - 1).weekStart());
+        assertEquals(monday, view.load().weeks().get(view.load().weeks().size() - 1).weekStart());
+        assertEquals(monday, view.load().currentWeek().weekStart());
+        assertEquals(120, view.load().currentWeek().soFar());
+        assertEquals(Form.BALANCED, view.load().form());
+
+        Highlight load = view.highlights().stream().filter(h -> h.code().equals("LOAD_TREND")).findFirst().orElseThrow();
+        assertEquals("Load held about level.", load.title());
+        assertEquals("2026-09-28", load.series().get(load.series().size() - 1).label());
+
+        Activity strength = view.activities().get(0);
+        assertEquals(5, strength.sessions());
+        assertTrue(strength.summary().stream().noneMatch(line -> line.trend() == Trend.DOWN));
+        assertTrue(strength.context().startsWith("Same time as"), strength.context());
     }
 
     @Test

@@ -28,6 +28,7 @@ import com.fitsync.workout.dto.progress.TrainingProgressView.Activity;
 import com.fitsync.workout.dto.progress.TrainingProgressView.ByKind;
 import com.fitsync.workout.dto.progress.TrainingProgressView.CalendarDay;
 import com.fitsync.workout.dto.progress.TrainingProgressView.Count;
+import com.fitsync.workout.dto.progress.TrainingProgressView.CurrentLoadWeek;
 import com.fitsync.workout.dto.progress.TrainingProgressView.Form;
 import com.fitsync.workout.dto.progress.TrainingProgressView.Hero;
 import com.fitsync.workout.dto.progress.TrainingProgressView.Lift;
@@ -131,23 +132,31 @@ public final class TrainingProgressCalculator {
         long previousEvents = events.stream().filter(e -> previous.contains(e.date())).count();
         Set<SessionExercise> recordKeys = ProgressFacts.recordKeys(events);
 
+        // Comparisons use the days that are over against as many days of the period before: today is still
+        // going and never enters a figure that is compared or judged (progress review fixes, section 1).
+        ProgressPeriod counted = ProgressFacts.fullDays(period, inputs.today());
+        List<SessionSnap> countedNow = ProgressFacts.inSpan(all, counted);
+        List<SessionSnap> countedBefore = ProgressFacts.inSpan(all, ProgressFacts.previousSpan(period, counted));
+
         List<Lift> lifts = ProgressFacts.lifts(inPeriod, recordKeys, inputs.bodyWeightKg());
-        List<Activity> activities = activities(all, inPeriod, inPrevious, period, inputs.today(), lifts);
+        List<Lift> countedLifts = ProgressFacts.lifts(countedNow, recordKeys, inputs.bodyWeightKg());
+        List<Activity> activities = activities(all, inPeriod, inPrevious, period, inputs.today(), countedLifts);
         List<LoadWeek> loadWeeks = loadWeeks(all, previous.from(), period.to());
-        Muscles muscles = muscles(inPeriod, period, inputs.today());
+        Muscles muscles = muscles(countedNow, counted, inputs.today());
 
         Hero hero = new Hero(
-                new Count(inPeriod.size(), inPrevious.size()),
-                new Count(ProgressFacts.minutes(inPeriod), ProgressFacts.minutes(inPrevious)),
-                new LoadFigure(load(inPeriod), load(inPrevious), estimatedShare(inPeriod)),
+                new Count(countedNow.size(), countedBefore.size()),
+                new Count(ProgressFacts.minutes(countedNow), ProgressFacts.minutes(countedBefore)),
+                new LoadFigure(load(countedNow), load(countedBefore), estimatedShare(countedNow)),
                 new RecordsFigure(periodEvents.size(), (int) previousEvents,
                         new ArrayList<>(new LinkedHashSet<>(periodEvents.stream().map(RecordEvent::name).toList()))));
 
-        List<Highlight> highlights = highlights(inputs, inPeriod, inPrevious, lifts, periodEvents, muscles,
-                loadWeeks);
+        List<Highlight> highlights = highlights(inputs, countedNow, countedBefore, countedLifts, periodEvents,
+                muscles, loadWeeks);
 
         return new TrainingProgressView(period.range(), previous.range(), hero, highlights, activities,
-                load(all, loadWeeks, previous.from(), period.to()), muscles, lifts, calendar(inPeriod, recordKeys),
+                load(all, loadWeeks, previous.from(), period.to(), inputs.today()), muscles, lifts,
+                calendar(inPeriod, recordKeys),
                 recordEntries(periodEvents));
     }
 
@@ -253,22 +262,40 @@ public final class TrainingProgressCalculator {
      * and form compares them in the last week: tired when fatigue is more than 15% over fitness,
      * fresh when it is more than 15% under, balanced otherwise.
      */
-    private static Load load(List<SessionSnap> all, List<LoadWeek> weeks, LocalDate from, LocalDate to) {
+    private static Load load(List<SessionSnap> all, List<LoadWeek> weeks, LocalDate from, LocalDate to,
+                             LocalDate today) {
         Map<LocalDate, Long> totals = new HashMap<>();
         for (LoadWeek week : loadWeeks(all, ProgressPeriod.mondayOf(from).minusWeeks(FITNESS_WEEKS - 1L), to)) {
             totals.put(week.weekStart(), week.total());
         }
+        // A week's load is a sum, so a week in progress is always short of a whole one: the fitness and
+        // fatigue lines and the form end at the last finished week, and the bar of the week in progress is
+        // named in currentWeek as "so far".
         List<WeekValue> fitness = new ArrayList<>();
         List<WeekValue> fatigue = new ArrayList<>();
+        LoadWeek inProgress = null;
         for (LoadWeek week : weeks) {
+            if (!finished(week.weekStart(), today)) {
+                if (!week.weekStart().isAfter(today)) {
+                    inProgress = week;
+                }
+                continue;
+            }
             fitness.add(new WeekValue(week.weekStart(), fitnessAt(totals, week.weekStart())));
             fatigue.add(new WeekValue(week.weekStart(), week.total()));
         }
         Form form = Form.BALANCED;
-        if (!weeks.isEmpty()) {
+        if (!fatigue.isEmpty()) {
             form = form(fitness.get(fitness.size() - 1).value(), fatigue.get(fatigue.size() - 1).value());
         }
-        return new Load(weeks, fitness, fatigue, form);
+        CurrentLoadWeek currentWeek = inProgress == null ? null
+                : new CurrentLoadWeek(inProgress.weekStart(), inProgress.total());
+        return new Load(weeks, fitness, fatigue, form, currentWeek);
+    }
+
+    /** A Monday week whose Sunday is before today. */
+    static boolean finished(LocalDate monday, LocalDate today) {
+        return monday.plusDays(6).isBefore(today);
     }
 
     static long fitnessAt(Map<LocalDate, Long> totals, LocalDate weekStart) {
@@ -297,10 +324,11 @@ public final class TrainingProgressCalculator {
 
     /**
      * Hard sets a week per group: a set with a logged weight or reps counts 1 for the exercise's primary
-     * group and 0.5 for each secondary group, averaged over the weeks of the period that have happened.
+     * group and 0.5 for each secondary group, averaged over the weeks of the period that have happened. The
+     * Training page passes the days that are over, so the sets of today wait until the day is done.
      */
     static Muscles muscles(List<SessionSnap> inPeriod, ProgressPeriod period, LocalDate today) {
-        long days = Math.max(1, ProgressFacts.elapsedDays(period, today));
+        long days = Math.max(1, period == null ? 0 : ProgressFacts.elapsedDays(period, today));
         BigDecimal weeks = BigDecimal.valueOf(days).divide(BigDecimal.valueOf(DAYS_PER_WEEK), 6, RoundingMode.HALF_UP);
         Map<MuscleGroup, BigDecimal> totals = new EnumMap<>(MuscleGroup.class);
         Map<MuscleGroup, Map<UUID, BigDecimal>> byExercise = new EnumMap<>(MuscleGroup.class);
@@ -509,14 +537,16 @@ public final class TrainingProgressCalculator {
         }
         int pct = StrengthMath.pctChange(BigDecimal.valueOf(before), BigDecimal.valueOf(now));
         LocalDate firstWeek = ProgressPeriod.mondayOf(period.from());
-        List<LoadWeek> periodWeeks = loadWeeks.stream().filter(w -> !w.weekStart().isBefore(firstWeek)).toList();
+        List<LoadWeek> periodWeeks = loadWeeks.stream()
+                .filter(w -> !w.weekStart().isBefore(firstWeek) && finished(w.weekStart(), today)).toList();
         LocalDate currentWeek = ProgressPeriod.mondayOf(today);
         List<LoadWeek> finished = new ArrayList<>();
         LoadWeek inProgress = null;
         for (LoadWeek week : loadWeeks) {
             if (week.weekStart().plusDays(6).isBefore(today)) {
                 finished.add(week);
-            } else if (week.weekStart().equals(currentWeek) && !week.weekStart().isBefore(firstWeek)) {
+            } else if (week.weekStart().equals(currentWeek) && !week.weekStart().isBefore(firstWeek)
+                    && ProgressFacts.weekCounts(currentWeek, today)) {
                 inProgress = week;
             }
         }
@@ -570,10 +600,13 @@ public final class TrainingProgressCalculator {
         if (plannedDays.isEmpty()) {
             return null;
         }
-        LocalDate end = period.to().isAfter(today) ? today : period.to();
+        // Today is still going: neither a planned day missed nor a day trained until it is over.
+        LocalDate end = period.to().isBefore(today) ? period.to() : today.minusDays(1);
         Set<LocalDate> trained = new HashSet<>();
         for (SessionSnap session : inPeriod) {
-            trained.add(session.date());
+            if (!session.date().isAfter(end)) {
+                trained.add(session.date());
+            }
         }
         int planned = 0;
         int hit = 0;
@@ -593,10 +626,12 @@ public final class TrainingProgressCalculator {
                 + (extra > 0 ? ", and on " + extra + (extra == 1 ? " day" : " days") + " besides." : ".");
         Map<LocalDate, Integer> perWeek = new TreeMap<>();
         for (LocalDate week = ProgressPeriod.mondayOf(period.from()); !week.isAfter(end); week = week.plusWeeks(1)) {
-            perWeek.put(week, 0);
+            if (ProgressFacts.weekCounts(week, today)) {
+                perWeek.put(week, 0);
+            }
         }
         for (LocalDate day : trained) {
-            perWeek.merge(ProgressPeriod.mondayOf(day), 1, Integer::sum);
+            perWeek.computeIfPresent(ProgressPeriod.mondayOf(day), (week, count) -> count + 1);
         }
         List<ChartPoint> series = new ArrayList<>();
         perWeek.forEach((week, count) -> series.add(new ChartPoint(week.toString(), BigDecimal.valueOf(count))));

@@ -83,7 +83,12 @@ public record TrainingProgressView(
         return List.copyOf(records);
     }
 
-    /** The four figures at the top of the page, each with its value for the previous period. */
+    /**
+     * The four figures at the top of the page, each with its value for the previous period. Sessions, minutes
+     * and load count the days of the period that are over (today waits until it is done) against the same
+     * number of days from the start of the previous period, so the change between them is fair; records count
+     * the whole period.
+     */
     public record Hero(Count sessions, Count minutes, LoadFigure load, RecordsFigure records) {
     }
 
@@ -131,7 +136,13 @@ public record TrainingProgressView(
     public record MinutesPoint(LocalDate date, int minutes) {
     }
 
-    public record Load(List<LoadWeek> weeks, List<WeekValue> fitness, List<WeekValue> fatigue, Form form) {
+    /**
+     * {@code weeks} holds every week of the chart, the week in progress too; {@code fitness}, {@code fatigue}
+     * and {@code form} end at the last finished week. {@code currentWeek} is the week that holds today with its
+     * load so far, null when the chart does not reach today.
+     */
+    public record Load(List<LoadWeek> weeks, List<WeekValue> fitness, List<WeekValue> fatigue, Form form,
+                       CurrentLoadWeek currentWeek) {
 
         public Load {
             weeks = weeks == null ? List.of() : List.copyOf(weeks);
@@ -153,6 +164,10 @@ public record TrainingProgressView(
         public List<WeekValue> fatigue() {
             return List.copyOf(fatigue);
         }
+    }
+
+    /** The week in progress: its Monday and its load so far, a figure that is never compared. */
+    public record CurrentLoadWeek(LocalDate weekStart, long soFar) {
     }
 
     /** How fitness compares with fatigue, only ever shown in words. */
