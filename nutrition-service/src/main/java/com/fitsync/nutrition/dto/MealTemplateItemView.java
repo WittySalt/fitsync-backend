@@ -10,6 +10,7 @@ public record MealTemplateItemView(
         UUID foodServingId,
         String foodName,
         String brandName,
+        String brandLogoUrl,
         BigDecimal quantity,
         String unit,
         String snapshotServingLabel,

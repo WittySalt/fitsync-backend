@@ -9,6 +9,7 @@ public record FoodSearchResultView(
         UUID foodId,
         String displayName,
         String brandName,
+        String brandLogoUrl,
         String categoryCode,
         String categoryName,
         FoodCatalogScope scope,
@@ -25,7 +26,7 @@ public record FoodSearchResultView(
     public FoodSearchResultView(UUID foodId, String displayName, String brandName, String categoryCode,
                                 String categoryName, FoodCatalogScope scope, FoodCatalogSource source,
                                 boolean verified, Integer calories, String basisLabel, String primaryBarcode) {
-        this(foodId, displayName, brandName, categoryCode, categoryName, scope, source, verified, calories,
-                basisLabel, primaryBarcode, null, false, null);
+        this(foodId, displayName, brandName, null, categoryCode, categoryName, scope, source, verified,
+                calories, basisLabel, primaryBarcode, null, false, null);
     }
 }
