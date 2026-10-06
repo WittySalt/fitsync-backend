@@ -98,16 +98,6 @@ class NarrativeTemplatesTests {
     }
 
     @Test
-    void streakNudgeVariants() {
-        assertThat(render(RecommendationTypes.STREAK_NUDGE, Map.of(
-                "streakDays", 7, "nextMilestone", 14, "daysToNextMilestone", 7)))
-                .isEqualTo("7-day streak! 7 more days to reach the 14-day milestone.");
-
-        assertThat(render(RecommendationTypes.STREAK_NUDGE, Map.of("streakDays", 400)))
-                .isEqualTo("400 days straight — you've outgrown every milestone. Keep it rolling.");
-    }
-
-    @Test
     void coldStartVariants() {
         assertThat(render(RecommendationTypes.COLD_START, Map.of(
                 "goalType", "WEIGHT", "workoutDaysPerWeek", 4)))

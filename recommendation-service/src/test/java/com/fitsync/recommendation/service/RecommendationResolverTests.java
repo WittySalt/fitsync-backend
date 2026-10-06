@@ -56,7 +56,7 @@ class RecommendationResolverTests {
         List<RecommendationResultEntity> results = resolver.resolve(userId);
 
         assertThat(results).extracting(RecommendationResultEntity::getType).containsExactly(
-                RecommendationTypes.STREAK_NUDGE, RecommendationTypes.WEEKLY_ADHERENCE);
+                RecommendationTypes.NUTRITION_GAP, RecommendationTypes.WEEKLY_ADHERENCE);
         RecommendationResultEntity adherence = results.get(1);
         assertThat(adherence.getSource()).isEqualTo(RecommendationSource.RULE);
         assertThat(adherence.getContextHash()).hasSize(64);
@@ -77,7 +77,7 @@ class RecommendationResolverTests {
         resolver.resolve(userId);
 
         RecommendationResultEntity cached = resultRepository
-                .findByUserIdAndType(userId, RecommendationTypes.STREAK_NUDGE).orElseThrow();
+                .findByUserIdAndType(userId, RecommendationTypes.NUTRITION_GAP).orElseThrow();
         cached.setPayload("TAMPERED");
         resultRepository.saveAndFlush(cached);
 
@@ -92,7 +92,7 @@ class RecommendationResolverTests {
         resolver.resolve(userId);
 
         RecommendationContextEntity context = contextRepository.findById(userId).orElseThrow();
-        context.setCurrentStreakDays(null);
+        context.setCalorieGoalKcal(null);
         context.setStale(true);
         contextRepository.saveAndFlush(context);
 
@@ -107,7 +107,7 @@ class RecommendationResolverTests {
         persistContext();
 
         assertThat(resolver.resolve(userId, RecommendationTypes.WEEKLY_ADHERENCE)).isPresent();
-        assertThat(resolver.resolve(userId, RecommendationTypes.NUTRITION_GAP)).isEmpty();
+        assertThat(resolver.resolve(userId, RecommendationTypes.STREAK_NUDGE)).isEmpty();
     }
 
     @Test
@@ -140,6 +140,23 @@ class RecommendationResolverTests {
         context.setRecentActiveDays(2);
         context.setRecentWorkoutCount(2);
         context.setCurrentStreakDays(7);
+        context.setCalorieGoalKcal(2100);
         contextRepository.saveAndFlush(context);
+    }
+
+    @Test
+    void aStreakNoLongerProducesARecommendation() {
+        persistContext();
+        RecommendationResultEntity old = new RecommendationResultEntity();
+        old.setId(UUID.randomUUID());
+        old.setUserId(userId);
+        old.setType(RecommendationTypes.STREAK_NUDGE);
+        old.setSource(RecommendationSource.RULE);
+        old.setPayload("{}");
+        old.setGeneratedAt(java.time.Instant.parse("2026-10-01T00:00:00Z"));
+        resultRepository.saveAndFlush(old);
+
+        assertThat(resolver.resolve(userId)).extracting(RecommendationResultEntity::getType)
+                .doesNotContain(RecommendationTypes.STREAK_NUDGE);
     }
 }

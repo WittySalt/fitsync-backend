@@ -20,7 +20,7 @@ import org.springframework.stereotype.Service;
 /**
  * The one facts assembler behind every AI surface (A1 weekly narrative, A4 coach Q&A):
  * compute-in-code, model-phrases. Facts are grouped semantically (training /
- * nutritionToday / goalPace / loggingStreak / personalRecord / foodGroupWeek) and carry
+ * nutritionToday / goalPace / personalRecord / foodGroupWeek) and carry
  * the rules' own status words, so the model has nothing left to judge.
  */
 @Service
@@ -62,8 +62,6 @@ public class CoachFacts {
         });
         ruleFacts(outcomes, RecommendationTypes.GOAL_PACE)
                 .ifPresent(pace -> facts.put("goalPace", pace));
-        ruleFacts(outcomes, RecommendationTypes.STREAK_NUDGE)
-                .ifPresent(streak -> facts.put("loggingStreak", streak));
         ruleFacts(outcomes, RecommendationTypes.PERSONAL_RECORD)
                 .ifPresent(record -> facts.put("personalRecord", record));
         foodGroupWeekFacts(context).ifPresent(groups -> facts.put("foodGroupWeek", groups));

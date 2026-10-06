@@ -20,6 +20,7 @@ public class AnalyticsProgressClient extends CatalogueClient {
 
     private static final String GOAL_PROGRESS = "/api/v1/analytics/progress/goal";
     private static final String FOOD_PROGRESS = "/api/v1/analytics/progress/food";
+    private static final String STREAKS = "/api/v1/analytics/streaks";
 
     public AnalyticsProgressClient(@Qualifier("coachRestClientBuilder") RestClient.Builder builder,
                                    CoachProperties properties) {
@@ -34,6 +35,14 @@ public class AnalyticsProgressClient extends CatalogueClient {
     /** The Food page's figures for one period, as JSON, or null when they could not be read. */
     public String foodProgress(String bearerToken, String timezone, LocalDate from, LocalDate to) {
         return get(FOOD_PROGRESS, period(from, to), bearerToken, timezone);
+    }
+
+    /**
+     * The streak as the analytics ledger counts it, the one the Home page shows, as JSON, or null when it
+     * could not be read.
+     */
+    public String streaks(String bearerToken, String timezone) {
+        return get(STREAKS, params(), bearerToken, timezone);
     }
 
     private static Map<String, Object> period(LocalDate from, LocalDate to) {

@@ -68,7 +68,6 @@ class WeeklyNarrativeServiceTests {
         JsonNode training = payload.get("facts").get("training");
         assertThat(training.get("activeDays").asInt()).isEqualTo(4);
         assertThat(training.get("status").asText()).isEqualTo("MET");
-        assertThat(payload.get("facts").get("loggingStreak").get("streakDays").asInt()).isEqualTo(7);
     }
 
     @Test

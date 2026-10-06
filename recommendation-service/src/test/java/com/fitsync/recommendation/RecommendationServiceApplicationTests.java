@@ -48,12 +48,11 @@ class RecommendationServiceApplicationTests {
     }
 
     @Test
-    void registersAllSevenLocalRules() {
+    void registersTheSixLocalRulesAndNoStreakRule() {
         assertThat(rules).extracting(Rule::type).containsExactlyInAnyOrder(
                 RecommendationTypes.NUTRITION_GAP,
                 RecommendationTypes.WEEKLY_ADHERENCE,
                 RecommendationTypes.GOAL_PACE,
-                RecommendationTypes.STREAK_NUDGE,
                 RecommendationTypes.COLD_START,
                 RecommendationTypes.PERSONAL_RECORD,
                 RecommendationTypes.LOGGING_REMINDER);

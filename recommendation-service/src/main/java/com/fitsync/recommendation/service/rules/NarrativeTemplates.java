@@ -26,7 +26,6 @@ public class NarrativeTemplates {
             case RecommendationTypes.NUTRITION_GAP -> nutritionGap(facts);
             case RecommendationTypes.WEEKLY_ADHERENCE -> weeklyAdherence(facts);
             case RecommendationTypes.GOAL_PACE -> goalPace(facts);
-            case RecommendationTypes.STREAK_NUDGE -> streakNudge(facts);
             case RecommendationTypes.COLD_START -> coldStart(facts);
             case RecommendationTypes.PERSONAL_RECORD -> personalRecord(facts);
             case RecommendationTypes.LOGGING_REMINDER -> loggingReminder(facts);
@@ -97,17 +96,6 @@ public class NarrativeTemplates {
     private static String days(Object count) {
         long value = ((Number) count).longValue();
         return value == 1 ? "1 day" : value + " days";
-    }
-
-    // T9-T10 — streak nudge.
-    private static String streakNudge(Map<String, Object> facts) {
-        int streakDays = intFact(facts, "streakDays");
-        Object nextMilestone = facts.get("nextMilestone");
-        if (nextMilestone == null) {
-            return "%d days straight — you've outgrown every milestone. Keep it rolling.".formatted(streakDays);
-        }
-        return "%d-day streak! %d more days to reach the %s-day milestone."
-                .formatted(streakDays, intFact(facts, "daysToNextMilestone"), nextMilestone);
     }
 
     // T11-T13 — cold start.

@@ -15,6 +15,7 @@ import java.util.Optional;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.recommendation.coach.client.AnalyticsProgressClient;
 import com.fitsync.recommendation.coach.client.DiaryTodayIntakeSource;
 import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
@@ -30,7 +31,7 @@ import com.fitsync.recommendation.service.ai.CoachFacts;
 import org.springframework.stereotype.Component;
 
 /**
- * The user's computed facts: the last full week's training, today's nutrition, goal pace, logging streak,
+ * The user's computed facts: the last full week's training, today's nutrition, goal pace, the streak,
  * the last personal record and the weekly food-group split.
  *
  * <p>This is the tool that makes the coach different from a chatbot. Every number in it was worked
@@ -55,6 +56,7 @@ public class ReadFactsTool implements CoachTool {
     private final NutritionCatalogueClient nutritionClient;
     private final UserCalendar calendar;
     private final UserProfileClient userClient;
+    private final AnalyticsProgressClient analyticsClient;
 
     public ReadFactsTool(RecommendationContextRepository contextRepository,
                          CoachFacts coachFacts,
@@ -62,7 +64,8 @@ public class ReadFactsTool implements CoachTool {
                          WorkoutCatalogueClient workoutClient,
                          NutritionCatalogueClient nutritionClient,
                          UserCalendar calendar,
-                         UserProfileClient userClient) {
+                         UserProfileClient userClient,
+                         AnalyticsProgressClient analyticsClient) {
         this.contextRepository = contextRepository;
         this.coachFacts = coachFacts;
         this.objectMapper = objectMapper;
@@ -70,6 +73,32 @@ public class ReadFactsTool implements CoachTool {
         this.nutritionClient = nutritionClient;
         this.calendar = calendar;
         this.userClient = userClient;
+        this.analyticsClient = analyticsClient;
+    }
+
+    /** The name of the group that holds the streak as the analytics ledger counts it. */
+    public static final String STREAK_GROUP = "streak";
+
+    /**
+     * The streak from the analytics ledger, the same count the Home page shows, or nothing when it cannot
+     * be read. There is no stored copy to fall back on: a streak that may be days old is worse than none.
+     */
+    private Optional<Map<String, Object>> streak(CoachCallContext context, ZoneId zone) {
+        try {
+            JsonNode body = DiaryFigures.read(objectMapper.reader(),
+                    analyticsClient.streaks(context.bearerToken(), zoneName(zone)));
+            if (body == null || !body.path("currentStreakDays").isInt()) {
+                return Optional.empty();
+            }
+            Map<String, Object> group = new LinkedHashMap<>();
+            group.put("currentDays", body.path("currentStreakDays").asInt());
+            if (body.path("bestStreakDays").isInt()) {
+                group.put("bestDays", body.path("bestStreakDays").asInt());
+            }
+            return Optional.of(group);
+        } catch (RuntimeException ex) {
+            return Optional.empty();
+        }
     }
 
     /** The name of the group that holds the current week so far. */
@@ -306,7 +335,7 @@ public class ReadFactsTool implements CoachTool {
                 readFacts()
                   no arguments
                   returns the user's computed facts as JSON: training, nutritionToday, goalPace,
-                  loggingStreak, personalRecord, foodGroupWeek, focusAreas, today, micronutrientsWeek.
+                  streak, personalRecord, foodGroupWeek, focusAreas, today, micronutrientsWeek.
                   Every number here is already calculated, so quote it and never recompute it. When the
                   service has them, nutritionToday also carries today's fibre, sugar, saturated fat,
                   sodium and potassium against their references, water, protein at each meal and the
@@ -354,6 +383,7 @@ public class ReadFactsTool implements CoachTool {
             today(week).ifPresent(group -> facts.put(TODAY_GROUP, group));
         });
         lastFullWeek(facts, entity.get().getRecentWeekStart(), calendar.today(zone), weekly);
+        streak(context, zone).ifPresent(group -> facts.put(STREAK_GROUP, group));
 
         addDiaryFigures(context, zone, summary, facts);
 

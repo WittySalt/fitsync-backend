@@ -18,6 +18,7 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.recommendation.coach.client.AnalyticsProgressClient;
 import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
 import com.fitsync.recommendation.coach.client.UserProfileClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
@@ -46,8 +47,9 @@ class ReadFactsToolTests {
     private final NutritionCatalogueClient nutritionClient = mock(NutritionCatalogueClient.class);
     private final UserCalendar calendar = mock(UserCalendar.class);
     private final UserProfileClient userClient = mock(UserProfileClient.class);
+    private final AnalyticsProgressClient analyticsClient = mock(AnalyticsProgressClient.class);
     private final ReadFactsTool tool = new ReadFactsTool(repository, coachFacts, objectMapper, workoutClient,
-            nutritionClient, calendar, userClient);
+            nutritionClient, calendar, userClient, analyticsClient);
 
     @BeforeEach
     void todayIsTheFirstOfOctoberInSingapore() {
@@ -204,6 +206,26 @@ class ReadFactsToolTests {
 
         assertThat(facts.has("training")).isFalse();
         assertThat(facts.has("nutritionToday")).isTrue();
+    }
+
+    @Test
+    @DisplayName("the streak is the analytics ledger's count, the one Home shows, and left out when unreadable")
+    void readsTheStreakFromTheAnalyticsLedger() throws Exception {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(analyticsClient.streaks(CALL.bearerToken(), "Asia/Singapore"))
+                .thenReturn("{\"currentStreakDays\":0,\"bestStreakDays\":5}");
+
+        JsonNode streak = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation())
+                .path("streak");
+
+        assertThat(streak.path("currentDays").asInt()).isZero();
+        assertThat(streak.path("bestDays").asInt()).isEqualTo(5);
+
+        when(analyticsClient.streaks(any(), any())).thenReturn(null);
+        JsonNode without = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+        assertThat(without.has("streak")).isFalse();
+        assertThat(without.has("loggingStreak")).isFalse();
     }
 
     @Test
