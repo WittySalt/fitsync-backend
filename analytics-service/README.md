@@ -48,6 +48,8 @@ Kafka topics:
 - `nutrition-events`
 - `workout-events`
 
+The meal events on `nutrition-events` are read by one listener in one consumer group, `<KAFKA_ANALYTICS_SERVICE_GROUP>-nutrition`, which replaces the former `-meal-logged`, `-meal-updated` and `-meal-deleted` groups so a delete can no longer be applied before the log it removes. The `KAFKA_MEAL_*_LISTENER_ENABLED` flags keep their names: the listener runs when any of them is true and handles a type only when its own flag is true, and a delete that finds no meal leaves a marker in `analytics_processed_events` so a later log of that meal is ignored.
+
 Projection tables:
 
 - `analytics_user_dashboard_snapshot`

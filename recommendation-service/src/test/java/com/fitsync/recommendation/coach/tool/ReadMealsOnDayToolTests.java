@@ -168,6 +168,25 @@ class ReadMealsOnDayToolTests {
     }
 
     @Test
+    @DisplayName("a fasted day is said as it is, with the weekday, and never as a meal with calories")
+    void rendersAFastedDayAsFasted() throws Exception {
+        when(client.meals(any(), any(), any())).thenReturn("""
+                [{"mealType":"FAST","consumedAt":"2026-09-30T04:00:00Z","totalCalories":0,
+                  "totalProteinGrams":0,"items":[]}]""");
+        when(client.dailySummary(any(), any(), any())).thenReturn("{\"totalCalories\":0,\"targetCalories\":2000}");
+
+        ToolResult result = tool.invoke(CALL, args("2026-09-30"));
+        JsonNode day = objectMapper.readTree(result.observation());
+
+        JsonNode fast = day.path("meals").get(0);
+        assertThat(fast.path("mealType").asText()).isEqualTo("FAST");
+        assertThat(fast.path("said").asText()).isEqualTo("you fasted on Wednesday");
+        assertThat(fast.has("calories")).isFalse();
+        assertThat(fast.has("foods")).isFalse();
+        assertThat(tool.promptSignature()).contains("FAST", "you fasted on");
+    }
+
+    @Test
     @DisplayName("a meal outside the local day is left out even when the service returns it")
     void dropsMealsOutsideTheDay() throws Exception {
         when(client.meals(any(), any(), any())).thenReturn("""

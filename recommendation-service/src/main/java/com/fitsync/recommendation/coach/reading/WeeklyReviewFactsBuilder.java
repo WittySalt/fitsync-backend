@@ -17,9 +17,17 @@ import org.springframework.stereotype.Component;
  * week in which nothing was recorded has no facts at all rather than a row of zeros.
  *
  * <p>Planned days done is not among the facts: none of the three endpoints sends it for a past week.
+ *
+ * <p>Today is still going (progress review fixes, section 1). The Food page already averages the days
+ * that are over, so on the current week the calorie and protein facts are those averages; before one day
+ * of the week is over they read what today holds so far instead, with the detail {@value #TODAY_SO_FAR}.
+ * Sessions and minutes of the current week count today, from the Training page's week in progress.
  */
 @Component
 public class WeeklyReviewFactsBuilder {
+
+    /** The detail of a calorie or protein fact that holds only today, which is still going. */
+    static final String TODAY_SO_FAR = "today so far";
 
     private static final int MAX_TEXT = 80;
     private static final int MAX_NAMES = 3;
@@ -30,12 +38,21 @@ public class WeeklyReviewFactsBuilder {
      * @param food     the Food endpoint's body for the week, or null
      */
     public List<ReadingFact> build(JsonNode training, JsonNode goal, JsonNode food) {
+        return build(training, goal, food, false);
+    }
+
+    /**
+     * @param current true for the week that holds today
+     */
+    public List<ReadingFact> build(JsonNode training, JsonNode goal, JsonNode food, boolean current) {
         List<ReadingFact> chosen = new ArrayList<>();
         if (training != null) {
-            addTraining(chosen, training.path("hero"));
+            addTraining(chosen, training.path("hero"), current ? training.path("load").path("currentWeek") : null);
         }
         if (food != null) {
-            addFood(chosen, food.path("hero"));
+            if (!addFood(chosen, food.path("hero")) && current) {
+                addToday(chosen, today(food));
+            }
         }
         if (goal != null) {
             addWeight(chosen, goal);
@@ -43,8 +60,28 @@ public class WeeklyReviewFactsBuilder {
         return ReadingFactsBuilder.numbered(chosen);
     }
 
-    private static void addTraining(List<ReadingFact> facts, JsonNode hero) {
+    /** What today holds so far on the Food page of the current week, null when it does not say. */
+    static WeeklyReviewView.Today today(JsonNode food) {
+        if (food == null) {
+            return null;
+        }
+        JsonNode week = food.path("currentWeek");
+        Integer kcal = whole(week.path("eatenTodaySoFarKcal"));
+        BigDecimal protein = decimal(week.path("proteinTodaySoFarGrams"));
+        return kcal == null && protein == null ? null : new WeeklyReviewView.Today(kcal, protein);
+    }
+
+    private static void addTraining(List<ReadingFact> facts, JsonNode hero, JsonNode weekSoFar) {
         Integer sessions = whole(hero.path("sessions").path("value"));
+        Integer minutesSoFar = null;
+        if (weekSoFar != null && weekSoFar.isObject()) {
+            // The head figures leave today out; the week so far counts it.
+            Integer sessionsSoFar = whole(weekSoFar.path("sessions"));
+            if (sessionsSoFar != null) {
+                sessions = sessionsSoFar;
+                minutesSoFar = whole(weekSoFar.path("minutes"));
+            }
+        }
         if (sessions == null || sessions <= 0) {
             return;
         }
@@ -54,7 +91,7 @@ public class WeeklyReviewFactsBuilder {
                 earlierSessions == null ? "" : countChangeNote(sessions, earlierSessions, ""),
                 earlierSessions == null ? "" : earlierSessions + " the week before", ProgressFactsBuilder.CARD_TRAINING));
 
-        Integer minutes = whole(hero.path("minutes").path("value"));
+        Integer minutes = minutesSoFar != null ? minutesSoFar : whole(hero.path("minutes").path("value"));
         if (minutes != null && minutes > 0) {
             Integer earlierMinutes = whole(hero.path("minutes").path("previous"));
             facts.add(new ReadingFact(0, "MINUTES", "Minutes trained", String.valueOf(minutes), "min",
@@ -72,10 +109,11 @@ public class WeeklyReviewFactsBuilder {
         }
     }
 
-    private static void addFood(List<ReadingFact> facts, JsonNode hero) {
+    /** The food facts over the logged days that are over; false when there is not one. */
+    private static boolean addFood(List<ReadingFact> facts, JsonNode hero) {
         Integer logged = whole(hero.path("daysLogged").path("value"));
         if (logged == null || logged <= 0) {
-            return;
+            return false;
         }
         String onLogged = "on " + logged + (logged == 1 ? " logged day" : " logged days");
         BigDecimal eaten = decimal(hero.path("eatenPerDay").path("value"));
@@ -99,6 +137,24 @@ public class WeeklyReviewFactsBuilder {
                     ReadingFactsBuilder.wholeWithCommas(balance.abs()), "kcal", balance.abs(),
                     sign < 0 ? "Under" : sign > 0 ? "Over" : "Even",
                     "eaten against energy used, " + onLogged, ProgressFactsBuilder.CARD_FOOD));
+        }
+        return true;
+    }
+
+    /** Before a day of the week is over: what today holds so far, never compared with anything. */
+    private static void addToday(List<ReadingFact> facts, WeeklyReviewView.Today today) {
+        if (today == null) {
+            return;
+        }
+        if (today.eatenKcal() != null && today.eatenKcal() > 0) {
+            BigDecimal kcal = BigDecimal.valueOf(today.eatenKcal());
+            facts.add(new ReadingFact(0, "CALORIES_PER_DAY", "Calories today", ReadingFactsBuilder.wholeWithCommas(kcal),
+                    "kcal", kcal, "", TODAY_SO_FAR, ProgressFactsBuilder.CARD_FOOD));
+        }
+        if (today.proteinGrams() != null && today.proteinGrams().signum() > 0) {
+            facts.add(new ReadingFact(0, "PROTEIN_PER_DAY", "Protein today",
+                    ReadingFactsBuilder.upToOneDecimal(today.proteinGrams()), "g", today.proteinGrams(), "",
+                    TODAY_SO_FAR, ProgressFactsBuilder.CARD_FOOD));
         }
     }
 

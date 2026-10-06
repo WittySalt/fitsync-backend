@@ -228,7 +228,7 @@ class TrainingProgressControllerTests {
                         List.of(new SummaryLine("e1RM +14%", "e1RM +14% across one lift", Trend.UP)), "context")),
                 new TrainingProgressView.Load(List.of(new TrainingProgressView.LoadWeek(LocalDate.parse("2026-08-10"),
                         new TrainingProgressView.ByKind(520, 240, 180, 0), 940, false)), List.of(), List.of(),
-                        TrainingProgressView.Form.FRESH),
+                        TrainingProgressView.Form.FRESH, null),
                 new TrainingProgressView.Muscles(new BigDecimal("4.0"), List.of(),
                         new TrainingProgressView.UsualRange(10, 20)),
                 List.of(lift), List.of(), List.of());

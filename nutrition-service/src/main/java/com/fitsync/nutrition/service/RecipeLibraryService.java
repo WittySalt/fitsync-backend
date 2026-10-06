@@ -74,6 +74,8 @@ public class RecipeLibraryService {
     static final String SORT_FIT = "fit";
     static final String SORT_PROTEIN = "protein";
     static final int RECENT_LIMIT = 10;
+    private static final String ACTIVITY_COOKED = "COOKED";
+    private static final String ACTIVITY_LOGGED = "LOGGED";
     // One meal is taken as a third of the daily target when ranking by fit.
     private static final int MEALS_A_DAY = 3;
     // More rows than the limit are read so that recipes that are no longer visible do not shorten the list.
@@ -99,6 +101,7 @@ public class RecipeLibraryService {
     private final NutritionDiaryService diaryService;
     private final MealNutritionQueryRepository mealQueries;
     private final RecipeCookRepository cookRepository;
+    private final RecipeUseHistory useHistory;
 
     public RecipeLibraryService(RecipeRepository recipeRepository,
                                 RecipeIngredientRepository ingredientRepository,
@@ -110,7 +113,8 @@ public class RecipeLibraryService {
                                 Clock clock,
                                 NutritionDiaryService diaryService,
                                 MealNutritionQueryRepository mealQueries,
-                                RecipeCookRepository cookRepository) {
+                                RecipeCookRepository cookRepository,
+                                RecipeUseHistory useHistory) {
         this.recipeRepository = recipeRepository;
         this.ingredientRepository = ingredientRepository;
         this.stepRepository = stepRepository;
@@ -122,6 +126,7 @@ public class RecipeLibraryService {
         this.diaryService = diaryService;
         this.mealQueries = mealQueries;
         this.cookRepository = cookRepository;
+        this.useHistory = useHistory;
     }
 
     @Transactional(readOnly = true)
@@ -204,6 +209,8 @@ public class RecipeLibraryService {
                                                 Sort order) {
         boolean byFit = SORT_FIT.equals(sortMode);
         FitToday today = byFit ? fitToday(principal, timezone) : null;
+        Instant now = clock.instant();
+        Map<UUID, RecipeUseHistory.Use> uses = byFit ? useHistory.lastMonth(principal.userId(), now) : Map.of();
         List<ScoredRecipe> scored = new ArrayList<>();
         int batch = 0;
         Page<RecipeEntity> candidates;
@@ -215,18 +222,16 @@ public class RecipeLibraryService {
                 if (tagLabel != null && !computation.tags().contains(tagLabel)) {
                     continue;
                 }
-                RecipeFitScorer.Rank rank = null;
+                RecipeSuggestionRanking.Rank rank = null;
                 if (byFit) {
-                    RecipeFitScorer.Serving serving = new RecipeFitScorer.Serving(computation.kcalPerServing(),
-                            computation.proteinPerServing(),
-                            nutrientAmount(computation, today.context().nutrientCode()));
-                    rank = RecipeFitScorer.rank(today.context(), serving);
+                    rank = RecipeSuggestionRanking.rank(today.context(),
+                            servingOf(recipe, computation, today.context(), uses.get(recipe.getRecipeId()), now));
                 }
                 scored.add(new ScoredRecipe(recipe, computation, rank));
             }
         } while (candidates.hasNext());
         Comparator<ScoredRecipe> first = byFit
-                ? Comparator.comparing(ScoredRecipe::rank, RecipeFitScorer.Rank.BEST_FIRST)
+                ? Comparator.comparing(ScoredRecipe::rank, RecipeSuggestionRanking.Rank.BEST_FIRST)
                 : Comparator.comparing((ScoredRecipe item) -> item.computation().proteinPerServing()).reversed();
         scored.sort(first
                 .thenComparing(item -> item.recipe().getName(), String.CASE_INSENSITIVE_ORDER)
@@ -241,6 +246,22 @@ public class RecipeLibraryService {
         PageRequest paging = PageRequest.of(pageNumber, pageSize);
         return byFit ? new RecipeFitPage(content, paging, scored.size(), today.view())
                 : new PageImpl<>(content, paging, scored.size());
+    }
+
+    /**
+     * One serving of a recipe as the ranking sees it. A recipe of the caller's own is MINE, a Library recipe the
+     * caller cooked or logged in the last 30 days is RECENT, and any other is LIBRARY.
+     */
+    static RecipeSuggestionRanking.Serving servingOf(RecipeEntity recipe, RecipeComputation computation,
+                                                     RecipeSuggestionRanking.Context context,
+                                                     RecipeUseHistory.Use use, Instant now) {
+        RecipeSuggestionRanking.Source source = recipe.getScope() == RecipeScope.USER
+                ? RecipeSuggestionRanking.Source.MINE
+                : use != null ? RecipeSuggestionRanking.Source.RECENT : RecipeSuggestionRanking.Source.LIBRARY;
+        return new RecipeSuggestionRanking.Serving(computation.kcalPerServing(), computation.proteinPerServing(),
+                nutrientAmount(computation, context.nutrientCode()),
+                computation.tags().contains(RecipeInsightService.TAG_HIGH_SUGAR), source,
+                use != null && use.recent(now), use == null ? 0 : use.cooks());
     }
 
     /** The amount of one nutrient in one serving, or null when the recipe has none of it or no nutrient is asked for. */
@@ -262,7 +283,7 @@ public class RecipeLibraryService {
      * vitamin or mineral with the smallest share of its daily reference among those the day's food has any
      * figure for, and it is left out until something is logged today.
      */
-    private FitToday fitToday(CurrentUserPrincipal principal, String timezone) {
+    FitToday fitToday(CurrentUserPrincipal principal, String timezone) {
         ZoneId zone = NutritionPageInsightServiceImpl.resolveZone(timezone);
         LocalDate today = LocalDate.ofInstant(clock.instant(), zone);
         DailyNutritionSummaryView day = diaryService.getDailySummary(principal, today, zone.getId());
@@ -285,15 +306,18 @@ public class RecipeLibraryService {
                 : new RecipeFitView.LowestNutrient(lowest.code(), lowest.displayName()));
         Integer mealKcal = day.targetCalories() == null || day.targetCalories() <= 0 ? null
                 : Math.round(day.targetCalories() / (float) MEALS_A_DAY);
-        RecipeFitScorer.Context context = new RecipeFitScorer.Context(kcalLeft, proteinShort,
-                lowest == null ? null : lowest.code(), lowest == null ? null : lowest.reference(), mealKcal);
-        return new FitToday(context, view);
+        RecipeSuggestionRanking.Context context = new RecipeSuggestionRanking.Context(kcalLeft, proteinShort,
+                lowest == null ? null : lowest.code(), lowest == null ? null : lowest.displayName(),
+                lowest == null ? null : lowest.reference(), mealKcal);
+        return new FitToday(context, view, day);
     }
 
-    private record FitToday(RecipeFitScorer.Context context, RecipeFitView view) {
+    /** Today as the ranking and the suggestions read it, with the day summary the figures came from. */
+    record FitToday(RecipeSuggestionRanking.Context context, RecipeFitView view, DailyNutritionSummaryView day) {
     }
 
-    private record ScoredRecipe(RecipeEntity recipe, RecipeComputation computation, RecipeFitScorer.Rank rank) {
+    private record ScoredRecipe(RecipeEntity recipe, RecipeComputation computation,
+                                RecipeSuggestionRanking.Rank rank) {
     }
 
     /**
@@ -305,11 +329,18 @@ public class RecipeLibraryService {
         // The recorded cooks and the meals that came from a recipe (the only trace before cooks were recorded)
         // are merged, and a recipe shows the newest time of the two.
         Map<UUID, Instant> newest = new HashMap<>();
+        Map<UUID, String> activity = new HashMap<>();
         for (RecentRecipeRow row : mealQueries.findRecentRecipes(userId, PageRequest.of(0, RECENT_FETCH))) {
-            newest.merge(row.getRecipeId(), row.getLastCookedAt(), RecipeLibraryService::later);
+            newest.put(row.getRecipeId(), row.getLastCookedAt());
+            activity.put(row.getRecipeId(), ACTIVITY_LOGGED);
         }
+        // A cook record wins a tie, so that a recipe cooked and logged at the same moment reads as cooked.
         for (CookedRecipeRow row : cookRepository.findRecentRecipes(userId, PageRequest.of(0, RECENT_FETCH))) {
-            newest.merge(row.getRecipeId(), row.getLastCookedAt(), RecipeLibraryService::later);
+            Instant logged = newest.get(row.getRecipeId());
+            if (logged == null || !logged.isAfter(row.getLastCookedAt())) {
+                newest.put(row.getRecipeId(), row.getLastCookedAt());
+                activity.put(row.getRecipeId(), ACTIVITY_COOKED);
+            }
         }
         List<UUID> ordered = newest.entrySet().stream()
                 .sorted(Map.Entry.<UUID, Instant>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
@@ -329,13 +360,10 @@ public class RecipeLibraryService {
         Set<UUID> saved = savedIds(userId, SCOPE_RECENT, recipes);
         List<RecipeListItemView> content = recipes.stream()
                 .map(recipe -> toListItem(recipe, computations.get(recipe.getRecipeId()),
-                        saved.contains(recipe.getRecipeId()), lastCooked.get(recipe.getRecipeId())))
+                        saved.contains(recipe.getRecipeId()), lastCooked.get(recipe.getRecipeId()),
+                        activity.get(recipe.getRecipeId())))
                 .toList();
         return new PageImpl<>(content, PageRequest.of(0, RECENT_LIMIT), content.size());
-    }
-
-    private static Instant later(Instant first, Instant second) {
-        return first.isAfter(second) ? first : second;
     }
 
     private Set<UUID> savedIds(UUID userId, String scope, List<RecipeEntity> recipes) {
@@ -473,11 +501,11 @@ public class RecipeLibraryService {
     }
 
     private RecipeListItemView toListItem(RecipeEntity recipe, RecipeComputation computation, boolean favorite) {
-        return toListItem(recipe, computation, favorite, null);
+        return toListItem(recipe, computation, favorite, null, null);
     }
 
     private RecipeListItemView toListItem(RecipeEntity recipe, RecipeComputation computation, boolean favorite,
-                                          Instant lastCookedAt) {
+                                          Instant lastCookedAt, String lastActivity) {
         return new RecipeListItemView(
                 recipe.getRecipeId(),
                 recipe.getName(),
@@ -494,7 +522,8 @@ public class RecipeLibraryService {
                 computation.dietFlags(),
                 computation.topFoodGroups(),
                 favorite,
-                lastCookedAt);
+                lastCookedAt,
+                lastActivity);
     }
 
     /** Imported recipes show the ingredient word of the written line; the user's own show the food's name. */

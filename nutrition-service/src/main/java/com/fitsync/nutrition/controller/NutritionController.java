@@ -38,6 +38,7 @@ import com.fitsync.nutrition.dto.RecipeAddItemsRequest;
 import com.fitsync.nutrition.dto.RecipeCookView;
 import com.fitsync.nutrition.dto.RecipeDetailView;
 import com.fitsync.nutrition.dto.RecipeMealRequest;
+import com.fitsync.nutrition.dto.RecipeSuggestionsView;
 import com.fitsync.nutrition.dto.RecipeView;
 import com.fitsync.nutrition.dto.TemplateRecipeInput;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
@@ -48,6 +49,7 @@ import com.fitsync.nutrition.service.NutritionPageInsightService;
 import com.fitsync.nutrition.service.NutritionService;
 import com.fitsync.nutrition.service.RecipeCookService;
 import com.fitsync.nutrition.service.RecipeLibraryService;
+import com.fitsync.nutrition.service.RecipeSuggestionService;
 import com.fitsync.nutrition.service.UsualMealsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -82,19 +84,22 @@ public class NutritionController {
     private final NutritionDiaryService nutritionDiaryService;
     private final RecipeLibraryService recipeLibraryService;
     private final RecipeCookService recipeCookService;
+    private final RecipeSuggestionService recipeSuggestionService;
 
     public NutritionController(NutritionService nutritionService,
                                NutritionPageInsightService nutritionPageInsightService,
                                UsualMealsService usualMealsService,
                                NutritionDiaryService nutritionDiaryService,
                                RecipeLibraryService recipeLibraryService,
-                               RecipeCookService recipeCookService) {
+                               RecipeCookService recipeCookService,
+                               RecipeSuggestionService recipeSuggestionService) {
         this.nutritionService = nutritionService;
         this.nutritionPageInsightService = nutritionPageInsightService;
         this.usualMealsService = usualMealsService;
         this.nutritionDiaryService = nutritionDiaryService;
         this.recipeLibraryService = recipeLibraryService;
         this.recipeCookService = recipeCookService;
+        this.recipeSuggestionService = recipeSuggestionService;
     }
 
     @PostMapping("/meals")
@@ -425,6 +430,17 @@ public class NutritionController {
         }
         return recipeLibraryService.list(currentPrincipal(authentication), scope, category, q, diet, tag, sort,
                 zoneId(zone), page, size);
+    }
+
+    /**
+     * What to cook tonight: the state of today, the facts behind it and up to three suggestions, each with one
+     * sentence of reason. The X-Timezone header says where today is.
+     */
+    @GetMapping("/recipes/suggestions")
+    public RecipeSuggestionsView recipeSuggestions(Authentication authentication,
+                                                   @RequestParam(defaultValue = "3") int limit,
+                                                   @RequestTimezone Optional<ZoneId> zone) {
+        return recipeSuggestionService.suggestions(currentPrincipal(authentication), limit, zoneId(zone));
     }
 
     @GetMapping("/recipes/{recipeId}")

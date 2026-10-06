@@ -19,6 +19,14 @@ public interface RecipeCookRepository extends JpaRepository<RecipeCookEntity, UU
         Instant getLastCookedAt();
     }
 
+    interface CookCountRow {
+        UUID getRecipeId();
+
+        Long getTimes();
+
+        Instant getLastCookedAt();
+    }
+
     /** The cook with this client id, deleted or not, so that a retry after a delete cannot hit the unique key. */
     Optional<RecipeCookEntity> findByUserIdAndClientCookId(UUID userId, UUID clientCookId);
 
@@ -41,6 +49,15 @@ public interface RecipeCookRepository extends JpaRepository<RecipeCookEntity, UU
             order by max(c.finishedAt) desc, c.recipeId asc
             """)
     List<CookedRecipeRow> findRecentRecipes(@Param("userId") UUID userId, Pageable pageable);
+
+    /** How often the user cooked each recipe since a time, with the newest cook, cooks marked as deleted left out. */
+    @Query("""
+            select c.recipeId as recipeId, count(c) as times, max(c.finishedAt) as lastCookedAt
+            from RecipeCookEntity c
+            where c.userId = :userId and c.deletedAt is null and c.finishedAt >= :since
+            group by c.recipeId
+            """)
+    List<CookCountRow> countCooksSince(@Param("userId") UUID userId, @Param("since") Instant since);
 
     long countByUserIdAndDeletedAtIsNullAndFinishedAtGreaterThanEqualAndFinishedAtLessThan(UUID userId, Instant from,
                                                                                          Instant to);

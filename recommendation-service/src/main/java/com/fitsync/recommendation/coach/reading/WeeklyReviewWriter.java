@@ -47,7 +47,10 @@ public class WeeklyReviewWriter {
             sentences.add("You set " + records.value() + ("1".equals(records.value()) ? " record " : " records ")
                     + cite(records) + ".");
         }
-        if (calories != null && protein != null) {
+        boolean todayOnly = calories != null ? isToday(calories) : protein != null && isToday(protein);
+        if (todayOnly) {
+            sentences.add(todaySentence(calories, protein));
+        } else if (calories != null && protein != null) {
             sentences.add("You ate " + calories.value() + " kcal and " + protein.value()
                     + " g of protein a day on logged days " + cite(calories) + " " + cite(protein) + ".");
         } else if (calories != null) {
@@ -65,6 +68,22 @@ public class WeeklyReviewWriter {
             return Optional.empty();
         }
         return RuleReadingCandidates.firstValid(validator, headline(currentWeek, sessions, records), sentences, facts);
+    }
+
+    private static boolean isToday(ReadingFact fact) {
+        return WeeklyReviewFactsBuilder.TODAY_SO_FAR.equals(fact.detail());
+    }
+
+    /** Before a day of the week is over, only today is reported, and only as "so far". */
+    private static String todaySentence(ReadingFact calories, ReadingFact protein) {
+        if (calories != null && protein != null) {
+            return "So far today you ate " + calories.value() + " kcal and " + protein.value() + " g of protein "
+                    + cite(calories) + " " + cite(protein) + ".";
+        }
+        if (calories != null) {
+            return "So far today you ate " + calories.value() + " kcal " + cite(calories) + ".";
+        }
+        return "So far today you ate " + protein.value() + " g of protein " + cite(protein) + ".";
     }
 
     private static String headline(boolean currentWeek, ReadingFact sessions, ReadingFact records) {

@@ -68,7 +68,9 @@ public class WeeklyReviewService {
     private static final String FACTS_NOTE = " The period label is WEEK for a Monday to Sunday week that has "
             + "ended, or WEEK_SO_FAR for the current week, which is still going; for WEEK_SO_FAR write about "
             + "the week so far. A note of Up, Down or Unchanged compares a fact with the week before, and "
-            + "Calories a day and Protein a day count only the days with food logged. A fact labelled Balance "
+            + "Calories a day and Protein a day count only the days with food logged that are over; a fact whose "
+            + "detail is today so far holds only today, which is still going, and is never compared with "
+            + "anything. A fact labelled Balance "
             + "a day says in its note whether what was eaten was Under or Over the energy used.";
 
     private static final String EXAMPLE = """
@@ -141,7 +143,9 @@ public class WeeklyReviewService {
         Request request = new Request(userId, bearerToken, zone.getId(), Instant.now(clock));
         List<WeeklyReviewView> views = new ArrayList<>();
         for (LocalDate monday : mondays) {
-            views.add(review(request, monday, monday.equals(thisMonday), rows.get(monday.toString()), zone));
+            boolean current = monday.equals(thisMonday);
+            WeeklyReviewView view = review(request, monday, current, rows.get(monday.toString()), zone);
+            views.add(current ? view.withToday(request.today) : view);
         }
         return views;
     }
@@ -184,7 +188,10 @@ public class WeeklyReviewService {
                 facts = earlier;
                 hash = row.getFactsHash();
             } else {
-                facts = factsBuilder.build(training, goal, food);
+                facts = factsBuilder.build(training, goal, food, current);
+                if (current) {
+                    request.today = WeeklyReviewFactsBuilder.today(food);
+                }
                 hash = CoachReadingService.hash(current ? WEEK_SO_FAR : WEEK, monday, sunday, facts);
                 complete = training != null && goal != null && food != null;
                 String json = writeFacts(facts);
@@ -311,6 +318,7 @@ public class WeeklyReviewService {
         private boolean goalAvailable = true;
         private boolean foodAvailable = true;
         private int generationsStarted;
+        private WeeklyReviewView.Today today;
 
         private Request(UUID userId, String bearerToken, String zoneId, Instant now) {
             this.userId = userId;

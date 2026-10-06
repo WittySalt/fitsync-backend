@@ -820,8 +820,10 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(3))
                 .andExpect(jsonPath("$.content[0].name").value("Chicken rice bowl"))
-                .andExpect(jsonPath("$.content[1].name").value("Milk porridge"))
-                .andExpect(jsonPath("$.content[2].name").value("Lentil salad"))
+                // The porridge and the salad are both more than 30 % away from 400 kcal and score zero for the
+                // budget, so the 9.7 g of protein in the salad puts it ahead of the 9.1 g in the porridge.
+                .andExpect(jsonPath("$.content[1].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.content[2].name").value("Milk porridge"))
                 .andExpect(jsonPath("$.fit.kcalLeft").value(1200))
                 .andExpect(jsonPath("$.fit.proteinShortGrams").value(100.0))
                 .andExpect(jsonPath("$.fit.lowestNutrient").doesNotExist());
@@ -847,7 +849,7 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.totalElements").value(3))
                 .andExpect(jsonPath("$.totalPages").value(2))
                 .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.content[0].name").value("Milk porridge"))
                 .andExpect(jsonPath("$.fit.kcalLeft").value(1200));
         mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token)
                         .param("scope", "library").param("sort", "fit").param("diet", "VEGAN"))
@@ -957,6 +959,29 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
         // Cards of the other scopes carry no cooking time.
         mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token).param("scope", "library"))
                 .andExpect(jsonPath("$.content[0].lastCookedAt").doesNotExist());
+    }
+
+    @Test
+    void recentSaysWhetherTheTimeCameFromACookOrFromAMealLoggedFromTheRecipe() throws Exception {
+        String token = tokenFor("recent-d@example.com");
+        // The salad was only logged, the bowl was cooked after it was logged, the porridge was cooked and
+        // then logged later.
+        logRecipeNow(token, lentilSalad, Instant.parse("2026-06-11T18:00:00Z"));
+        logRecipeNow(token, chickenBowl, Instant.parse("2026-06-10T18:00:00Z"));
+        cook(token, chickenBowl, cookJson("1", "2026-06-10T19:00:00Z")).andExpect(status().isCreated());
+        cook(token, milkPorridge, cookJson("1", "2026-06-09T19:00:00Z")).andExpect(status().isCreated());
+        logRecipeNow(token, milkPorridge, Instant.parse("2026-06-09T20:00:00Z"));
+
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token).param("scope", "recent"))
+                .andExpect(jsonPath("$.content[0].name").value("Lentil salad"))
+                .andExpect(jsonPath("$.content[0].lastActivity").value("LOGGED"))
+                .andExpect(jsonPath("$.content[1].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.content[1].lastActivity").value("COOKED"))
+                .andExpect(jsonPath("$.content[1].lastCookedAt").value("2026-06-10T19:00:00Z"))
+                .andExpect(jsonPath("$.content[2].name").value("Milk porridge"))
+                .andExpect(jsonPath("$.content[2].lastActivity").value("LOGGED"));
+        mockMvc.perform(get(RECIPES).header("Authorization", "Bearer " + token).param("scope", "library"))
+                .andExpect(jsonPath("$.content[0].lastActivity").doesNotExist());
     }
 
     @Test

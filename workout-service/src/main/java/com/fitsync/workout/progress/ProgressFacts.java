@@ -37,8 +37,46 @@ public final class ProgressFacts {
     private static final double SIZE_TREND_RATIO = 0.05;
     private static final double PACE_TREND_RATIO = 0.02;
     private static final double DAYS_PER_WEEK = 7.0;
+    /**
+     * The week that holds today enters a weekly series only once this many of its days are over; today
+     * itself never counts (progress review fixes, section 1).
+     */
+    static final int MIN_FULL_DAYS_FOR_CURRENT_WEEK = 2;
 
     private ProgressFacts() {
+    }
+
+    /**
+     * The part of the period whose days are over: from {@code from} to the day before today when the period
+     * reaches today, the whole period when it ended earlier, null when not one of its days is over yet.
+     * Comparisons and change sentences use this part, so today never enters them.
+     */
+    static ProgressPeriod fullDays(ProgressPeriod period, LocalDate today) {
+        LocalDate end = period.to().isBefore(today) ? period.to() : today.minusDays(1);
+        return end.isBefore(period.from()) ? null : new ProgressPeriod(period.from(), end);
+    }
+
+    /** The same number of days as {@code counted}, from the start of the previous period; null with no days. */
+    static ProgressPeriod previousSpan(ProgressPeriod period, ProgressPeriod counted) {
+        if (counted == null) {
+            return null;
+        }
+        LocalDate from = period.previous().from();
+        return new ProgressPeriod(from, from.plusDays(counted.days() - 1));
+    }
+
+    /** Sessions inside the span, none for a null span. */
+    static List<SessionSnap> inSpan(List<SessionSnap> sessions, ProgressPeriod span) {
+        return span == null ? List.of() : sessions.stream().filter(s -> span.contains(s.date())).toList();
+    }
+
+    /** True for a finished week, and for the week that holds today once two of its days are over. */
+    static boolean weekCounts(LocalDate monday, LocalDate today) {
+        if (monday.plusDays(6).isBefore(today)) {
+            return true;
+        }
+        return !monday.isAfter(today)
+                && java.time.temporal.ChronoUnit.DAYS.between(monday, today) >= MIN_FULL_DAYS_FOR_CURRENT_WEEK;
     }
 
     /** A new estimated best single: its value and how much it beat the previous best. */
@@ -228,9 +266,15 @@ public final class ProgressFacts {
     public static ActivitySummary summarise(ActivityKey key, String name, List<SessionSnap> period,
                                             List<SessionSnap> previous, List<SessionSnap> allSessions,
                                             ProgressPeriod progressPeriod, LocalDate today, List<Lift> lifts) {
-        LocalDate endDate = progressPeriod.to().isAfter(today) ? today : progressPeriod.to();
-        double weeks = Math.max(1, elapsedDays(progressPeriod, today)) / DAYS_PER_WEEK;
-        double previousWeeks = progressPeriod.days() / DAYS_PER_WEEK;
+        // The sentences compare the days that are over with the same number of days of the period before, so
+        // today and a week only just begun never pull a line down.
+        ProgressPeriod counted = fullDays(progressPeriod, today);
+        ProgressPeriod countedBefore = previousSpan(progressPeriod, counted);
+        period = inSpan(period, counted);
+        previous = inSpan(previous, countedBefore);
+        LocalDate endDate = counted == null ? progressPeriod.from().minusDays(1) : counted.to();
+        double weeks = Math.max(1, counted == null ? 0 : counted.days()) / DAYS_PER_WEEK;
+        double previousWeeks = weeks;
         List<SummaryLine> lines;
         if (key.kind() == SessionKind.STRENGTH) {
             lines = strengthLines(period, previous, progressPeriod, endDate, weeks, previousWeeks, lifts);

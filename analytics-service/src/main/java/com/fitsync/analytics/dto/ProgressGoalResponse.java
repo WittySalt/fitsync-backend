@@ -19,7 +19,8 @@ public record ProgressGoalResponse(
         Pace pace,
         List<OtherGoal> otherGoals,
         Road road,
-        String leadType) {
+        String leadType,
+        CurrentWeek currentWeek) {
 
     public ProgressGoalResponse {
         highlights = List.copyOf(highlights);
@@ -34,6 +35,13 @@ public record ProgressGoalResponse(
     @Override
     public List<OtherGoal> otherGoals() {
         return List.copyOf(otherGoals);
+    }
+
+    /**
+     * The week that holds today: it enters weekly series and judgements only with at least two logged days
+     * (at least one meal) before today ({@code included}); {@code daysLogged} counts those days, never today.
+     */
+    public record CurrentWeek(LocalDate weekStart, boolean included, int daysLogged) {
     }
 
     /** The active weight goal; the whole object is null without one. */

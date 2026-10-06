@@ -2,6 +2,7 @@ package com.fitsync.nutrition.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -75,6 +76,7 @@ public class NutritionProgressService {
     private final NutritionDiaryService diaryService;
     private final WaterLogRepository waterLogRepository;
     private final NutritionPreferenceProjectionRepository preferenceRepository;
+    private final Clock clock;
 
     public NutritionProgressService(MealLogRepository mealLogRepository,
                                     MealItemRepository mealItemRepository,
@@ -83,7 +85,8 @@ public class NutritionProgressService {
                                     RecipeRepository recipeRepository,
                                     NutritionDiaryService diaryService,
                                     WaterLogRepository waterLogRepository,
-                                    NutritionPreferenceProjectionRepository preferenceRepository) {
+                                    NutritionPreferenceProjectionRepository preferenceRepository,
+                                    Clock clock) {
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
         this.foodCategoryRepository = foodCategoryRepository;
@@ -92,6 +95,7 @@ public class NutritionProgressService {
         this.diaryService = diaryService;
         this.waterLogRepository = waterLogRepository;
         this.preferenceRepository = preferenceRepository;
+        this.clock = clock;
     }
 
     /** {@code from} and {@code to} are both included, at most 370 days apart; the zone defaults to UTC. */
@@ -118,33 +122,41 @@ public class NutritionProgressService {
                 .map(this::lastCook)
                 .orElse(null);
 
-        LocalDate recentFrom = to.minusDays(RECENT_DAYS - 1L).isAfter(from) ? to.minusDays(RECENT_DAYS - 1L) : from;
-        NutrientSummaryView nutrients = diaryService.getNutrientSummary(principal, recentFrom, to, zone.getId());
-        RangeSummaryView range = diaryService.getRangeSummary(principal, recentFrom, to, zone.getId());
+        // The summaries judge full days only: today is still going and never enters them.
+        LocalDate today = LocalDate.now(clock.withZone(zone));
+        LocalDate recentTo = to.isBefore(today) ? to : today.minusDays(1);
+        LocalDate recentFrom = recentTo.minusDays(RECENT_DAYS - 1L).isAfter(from)
+                ? recentTo.minusDays(RECENT_DAYS - 1L) : from;
+        List<LowNutrient> lowest = List.of();
         Integer waterGoal = preferenceRepository.findById(principal.userId())
                 .map(NutritionPreferenceProjectionEntity::getWaterGoalMl)
                 .filter(goal -> goal > 0)
                 .orElse(null);
-        Map<LocalDate, Integer> water = waterGoal == null ? Map.of()
-                : waterByDay(principal, recentFrom, to, zone);
         int loggedDays = 0;
         int fibreMet = 0;
         int waterMet = 0;
-        for (RangeDayView day : range.days()) {
-            if (day.logged()) {
-                loggedDays++;
-                if (Boolean.TRUE.equals(day.fiberMet())) {
-                    fibreMet++;
-                }
-                if (waterGoal != null && water.getOrDefault(day.date(), 0) >= waterGoal) {
-                    waterMet++;
+        if (!recentTo.isBefore(from)) {
+            NutrientSummaryView nutrients = diaryService.getNutrientSummary(principal, recentFrom, recentTo, zone.getId());
+            lowest = lowestNutrients(nutrients);
+            RangeSummaryView range = diaryService.getRangeSummary(principal, recentFrom, recentTo, zone.getId());
+            Map<LocalDate, Integer> water = waterGoal == null ? Map.of()
+                    : waterByDay(principal, recentFrom, recentTo, zone);
+            for (RangeDayView day : range.days()) {
+                if (day.logged()) {
+                    loggedDays++;
+                    if (Boolean.TRUE.equals(day.fiberMet())) {
+                        fibreMet++;
+                    }
+                    if (waterGoal != null && water.getOrDefault(day.date(), 0) >= waterGoal) {
+                        waterMet++;
+                    }
                 }
             }
         }
         Habits habits = new Habits(loggedDays, fibreMet, waterMet, waterGoal == null ? 0 : loggedDays, waterGoal);
 
         return new NutritionProgressFoodView(from, to, mealTimes, topFoods, new Cooks(cookCount, last),
-                new Window(recentFrom, to), lowestNutrients(nutrients), habits);
+                new Window(recentFrom, recentTo), lowest, habits);
     }
 
     /** Plain water logs plus the water in drinks, per local date, as the Diary's water card adds them. */

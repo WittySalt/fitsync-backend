@@ -29,6 +29,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class MealNutritionProjectionService {
 
     private static final int MEAL_TYPE_MAX_LENGTH = 20;
+    /**
+     * The processed-events row a MealDeleted leaves, keyed by the meal id, when it finds no contribution to
+     * remove: a MealLogged or MealUpdated of that meal arriving afterwards is then ignored, so the outcome does
+     * not depend on the order the two events arrive in.
+     */
+    static final String DELETED_MEAL_MARKER = "MealDeleted:meal";
 
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsMealContributionRepository mealContributionRepository;
@@ -71,7 +77,7 @@ public class MealNutritionProjectionService {
         if (processedEventRepository.existsById(event.eventId())) {
             return;
         }
-        if (mealId == null || consumedAt == null) {
+        if (mealId == null || consumedAt == null || isDeletedMeal(mealId)) {
             recordProcessedEvent(event);
             return;
         }
@@ -121,6 +127,8 @@ public class MealNutritionProjectionService {
             applyContributionDelta(event.userId(), existingContribution.getActivityDate(), existingContribution, null, event.occurredAt());
             mealContributionRepository.delete(existingContribution);
             recomputeNutritionGoalsForToday(event.userId(), existingContribution.getActivityDate(), null);
+        } else if (!processedEventRepository.existsById(mealId)) {
+            rememberDeletedMeal(event, mealId);
         }
         recordProcessedEvent(event);
         cacheInvalidationService.evictForUser(event.userId());
@@ -322,6 +330,21 @@ public class MealNutritionProjectionService {
             return fallback;
         }
         return Instant.now(clock);
+    }
+
+    private boolean isDeletedMeal(UUID mealId) {
+        return processedEventRepository.findById(mealId)
+                .map(row -> DELETED_MEAL_MARKER.equals(row.getEventType()))
+                .orElse(false);
+    }
+
+    private void rememberDeletedMeal(FitSyncDomainEvent<?> event, UUID mealId) {
+        AnalyticsProcessedEventEntity marker = new AnalyticsProcessedEventEntity();
+        marker.setEventId(mealId);
+        marker.setEventType(DELETED_MEAL_MARKER);
+        marker.setUserId(event.userId());
+        marker.setProcessedAt(resolveOccurredAt(event.occurredAt(), null));
+        processedEventRepository.save(marker);
     }
 
     private void recordProcessedEvent(FitSyncDomainEvent<?> event) {

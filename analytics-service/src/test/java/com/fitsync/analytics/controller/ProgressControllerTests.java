@@ -87,7 +87,7 @@ class ProgressControllerTests {
                         new BigDecimal("0.55"), LocalDate.parse("2026-11-25"),
                         List.of(new ProgressGoalResponse.Tick(74, LocalDate.parse("2026-07-30"), null),
                                 new ProgressGoalResponse.Tick(71, null, LocalDate.parse("2026-10-05"))), null),
-                "WEIGHT");
+                "WEIGHT", new ProgressGoalResponse.CurrentWeek(LocalDate.parse("2026-09-28"), true, 5));
         when(progressGoalService.getGoal(eq(principal.userId()), any(), eq("Asia/Singapore"))).thenReturn(response);
 
         mockMvc.perform(get("/api/v1/analytics/progress/goal")
@@ -97,6 +97,8 @@ class ProgressControllerTests {
                         .header("X-Timezone", "Asia/Singapore"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.previous.from").value("2026-08-10"))
+                .andExpect(jsonPath("$.currentWeek.included").value(true))
+                .andExpect(jsonPath("$.currentWeek.daysLogged").value(5))
                 .andExpect(jsonPath("$.goal.targetKg").value(68.0))
                 .andExpect(jsonPath("$.hero.weeklyRate.value").value(-0.41))
                 .andExpect(jsonPath("$.hero.projectedDate.previous").value("2027-01-10"))
@@ -122,12 +124,15 @@ class ProgressControllerTests {
                 new ProgressPeriod(LocalDate.parse("2026-08-10"), LocalDate.parse("2026-09-06")),
                 new ProgressFoodResponse.Hero(new ProgressFoodResponse.Compared<>(2123, 2190),
                         new ProgressFoodResponse.Compared<>(new BigDecimal("136.0"), new BigDecimal("150.0")),
-                        new ProgressFoodResponse.Balance(-279, 4), new ProgressFoodResponse.DaysLogged(26, 24, 30)),
+                        new ProgressFoodResponse.Balance(-279, 4), new ProgressFoodResponse.DaysLogged(26, 24, 30),
+                        2100),
                 List.of(), null,
                 new ProgressFoodResponse.Macros(null, null, null, List.of()),
                 new ProgressFoodResponse.Plate("CALORIES", List.of(), List.of(), List.of()),
                 new ProgressFoodResponse.Meals(List.of(new ProgressFoodResponse.MealShare("DINNER", 38, 2, 807))),
-                new ProgressFoodResponse.Habits(26));
+                new ProgressFoodResponse.Habits(26),
+                new ProgressFoodResponse.CurrentWeek(LocalDate.parse("2026-09-28"), false, 0, null, null, 476,
+                        new BigDecimal("29.0")));
         when(progressFoodService.getFood(eq(principal.userId()), any(), isNull())).thenReturn(response);
 
         mockMvc.perform(get("/api/v1/analytics/progress/food")
@@ -136,6 +141,10 @@ class ProgressControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hero.eatenPerDay.value").value(2123))
                 .andExpect(jsonPath("$.hero.daysLogged.days").value(30))
+                .andExpect(jsonPath("$.hero.targetKcal").value(2100))
+                .andExpect(jsonPath("$.currentWeek.included").value(false))
+                .andExpect(jsonPath("$.currentWeek.daysLogged").value(0))
+                .andExpect(jsonPath("$.currentWeek.eatenTodaySoFarKcal").value(476))
                 .andExpect(jsonPath("$.plate.basis").value("CALORIES"))
                 .andExpect(jsonPath("$.meals.share[0].sharePct").value(38));
     }

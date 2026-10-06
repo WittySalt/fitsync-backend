@@ -67,7 +67,7 @@ public class UsualMealsServiceImpl implements UsualMealsService {
         List<UsualMealView> meals = new ArrayList<>();
         for (MealType type : MealType.values()) {
             List<Meal> ofType = byType.get(type);
-            if (ofType != null) {
+            if (ofType != null && type != MealType.FAST) {
                 meals.add(describe(type, ofType));
             }
         }
