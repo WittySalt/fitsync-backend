@@ -126,6 +126,13 @@ public class WorkoutCatalogueClient extends CatalogueClient {
         return get(WEEKLY_INSIGHT, params, bearerToken, timezone);
     }
 
+    /** The weekly insight of the Monday week that holds {@code date}, or null when it could not be read. */
+    public String weeklyInsight(String bearerToken, String timezone, LocalDate date) {
+        Map<String, Object> params = params();
+        params.put("date", date);
+        return get(WEEKLY_INSIGHT, params, bearerToken, timezone);
+    }
+
     /**
      * The main lifts' estimated best singles from the weekly insight, empty when it could not be read.
      * The weekly insight carries them as {@code lifts} with the best single at the start and now.

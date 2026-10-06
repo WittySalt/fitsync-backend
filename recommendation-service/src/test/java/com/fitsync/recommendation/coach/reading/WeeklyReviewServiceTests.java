@@ -110,6 +110,23 @@ class WeeklyReviewServiceTests {
     }
 
     @Test
+    @DisplayName("planned days done joins the facts from the weekly insight of the same week")
+    void plannedDaysDoneJoinsTheFacts() {
+        trainingFor(CALLER, LAST_MONDAY, LAST_SUNDAY, training(3, 2, 120, 90, 0));
+        when(workoutClient.weeklyInsight(CALLER, "UTC", LAST_SUNDAY))
+                .thenReturn("{\"plannedDays\":4,\"plannedDaysDone\":3}");
+
+        WeeklyReviewView last = service.reviews(userId, CALLER, "UTC", 2).get(1);
+
+        ReadingFact planned = last.facts().stream().filter(fact -> fact.key().equals("PLANNED_DAYS"))
+                .findFirst().orElseThrow();
+        assertThat(planned.value()).isEqualTo("3");
+        assertThat(planned.unit()).isEqualTo("of 4");
+        assertThat(planned.detail()).isEqualTo("3 of 4 planned days");
+        assertThat(planned.card()).isEqualTo("TRAINING");
+    }
+
+    @Test
     @DisplayName("before a day of the current week is over, food reads today so far and is never compared")
     void currentWeekWithoutAFullDayReadsTodaySoFar() {
         when(workoutClient.trainingProgress(CALLER, "UTC", THIS_MONDAY, THIS_SUNDAY)).thenReturn("""

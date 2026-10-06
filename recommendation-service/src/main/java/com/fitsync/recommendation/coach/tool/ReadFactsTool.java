@@ -219,6 +219,10 @@ public class ReadFactsTool implements CoachTool {
         }
         group.put("sessions", week.path("completedSessions").asInt());
         group.put("totalMinutes", week.path("totalMinutes").asInt());
+        if (week.path("plannedDays").isInt() && week.path("plannedDaysDone").isInt()) {
+            group.put("plannedDays", week.path("plannedDays").asInt());
+            group.put("plannedDaysDone", week.path("plannedDaysDone").asInt());
+        }
         return Optional.of(group);
     }
 

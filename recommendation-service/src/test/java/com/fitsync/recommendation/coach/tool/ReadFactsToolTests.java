@@ -233,10 +233,13 @@ class ReadFactsToolTests {
     void addsTheCurrentWeekSoFar() throws Exception {
         userWithFacts("Asia/Singapore");
         when(workoutClient.weeklyInsight(CALL.bearerToken(), "Asia/Singapore")).thenReturn(
-                "{\"weekStart\":\"2026-09-28\",\"completedSessions\":1,\"totalMinutes\":50}");
+                "{\"weekStart\":\"2026-09-28\",\"completedSessions\":1,\"totalMinutes\":50,"
+                        + "\"plannedDays\":4,\"plannedDaysDone\":1}");
 
         JsonNode facts = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
 
+        assertThat(facts.path("trainingThisWeek").path("plannedDays").asInt()).isEqualTo(4);
+        assertThat(facts.path("trainingThisWeek").path("plannedDaysDone").asInt()).isEqualTo(1);
         assertThat(facts.path("training").path("workoutCount").asInt()).isEqualTo(4);
         JsonNode week = facts.path("trainingThisWeek");
         assertThat(week.path("period").asText()).isEqualTo("CURRENT_WEEK_SO_FAR");

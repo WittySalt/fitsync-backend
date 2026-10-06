@@ -173,6 +173,8 @@ public class WeeklyReviewService {
             JsonNode training = request.trainingAvailable ? read(workoutClient.trainingProgress(
                     request.bearerToken, request.zoneId, monday, sunday)) : null;
             request.trainingAvailable = training != null;
+            JsonNode weekly = training == null ? null : read(workoutClient.weeklyInsight(
+                    request.bearerToken, request.zoneId, current ? LocalDate.now(clock.withZone(zone)) : sunday));
             JsonNode goal = request.goalAvailable ? read(analyticsClient.goalProgress(
                     request.bearerToken, request.zoneId, monday, sunday)) : null;
             request.goalAvailable = goal != null;
@@ -188,7 +190,7 @@ public class WeeklyReviewService {
                 facts = earlier;
                 hash = row.getFactsHash();
             } else {
-                facts = factsBuilder.build(training, goal, food, current);
+                facts = factsBuilder.build(training, goal, food, current, weekly);
                 if (current) {
                     request.today = WeeklyReviewFactsBuilder.today(food);
                 }
