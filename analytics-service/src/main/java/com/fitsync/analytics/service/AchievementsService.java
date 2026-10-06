@@ -216,6 +216,15 @@ public class AchievementsService {
         }
         if (!fresh.isEmpty()) {
             ledger.add(fresh);
+            // Read back what is stored now, so a badge another read stored first shows its own date.
+            Map<String, AnalyticsUserAchievementEntity> reread = new HashMap<>();
+            for (AnalyticsUserAchievementEntity row : ledger.stored(userId)) {
+                reread.put(row.getCode(), row);
+            }
+            for (AnalyticsUserAchievementEntity row : fresh) {
+                reread.putIfAbsent(row.getCode(), row);
+            }
+            return reread;
         }
         return stored;
     }

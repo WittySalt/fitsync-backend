@@ -6,6 +6,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -44,6 +47,8 @@ import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
 
 /**
  * Badges v2. The clock is Tuesday 6 Oct 2026, midday in Singapore; the current week runs from Monday
@@ -81,7 +86,7 @@ class AchievementsServiceTests {
         when(achievementRepository.findByUserId(USER_ID)).thenAnswer(call -> List.copyOf(ledgerRows.values()));
         when(achievementRepository.existsById(any(AnalyticsUserAchievementKey.class)))
                 .thenAnswer(call -> ledgerRows.containsKey(call.<AnalyticsUserAchievementKey>getArgument(0).getCode()));
-        when(achievementRepository.save(any(AnalyticsUserAchievementEntity.class))).thenAnswer(call -> {
+        when(achievementRepository.saveAndFlush(any(AnalyticsUserAchievementEntity.class))).thenAnswer(call -> {
             AnalyticsUserAchievementEntity row = call.getArgument(0);
             ledgerRows.put(row.getCode(), row);
             return row;
@@ -93,7 +98,7 @@ class AchievementsServiceTests {
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         return new AchievementsService(snapshotRepository, workoutRepository, nutritionRepository,
                 mock(AnalyticsUserDailyBodyRepository.class), goalRepository, recordsRepository, cooksRepository,
-                contributionRepository, new AchievementLedger(achievementRepository), objectMapper,
+                contributionRepository, new AchievementLedger(achievementRepository, mock(PlatformTransactionManager.class)), objectMapper,
                 Clock.fixed(Instant.parse(instant), ZoneOffset.UTC));
     }
 
@@ -423,6 +428,61 @@ class AchievementsServiceTests {
 
         assertThat(badge(response, "FIRST_WORKOUT").earnedOn()).isEqualTo(LocalDate.parse("2026-01-15"));
         assertThat(ledgerRows.get("FIRST_WORKOUT").getEarnedOn()).isEqualTo(LocalDate.parse("2026-01-15"));
+    }
+
+    @Test
+    void computingTwiceInARowStoresEachBadgeOnceAndKeepsTheFirstDate() {
+        trained("2026-09-01", 4);
+        trained("2026-09-02", 6);
+
+        AnalyticsAchievementsResponse first = read();
+        AnalyticsAchievementsResponse second = read();
+
+        assertThat(badge(second, "WORKOUTS_10").earnedOn()).isEqualTo(badge(first, "WORKOUTS_10").earnedOn());
+        verify(achievementRepository, times(2)).saveAndFlush(any(AnalyticsUserAchievementEntity.class));
+    }
+
+    @Test
+    void aPreExistingRowIsNeitherInsertedAgainNorRewritten() {
+        AnalyticsUserAchievementEntity stored = new AnalyticsUserAchievementEntity();
+        stored.setUserId(USER_ID);
+        stored.setCode("WORKOUTS_10");
+        stored.setEarnedOn(LocalDate.parse("2026-08-01"));
+        stored.setCreated(Instant.parse("2026-08-01T10:00:00Z"));
+        ledgerRows.put("WORKOUTS_10", stored);
+        trained("2026-09-02", 10);
+
+        AnalyticsAchievementsResponse response = read();
+
+        assertThat(badge(response, "WORKOUTS_10").earnedOn()).isEqualTo(LocalDate.parse("2026-08-01"));
+        verify(achievementRepository, never()).saveAndFlush(stored);
+    }
+
+    @Test
+    void aBadgeAnotherReadStoredFirstIsShownWithItsStoredDateInsteadOfFailing() {
+        trained("2026-09-02", 10);
+        // The race: when this read checks, nothing is stored; by its insert, the other read has stored the
+        // badge, so the key is taken.
+        AnalyticsUserAchievementEntity raced = new AnalyticsUserAchievementEntity();
+        raced.setUserId(USER_ID);
+        raced.setEarnedOn(LocalDate.parse("2026-09-01"));
+        raced.setCreated(Instant.parse("2026-10-06T03:59:59Z"));
+        when(achievementRepository.saveAndFlush(any(AnalyticsUserAchievementEntity.class))).thenAnswer(call -> {
+            AnalyticsUserAchievementEntity row = call.getArgument(0);
+            AnalyticsUserAchievementEntity other = new AnalyticsUserAchievementEntity();
+            other.setUserId(USER_ID);
+            other.setCode(row.getCode());
+            other.setEarnedOn(raced.getEarnedOn());
+            other.setCreated(raced.getCreated());
+            ledgerRows.put(row.getCode(), other);
+            throw new DataIntegrityViolationException("duplicate key value violates unique constraint");
+        });
+
+        AnalyticsAchievementsResponse response = read();
+
+        assertThat(badge(response, "WORKOUTS_10").state()).isEqualTo("EARNED");
+        assertThat(badge(response, "WORKOUTS_10").earnedOn()).isEqualTo(LocalDate.parse("2026-09-01"));
+        assertThat(response.earned()).isEqualTo(2);
     }
 
     // ---- retired badges ------------------------------------------------------------------------------
