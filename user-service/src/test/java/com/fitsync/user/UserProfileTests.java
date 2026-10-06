@@ -95,6 +95,7 @@ class UserProfileTests {
                 .andExpect(jsonPath("$.profile.membershipTier").value("MEMBER"))
                 .andExpect(jsonPath("$.profile.membershipStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.profile.primaryGoal").value(nullValue()))
+                .andExpect(jsonPath("$.profile.createdAt").isNotEmpty())
                 .andExpect(jsonPath("$.preferences.app.preferredUnits").value("100001"))
                 .andExpect(jsonPath("$.preferences.training.fitnessLevel").value("200001"))
                 .andExpect(jsonPath("$.preferences.nutrition.dietaryPattern").value("300001"))
