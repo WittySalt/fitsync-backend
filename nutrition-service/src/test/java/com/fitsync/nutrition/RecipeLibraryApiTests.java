@@ -1051,6 +1051,35 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
     }
 
     @Test
+    void aNewCookPublishesRecipeCookedThroughTheOutboxAndARetryPublishesNothing() throws Exception {
+        String token = tokenFor("cook-event@example.com");
+        String body = "{\"clientCookId\": \"" + UUID.randomUUID() + "\", \"servings\": 2, "
+                + "\"finishedAt\": \"2026-06-11T18:00:00Z\"}";
+        jdbcTemplate.update("delete from outbox_events");
+
+        String first = cook(token, chickenBowl, body).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        cook(token, chickenBowl, body).andExpect(status().isOk());
+
+        String cookId = JsonPath.read(first, "$.cookId");
+        Assertions.assertEquals(1, jdbcTemplate.queryForObject(
+                "select count(*) from outbox_events where event_type = ?", Integer.class, "RecipeCooked"));
+        java.util.Map<String, Object> row = jdbcTemplate.queryForMap(
+                "select topic, aggregate_type, aggregate_id from outbox_events where event_type = ?",
+                "RecipeCooked");
+        Assertions.assertEquals("nutrition-events", row.get("topic"));
+        Assertions.assertEquals("RecipeCook", row.get("aggregate_type"));
+        Assertions.assertEquals(cookId, row.get("aggregate_id"));
+        String payload = jdbcTemplate.queryForObject(
+                "select payload from outbox_events where event_type = ?", String.class, "RecipeCooked");
+        Assertions.assertEquals(cookId, JsonPath.<String>read(payload, "$.payload.cookId"));
+        Assertions.assertEquals(chickenBowl.toString(), JsonPath.<String>read(payload, "$.payload.recipeId"));
+        Assertions.assertEquals(2.0, JsonPath.<Number>read(payload, "$.payload.servings").doubleValue());
+        Assertions.assertEquals("2026-06-11T18:00:00Z", JsonPath.<String>read(payload, "$.payload.finishedAt"));
+        Assertions.assertEquals("RecipeCooked", JsonPath.<String>read(payload, "$.eventType"));
+    }
+
+    @Test
     void cookServingsMustBeBetweenAQuarterAndFifty() throws Exception {
         String token = tokenFor("cook-b@example.com");
 

@@ -19,7 +19,6 @@ import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
-import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 
 import static org.mockito.Mockito.mock;
@@ -52,8 +51,7 @@ final class AnalyticsServiceTestSupport {
     AnalyticsServiceImpl service(String instant) {
         return new AnalyticsServiceImpl(
                 dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository,
-                streakRollupRepository, mock(AnalyticsUserWorkoutRecordsRepository.class),
-                Clock.fixed(Instant.parse(instant), ZoneOffset.UTC),
+                streakRollupRepository, Clock.fixed(Instant.parse(instant), ZoneOffset.UTC),
                 new AnalyticsProperties(
                         new AnalyticsProperties.Trends(new AnalyticsProperties.MaxRangeDays(370, 1095, 1830))));
     }

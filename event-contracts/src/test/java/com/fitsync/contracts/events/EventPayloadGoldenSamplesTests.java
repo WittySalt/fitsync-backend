@@ -8,6 +8,7 @@ import com.fitsync.contracts.events.analytics.WeeklyRecapGeneratedPayload;
 import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
+import com.fitsync.contracts.events.nutrition.RecipeCookedPayload;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.EnergyProfileComputedPayload;
@@ -74,6 +75,7 @@ class EventPayloadGoldenSamplesTests {
                 sample("nutrition/MealLoggedPayload.json", MealLoggedPayload.class),
                 sample("nutrition/MealUpdatedPayload.json", MealUpdatedPayload.class),
                 sample("nutrition/MealDeletedPayload.json", MealDeletedPayload.class),
+                sample("nutrition/RecipeCookedPayload.json", RecipeCookedPayload.class),
                 sample("user/UserRegisteredPayload.json", UserRegisteredPayload.class),
                 sample("user/UserProfileUpdatedPayload.json", UserProfileUpdatedPayload.class),
                 sample("user/UserPreferencesUpdatedPayload.json", UserPreferencesUpdatedPayload.class),

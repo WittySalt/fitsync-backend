@@ -169,7 +169,12 @@ public class WorkoutController {
     public TrainingPageInsightView getTrainingPageInsight(
             Authentication authentication,
             @RequestTimezone Optional<ZoneId> zone,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(defaultValue = "false") boolean thisWeek) {
+        if (thisWeek) {
+            return trainingPageInsightService.getTrainingPageInsight(currentPrincipal(authentication), zoneId(zone),
+                    date, true);
+        }
         return trainingPageInsightService.getTrainingPageInsight(currentPrincipal(authentication), zoneId(zone), date);
     }
 

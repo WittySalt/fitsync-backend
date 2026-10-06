@@ -60,6 +60,18 @@ Compatibility tests enforce:
 If a payload field is deleted, renamed, or no longer represented by the Java record, the
 golden sample round-trip test fails.
 
+## Nutrition Topic Events
+
+The `nutrition-events` topic carries these event types. Each has a golden sample under
+`contracts/nutrition/`, and analytics-service gives each its own listener flag.
+
+| eventType | Payload | Key | Published when | Analytics flag |
+|---|---|---|---|---|
+| `MealLogged` | `MealLoggedPayload` | meal id | a meal is logged | `KAFKA_MEAL_LOGGED_LISTENER_ENABLED` |
+| `MealUpdated` | `MealUpdatedPayload` | meal id | a meal is changed | `KAFKA_MEAL_UPDATED_LISTENER_ENABLED` |
+| `MealDeleted` | `MealDeletedPayload` | meal id | a meal is deleted | `KAFKA_MEAL_DELETED_LISTENER_ENABLED` |
+| `RecipeCooked` | `RecipeCookedPayload` (`cookId`, `recipeId`, `servings`, `finishedAt`) | cook id | a recipe cook is recorded for the first time | `KAFKA_RECIPE_COOKED_LISTENER_ENABLED` |
+
 ## Versioning
 
 Use the `version` field on `FitSyncDomainEvent` for event-type-level compatibility milestones.

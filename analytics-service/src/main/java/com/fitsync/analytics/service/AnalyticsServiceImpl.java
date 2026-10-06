@@ -22,7 +22,6 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import com.fitsync.analytics.config.AnalyticsProperties;
-import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
@@ -42,14 +41,12 @@ import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
 import com.fitsync.analytics.entity.AnalyticsUserStreakRollupEntity;
-import com.fitsync.analytics.entity.AnalyticsUserWorkoutRecordsEntity;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
-import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import org.springframework.cache.annotation.Cacheable;
@@ -66,7 +63,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     private final AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository;
     private final AnalyticsUserDailyNutritionRepository dailyNutritionRepository;
     private final AnalyticsUserStreakRollupRepository streakRollupRepository;
-    private final AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository;
     private final Clock clock;
     private final AnalyticsProperties analyticsProperties;
 
@@ -76,7 +72,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                                 AnalyticsUserDailyWorkoutRepository dailyWorkoutRepository,
                                 AnalyticsUserDailyNutritionRepository dailyNutritionRepository,
                                 AnalyticsUserStreakRollupRepository streakRollupRepository,
-                                AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository,
                                 Clock clock,
                                 AnalyticsProperties analyticsProperties) {
         this.dashboardSnapshotRepository = dashboardSnapshotRepository;
@@ -85,7 +80,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         this.dailyWorkoutRepository = dailyWorkoutRepository;
         this.dailyNutritionRepository = dailyNutritionRepository;
         this.streakRollupRepository = streakRollupRepository;
-        this.workoutRecordsRepository = workoutRecordsRepository;
         this.clock = clock;
         this.analyticsProperties = analyticsProperties;
     }
@@ -508,151 +502,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 bestStreakTo,
                 lastActiveDate,
                 timezone);
-    }
-
-    /**
-     * Achievements are derived read-side from the existing projections; there is no per-achievement
-     * event stream. {@code unlockedAt} is therefore reconstructed: date-based achievements use the
-     * start of the qualifying activity date in the user's timezone, streak achievements use the day
-     * the best run reached the threshold, and PR_FIRST uses the first projected personal-record
-     * instant. A zero-data user gets the full list with every achievement locked at progress 0.
-     */
-    @Override
-    @Cacheable(cacheNames = com.fitsync.analytics.config.CacheConfig.ACHIEVEMENTS_CACHE,
-            key = "#principal.userId()")
-    public AnalyticsAchievementsResponse getAchievements(CurrentUserPrincipal principal) {
-        UUID userId = principal.userId();
-        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId).orElse(null);
-        ZoneId userZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
-
-        List<AnalyticsUserDailyWorkoutEntity> workoutRows = dailyWorkoutRepository
-                .findByUserIdOrderByActivityDateAsc(userId);
-        int totalWorkouts = workoutRows.stream()
-                .mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount()))
-                .sum();
-        LocalDate lastActiveDate = null;
-        for (AnalyticsUserDailyWorkoutEntity row : workoutRows) {
-            if (defaultInteger(row.getCompletedWorkoutCount()) > 0) {
-                lastActiveDate = row.getActivityDate();
-            }
-        }
-        // The streak achievements count the same thing as the Home streak: consecutive days with a
-        // completed workout that end today or yesterday in the user's zone.
-        int currentStreakDays = liveStreak(
-                snapshot == null ? null : snapshot.getActiveStreakDays(),
-                lastActiveDate,
-                LocalDate.now(clock.withZone(userZone)));
-
-        AnalyticsUserStreakRollupEntity rollup = streakRollupRepository.findById(userId).orElse(null);
-        int bestStreakDays = Math.max(
-                rollup == null ? 0 : defaultInteger(rollup.getBestStreakDays()),
-                currentStreakDays);
-
-        LocalDate firstMealDate = dailyNutritionRepository
-                .findTopByUserIdAndMealCountGreaterThanOrderByActivityDateAsc(userId, 0)
-                .map(AnalyticsUserDailyNutritionEntity::getActivityDate)
-                .orElse(null);
-        LocalDate firstWeightDate = dailyBodyRepository
-                .findTopByUserIdAndWeightKgIsNotNullOrderByMetricDateAsc(userId)
-                .map(AnalyticsUserDailyBodyEntity::getMetricDate)
-                .orElse(null);
-        AnalyticsUserWorkoutRecordsEntity records = workoutRecordsRepository.findById(userId).orElse(null);
-        int personalRecordCount = records == null ? 0 : defaultInteger(records.getPersonalRecordCount());
-
-        List<AnalyticsAchievementsResponse.AchievementView> achievements = new ArrayList<>();
-        achievements.add(workoutCountAchievement("FIRST_WORKOUT", "First workout", 1, workoutRows, totalWorkouts, userZone));
-        achievements.add(workoutCountAchievement("WORKOUTS_10", "10 workouts", 10, workoutRows, totalWorkouts, userZone));
-        achievements.add(workoutCountAchievement("WORKOUTS_50", "50 workouts", 50, workoutRows, totalWorkouts, userZone));
-        achievements.add(workoutCountAchievement("WORKOUTS_100", "100 workouts", 100, workoutRows, totalWorkouts, userZone));
-        achievements.add(streakAchievement("STREAK_7", "7 days in a row", 7,
-                bestStreakDays, rollup, currentStreakDays, lastActiveDate, userZone));
-        achievements.add(streakAchievement("STREAK_30", "30 days in a row", 30,
-                bestStreakDays, rollup, currentStreakDays, lastActiveDate, userZone));
-        achievements.add(firstEventAchievement("FIRST_MEAL_LOGGED", "First meal logged", firstMealDate, userZone));
-        achievements.add(firstEventAchievement("FIRST_WEIGHT_LOGGED", "First weigh-in", firstWeightDate, userZone));
-        achievements.add(new AnalyticsAchievementsResponse.AchievementView(
-                "PR_FIRST",
-                "First personal record",
-                personalRecordCount > 0,
-                personalRecordCount > 0 ? records.getFirstRecordAt() : null,
-                achievementProgress(personalRecordCount, 1)));
-        return new AnalyticsAchievementsResponse(achievements);
-    }
-
-    private AnalyticsAchievementsResponse.AchievementView workoutCountAchievement(
-            String code,
-            String title,
-            int target,
-            List<AnalyticsUserDailyWorkoutEntity> workoutRows,
-            int totalWorkouts,
-            ZoneId userZone) {
-        boolean unlocked = totalWorkouts >= target;
-        Instant unlockedAt = null;
-        if (unlocked) {
-            int cumulative = 0;
-            for (AnalyticsUserDailyWorkoutEntity row : workoutRows) {
-                cumulative += defaultInteger(row.getCompletedWorkoutCount());
-                if (cumulative >= target) {
-                    unlockedAt = startOfDay(row.getActivityDate(), userZone);
-                    break;
-                }
-            }
-        }
-        return new AnalyticsAchievementsResponse.AchievementView(
-                code, title, unlocked, unlockedAt, achievementProgress(totalWorkouts, target));
-    }
-
-    private AnalyticsAchievementsResponse.AchievementView streakAchievement(
-            String code,
-            String title,
-            int target,
-            int bestStreakDays,
-            AnalyticsUserStreakRollupEntity rollup,
-            int currentStreakDays,
-            LocalDate lastActiveDate,
-            ZoneId userZone) {
-        boolean unlocked = bestStreakDays >= target;
-        Instant unlockedAt = null;
-        if (unlocked) {
-            if (rollup != null && defaultInteger(rollup.getBestStreakDays()) >= target
-                    && rollup.getBestStreakFrom() != null) {
-                unlockedAt = startOfDay(rollup.getBestStreakFrom().plusDays(target - 1L), userZone);
-            } else if (currentStreakDays >= target && lastActiveDate != null) {
-                // Rollup lag: the live streak crossed the threshold before tonight's materialization.
-                unlockedAt = startOfDay(lastActiveDate.minusDays(currentStreakDays - (long) target), userZone);
-            }
-        }
-        return new AnalyticsAchievementsResponse.AchievementView(
-                code, title, unlocked, unlockedAt, achievementProgress(bestStreakDays, target));
-    }
-
-    private AnalyticsAchievementsResponse.AchievementView firstEventAchievement(
-            String code,
-            String title,
-            LocalDate firstDate,
-            ZoneId userZone) {
-        return new AnalyticsAchievementsResponse.AchievementView(
-                code,
-                title,
-                firstDate != null,
-                firstDate == null ? null : startOfDay(firstDate, userZone),
-                firstDate != null ? 1.0 : 0.0);
-    }
-
-    private double achievementProgress(int value, int target) {
-        if (value <= 0) {
-            return 0.0;
-        }
-        if (value >= target) {
-            return 1.0;
-        }
-        return BigDecimal.valueOf(value)
-                .divide(BigDecimal.valueOf(target), 4, RoundingMode.HALF_UP)
-                .doubleValue();
-    }
-
-    private Instant startOfDay(LocalDate date, ZoneId zone) {
-        return date.atStartOfDay(zone).toInstant();
     }
 
     /**

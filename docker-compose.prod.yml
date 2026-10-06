@@ -278,6 +278,7 @@ services:
       SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
       # Consumed only by analytics; its own flag so recommendation-service is not switched on with it.
       KAFKA_ANALYTICS_ENERGY_PROFILE_LISTENER_ENABLED: ${KAFKA_ANALYTICS_ENERGY_PROFILE_LISTENER_ENABLED:-false}
+      KAFKA_RECIPE_COOKED_LISTENER_ENABLED: ${KAFKA_RECIPE_COOKED_LISTENER_ENABLED:-false}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
       interval: 30s

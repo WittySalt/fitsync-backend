@@ -968,7 +968,7 @@ public class UserServiceImpl implements UserService {
                 entity.getBirthDate(), entity.getGender(), entity.getHeightCm(), entity.getActivityLevel(),
                 entity.getTimezone(), entity.getLocationDisplay(), entity.getBio(),
                 entity.getMembershipTier(), entity.getMembershipStatus(), entity.isOnboardingCompleted(),
-                entity.getPrimaryGoal());
+                entity.getPrimaryGoal(), entity.getDateTimeCreated());
     }
 
     private UserPreferencesView toPreferencesView(UserAppPreferencesEntity app,

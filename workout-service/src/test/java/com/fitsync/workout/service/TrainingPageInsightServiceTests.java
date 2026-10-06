@@ -189,6 +189,31 @@ class TrainingPageInsightServiceTests {
     }
 
     @Test
+    void theThisWeekOnlyWindowReadsMondayToTheTuesdayAndNotTheLastFullWeek() {
+        seedFourWeekScenario(currentUser);
+
+        // Tuesday 22 September with one session this week: the coach reading still reads this week so far.
+        TrainingPageInsightView result = trainingPageInsightService.getTrainingPageInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-22"), true);
+
+        assertEquals(InsightPeriod.THIS_WEEK, result.period());
+        assertEquals(LocalDate.parse("2026-09-21"), result.periodStart());
+        assertEquals(LocalDate.parse("2026-09-22"), result.periodEnd());
+        assertEquals(1, result.sessions());
+    }
+
+    @Test
+    void theThisWeekOnlyWindowHasNothingToReadBeforeTheFirstSessionOfTheWeek() {
+        seedFourWeekScenario(currentUser);
+
+        // Monday 28 September: last week was trained, this week not yet.
+        TrainingPageInsightView result = trainingPageInsightService.getTrainingPageInsight(
+                currentUser, "Asia/Singapore", LocalDate.parse("2026-09-28"), true);
+
+        assertEquals(InsightPeriod.NONE, result.period());
+    }
+
+    @Test
     void describesTheCurrentWeekOnceItHasThreeSessions() {
         seedFourWeekScenario(currentUser);
 

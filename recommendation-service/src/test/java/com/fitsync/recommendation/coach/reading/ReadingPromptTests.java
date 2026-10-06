@@ -44,8 +44,8 @@ class ReadingPromptTests {
             - Every sentence of the body cites at least one fact.
 
             Facts are given as a JSON array, each with a number, a label, a value, a unit, a short \
-            note and a longer detail. The period label tells you whether this covers the current or \
-            the previous week. A fact labelled Pace gives minutes and seconds for one kilometre, \
+            note and a longer detail. The period label tells you this covers the current week so far, \
+            Monday to today. A fact labelled Pace gives minutes and seconds for one kilometre, \
             so a lower pace is a faster one; its note says how many seconds faster or slower it was.
 
             The example below shows the form only. Its numbers belong to someone else, so none \
@@ -64,7 +64,7 @@ class ReadingPromptTests {
             {"headline": "Your bench press best single rose in shorter sessions.", "body": "Your bench press best single rose 12% to 30 kg [1]. Sessions took 45 min [2], 10 min shorter than the week before. Thursday brought a deadlift of 80 kg [3], up from 75 kg [3]."}""";
 
     @Test
-    @DisplayName("the workout prompt is the text it always was")
+    @DisplayName("the workout prompt is the text it always was, its period note now the current week so far")
     void workoutPromptIsUnchanged() {
         assertThat(WorkoutReadingPage.SYSTEM_PROMPT).isEqualTo(WORKOUT_PROMPT_AS_BEFORE);
     }
@@ -85,7 +85,8 @@ class ReadingPromptTests {
     @DisplayName("each new prompt ends with one example in the same form, for its own page")
     void eachNewPromptHasItsOwnExample() {
         assertThat(NutritionReadingPage.SYSTEM_PROMPT)
-                .contains("period: PREVIOUS_WEEK")
+                .contains("period: THIS_WEEK")
+                .contains("the current week so far, Monday to today")
                 .contains("Example output:")
                 .contains("\"label\":\"Protein a day\"");
         assertThat(ProgressReadingPage.SYSTEM_PROMPT)

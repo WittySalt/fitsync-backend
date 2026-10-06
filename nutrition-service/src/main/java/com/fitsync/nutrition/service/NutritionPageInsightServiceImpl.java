@@ -48,10 +48,19 @@ public class NutritionPageInsightServiceImpl implements NutritionPageInsightServ
     @Override
     @Transactional(readOnly = true)
     public NutritionPageInsightView getNutritionPageInsight(CurrentUserPrincipal principal, String timezone) {
+        return getNutritionPageInsight(principal, timezone, false);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public NutritionPageInsightView getNutritionPageInsight(CurrentUserPrincipal principal, String timezone,
+                                                            boolean thisWeek) {
         ZoneId zoneId = resolveZone(timezone);
         LocalDate today = LocalDate.ofInstant(clock.instant(), zoneId);
-        LocalDate periodStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).minusWeeks(1);
-        LocalDate periodEnd = periodStart.plusDays(6);
+        LocalDate thisMonday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate periodStart = thisWeek ? thisMonday : thisMonday.minusWeeks(1);
+        LocalDate periodEnd = thisWeek ? today : periodStart.plusDays(6);
+        InsightPeriod described = thisWeek ? InsightPeriod.THIS_WEEK : InsightPeriod.PREVIOUS_WEEK;
         LocalDate earlierStart = periodStart.minusWeeks(1);
 
         // One query covers both weeks. The rows are then split by local date, because a meal belongs
@@ -90,7 +99,7 @@ public class NutritionPageInsightServiceImpl implements NutritionPageInsightServ
 
         return new NutritionPageInsightView(
                 zoneId.getId(),
-                InsightPeriod.PREVIOUS_WEEK,
+                described,
                 periodStart,
                 periodEnd,
                 days,

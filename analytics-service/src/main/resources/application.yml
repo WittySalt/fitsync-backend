@@ -95,6 +95,8 @@ fitsync:
         enabled: ${KAFKA_MEAL_UPDATED_LISTENER_ENABLED:false}
       meal-deleted:
         enabled: ${KAFKA_MEAL_DELETED_LISTENER_ENABLED:false}
+      recipe-cooked:
+        enabled: ${KAFKA_RECIPE_COOKED_LISTENER_ENABLED:false}
       workout-logged:
         enabled: ${KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED:false}
       workout-updated:

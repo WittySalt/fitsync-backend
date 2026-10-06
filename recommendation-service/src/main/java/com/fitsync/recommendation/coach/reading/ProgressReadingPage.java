@@ -101,7 +101,7 @@ class ProgressReadingPage implements ReadingPage {
     /** The nutrition insight for the calorie fact, or null when it cannot be had. */
     private NutritionInsight calorieInsight(String bearerToken, String timezone) {
         try {
-            return nutritionClient.pageInsight(bearerToken, timezone);
+            return nutritionClient.pageInsight(bearerToken, timezone, false);
         } catch (RuntimeException ex) {
             LOG.warn("event=progress_reading_calories_unavailable reason={}",
                     String.valueOf(ex.getClass().getSimpleName()).replace("\r", "_").replace("\n", "_"));

@@ -6,16 +6,16 @@ import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
-/** The nutrition page: protein, its split across the day, and calories, over the last full week. */
+/** The nutrition page: protein, its split across the day, and calories, over the current week so far. */
 @Component
 class NutritionReadingPage implements ReadingPage {
 
-    private static final String FACTS_NOTE = " The period label tells you this covers the last full week. "
+    private static final String FACTS_NOTE = " The period label tells you this covers the current week so far, Monday to today. "
             + "A fact about protein at breakfast, or at lunch and dinner, gives its share of the day's "
             + "protein in its note.";
 
     private static final String EXAMPLE = """
-            period: PREVIOUS_WEEK
+            period: THIS_WEEK
             facts: [
               {"number":1,"label":"Protein a day","value":"118.4","unit":"g","note":"Down 5%","detail":"124.6 g the week before; target 130 g"},
               {"number":2,"label":"Protein at breakfast","value":"14.2","unit":"g","note":"12% of the day","detail":""},
@@ -63,7 +63,7 @@ class NutritionReadingPage implements ReadingPage {
 
     @Override
     public PageSnapshot snapshot(String bearerToken, String timezone) {
-        NutritionInsight insight = nutritionClient.pageInsight(bearerToken, timezone);
+        NutritionInsight insight = nutritionClient.pageInsight(bearerToken, timezone, true);
         if (insight == null) {
             return null;
         }

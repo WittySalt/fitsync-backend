@@ -107,6 +107,25 @@ class NutritionPageInsightServiceTests {
     }
 
     @Test
+    void theThisWeekWindowReadsMondayToTodayAgainstTheLastFullWeek() {
+        // Wednesday 30 September: Monday and today logged this week, the week of 21 September before it.
+        meal(user.userId(), MealType.LUNCH, noonOn(LocalDate.of(2026, 9, 28)), "100.00", 2000);
+        meal(user.userId(), MealType.LUNCH, noonOn(LocalDate.of(2026, 9, 30)), "60.00", 1600);
+        meal(user.userId(), MealType.LUNCH, noonOn(PERIOD_START), "90.00", 1900);
+
+        NutritionPageInsightView view = service.getNutritionPageInsight(user, SGT, true);
+
+        assertEquals(InsightPeriod.THIS_WEEK, view.period());
+        assertEquals(LocalDate.of(2026, 9, 28), view.periodStart());
+        assertEquals(LocalDate.of(2026, 9, 30), view.periodEnd());
+        assertEquals(2, view.daysLogged());
+        assertEquals(new BigDecimal("80.0"), view.proteinPerDayGrams());
+        assertEquals(1800, view.caloriesPerDay());
+        assertEquals(new BigDecimal("90.0"), view.earlierProteinPerDayGrams());
+        assertEquals(1900, view.earlierCaloriesPerDay());
+    }
+
+    @Test
     void dividesByTheDaysThatHaveMealsAndLeavesEarlierEmptyWithoutAWeekBefore() {
         meal(user.userId(), MealType.LUNCH, noonOn(PERIOD_START), "100.00", 2000);
         meal(user.userId(), MealType.LUNCH, noonOn(PERIOD_START.plusDays(2)), "50.00", 2000);

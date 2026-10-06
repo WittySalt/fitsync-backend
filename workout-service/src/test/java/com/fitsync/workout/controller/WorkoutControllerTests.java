@@ -101,6 +101,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -506,6 +507,20 @@ class WorkoutControllerTests {
 
         verify(trainingPageInsightService).getTrainingPageInsight(
                 eq(principal), eq("Asia/Singapore"), eq(LocalDate.parse("2026-09-28")));
+    }
+
+    @Test
+    void theThisWeekParameterAsksForTheCurrentWeekSoFar() throws Exception {
+        CurrentUserPrincipal principal = principal();
+
+        mockMvc.perform(get("/api/v1/workouts/insights/training")
+                        .with(authentication(authToken(principal)))
+                        .header("X-Timezone", "Asia/Singapore")
+                        .param("thisWeek", "true"))
+                .andExpect(status().isOk());
+
+        verify(trainingPageInsightService).getTrainingPageInsight(eq(principal), eq("Asia/Singapore"), isNull(),
+                eq(true));
     }
 
     @Test

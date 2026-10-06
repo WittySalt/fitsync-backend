@@ -15,6 +15,8 @@ import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.messaging.AccountDeletionProjectionService;
 import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
+import com.fitsync.analytics.repository.AnalyticsUserAchievementRepository;
+import com.fitsync.analytics.repository.AnalyticsUserCooksRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
@@ -52,6 +54,8 @@ class AccountDeletionProjectionServiceTests {
         verify(fixtures.streakRollupRepository).deleteById(userId);
         verify(fixtures.workoutRecordsRepository).deleteById(userId);
         verify(fixtures.energyProfileRepository).deleteByUserId(userId);
+        verify(fixtures.achievementRepository).deleteByUserId(userId);
+        verify(fixtures.cooksRepository).deleteById(userId);
         verify(fixtures.processedEventRepository).deleteByUserId(userId);
         verify(fixtures.cacheInvalidationService).evictForUser(userId);
 
@@ -111,6 +115,9 @@ class AccountDeletionProjectionServiceTests {
                 mock(AnalyticsUserEnergyProfileRepository.class);
         private final AnalyticsCacheInvalidationService cacheInvalidationService =
                 mock(AnalyticsCacheInvalidationService.class);
+        private final AnalyticsUserAchievementRepository achievementRepository =
+                mock(AnalyticsUserAchievementRepository.class);
+        private final AnalyticsUserCooksRepository cooksRepository = mock(AnalyticsUserCooksRepository.class);
         private final AccountDeletionProjectionService service = new AccountDeletionProjectionService(
                 processedEventRepository,
                 mealContributionRepository,
@@ -123,6 +130,8 @@ class AccountDeletionProjectionServiceTests {
                 streakRollupRepository,
                 workoutRecordsRepository,
                 energyProfileRepository,
+                achievementRepository,
+                cooksRepository,
                 cacheInvalidationService,
                 Clock.fixed(Instant.parse("2026-06-25T04:00:00Z"), ZoneOffset.UTC));
     }

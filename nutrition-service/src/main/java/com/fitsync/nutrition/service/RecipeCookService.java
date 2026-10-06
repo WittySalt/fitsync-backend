@@ -5,6 +5,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.fitsync.contracts.events.DomainEventPublisher;
+import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.nutrition.RecipeCookedPayload;
 import com.fitsync.nutrition.dto.CreateRecipeCookRequest;
 import com.fitsync.nutrition.dto.RecipeCookView;
 import com.fitsync.nutrition.entity.RecipeCookEntity;
@@ -19,20 +22,27 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * The record of "I cooked this", kept apart from eating it. A cook is written for the caller only, for a
  * recipe the caller can see, and a retry with the same client id answers with the record that was written
- * first. No domain event is published for a cook, because nothing consumes one yet.
+ * first. A newly written cook publishes RecipeCooked through the outbox, in the same transaction, so that
+ * analytics can count cooks for the kitchen badges; a retry publishes nothing.
  */
 @Service
 public class RecipeCookService {
 
     static final Duration ALLOWED_SKEW = Duration.ofMinutes(5);
+    static final String RECIPE_COOKED = "RecipeCooked";
+    private static final String NUTRITION_EVENTS_TOPIC = "nutrition-events";
+    private static final String SOURCE = "nutrition-service";
 
     private final RecipeCookRepository cookRepository;
     private final RecipeLibraryService libraryService;
+    private final DomainEventPublisher domainEventPublisher;
     private final Clock clock;
 
-    public RecipeCookService(RecipeCookRepository cookRepository, RecipeLibraryService libraryService, Clock clock) {
+    public RecipeCookService(RecipeCookRepository cookRepository, RecipeLibraryService libraryService,
+                             DomainEventPublisher domainEventPublisher, Clock clock) {
         this.cookRepository = cookRepository;
         this.libraryService = libraryService;
+        this.domainEventPublisher = domainEventPublisher;
         this.clock = clock;
     }
 
@@ -70,7 +80,22 @@ public class RecipeCookService {
         cook.setStartedAt(request.startedAt());
         cook.setFinishedAt(finishedAt);
         cook.setCreatedAt(now);
-        return new Recorded(toView(cookRepository.save(cook)), true);
+        RecipeCookEntity saved = cookRepository.save(cook);
+        publishRecipeCooked(saved, now);
+        return new Recorded(toView(saved), true);
+    }
+
+    private void publishRecipeCooked(RecipeCookEntity cook, Instant now) {
+        domainEventPublisher.publish(NUTRITION_EVENTS_TOPIC, "RecipeCook", cook.getCookId().toString(),
+                new FitSyncDomainEvent<>(
+                        UUID.randomUUID(),
+                        RECIPE_COOKED,
+                        1,
+                        now,
+                        SOURCE,
+                        cook.getUserId(),
+                        new RecipeCookedPayload(cook.getCookId(), cook.getRecipeId(), cook.getServings(),
+                                cook.getFinishedAt())));
     }
 
     /** Marks the caller's own cook as deleted; anybody else's, or one already deleted, answers 404. */

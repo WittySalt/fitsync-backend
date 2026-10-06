@@ -22,7 +22,6 @@ import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
-import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -278,7 +277,6 @@ class AnalyticsStaleReadModelTests {
                 workoutRepository,
                 mock(AnalyticsUserDailyNutritionRepository.class),
                 streakRollupRepository,
-                mock(AnalyticsUserWorkoutRecordsRepository.class),
                 Clock.fixed(now, ZoneOffset.UTC),
                 new AnalyticsProperties(new AnalyticsProperties.Trends(
                         new AnalyticsProperties.MaxRangeDays(370, 1095, 1830))));
