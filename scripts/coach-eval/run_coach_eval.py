@@ -136,6 +136,7 @@ def run(args: argparse.Namespace) -> int:
 
         if q["category"] == "grounded":
             ok = (contains_any(answer, q["expect_any"]) and not verdict.startswith("REFUSED")
+                  and not contains_any(answer, q.get("forbid_any", []))
                   and ("expect_tool" not in q or q["expect_tool"] in tools))
         elif q["category"] == "refusal":
             ok = verdict == q["expect_verdict"]
