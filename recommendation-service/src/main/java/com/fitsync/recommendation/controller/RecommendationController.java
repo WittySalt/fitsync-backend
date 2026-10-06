@@ -16,12 +16,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -57,8 +59,9 @@ public class RecommendationController {
             @ApiResponse(responseCode = "200", description = "Recommendations returned (possibly empty)"),
             @ApiResponse(responseCode = "401", description = "Authentication required")
     })
-    public List<RecommendationResponse> recommendations(Authentication authentication) {
-        return resolver.resolve(currentUserId(authentication)).stream()
+    public List<RecommendationResponse> recommendations(Authentication authentication,
+                                                        @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return resolver.resolveWithToken(currentUserId(authentication), bearerToken(authorization)).stream()
                 .map(result -> RecommendationResponse.from(result, objectMapper))
                 .toList();
     }
@@ -73,8 +76,9 @@ public class RecommendationController {
             @ApiResponse(responseCode = "404", description = "No recommendation of this type for the user")
     })
     public RecommendationResponse recommendation(@PathVariable("type") String type,
-                                                 Authentication authentication) {
-        return resolver.resolve(currentUserId(authentication), normalize(type))
+                                                 Authentication authentication,
+                                                 @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return resolver.resolveType(currentUserId(authentication), normalize(type), bearerToken(authorization))
                 .map(result -> RecommendationResponse.from(result, objectMapper))
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No recommendation of type " + normalize(type) + " for the current user"));
@@ -90,8 +94,8 @@ public class RecommendationController {
             @ApiResponse(responseCode = "202", description = "Refresh performed"),
             @ApiResponse(responseCode = "401", description = "Authentication required")
     })
-    public void refresh(Authentication authentication) {
-        resolver.refresh(currentUserId(authentication));
+    public void refresh(Authentication authentication, @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        resolver.refresh(currentUserId(authentication), bearerToken(authorization));
     }
 
     @PostMapping("/coach/ask")
@@ -106,13 +110,21 @@ public class RecommendationController {
             @ApiResponse(responseCode = "503", description = "AI tier disabled or model unavailable")
     })
     public CoachAnswerResponse ask(Authentication authentication,
-                                   @Valid @RequestBody CoachQuestionRequest request) {
+                                   @Valid @RequestBody CoachQuestionRequest request,
+                                   @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
         return new CoachAnswerResponse(
-                coachQaService.ask(currentUserId(authentication), request.question()));
+                coachQaService.ask(currentUserId(authentication), request.question(), bearerToken(authorization)));
     }
 
     private static java.util.UUID currentUserId(Authentication authentication) {
         return ((CurrentUserPrincipal) authentication.getPrincipal()).userId();
+    }
+
+    /** The raw token, forwarded to nutrition-service so today's intake is read as the caller. */
+    private static String bearerToken(String authorizationHeader) {
+        return authorizationHeader != null && authorizationHeader.startsWith("Bearer ")
+                ? authorizationHeader.substring(7)
+                : null;
     }
 
     private static String normalize(String type) {

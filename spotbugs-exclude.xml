@@ -693,6 +693,13 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Today's intake reads the diary through the constructor-injected nutrition client, the same
+         dependency-injection noise as the clients above. -->
+    <Match>
+        <Class name="com.fitsync.recommendation.coach.client.DiaryTodayIntakeSource"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <Match>
         <Class name="com.fitsync.recommendation.coach.orchestrator.CoachOrchestrator"/>
         <Bug pattern="EI_EXPOSE_REP2"/>

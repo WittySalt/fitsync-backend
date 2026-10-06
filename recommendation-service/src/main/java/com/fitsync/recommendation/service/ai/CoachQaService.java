@@ -3,6 +3,8 @@ package com.fitsync.recommendation.service.ai;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -10,7 +12,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.config.RecommendationProperties;
+import com.fitsync.recommendation.domain.UserTimeZones;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
+import com.fitsync.recommendation.service.TodayIntakeSource;
 import com.fitsync.web.error.ApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +48,7 @@ public class CoachQaService {
     private final RecommendationContextRepository contextRepository;
     private final ObjectProvider<ClaudeClient> claudeClientProvider;
     private final CoachFacts coachFacts;
+    private final TodayIntakeSource todayIntakeSource;
     private final ObjectMapper objectMapper;
     private final RecommendationProperties properties;
     private final Clock clock;
@@ -52,18 +57,25 @@ public class CoachQaService {
     public CoachQaService(RecommendationContextRepository contextRepository,
                           ObjectProvider<ClaudeClient> claudeClientProvider,
                           CoachFacts coachFacts,
+                          TodayIntakeSource todayIntakeSource,
                           ObjectMapper objectMapper,
                           RecommendationProperties properties,
                           Clock clock) {
         this.contextRepository = contextRepository;
         this.claudeClientProvider = claudeClientProvider;
         this.coachFacts = coachFacts;
+        this.todayIntakeSource = todayIntakeSource;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
     }
 
     public String ask(UUID userId, String question) {
+        return ask(userId, question, null);
+    }
+
+    /** @param bearerToken the caller's token, so today's intake is read from the diary; nullable */
+    public String ask(UUID userId, String question, String bearerToken) {
         ClaudeClient claudeClient = claudeClientProvider.getIfAvailable();
         if (claudeClient == null) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "COACH_UNAVAILABLE",
@@ -71,7 +83,11 @@ public class CoachQaService {
         }
         enforceQuestionBudget(userId);
         Map<String, Object> facts = contextRepository.findById(userId)
-                .map(context -> coachFacts.assemble(context, null))
+                .map(context -> {
+                    ZoneId zone = UserTimeZones.resolve(context.getTimezone());
+                    return coachFacts.assemble(context, null,
+                            todayIntakeSource.read(bearerToken, LocalDate.now(clock.withZone(zone)), zone));
+                })
                 .orElseGet(Map::of);
         try {
             String answer = claudeClient.complete(SYSTEM_PROMPT, promptFor(facts, question));

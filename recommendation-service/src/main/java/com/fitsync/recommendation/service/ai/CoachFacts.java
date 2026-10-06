@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.domain.FoodGroupCalories;
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.service.rules.NutritionGapRule;
 import com.fitsync.recommendation.service.rules.RecommendationTypes;
@@ -19,7 +20,7 @@ import org.springframework.stereotype.Service;
 /**
  * The one facts assembler behind every AI surface (A1 weekly narrative, A4 coach Q&A):
  * compute-in-code, model-phrases. Facts are grouped semantically (training /
- * nutritionToday / goalPace / loggingStreak / personalRecord / foodGroupWeek) and carry
+ * nutritionToday / goalPace / personalRecord / foodGroupWeek) and carry
  * the rules' own status words, so the model has nothing left to judge.
  */
 @Service
@@ -33,11 +34,20 @@ public class CoachFacts {
         this.objectMapper = objectMapper;
     }
 
-    static final String TRAINING_PERIOD = "LAST_FULL_WEEK";
+    public static final String TRAINING_PERIOD = "LAST_FULL_WEEK";
 
     /** @param previousNarrative last narrative for week-over-week continuity; nullable */
     public Map<String, Object> assemble(RecommendationContextEntity context, String previousNarrative) {
-        Map<String, RuleOutcome> outcomes = ruleEngine.evaluateAll(context).stream()
+        return assemble(context, previousNarrative, TodayIntake.unknown());
+    }
+
+    /**
+     * @param previousNarrative last narrative for week-over-week continuity; nullable
+     * @param today             today's intake as the Nutrition Diary shows it, read once by the caller
+     */
+    public Map<String, Object> assemble(RecommendationContextEntity context, String previousNarrative,
+                                        TodayIntake today) {
+        Map<String, RuleOutcome> outcomes = ruleEngine.evaluateAll(context, today).stream()
                 .collect(Collectors.toMap(RuleOutcome::type, Function.identity()));
 
         Map<String, Object> facts = new LinkedHashMap<>();
@@ -52,8 +62,6 @@ public class CoachFacts {
         });
         ruleFacts(outcomes, RecommendationTypes.GOAL_PACE)
                 .ifPresent(pace -> facts.put("goalPace", pace));
-        ruleFacts(outcomes, RecommendationTypes.STREAK_NUDGE)
-                .ifPresent(streak -> facts.put("loggingStreak", streak));
         ruleFacts(outcomes, RecommendationTypes.PERSONAL_RECORD)
                 .ifPresent(record -> facts.put("personalRecord", record));
         foodGroupWeekFacts(context).ifPresent(groups -> facts.put("foodGroupWeek", groups));

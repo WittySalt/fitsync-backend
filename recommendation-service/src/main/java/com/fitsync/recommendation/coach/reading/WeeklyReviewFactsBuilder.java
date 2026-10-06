@@ -16,7 +16,8 @@ import org.springframework.stereotype.Component;
  * client can scroll from a citation to the card. A figure the endpoint did not send is left out, and a
  * week in which nothing was recorded has no facts at all rather than a row of zeros.
  *
- * <p>Planned days done is not among the facts: none of the three endpoints sends it for a past week.
+ * <p>Planned days done comes from workout-service's weekly insight for the same week ("3 of 4 planned
+ * days"), and is left out when no plan was active.
  *
  * <p>Today is still going (progress review fixes, section 1). The Food page already averages the days
  * that are over, so on the current week the calorie and protein facts are those averages; before one day
@@ -45,9 +46,20 @@ public class WeeklyReviewFactsBuilder {
      * @param current true for the week that holds today
      */
     public List<ReadingFact> build(JsonNode training, JsonNode goal, JsonNode food, boolean current) {
+        return build(training, goal, food, current, null);
+    }
+
+    /**
+     * @param weekly workout-service's weekly insight for the same week, or null when it could not be read
+     */
+    public List<ReadingFact> build(JsonNode training, JsonNode goal, JsonNode food, boolean current,
+                                   JsonNode weekly) {
         List<ReadingFact> chosen = new ArrayList<>();
         if (training != null) {
             addTraining(chosen, training.path("hero"), current ? training.path("load").path("currentWeek") : null);
+        }
+        if (weekly != null) {
+            addPlannedDays(chosen, weekly);
         }
         if (food != null) {
             if (!addFood(chosen, food.path("hero")) && current) {
@@ -107,6 +119,18 @@ public class WeeklyReviewFactsBuilder {
                     "", BigDecimal.valueOf(records), "", names(hero.path("records").path("exercises")),
                     ProgressFactsBuilder.CARD_TRAINING));
         }
+    }
+
+    /** "3 of 4 planned days", when a plan scheduled days in the week. */
+    private static void addPlannedDays(List<ReadingFact> facts, JsonNode weekly) {
+        Integer planned = whole(weekly.path("plannedDays"));
+        Integer done = whole(weekly.path("plannedDaysDone"));
+        if (planned == null || planned <= 0 || done == null || done < 0) {
+            return;
+        }
+        facts.add(new ReadingFact(0, "PLANNED_DAYS", "Planned days done", String.valueOf(done),
+                "of " + planned, BigDecimal.valueOf(done), "",
+                done + " of " + planned + " planned days", ProgressFactsBuilder.CARD_TRAINING));
     }
 
     /** The food facts over the logged days that are over; false when there is not one. */

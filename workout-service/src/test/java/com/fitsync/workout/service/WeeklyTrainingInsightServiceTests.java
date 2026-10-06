@@ -259,6 +259,9 @@ class WeeklyTrainingInsightServiceTests {
         assertEquals(DayKind.REST, result.today().kind());
         assertEquals("Treadmill run", result.nextTraining().title());
         assertEquals(LocalDate.parse("2026-10-01"), result.nextTraining().date());
+        // Two planned days this week, one of them trained.
+        assertEquals(2, result.plannedDays());
+        assertEquals(1, result.plannedDaysDone());
     }
 
     @Test
@@ -275,6 +278,8 @@ class WeeklyTrainingInsightServiceTests {
             assertNull(day.planned());
             assertTrue(day.sessions().isEmpty());
         }
+        assertNull(result.plannedDays());
+        assertNull(result.plannedDaysDone());
         assertEquals(DayKind.OPEN, result.today().kind());
         assertEquals(DaySource.NONE, result.today().source());
     }

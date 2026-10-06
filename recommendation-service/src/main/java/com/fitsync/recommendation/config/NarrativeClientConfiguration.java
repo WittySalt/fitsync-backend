@@ -10,7 +10,7 @@ import org.springframework.web.client.RestClient;
 
 /**
  * Builds the one {@link ClaudeClient} bean for the AI tier — or none at all when the
- * tier is disabled (the default), which is how {@code WeeklyNarrativeService} knows to
+ * tier is disabled (the default), which is how the coach knows to
  * stay silent. {@code fitsync.recommendation.ai.provider} picks the backend:
  * {@code anthropic} (default — the Claude API, key via {@code ANTHROPIC_API_KEY}) or
  * {@code ollama} (local open model, no key). Everything downstream of the seam —

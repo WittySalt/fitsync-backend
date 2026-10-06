@@ -7,9 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * A meal edit invalidates the running today-totals (the event carries the new totals but
- * not the old ones, so no delta is computable without per-meal contribution tracking —
- * deliberately left to analytics). The handler therefore only marks the context stale.
+ * A meal edit only marks the context stale, so cached recommendations refresh on the next
+ * read. Today's intake is read from the Nutrition Diary at that point, with the edit in it.
  */
 @Service
 public class MealUpdatedEventHandler implements DomainEventConsumer<MealUpdatedPayload> {

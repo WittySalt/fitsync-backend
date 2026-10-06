@@ -15,11 +15,13 @@ import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import org.springframework.stereotype.Service;
 
 /**
- * R3 — goal pace: compares the actual weekly weight-change rate since the goal baseline
- * against the rate required to hit the target by the target date. Direction-aware: a
- * change opposite to the goal direction is always BEHIND. Needs a weight goal with
- * target value/date, the baseline captured at goal-set time, a latest weight, and at
- * least one elapsed day of signal.
+ * R3 — goal pace, judged the way the Progress goal road judges it: the weekly rate since the
+ * baseline (the first weigh-in on or after the goal's start) carried forward to a projected
+ * date, compared with the goal date. Seven days either side of the goal date is on course,
+ * earlier is ahead, later is behind, so the rule never says behind where the road says ahead.
+ * A change opposite to the goal direction has no projected date and is behind; a weight
+ * already at or past the target is reached. Needs a weight goal with target value/date, the
+ * baseline, a latest weight, and at least one elapsed day of signal.
  */
 @Service
 public class GoalPaceRule implements Rule {
@@ -27,11 +29,14 @@ public class GoalPaceRule implements Rule {
     static final String STATUS_AHEAD = "AHEAD";
     static final String STATUS_ON_TRACK = "ON_TRACK";
     static final String STATUS_BEHIND = "BEHIND";
+    static final String STATUS_REACHED = "REACHED";
 
-    // actual/required rate ratio thresholds; ±10% counts as on track.
-    private static final double AHEAD_RATIO = 1.1;
-    private static final double ON_TRACK_RATIO = 0.9;
+    /** The projected date must be this many days from the goal date to count as ahead or behind. */
+    static final int ON_COURSE_SLACK_DAYS = 7;
+
     private static final double DAYS_PER_WEEK = 7.0;
+    /** Kilograms closer to zero than this are zero; the weights carry two decimals. */
+    private static final double EPSILON_KG = 1e-6;
 
     private final Clock clock;
 
@@ -72,28 +77,50 @@ public class GoalPaceRule implements Rule {
             return Optional.empty();
         }
         double actualPerWeek = (latest - baseline) / elapsedDays * DAYS_PER_WEEK;
-        double paceRatio = actualPerWeek / requiredPerWeek;
+        double remaining = target - latest;
+        boolean reached = Math.abs(remaining) < EPSILON_KG || Math.signum(remaining) != Math.signum(requiredPerWeek);
+        LocalDate projected = reached ? null : projectedDate(today, remaining, actualPerWeek);
 
         Map<String, Object> facts = new LinkedHashMap<>();
         facts.put("baselineWeightKg", context.getGoalBaselineWeightKg());
+        facts.put("baselineOn", baselineOn);
         facts.put("latestWeightKg", context.getLatestWeightKg());
         facts.put("targetWeightKg", context.getCurrentGoalTargetValue());
         facts.put("targetDate", targetDate);
         facts.put("daysRemaining", ChronoUnit.DAYS.between(today, targetDate));
+        facts.put("distanceKg", BigDecimal.valueOf(Math.abs(remaining)).setScale(1, RoundingMode.HALF_UP));
         facts.put("requiredRatePerWeekKg", roundRate(requiredPerWeek));
         facts.put("actualRatePerWeekKg", roundRate(actualPerWeek));
-        facts.put("status", status(paceRatio));
+        if (projected != null) {
+            facts.put("projectedDate", projected);
+        }
+        String status = reached ? STATUS_REACHED : status(projected, targetDate);
+        facts.put("status", status);
+        if (projected != null && STATUS_AHEAD.equals(status)) {
+            facts.put("daysEarly", ChronoUnit.DAYS.between(projected, targetDate));
+        } else if (projected != null && STATUS_BEHIND.equals(status)) {
+            facts.put("daysLate", ChronoUnit.DAYS.between(targetDate, projected));
+        }
         return Optional.of(new RuleOutcome(type(), facts));
     }
 
-    private static String status(double paceRatio) {
-        if (paceRatio >= AHEAD_RATIO) {
+    /** Today plus the weeks the remaining kilos take at the actual rate, or null when the rate does not lead there. */
+    private static LocalDate projectedDate(LocalDate today, double remaining, double actualPerWeek) {
+        if (Math.abs(actualPerWeek) < EPSILON_KG || Math.signum(actualPerWeek) != Math.signum(remaining)) {
+            return null;
+        }
+        return today.plusDays(Math.round(remaining / actualPerWeek * DAYS_PER_WEEK));
+    }
+
+    private static String status(LocalDate projected, LocalDate targetDate) {
+        if (projected == null) {
+            return STATUS_BEHIND;
+        }
+        long days = ChronoUnit.DAYS.between(targetDate, projected);
+        if (days <= -ON_COURSE_SLACK_DAYS) {
             return STATUS_AHEAD;
         }
-        if (paceRatio >= ON_TRACK_RATIO) {
-            return STATUS_ON_TRACK;
-        }
-        return STATUS_BEHIND;
+        return days >= ON_COURSE_SLACK_DAYS ? STATUS_BEHIND : STATUS_ON_TRACK;
     }
 
     private static BigDecimal roundRate(double ratePerWeek) {

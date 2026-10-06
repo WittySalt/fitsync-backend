@@ -48,7 +48,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
           "nextTraining": null,
           "usualStartTime": "18:30",
           "lifts": [{"exerciseId": "7f1c1a52-6c1f-4c55-9a43-1f0b8e0c2d11", "name": "Deadlift", "e1rmStart": 81.7, "e1rmNow": 93.3, "changePct": 14}],
-          "activitySummaries": [{"key": "STRENGTH", "name": "Strength", "summary": [{"figure": "e1RM +14%", "text": "e1RM +14% across one lift", "trend": "UP"}]}]
+          "activitySummaries": [{"key": "STRENGTH", "name": "Strength", "summary": [{"figure": "e1RM +14%", "text": "e1RM +14% across one lift", "trend": "UP"}]}],
+          "plannedDays": 4,
+          "plannedDaysDone": 3
         }
         """)
 public record WeeklyTrainingInsightView(
@@ -69,13 +71,46 @@ public record WeeklyTrainingInsightView(
         int previousWeekSameDaysCompletedSessions,
         int previousWeekSameDaysTotalMinutes,
         List<LiftChangeView> lifts,
-        List<ActivitySummaryView> activitySummaries) {
+        List<ActivitySummaryView> activitySummaries,
+        Integer plannedDays,
+        Integer plannedDaysDone) {
 
+    /**
+     * The days of the week the active plan schedules ({@code plannedDays}) and how many of them were
+     * trained this week, wherever in the week that happened ({@code plannedDaysDone}). Both are null
+     * when no plan is active, so "0 of 0" is never shown.
+     */
     public WeeklyTrainingInsightView {
         muscleGroups = muscleGroups == null ? List.of() : List.copyOf(muscleGroups);
         days = days == null ? List.of() : List.copyOf(days);
         lifts = lifts == null ? List.of() : List.copyOf(lifts);
         activitySummaries = activitySummaries == null ? List.of() : List.copyOf(activitySummaries);
+    }
+
+    /** The view before the planned-days counts existed; both are null, as for a week without a plan. */
+    public WeeklyTrainingInsightView(
+            String timezone,
+            LocalDate referenceDate,
+            LocalDate weekStart,
+            LocalDate weekEnd,
+            int completedSessions,
+            int totalMinutes,
+            int previousWeekCompletedSessions,
+            int previousWeekTotalMinutes,
+            List<MuscleGroupInsightView> muscleGroups,
+            WeeklyVolumeView volume,
+            List<DayInsightView> days,
+            TodayInsightView today,
+            NextTrainingView nextTraining,
+            String usualStartTime,
+            int previousWeekSameDaysCompletedSessions,
+            int previousWeekSameDaysTotalMinutes,
+            List<LiftChangeView> lifts,
+            List<ActivitySummaryView> activitySummaries) {
+        this(timezone, referenceDate, weekStart, weekEnd, completedSessions, totalMinutes,
+                previousWeekCompletedSessions, previousWeekTotalMinutes, muscleGroups, volume, days, today,
+                nextTraining, usualStartTime, previousWeekSameDaysCompletedSessions,
+                previousWeekSameDaysTotalMinutes, lifts, activitySummaries, null, null);
     }
 
     /** The view before the Progress card's lifts and activity summaries existed; both default to empty. */

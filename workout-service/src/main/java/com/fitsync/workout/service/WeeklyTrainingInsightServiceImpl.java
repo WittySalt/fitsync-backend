@@ -18,6 +18,7 @@ import java.util.UUID;
 import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
+import com.fitsync.workout.dto.DayInsightView;
 import com.fitsync.workout.dto.MuscleGroupInsightView;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WeeklyVolumeView;
@@ -173,7 +174,23 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                             return new ActivitySummaryView(activity.key(), activity.name(), activity.summary(),
                                     run == null ? null : run.weekday().getValue(), run == null ? null : run.weeks());
                         })
-                        .toList());
+                        .toList(),
+                plannedDays(weekByDay.days()),
+                plannedDaysDone(weekByDay.days()));
+    }
+
+    /** The days the active plan schedules this week, or null when no plan is active. */
+    static Integer plannedDays(List<DayInsightView> days) {
+        long planned = days.stream().filter(day -> day.planned() != null).count();
+        return planned == 0 ? null : (int) planned;
+    }
+
+    /** The planned days already trained this week, wherever in the week, or null when no plan is active. */
+    static Integer plannedDaysDone(List<DayInsightView> days) {
+        if (plannedDays(days) == null) {
+            return null;
+        }
+        return (int) days.stream().filter(day -> day.planned() != null && day.planned().fulfilled()).count();
     }
 
     /** A main lift's first and latest estimated best single in the card's 28 days. */

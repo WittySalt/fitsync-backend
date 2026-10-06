@@ -462,6 +462,36 @@ class AnswerValidatorTests {
     }
 
     @Test
+    @DisplayName("grams and kcal rounded to whole numbers and kg to one decimal pass, a made-up figure does not")
+    void roundedFiguresPass() {
+        List<String> records = List.of("Result of readFacts({}):\n{\"proteinConsumedGrams\": 29.15, "
+                + "\"consumedCalories\": 1849.6, \"latestWeightKg\": 71.24}");
+
+        assertThat(validator.validate("You have had 29 g of protein and 1850 kcal, and you weigh 71.2 kg.", "q",
+                records, null).valid()).isTrue();
+        assertThat(validator.validate("You have had 30 g of protein.", "q", records, null).violations())
+                .containsExactly("NUMBER_NOT_IN_RECORDS:30");
+        assertThat(validator.validate("You weigh 71.24 kg, about 71.25.", "q", records, null).violations())
+                .containsExactly("NUMBER_NOT_IN_RECORDS:71.25");
+    }
+
+    @Test
+    @DisplayName("four sessions and three of four planned days are checked like digits")
+    void numberWordsOneToTwelveAreChecked() {
+        List<String> records = List.of("Result of readFacts({}):\n{\"sessions\": 4, \"plannedDays\": 4, "
+                + "\"plannedDaysDone\": 3}");
+
+        assertThat(validator.validate("You did four sessions, three of four planned days.", "q", records, null)
+                .valid()).isTrue();
+        assertThat(validator.validate("You did five of four planned days.", "q", records, null).violations())
+                .containsExactly("NUMBER_NOT_IN_RECORDS:five");
+        assertThat(validator.validate("You did three of 5 planned days.", "q", records, null).violations())
+                .containsExactly("NUMBER_NOT_IN_RECORDS:5");
+        assertThat(validator.validate("You had eleven grams of fibre.", "q", records, null).violations())
+                .containsExactly("NUMBER_NOT_IN_RECORDS:eleven");
+    }
+
+    @Test
     @DisplayName("a count written in words before a unit is checked too, and a for-a-week count must be named")
     void wordCountsFollowTheWeekRule() {
         AnswerValidator.Result result = validator.validate(

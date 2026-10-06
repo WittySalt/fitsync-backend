@@ -203,8 +203,7 @@ class CoachPageReadingStore {
      * rather than {@link String#equals}.
      *
      * <p>Nothing here is a secret a timing attack could extract, but findsecbugs flags any
-     * equality check on a value with "hash" in its name regardless, and {@code WeeklyNarrativeService}
-     * already established the fix for exactly this pattern in this module: compare the UTF-8 bytes
+     * equality check on a value with "hash" in its name regardless, and the fix for exactly this pattern in this module is to compare the UTF-8 bytes
      * with a constant-time comparison instead of leaving the finding unaddressed.
      */
     static boolean hashesMatch(String a, String b) {

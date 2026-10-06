@@ -1,13 +1,19 @@
 package com.fitsync.recommendation.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.entity.RecommendationResultEntity;
 import com.fitsync.recommendation.entity.RecommendationSource;
@@ -17,6 +23,7 @@ import com.fitsync.recommendation.service.rules.RecommendationTypes;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +44,9 @@ class RecommendationResolverTests {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @MockBean
+    private TodayIntakeSource todayIntakeSource;
+
     private final UUID userId = UUID.randomUUID();
 
     @Test
@@ -46,7 +56,7 @@ class RecommendationResolverTests {
         List<RecommendationResultEntity> results = resolver.resolve(userId);
 
         assertThat(results).extracting(RecommendationResultEntity::getType).containsExactly(
-                RecommendationTypes.STREAK_NUDGE, RecommendationTypes.WEEKLY_ADHERENCE);
+                RecommendationTypes.NUTRITION_GAP, RecommendationTypes.WEEKLY_ADHERENCE);
         RecommendationResultEntity adherence = results.get(1);
         assertThat(adherence.getSource()).isEqualTo(RecommendationSource.RULE);
         assertThat(adherence.getContextHash()).hasSize(64);
@@ -67,7 +77,7 @@ class RecommendationResolverTests {
         resolver.resolve(userId);
 
         RecommendationResultEntity cached = resultRepository
-                .findByUserIdAndType(userId, RecommendationTypes.STREAK_NUDGE).orElseThrow();
+                .findByUserIdAndType(userId, RecommendationTypes.NUTRITION_GAP).orElseThrow();
         cached.setPayload("TAMPERED");
         resultRepository.saveAndFlush(cached);
 
@@ -82,7 +92,7 @@ class RecommendationResolverTests {
         resolver.resolve(userId);
 
         RecommendationContextEntity context = contextRepository.findById(userId).orElseThrow();
-        context.setCurrentStreakDays(null);
+        context.setCalorieGoalKcal(null);
         context.setStale(true);
         contextRepository.saveAndFlush(context);
 
@@ -97,7 +107,25 @@ class RecommendationResolverTests {
         persistContext();
 
         assertThat(resolver.resolve(userId, RecommendationTypes.WEEKLY_ADHERENCE)).isPresent();
-        assertThat(resolver.resolve(userId, RecommendationTypes.NUTRITION_GAP)).isEmpty();
+        assertThat(resolver.resolve(userId, RecommendationTypes.STREAK_NUDGE)).isEmpty();
+    }
+
+    @Test
+    void theNutritionGapQuotesTheDiaryReadWithTheCallersToken() throws Exception {
+        RecommendationContextEntity context = new RecommendationContextEntity();
+        context.setUserId(userId);
+        context.setCalorieGoalKcal(2100);
+        context.setTodayCaloriesConsumed(4910);
+        contextRepository.saveAndFlush(context);
+        when(todayIntakeSource.read(eq("caller-credential"), any(), any()))
+                .thenReturn(new TodayIntake(LocalDate.now(java.time.ZoneOffset.UTC), 476, BigDecimal.ZERO));
+
+        RecommendationResultEntity gap = resolver.resolveType(userId, RecommendationTypes.NUTRITION_GAP,
+                "caller-credential").orElseThrow();
+
+        JsonNode facts = objectMapper.readTree(gap.getPayload()).get("facts");
+        assertThat(facts.get("consumedCalories").asInt()).isEqualTo(476);
+        assertThat(facts.get("remainingCalories").asInt()).isEqualTo(1624);
     }
 
     @Test
@@ -112,6 +140,23 @@ class RecommendationResolverTests {
         context.setRecentActiveDays(2);
         context.setRecentWorkoutCount(2);
         context.setCurrentStreakDays(7);
+        context.setCalorieGoalKcal(2100);
         contextRepository.saveAndFlush(context);
+    }
+
+    @Test
+    void aStreakNoLongerProducesARecommendation() {
+        persistContext();
+        RecommendationResultEntity old = new RecommendationResultEntity();
+        old.setId(UUID.randomUUID());
+        old.setUserId(userId);
+        old.setType(RecommendationTypes.STREAK_NUDGE);
+        old.setSource(RecommendationSource.RULE);
+        old.setPayload("{}");
+        old.setGeneratedAt(java.time.Instant.parse("2026-10-01T00:00:00Z"));
+        resultRepository.saveAndFlush(old);
+
+        assertThat(resolver.resolve(userId)).extracting(RecommendationResultEntity::getType)
+                .doesNotContain(RecommendationTypes.STREAK_NUDGE);
     }
 }

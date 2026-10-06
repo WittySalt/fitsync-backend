@@ -126,6 +126,13 @@ public class WorkoutCatalogueClient extends CatalogueClient {
         return get(WEEKLY_INSIGHT, params, bearerToken, timezone);
     }
 
+    /** The weekly insight of the Monday week that holds {@code date}, or null when it could not be read. */
+    public String weeklyInsight(String bearerToken, String timezone, LocalDate date) {
+        Map<String, Object> params = params();
+        params.put("date", date);
+        return get(WEEKLY_INSIGHT, params, bearerToken, timezone);
+    }
+
     /**
      * The main lifts' estimated best singles from the weekly insight, empty when it could not be read.
      * The weekly insight carries them as {@code lifts} with the best single at the start and now.
@@ -172,7 +179,7 @@ public class WorkoutCatalogueClient extends CatalogueClient {
             return objectMapper.readValue(body, TrainingInsight.class);
         } catch (JsonProcessingException ex) {
             // Sanitised inline against CRLF injection (CWE-117): findsecbugs only accepts replace()
-            // directly in the dataflow to the log sink, the same way WeeklyNarrativeService does it.
+            // directly in the dataflow to the log sink, as elsewhere in this service.
             // The parser's own message can quote the body, so it is left out of the log.
             LOG.warn("event=training_insight_unreadable");
             return null;

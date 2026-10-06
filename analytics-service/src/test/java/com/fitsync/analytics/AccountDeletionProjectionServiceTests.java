@@ -25,6 +25,7 @@ import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
 import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
 import com.fitsync.analytics.repository.AnalyticsUserEnergyProfileRepository;
+import com.fitsync.analytics.repository.AnalyticsWeeklyRecapMarkRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -55,6 +56,7 @@ class AccountDeletionProjectionServiceTests {
         verify(fixtures.workoutRecordsRepository).deleteById(userId);
         verify(fixtures.energyProfileRepository).deleteByUserId(userId);
         verify(fixtures.achievementRepository).deleteByUserId(userId);
+        verify(fixtures.recapMarkRepository).deleteByUserId(userId);
         verify(fixtures.cooksRepository).deleteById(userId);
         verify(fixtures.processedEventRepository).deleteByUserId(userId);
         verify(fixtures.cacheInvalidationService).evictForUser(userId);
@@ -118,6 +120,8 @@ class AccountDeletionProjectionServiceTests {
         private final AnalyticsUserAchievementRepository achievementRepository =
                 mock(AnalyticsUserAchievementRepository.class);
         private final AnalyticsUserCooksRepository cooksRepository = mock(AnalyticsUserCooksRepository.class);
+        private final AnalyticsWeeklyRecapMarkRepository recapMarkRepository =
+                mock(AnalyticsWeeklyRecapMarkRepository.class);
         private final AccountDeletionProjectionService service = new AccountDeletionProjectionService(
                 processedEventRepository,
                 mealContributionRepository,
@@ -132,6 +136,7 @@ class AccountDeletionProjectionServiceTests {
                 energyProfileRepository,
                 achievementRepository,
                 cooksRepository,
+                recapMarkRepository,
                 cacheInvalidationService,
                 Clock.fixed(Instant.parse("2026-06-25T04:00:00Z"), ZoneOffset.UTC));
     }

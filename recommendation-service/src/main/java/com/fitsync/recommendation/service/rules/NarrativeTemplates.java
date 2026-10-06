@@ -26,7 +26,6 @@ public class NarrativeTemplates {
             case RecommendationTypes.NUTRITION_GAP -> nutritionGap(facts);
             case RecommendationTypes.WEEKLY_ADHERENCE -> weeklyAdherence(facts);
             case RecommendationTypes.GOAL_PACE -> goalPace(facts);
-            case RecommendationTypes.STREAK_NUDGE -> streakNudge(facts);
             case RecommendationTypes.COLD_START -> coldStart(facts);
             case RecommendationTypes.PERSONAL_RECORD -> personalRecord(facts);
             case RecommendationTypes.LOGGING_REMINDER -> loggingReminder(facts);
@@ -36,8 +35,11 @@ public class NarrativeTemplates {
 
     // T1-T3 — daily nutrition gap.
     private static String nutritionGap(Map<String, Object> facts) {
-        int remaining = intFact(facts, "remainingCalories");
         int target = intFact(facts, "targetCalories");
+        if (!facts.containsKey("remainingCalories")) {
+            return "Today's target is %d kcal.".formatted(target);
+        }
+        int remaining = intFact(facts, "remainingCalories");
         if (remaining <= 0) {
             return "You've hit today's %d kcal budget (%d kcal over). Lighter choices for the rest of the day."
                     .formatted(target, -remaining);
@@ -63,34 +65,37 @@ public class NarrativeTemplates {
                 .formatted(activeDays, targetDays, intFact(facts, "shortfallDays"));
     }
 
-    // T6-T8 — goal pace.
+    // T6-T8 — goal pace, in the Progress goal road's own words ("3.2 kg to 68 kg. On course for
+    // 25 Nov, 16 days early.") so the two never disagree.
     private static String goalPace(Map<String, Object> facts) {
-        String actual = rate(facts, "actualRatePerWeekKg");
-        String required = rate(facts, "requiredRatePerWeekKg");
-        String target = decimalFact(facts, "targetWeightKg").toPlainString();
+        String target = decimalFact(facts, "targetWeightKg").stripTrailingZeros().toPlainString();
         LocalDate targetDate = (LocalDate) facts.get("targetDate");
-        return switch (String.valueOf(facts.get("status"))) {
-            case GoalPaceRule.STATUS_AHEAD ->
-                    "You're ahead of pace: %s kg/week vs the %s kg/week needed for %s kg by %s."
-                            .formatted(actual, required, target, targetDate);
-            case GoalPaceRule.STATUS_ON_TRACK ->
-                    "Right on track for %s kg by %s — keep the current routine going."
-                            .formatted(target, targetDate);
-            default ->
-                    "Progress is behind pace (%s vs %s kg/week needed). Small adjustments now beat big ones later."
-                            .formatted(actual, required);
+        LocalDate projected = (LocalDate) facts.get("projectedDate");
+        String status = String.valueOf(facts.get("status"));
+        if (GoalPaceRule.STATUS_REACHED.equals(status)) {
+            return "%s kg reached.".formatted(target);
+        }
+        String road = "%s kg to %s kg.".formatted(decimalFact(facts, "distanceKg").toPlainString(), target);
+        return switch (status) {
+            case GoalPaceRule.STATUS_AHEAD -> "%s On course for %s, %s early."
+                    .formatted(road, shortDate(projected), days(facts.get("daysEarly")));
+            case GoalPaceRule.STATUS_ON_TRACK -> "%s On course for %s.".formatted(road, shortDate(projected));
+            default -> projected == null
+                    ? "%s Your date is %s.".formatted(road, shortDate(targetDate))
+                    : "%s At this pace %s, %s late.".formatted(road, shortDate(projected), days(facts.get("daysLate")));
         };
     }
 
-    // T9-T10 — streak nudge.
-    private static String streakNudge(Map<String, Object> facts) {
-        int streakDays = intFact(facts, "streakDays");
-        Object nextMilestone = facts.get("nextMilestone");
-        if (nextMilestone == null) {
-            return "%d days straight — you've outgrown every milestone. Keep it rolling.".formatted(streakDays);
-        }
-        return "%d-day streak! %d more days to reach the %s-day milestone."
-                .formatted(streakDays, intFact(facts, "daysToNextMilestone"), nextMilestone);
+    private static final java.time.format.DateTimeFormatter SHORT_DATE =
+            java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK);
+
+    private static String shortDate(LocalDate date) {
+        return date == null ? "" : date.format(SHORT_DATE);
+    }
+
+    private static String days(Object count) {
+        long value = ((Number) count).longValue();
+        return value == 1 ? "1 day" : value + " days";
     }
 
     // T11-T13 — cold start.
@@ -147,7 +152,4 @@ public class NarrativeTemplates {
         return (BigDecimal) facts.get(key);
     }
 
-    private static String rate(Map<String, Object> facts, String key) {
-        return decimalFact(facts, key).abs().toPlainString();
-    }
 }

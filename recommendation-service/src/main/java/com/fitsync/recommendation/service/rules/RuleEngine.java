@@ -3,6 +3,7 @@ package com.fitsync.recommendation.service.rules;
 import java.util.List;
 import java.util.Optional;
 
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import org.springframework.stereotype.Service;
 
@@ -21,8 +22,14 @@ public class RuleEngine {
     }
 
     public List<RuleOutcome> evaluateAll(RecommendationContextEntity context) {
+        return evaluateAll(context, TodayIntake.unknown());
+    }
+
+    /** Every rule, with today's intake as the diary shows it (read once by the caller). */
+    public List<RuleOutcome> evaluateAll(RecommendationContextEntity context, TodayIntake today) {
+        TodayIntake intake = today == null ? TodayIntake.unknown() : today;
         return rules.stream()
-                .map(rule -> rule.evaluate(context))
+                .map(rule -> rule.evaluate(context, intake))
                 .flatMap(Optional::stream)
                 .toList();
     }

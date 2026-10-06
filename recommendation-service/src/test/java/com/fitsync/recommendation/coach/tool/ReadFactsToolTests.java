@@ -18,6 +18,7 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.recommendation.coach.client.AnalyticsProgressClient;
 import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
 import com.fitsync.recommendation.coach.client.UserProfileClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
@@ -25,6 +26,7 @@ import com.fitsync.recommendation.coach.reading.ProgressFactsBuilder;
 import com.fitsync.recommendation.coach.reading.ProgressInsight;
 import com.fitsync.recommendation.coach.orchestrator.AnswerValidator;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.service.ai.CoachFacts;
@@ -35,6 +37,7 @@ import org.junit.jupiter.api.Test;
 class ReadFactsToolTests {
 
     private static final UUID USER = UUID.randomUUID();
+    private static final LocalDate LAST_FULL_WEEK = LocalDate.parse("2026-09-21");
     private static final CoachCallContext CALL = new CoachCallContext(USER, "caller", UUID.randomUUID());
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -44,14 +47,15 @@ class ReadFactsToolTests {
     private final NutritionCatalogueClient nutritionClient = mock(NutritionCatalogueClient.class);
     private final UserCalendar calendar = mock(UserCalendar.class);
     private final UserProfileClient userClient = mock(UserProfileClient.class);
+    private final AnalyticsProgressClient analyticsClient = mock(AnalyticsProgressClient.class);
     private final ReadFactsTool tool = new ReadFactsTool(repository, coachFacts, objectMapper, workoutClient,
-            nutritionClient, calendar, userClient);
+            nutritionClient, calendar, userClient, analyticsClient);
 
     @BeforeEach
     void todayIsTheFirstOfOctoberInSingapore() {
         ZoneId singapore = ZoneId.of("Asia/Singapore");
         when(calendar.zone(USER)).thenReturn(singapore);
-        when(calendar.today(singapore)).thenReturn(LocalDate.parse("2026-10-01"));
+        when(calendar.today(any(ZoneId.class))).thenReturn(LocalDate.parse("2026-10-01"));
     }
 
     @Test
@@ -119,14 +123,123 @@ class ReadFactsToolTests {
     }
 
     @Test
+    @DisplayName("today's intake comes from the diary summary, so a deleted meal is not counted")
+    void readsTodaysIntakeFromTheDiaryOnce() {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(nutritionClient.dailySummary(CALL.bearerToken(), LocalDate.parse("2026-10-01"), "Asia/Singapore"))
+                .thenReturn("{\"totalCalories\":476,\"totalProteinGrams\":31.2}");
+
+        tool.invoke(CALL, objectMapper.createObjectNode());
+
+        org.mockito.ArgumentCaptor<TodayIntake> intake = org.mockito.ArgumentCaptor.forClass(TodayIntake.class);
+        org.mockito.Mockito.verify(coachFacts).assemble(eq(repository.findById(USER).orElseThrow()), isNull(),
+                intake.capture());
+        assertThat(intake.getValue().calories()).isEqualTo(476);
+        assertThat(intake.getValue().proteinGrams()).isEqualByComparingTo("31.2");
+        assertThat(intake.getValue().date()).isEqualTo(LocalDate.parse("2026-10-01"));
+        org.mockito.Mockito.verify(nutritionClient, org.mockito.Mockito.times(1))
+                .dailySummary(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("an unreadable diary gives the rules an unknown intake, not a zero")
+    void anUnreadableDiaryIsAnUnknownIntake() {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(nutritionClient.dailySummary(any(), any(), any())).thenReturn(null);
+
+        tool.invoke(CALL, objectMapper.createObjectNode());
+
+        org.mockito.ArgumentCaptor<TodayIntake> intake = org.mockito.ArgumentCaptor.forClass(TodayIntake.class);
+        org.mockito.Mockito.verify(coachFacts).assemble(any(), isNull(), intake.capture());
+        assertThat(intake.getValue().known()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the last full week is named by its dates when the recap covers it")
+    void namesTheLastFullWeekByItsDates() throws Exception {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+
+        JsonNode training = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation())
+                .path("training");
+
+        assertThat(training.path("workoutCount").asInt()).isEqualTo(4);
+        assertThat(training.path("weekStart").asText()).isEqualTo("2026-09-21");
+        assertThat(training.path("weekEnd").asText()).isEqualTo("2026-09-27");
+        assertThat(training.path("dates").asText()).isEqualTo("21 September to 27 September");
+    }
+
+    @Test
+    @DisplayName("a recap older than the last full week is replaced by workout-service's previous week")
+    @SuppressWarnings("unchecked")
+    void aStaleRecapIsNotQuotedAsLastWeek() throws Exception {
+        userWithFacts("Asia/Singapore");
+        repository.findById(USER).orElseThrow().setRecentWeekStart(LocalDate.parse("2026-09-14"));
+        ((Map<String, Object>) facts.get("training")).put("targetDaysPerWeek", 4);
+        ((Map<String, Object>) facts.get("training")).put("activeDays", 3);
+        when(workoutClient.weeklyInsight(CALL.bearerToken(), "Asia/Singapore")).thenReturn(
+                "{\"weekStart\":\"2026-09-28\",\"completedSessions\":1,\"totalMinutes\":50,"
+                        + "\"previousWeekCompletedSessions\":2,\"previousWeekTotalMinutes\":85}");
+
+        String observation = tool.invoke(CALL, objectMapper.createObjectNode()).observation();
+        JsonNode training = objectMapper.readTree(observation).path("training");
+
+        assertThat(training.path("workoutCount").asInt()).isEqualTo(2);
+        assertThat(training.path("totalMinutes").asInt()).isEqualTo(85);
+        assertThat(training.path("source").asText()).isEqualTo("WORKOUT_LOG");
+        assertThat(training.path("dates").asText()).isEqualTo("21 September to 27 September");
+        assertThat(training.path("targetDaysPerWeek").asInt()).isEqualTo(4);
+        assertThat(training.has("activeDays")).isFalse();
+        assertThat(observation).doesNotContain("170");
+    }
+
+    @Test
+    @DisplayName("a stale recap is dropped when workout-service cannot give the last full week")
+    void aStaleRecapIsDroppedWithoutTheWorkoutLog() throws Exception {
+        userWithFacts("Asia/Singapore");
+        repository.findById(USER).orElseThrow().setRecentWeekStart(LocalDate.parse("2026-09-14"));
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+
+        JsonNode facts = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+
+        assertThat(facts.has("training")).isFalse();
+        assertThat(facts.has("nutritionToday")).isTrue();
+    }
+
+    @Test
+    @DisplayName("the streak is the analytics ledger's count, the one Home shows, and left out when unreadable")
+    void readsTheStreakFromTheAnalyticsLedger() throws Exception {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(analyticsClient.streaks(CALL.bearerToken(), "Asia/Singapore"))
+                .thenReturn("{\"currentStreakDays\":0,\"bestStreakDays\":5}");
+
+        JsonNode streak = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation())
+                .path("streak");
+
+        assertThat(streak.path("currentDays").asInt()).isZero();
+        assertThat(streak.path("bestDays").asInt()).isEqualTo(5);
+
+        when(analyticsClient.streaks(any(), any())).thenReturn(null);
+        JsonNode without = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+        assertThat(without.has("streak")).isFalse();
+        assertThat(without.has("loggingStreak")).isFalse();
+    }
+
+    @Test
     @DisplayName("the current week so far is handed over beside the last full week")
     void addsTheCurrentWeekSoFar() throws Exception {
         userWithFacts("Asia/Singapore");
         when(workoutClient.weeklyInsight(CALL.bearerToken(), "Asia/Singapore")).thenReturn(
-                "{\"weekStart\":\"2026-09-28\",\"completedSessions\":1,\"totalMinutes\":50}");
+                "{\"weekStart\":\"2026-09-28\",\"completedSessions\":1,\"totalMinutes\":50,"
+                        + "\"plannedDays\":4,\"plannedDaysDone\":1}");
 
         JsonNode facts = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
 
+        assertThat(facts.path("trainingThisWeek").path("plannedDays").asInt()).isEqualTo(4);
+        assertThat(facts.path("trainingThisWeek").path("plannedDaysDone").asInt()).isEqualTo(1);
         assertThat(facts.path("training").path("workoutCount").asInt()).isEqualTo(4);
         JsonNode week = facts.path("trainingThisWeek");
         assertThat(week.path("period").asText()).isEqualTo("CURRENT_WEEK_SO_FAR");
@@ -314,6 +427,8 @@ class ReadFactsToolTests {
         RecommendationContextEntity entity = new RecommendationContextEntity();
         entity.setUserId(USER);
         entity.setTimezone(timezone);
+        // Thursday 1 October: the last full week is 21 to 27 September, the week the recap covered.
+        entity.setRecentWeekStart(LAST_FULL_WEEK);
         Map<String, Object> training = new LinkedHashMap<>();
         training.put("period", "LAST_FULL_WEEK");
         training.put("workoutCount", 4);
@@ -324,6 +439,6 @@ class ReadFactsToolTests {
         nutritionToday.put("consumedCalories", 1200);
         facts.put("nutritionToday", nutritionToday);
         when(repository.findById(USER)).thenReturn(Optional.of(entity));
-        when(coachFacts.assemble(eq(entity), isNull())).thenReturn(facts);
+        when(coachFacts.assemble(eq(entity), isNull(), any())).thenReturn(facts);
     }
 }

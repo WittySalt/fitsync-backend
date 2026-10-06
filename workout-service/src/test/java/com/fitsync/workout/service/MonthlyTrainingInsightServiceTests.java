@@ -194,6 +194,14 @@ class MonthlyTrainingInsightServiceTests {
         assertEquals(2, result.totals().records());
         assertTrue(result.days().get(0).record());
         assertTrue(result.days().get(1).record());
+        // The day detail names each record with its figure: the day's heaviest set of that lift.
+        assertEquals(1, result.days().get(0).records().size());
+        assertEquals("Bench Press", result.days().get(0).records().get(0).exerciseName());
+        assertEquals(0, new java.math.BigDecimal("65").compareTo(result.days().get(0).records().get(0).weightKg()));
+        assertEquals(List.of("Bench Press"), result.days().get(1).records().stream()
+                .map(com.fitsync.workout.dto.MonthlyRecordView::exerciseName).toList(),
+                "a first-time squat is not a record");
+        assertEquals(0, new java.math.BigDecimal("70").compareTo(result.days().get(1).records().get(0).weightKg()));
     }
 
     @Test

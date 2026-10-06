@@ -9,6 +9,11 @@ public final class RecommendationTypes {
     public static final String NUTRITION_GAP = "NUTRITION_GAP";
     public static final String WEEKLY_ADHERENCE = "WEEKLY_ADHERENCE";
     public static final String GOAL_PACE = "GOAL_PACE";
+    /**
+     * Retired: no rule produces it any more. The streak has one definition, the analytics
+     * ledger the Home page shows, and the coach reads it live from there. Kept so stored
+     * rows and the admin console still name it.
+     */
     public static final String STREAK_NUDGE = "STREAK_NUDGE";
     public static final String COLD_START = "COLD_START";
     public static final String PERSONAL_RECORD = "PERSONAL_RECORD";

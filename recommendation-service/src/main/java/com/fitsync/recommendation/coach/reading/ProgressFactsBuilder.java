@@ -87,18 +87,29 @@ public class ProgressFactsBuilder {
         return pace;
     }
 
-    /** Where the projection lands against the goal date, or null when there is nothing to compare. */
+    /**
+     * Where the projection lands against the goal date, or null when there is nothing to compare. Seven
+     * days either side of the goal date is on course, the same slack the Progress goal road uses, so the
+     * coach never calls a pace behind that the page shows on course.
+     */
     private static String paceStatus(ProgressInsight insight) {
         LocalDate goalDate = insight.goalDate();
         if (goalDate == null || insight.weeklyRateKg() == null) {
             return null;
         }
         LocalDate projected = insight.projectedDate();
-        if (projected == null || projected.isAfter(goalDate)) {
+        if (projected == null) {
             return "BEHIND";
         }
-        return projected.isBefore(goalDate) ? "AHEAD" : "ON_TRACK";
+        long days = java.time.temporal.ChronoUnit.DAYS.between(goalDate, projected);
+        if (days <= -ON_COURSE_SLACK_DAYS) {
+            return "AHEAD";
+        }
+        return days >= ON_COURSE_SLACK_DAYS ? "BEHIND" : "ON_TRACK";
     }
+
+    /** The Progress goal road's slack around the goal date, in days. */
+    private static final int ON_COURSE_SLACK_DAYS = 7;
 
     private static void addWeight(List<ReadingFact> facts, ProgressInsight insight) {
         BigDecimal weight = insight.weightKg();

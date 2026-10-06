@@ -20,35 +20,63 @@ class GoalPaceRuleTests {
     private final GoalPaceRule rule = new GoalPaceRule(clock);
 
     @Test
-    void reportsAheadWhenLosingFasterThanRequired() {
+    void reportsAheadWhenTheProjectedDateIsAWeekOrMoreEarly() {
         RuleOutcome outcome = rule.evaluate(context("87.20")).orElseThrow();
 
-        // actual = (87.2-90)/28*7 = -0.70 kg/week vs required -0.61 → ratio 1.15.
+        // actual = (87.2-90)/28*7 = -0.70 kg/week; 7.2 kg left takes 72 days, 16 Sept, 15 days early.
         assertThat(outcome.facts())
                 .containsEntry("status", "AHEAD")
                 .containsEntry("requiredRatePerWeekKg", new BigDecimal("-0.61"))
                 .containsEntry("actualRatePerWeekKg", new BigDecimal("-0.70"))
+                .containsEntry("distanceKg", new BigDecimal("7.2"))
+                .containsEntry("projectedDate", LocalDate.parse("2026-09-16"))
+                .containsEntry("daysEarly", 15L)
                 .containsEntry("daysRemaining", 87L);
     }
 
     @Test
-    void reportsOnTrackWithinTheTolerance() {
-        // actual = (87.6-90)/28*7 = -0.60 → ratio ≈ 0.99.
+    void reportsOnCourseWithinAWeekOfTheGoalDate() {
+        // actual = -0.60 kg/week; 7.6 kg left lands on 3 Oct, two days after the goal date.
         assertThat(rule.evaluate(context("87.60")).orElseThrow().facts())
-                .containsEntry("status", "ON_TRACK");
+                .containsEntry("status", "ON_TRACK")
+                .containsEntry("projectedDate", LocalDate.parse("2026-10-03"));
     }
 
     @Test
-    void reportsBehindWhenLosingTooSlowly() {
-        // actual = (88-90)/28*7 = -0.50 → ratio ≈ 0.82.
+    void reportsBehindWhenTheProjectedDateIsAWeekOrMoreLate() {
+        // actual = -0.50 kg/week; 8 kg left lands on 26 Oct, 25 days late.
         assertThat(rule.evaluate(context("88.00")).orElseThrow().facts())
-                .containsEntry("status", "BEHIND");
+                .containsEntry("status", "BEHIND")
+                .containsEntry("daysLate", 25L);
     }
 
     @Test
     void movingOppositeToTheGoalDirectionIsAlwaysBehind() {
         assertThat(rule.evaluate(context("91.00")).orElseThrow().facts())
-                .containsEntry("status", "BEHIND");
+                .containsEntry("status", "BEHIND")
+                .doesNotContainKey("projectedDate");
+    }
+
+    @Test
+    void neverSaysBehindWhereTheProgressRoadSaysAhead() {
+        // Like the steady account: 74.2 kg at the start, 71.2 kg now, 68 kg by 11 December.
+        RecommendationContextEntity steady = context("71.20");
+        steady.setGoalBaselineWeightKg(new BigDecimal("74.20"));
+        steady.setGoalBaselineOn(LocalDate.parse("2026-06-08"));
+        steady.setCurrentGoalTargetValue(new BigDecimal("68"));
+        steady.setCurrentGoalTargetDate(LocalDate.parse("2026-12-11"));
+
+        RuleOutcome outcome = rule.evaluate(steady).orElseThrow();
+
+        assertThat(outcome.facts()).containsEntry("status", "AHEAD").containsEntry("distanceKg", new BigDecimal("3.2"));
+        assertThat(new NarrativeTemplates().render(outcome)).startsWith("3.2 kg to 68 kg. On course for ")
+                .contains("days early").doesNotContain("behind");
+    }
+
+    @Test
+    void aWeightAtOrPastTheTargetIsReached() {
+        assertThat(rule.evaluate(context("79.80")).orElseThrow().facts())
+                .containsEntry("status", "REACHED");
     }
 
     @Test

@@ -65,7 +65,7 @@ class CoachConversationPurger implements AccountDataPurger {
 
         // Only the fact that a purge ran and how many rows each table lost is logged. Nothing about
         // what the user typed or what the coach said is ever written here. The user id is sanitised
-        // against CRLF the same way service/ai/WeeklyNarrativeService.java sanitises log values.
+        // against CRLF the same way the rest of this service sanitises log values.
         LOG.info("event=coach_account_data_purged userId={} threads={} turns={} toolInvocations={} artifacts={}",
                 sanitizeForLog(userId), threadsRemoved, turnsRemoved, toolInvocationsRemoved, artifactsRemoved);
     }

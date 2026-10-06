@@ -17,6 +17,7 @@ import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsUserStreakRollupRepository;
 import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
 import com.fitsync.analytics.repository.AnalyticsUserEnergyProfileRepository;
+import com.fitsync.analytics.repository.AnalyticsWeeklyRecapMarkRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -39,6 +40,7 @@ public class AccountDeletionProjectionService {
     private final AnalyticsUserEnergyProfileRepository energyProfileRepository;
     private final AnalyticsUserAchievementRepository achievementRepository;
     private final AnalyticsUserCooksRepository cooksRepository;
+    private final AnalyticsWeeklyRecapMarkRepository recapMarkRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final Clock clock;
 
@@ -55,6 +57,7 @@ public class AccountDeletionProjectionService {
                                             AnalyticsUserEnergyProfileRepository energyProfileRepository,
                                             AnalyticsUserAchievementRepository achievementRepository,
                                             AnalyticsUserCooksRepository cooksRepository,
+                                            AnalyticsWeeklyRecapMarkRepository recapMarkRepository,
                                             AnalyticsCacheInvalidationService cacheInvalidationService,
                                             Clock clock) {
         this.processedEventRepository = processedEventRepository;
@@ -70,6 +73,7 @@ public class AccountDeletionProjectionService {
         this.energyProfileRepository = energyProfileRepository;
         this.achievementRepository = achievementRepository;
         this.cooksRepository = cooksRepository;
+        this.recapMarkRepository = recapMarkRepository;
         this.cacheInvalidationService = cacheInvalidationService;
         this.clock = clock;
     }
@@ -93,6 +97,7 @@ public class AccountDeletionProjectionService {
         energyProfileRepository.deleteByUserId(userId);
         achievementRepository.deleteByUserId(userId);
         cooksRepository.deleteById(userId);
+        recapMarkRepository.deleteByUserId(userId);
         processedEventRepository.deleteByUserId(userId);
         recordProcessedEvent(event);
         cacheInvalidationService.evictForUser(userId);

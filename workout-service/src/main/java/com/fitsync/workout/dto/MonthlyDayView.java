@@ -14,14 +14,27 @@ public record MonthlyDayView(
         int sessions,
         int minutes,
         List<MuscleGroup> muscles,
-        boolean record) {
+        boolean record,
+        List<MonthlyRecordView> records) {
 
     public MonthlyDayView {
         muscles = muscles == null ? List.of() : List.copyOf(muscles);
+        records = records == null ? List.of() : List.copyOf(records);
+    }
+
+    /** A day without the named records, which the day detail reads; the flag alone. */
+    public MonthlyDayView(LocalDate date, SessionKind kind, String label, int sessions, int minutes,
+                          List<MuscleGroup> muscles, boolean record) {
+        this(date, kind, label, sessions, minutes, muscles, record, List.of());
     }
 
     @Override
     public List<MuscleGroup> muscles() {
         return List.copyOf(muscles);
+    }
+
+    @Override
+    public List<MonthlyRecordView> records() {
+        return List.copyOf(records);
     }
 }

@@ -2,6 +2,8 @@ package com.fitsync.recommendation.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -14,12 +16,13 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.config.RecommendationProperties;
+import com.fitsync.recommendation.domain.TodayIntake;
+import com.fitsync.recommendation.domain.UserTimeZones;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.entity.RecommendationResultEntity;
 import com.fitsync.recommendation.entity.RecommendationSource;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.repository.RecommendationResultRepository;
-import com.fitsync.recommendation.service.ai.WeeklyNarrativeService;
 import com.fitsync.recommendation.service.rules.NarrativeTemplates;
 import com.fitsync.recommendation.service.rules.RuleEngine;
 import com.fitsync.recommendation.service.rules.RuleOutcome;
@@ -28,13 +31,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * RC-4 — the read-path decision funnel (README §5.1):
- * <pre>cache (fresh) → rule → template → (last resort) AI</pre>
+ * <pre>cache (fresh) → rule → template</pre>
  *
  * Reads serve straight from {@code recommendation_result}; only when the context is
  * stale or results expired does the funnel drop to the rule stage — synchronous and
- * cheap (pure functions + one upsert). The AI stage never runs inline: a refresh only
- * <em>enqueues</em> the weekly-narrative generation, which is hash-gated and writes
- * into the same cache, so the read path never waits on a model.
+ * cheap (pure functions + one upsert). The A1 weekly narrative is no longer generated:
+ * the Progress weekly review is the narrative, and the coach dock no longer shows these
+ * results. The read API stays for the admin console and the tests, and a narrative
+ * stored by an older build is pruned on the next refresh.
  */
 @Service
 public class RecommendationResolver {
@@ -42,8 +46,8 @@ public class RecommendationResolver {
     private final RecommendationContextRepository contextRepository;
     private final RecommendationResultRepository resultRepository;
     private final RuleEngine ruleEngine;
+    private final TodayIntakeSource todayIntakeSource;
     private final NarrativeTemplates narrativeTemplates;
-    private final WeeklyNarrativeService weeklyNarrativeService;
     private final ObjectMapper objectMapper;
     private final RecommendationProperties properties;
     private final Clock clock;
@@ -51,16 +55,16 @@ public class RecommendationResolver {
     public RecommendationResolver(RecommendationContextRepository contextRepository,
                                   RecommendationResultRepository resultRepository,
                                   RuleEngine ruleEngine,
+                                  TodayIntakeSource todayIntakeSource,
                                   NarrativeTemplates narrativeTemplates,
-                                  WeeklyNarrativeService weeklyNarrativeService,
                                   ObjectMapper objectMapper,
                                   RecommendationProperties properties,
                                   Clock clock) {
         this.contextRepository = contextRepository;
         this.resultRepository = resultRepository;
         this.ruleEngine = ruleEngine;
+        this.todayIntakeSource = todayIntakeSource;
         this.narrativeTemplates = narrativeTemplates;
-        this.weeklyNarrativeService = weeklyNarrativeService;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
@@ -72,6 +76,15 @@ public class RecommendationResolver {
      */
     @Transactional
     public List<RecommendationResultEntity> resolve(UUID userId) {
+        return resolveWithToken(userId, null);
+    }
+
+    /**
+     * As {@link #resolve(UUID)}, with the caller's token so today's intake is read from the
+     * Nutrition Diary when the rules run. Without a token the nutrition rule states targets only.
+     */
+    @Transactional
+    public List<RecommendationResultEntity> resolveWithToken(UUID userId, String bearerToken) {
         Optional<RecommendationContextEntity> context = contextRepository.findById(userId);
         if (context.isEmpty()) {
             return List.of();
@@ -80,14 +93,20 @@ public class RecommendationResolver {
         if (isFresh(context.get(), cached)) {
             return cached;
         }
-        refresh(context.get());
+        refresh(context.get(), bearerToken);
         return sorted(resultRepository.findByUserId(userId));
     }
 
     /** One recommendation type, through the same funnel. */
     @Transactional
     public Optional<RecommendationResultEntity> resolve(UUID userId, String type) {
-        return resolve(userId).stream()
+        return resolveType(userId, type, null);
+    }
+
+    /** One recommendation type, reading today's intake with the caller's token. */
+    @Transactional
+    public Optional<RecommendationResultEntity> resolveType(UUID userId, String type, String bearerToken) {
+        return resolveWithToken(userId, bearerToken).stream()
                 .filter(result -> result.getType().equals(type))
                 .findFirst();
     }
@@ -98,13 +117,19 @@ public class RecommendationResolver {
      */
     @Transactional
     public void refresh(UUID userId) {
-        contextRepository.findById(userId).ifPresent(this::refresh);
+        refresh(userId, null);
     }
 
-    private void refresh(RecommendationContextEntity context) {
+    /** As {@link #refresh(UUID)}, reading today's intake with the caller's token. */
+    @Transactional
+    public void refresh(UUID userId, String bearerToken) {
+        contextRepository.findById(userId).ifPresent(context -> refresh(context, bearerToken));
+    }
+
+    private void refresh(RecommendationContextEntity context, String bearerToken) {
         Instant now = Instant.now(clock);
         String contextHash = ContextHashing.hash(context);
-        List<RuleOutcome> outcomes = ruleEngine.evaluateAll(context);
+        List<RuleOutcome> outcomes = ruleEngine.evaluateAll(context, todayIntake(context, bearerToken));
 
         for (RuleOutcome outcome : outcomes) {
             RecommendationResultEntity result = resultRepository
@@ -118,15 +143,21 @@ public class RecommendationResolver {
             resultRepository.save(result);
         }
         pruneUnfiredRuleResults(context.getUserId(), outcomes);
-        pruneExpiredAiResults(context.getUserId(), now);
+        pruneRetiredAiResults(context.getUserId());
 
         context.setStale(false);
         context.setContextHash(contextHash);
         context.setLastAssembledAt(now);
         contextRepository.save(context);
+    }
 
-        // AI stage: enqueue only — hash-gated inside the service, never inline here.
-        weeklyNarrativeService.generateAsync(context.getUserId());
+    /** Today's intake from the diary, read once for this refresh. */
+    private TodayIntake todayIntake(RecommendationContextEntity context, String bearerToken) {
+        if (bearerToken == null) {
+            return TodayIntake.unknown();
+        }
+        ZoneId zone = UserTimeZones.resolve(context.getTimezone());
+        return todayIntakeSource.read(bearerToken, LocalDate.now(clock.withZone(zone)), zone);
     }
 
     /** A rule that no longer fires must not keep serving yesterday's advice. */
@@ -138,14 +169,10 @@ public class RecommendationResolver {
                 .forEach(resultRepository::delete);
     }
 
-    /**
-     * An expired AI narrative must not pin the cache stale forever (regeneration is
-     * async and may be disabled); drop it and let the AI stage rewrite it when it can.
-     */
-    private void pruneExpiredAiResults(UUID userId, Instant now) {
+    /** The A1 narrative is retired; one an older build stored is not served again. */
+    private void pruneRetiredAiResults(UUID userId) {
         resultRepository.findByUserId(userId).stream()
                 .filter(result -> result.getSource() == RecommendationSource.AI)
-                .filter(result -> result.getExpiresAt() != null && now.isAfter(result.getExpiresAt()))
                 .forEach(resultRepository::delete);
     }
 
