@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.domain.FoodGroupCalories;
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.service.rules.NutritionGapRule;
 import com.fitsync.recommendation.service.rules.RecommendationTypes;
@@ -37,7 +38,16 @@ public class CoachFacts {
 
     /** @param previousNarrative last narrative for week-over-week continuity; nullable */
     public Map<String, Object> assemble(RecommendationContextEntity context, String previousNarrative) {
-        Map<String, RuleOutcome> outcomes = ruleEngine.evaluateAll(context).stream()
+        return assemble(context, previousNarrative, TodayIntake.unknown());
+    }
+
+    /**
+     * @param previousNarrative last narrative for week-over-week continuity; nullable
+     * @param today             today's intake as the Nutrition Diary shows it, read once by the caller
+     */
+    public Map<String, Object> assemble(RecommendationContextEntity context, String previousNarrative,
+                                        TodayIntake today) {
+        Map<String, RuleOutcome> outcomes = ruleEngine.evaluateAll(context, today).stream()
                 .collect(Collectors.toMap(RuleOutcome::type, Function.identity()));
 
         Map<String, Object> facts = new LinkedHashMap<>();

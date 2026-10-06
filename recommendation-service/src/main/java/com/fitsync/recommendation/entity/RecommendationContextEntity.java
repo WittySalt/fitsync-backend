@@ -103,8 +103,9 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
     @Column(name = "recent_week_start")
     private LocalDate recentWeekStart;
 
-    // Recent nutrition summary (from MealLogged rollups). today_date anchors the
-    // running totals so a new day resets them instead of accumulating forever.
+    // today_date is the local day of the latest logged meal (the logging reminder reads it).
+    // The two totals below are no longer written: today's intake is read from the Nutrition
+    // Diary's daily summary when facts are assembled. Kept until a later migration drops them.
     @Column(name = "today_date")
     private LocalDate todayDate;
 

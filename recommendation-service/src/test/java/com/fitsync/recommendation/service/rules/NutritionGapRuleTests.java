@@ -3,20 +3,17 @@ package com.fitsync.recommendation.service.rules;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.UUID;
 
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import org.junit.jupiter.api.Test;
 
 class NutritionGapRuleTests {
 
-    // Noon UTC on 2026-07-06.
-    private final Clock clock = Clock.fixed(Instant.parse("2026-07-06T12:00:00Z"), ZoneOffset.UTC);
-    private final NutritionGapRule rule = new NutritionGapRule(clock);
+    private static final LocalDate TODAY = LocalDate.parse("2026-07-06");
+    private final NutritionGapRule rule = new NutritionGapRule();
 
     @Test
     void estimatesTdeeTargetWithWeightLossDeficitAndSubtractsTodayIntake() {
@@ -26,11 +23,9 @@ class NutritionGapRuleTests {
         context.setActivityLevel("MODERATE");
         context.setCurrentGoalType("WEIGHT");
         context.setCurrentGoalTargetValue(new BigDecimal("75"));
-        context.setTodayDate(LocalDate.parse("2026-07-06"));
-        context.setTodayCaloriesConsumed(1050);
-        context.setTodayProteinGrams(new BigDecimal("65.50"));
 
-        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+        RuleOutcome outcome = rule.evaluate(context, new TodayIntake(TODAY, 1050, new BigDecimal("65.50")))
+                .orElseThrow();
 
         // BMR = 10*82.5 + 6.25*181.5 - 5*30 - 78 = 1731.375; TDEE = *1.55 = 2684; -500 deficit.
         assertThat(outcome.facts())
@@ -47,12 +42,11 @@ class NutritionGapRuleTests {
     void prefersAnExplicitProteinGoalOverTheBodyWeightEstimate() {
         RecommendationContextEntity context = baseContext();
         context.setLatestWeightKg(new BigDecimal("82.50"));
-        context.setTodayDate(LocalDate.parse("2026-07-06"));
-        context.setTodayProteinGrams(new BigDecimal("65.50"));
         context.setProteinTargetGrams(new BigDecimal("140"));
         context.setCalorieGoalKcal(2100);
 
-        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+        RuleOutcome outcome = rule.evaluate(context, new TodayIntake(TODAY, 0, new BigDecimal("65.50")))
+                .orElseThrow();
 
         assertThat(outcome.facts())
                 .containsEntry("proteinBasis", NutritionGapRule.BASIS_PROTEIN_GOAL)
@@ -74,20 +68,40 @@ class NutritionGapRuleTests {
     }
 
     @Test
-    void ignoresRunningTotalsFromAnEarlierDay() {
+    void statesTheTargetsOnlyWhenTheDiaryCouldNotBeRead() {
         RecommendationContextEntity context = baseContext();
         context.setHeightCm(new BigDecimal("181.5"));
         context.setLatestWeightKg(new BigDecimal("82.50"));
         context.setActivityLevel("MODERATE");
-        context.setTodayDate(LocalDate.parse("2026-07-05"));
-        context.setTodayCaloriesConsumed(1800);
+        // A stale running total left by an older build is never quoted.
+        context.setTodayDate(TODAY);
+        context.setTodayCaloriesConsumed(4910);
 
-        RuleOutcome outcome = rule.evaluate(context).orElseThrow();
+        RuleOutcome outcome = rule.evaluate(context, TodayIntake.unknown()).orElseThrow();
 
         assertThat(outcome.facts())
-                .containsEntry("consumedCalories", 0)
                 .containsEntry("targetCalories", 2684)
-                .containsEntry("remainingCalories", 2684);
+                .doesNotContainKeys("consumedCalories", "remainingCalories", "proteinConsumedGrams",
+                        "proteinRemainingGrams")
+                .containsKey("proteinTargetGrams");
+    }
+
+    @Test
+    void quotesTheDiaryFigureAfterAMealWasLoggedAndDeleted() {
+        RecommendationContextEntity context = baseContext();
+        context.setCalorieGoalKcal(2100);
+        context.setProteinTargetGrams(new BigDecimal("140"));
+        context.setTodayDate(TODAY);
+        context.setTodayCaloriesConsumed(4910);
+
+        // The diary holds 476 kcal once the deleted meal is gone.
+        RuleOutcome outcome = rule.evaluate(context, new TodayIntake(TODAY, 476, new BigDecimal("31.2")))
+                .orElseThrow();
+
+        assertThat(outcome.facts())
+                .containsEntry("consumedCalories", 476)
+                .containsEntry("remainingCalories", 1624)
+                .containsEntry("proteinConsumedGrams", new BigDecimal("31.2"));
     }
 
     @Test

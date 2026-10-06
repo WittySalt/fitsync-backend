@@ -85,7 +85,7 @@ class CoachQaServiceTests {
         ObjectProvider<ClaudeClient> emptyProvider = mock(ObjectProvider.class);
         CoachQaService withoutClient = new CoachQaService(
                 mock(RecommendationContextRepository.class), emptyProvider, mock(CoachFacts.class),
-                new ObjectMapper(), new RecommendationProperties(null, null), Clock.systemUTC());
+                mock(com.fitsync.recommendation.service.TodayIntakeSource.class), new ObjectMapper(), new RecommendationProperties(null, null), Clock.systemUTC());
 
         assertThatThrownBy(() -> withoutClient.ask(userId, "Anyone there?"))
                 .isInstanceOfSatisfying(ApiException.class, ex ->

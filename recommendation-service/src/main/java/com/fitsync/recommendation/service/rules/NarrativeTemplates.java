@@ -36,8 +36,11 @@ public class NarrativeTemplates {
 
     // T1-T3 — daily nutrition gap.
     private static String nutritionGap(Map<String, Object> facts) {
-        int remaining = intFact(facts, "remainingCalories");
         int target = intFact(facts, "targetCalories");
+        if (!facts.containsKey("remainingCalories")) {
+            return "Today's target is %d kcal.".formatted(target);
+        }
+        int remaining = intFact(facts, "remainingCalories");
         if (remaining <= 0) {
             return "You've hit today's %d kcal budget (%d kcal over). Lighter choices for the rest of the day."
                     .formatted(target, -remaining);

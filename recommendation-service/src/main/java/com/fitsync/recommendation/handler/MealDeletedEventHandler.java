@@ -7,9 +7,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * A meal deletion invalidates the running today-totals ({@code MealDeleted} carries only
- * the meal id, so the removed calories are unknown here). The handler only marks the
- * context stale; the resolver recomputes from fresher sources on the next read.
+ * A meal deletion only marks the context stale, so cached recommendations refresh on the next
+ * read. Today's intake is read from the Nutrition Diary at that point, which already leaves the
+ * deleted meal out.
  */
 @Service
 public class MealDeletedEventHandler implements DomainEventConsumer<MealDeletedPayload> {

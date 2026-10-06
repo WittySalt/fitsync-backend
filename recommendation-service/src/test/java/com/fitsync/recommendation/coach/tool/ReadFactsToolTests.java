@@ -25,6 +25,7 @@ import com.fitsync.recommendation.coach.reading.ProgressFactsBuilder;
 import com.fitsync.recommendation.coach.reading.ProgressInsight;
 import com.fitsync.recommendation.coach.orchestrator.AnswerValidator;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.service.ai.CoachFacts;
@@ -116,6 +117,40 @@ class ReadFactsToolTests {
                 + "from drinks. Vitamin D is at 12%.", "How is my diet?", transcript, null).valid()).isTrue();
         assertThat(validator.validate("You are about 74% of the way to your fibre target.", "How is my diet?",
                 transcript, null).violations()).containsExactly("NUMBER_NOT_IN_RECORDS:74");
+    }
+
+    @Test
+    @DisplayName("today's intake comes from the diary summary, so a deleted meal is not counted")
+    void readsTodaysIntakeFromTheDiaryOnce() {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(nutritionClient.dailySummary(CALL.bearerToken(), LocalDate.parse("2026-10-01"), "Asia/Singapore"))
+                .thenReturn("{\"totalCalories\":476,\"totalProteinGrams\":31.2}");
+
+        tool.invoke(CALL, objectMapper.createObjectNode());
+
+        org.mockito.ArgumentCaptor<TodayIntake> intake = org.mockito.ArgumentCaptor.forClass(TodayIntake.class);
+        org.mockito.Mockito.verify(coachFacts).assemble(eq(repository.findById(USER).orElseThrow()), isNull(),
+                intake.capture());
+        assertThat(intake.getValue().calories()).isEqualTo(476);
+        assertThat(intake.getValue().proteinGrams()).isEqualByComparingTo("31.2");
+        assertThat(intake.getValue().date()).isEqualTo(LocalDate.parse("2026-10-01"));
+        org.mockito.Mockito.verify(nutritionClient, org.mockito.Mockito.times(1))
+                .dailySummary(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("an unreadable diary gives the rules an unknown intake, not a zero")
+    void anUnreadableDiaryIsAnUnknownIntake() {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+        when(nutritionClient.dailySummary(any(), any(), any())).thenReturn(null);
+
+        tool.invoke(CALL, objectMapper.createObjectNode());
+
+        org.mockito.ArgumentCaptor<TodayIntake> intake = org.mockito.ArgumentCaptor.forClass(TodayIntake.class);
+        org.mockito.Mockito.verify(coachFacts).assemble(any(), isNull(), intake.capture());
+        assertThat(intake.getValue().known()).isFalse();
     }
 
     @Test
@@ -324,6 +359,6 @@ class ReadFactsToolTests {
         nutritionToday.put("consumedCalories", 1200);
         facts.put("nutritionToday", nutritionToday);
         when(repository.findById(USER)).thenReturn(Optional.of(entity));
-        when(coachFacts.assemble(eq(entity), isNull())).thenReturn(facts);
+        when(coachFacts.assemble(eq(entity), isNull(), any())).thenReturn(facts);
     }
 }

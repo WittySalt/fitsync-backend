@@ -2,6 +2,7 @@ package com.fitsync.recommendation.service.rules;
 
 import java.util.Optional;
 
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 
 /**
@@ -15,4 +16,13 @@ public interface Rule {
     String type();
 
     Optional<RuleOutcome> evaluate(RecommendationContextEntity context);
+
+    /**
+     * As {@link #evaluate(RecommendationContextEntity)}, with today's intake read from the diary by
+     * the caller. Only the rules that speak about today use it; the read is the caller's, so a rule
+     * still does no I/O.
+     */
+    default Optional<RuleOutcome> evaluate(RecommendationContextEntity context, TodayIntake today) {
+        return evaluate(context);
+    }
 }

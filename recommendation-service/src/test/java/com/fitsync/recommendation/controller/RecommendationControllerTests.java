@@ -2,6 +2,7 @@ package com.fitsync.recommendation.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -59,7 +60,7 @@ class RecommendationControllerTests {
 
     @Test
     void listReturnsPhrasedRecommendationsForTheCurrentUser() throws Exception {
-        when(resolver.resolve(USER_ID)).thenReturn(List.of(result("WEEKLY_ADHERENCE",
+        when(resolver.resolveWithToken(eq(USER_ID), isNull())).thenReturn(List.of(result("WEEKLY_ADHERENCE",
                 "{\"facts\":{\"targetDaysPerWeek\":4,\"activeDays\":2},\"narrative\":\"2 of 4 days done.\"}")));
 
         mockMvc.perform(get("/api/v1/recommendations")
@@ -73,7 +74,7 @@ class RecommendationControllerTests {
 
     @Test
     void singleTypeIsCaseInsensitiveAndServedThroughTheResolver() throws Exception {
-        when(resolver.resolve(eq(USER_ID), eq("STREAK_NUDGE"))).thenReturn(Optional.of(result(
+        when(resolver.resolveType(eq(USER_ID), eq("STREAK_NUDGE"), isNull())).thenReturn(Optional.of(result(
                 "STREAK_NUDGE", "{\"facts\":{\"streakDays\":7},\"narrative\":\"7-day streak!\"}")));
 
         mockMvc.perform(get("/api/v1/recommendations/streak_nudge")
@@ -85,12 +86,24 @@ class RecommendationControllerTests {
 
     @Test
     void unknownTypeIsNotFound() throws Exception {
-        when(resolver.resolve(eq(USER_ID), any(String.class))).thenReturn(Optional.empty());
+        when(resolver.resolveType(eq(USER_ID), any(String.class), isNull())).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/v1/recommendations/NUTRITION_GAP")
                         .with(authentication(authToken())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void theCallersTokenIsHandedToTheResolverSoTheDiaryIsReadAsThem() throws Exception {
+        when(resolver.resolveWithToken(USER_ID, "caller-credential")).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/recommendations")
+                        .header("Authorization", "Bearer caller-credential")
+                        .with(authentication(authToken())))
+                .andExpect(status().isOk());
+
+        verify(resolver).resolveWithToken(USER_ID, "caller-credential");
     }
 
     @Test
@@ -100,12 +113,12 @@ class RecommendationControllerTests {
                         .with(authentication(authToken())))
                 .andExpect(status().isAccepted());
 
-        verify(resolver).refresh(USER_ID);
+        verify(resolver).refresh(USER_ID, null);
     }
 
     @Test
     void coachAnswersAGroundedQuestion() throws Exception {
-        when(coachQaService.ask(eq(USER_ID), eq("How is my week going?")))
+        when(coachQaService.ask(eq(USER_ID), eq("How is my week going?"), isNull()))
                 .thenReturn("Solid week: 4 of 4 training days done.");
 
         mockMvc.perform(post("/api/v1/recommendations/coach/ask")
@@ -129,7 +142,7 @@ class RecommendationControllerTests {
 
     @Test
     void coachSurfacesTheDisabledTierAsServiceUnavailable() throws Exception {
-        when(coachQaService.ask(eq(USER_ID), any(String.class))).thenThrow(new ApiException(
+        when(coachQaService.ask(eq(USER_ID), any(String.class), isNull())).thenThrow(new ApiException(
                 org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "COACH_UNAVAILABLE",
                 "The coach is not enabled on this deployment."));
 

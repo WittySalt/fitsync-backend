@@ -13,12 +13,14 @@ import java.util.Optional;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.recommendation.coach.client.DiaryTodayIntakeSource;
 import com.fitsync.recommendation.coach.client.NutritionCatalogueClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
 import com.fitsync.recommendation.coach.client.UserProfileClient;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
 import com.fitsync.recommendation.coach.reading.ProgressFactsBuilder;
 import com.fitsync.recommendation.coach.reading.ProgressInsight;
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.domain.UserTimeZones;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
@@ -105,13 +107,10 @@ public class ReadFactsTool implements CoachTool {
      * nutrition-service. Everything here is an addition: any call that fails, or any field an older
      * service does not send, leaves that part out and the facts are returned as they were.
      */
-    private void addDiaryFigures(CoachCallContext context, Map<String, Object> facts) {
+    private void addDiaryFigures(CoachCallContext context, ZoneId zone, JsonNode summary, Map<String, Object> facts) {
         try {
-            ZoneId zone = zoneOf(context, null);
             LocalDate today = calendar.today(zone);
             String token = context.bearerToken();
-            JsonNode summary = DiaryFigures.read(objectMapper.reader(),
-                    nutritionClient.dailySummary(token, today, zoneName(zone)));
             JsonNode todayNutrients = DiaryFigures.read(objectMapper.reader(),
                     nutritionClient.nutrientsSummary(token, today, today, zoneName(zone)));
             Map<String, Object> diary = DiaryFigures.day(summary, todayNutrients);
@@ -226,6 +225,12 @@ public class ReadFactsTool implements CoachTool {
         }
     }
 
+    private static ToolResult noFactsYet() {
+        return ToolResult.of("no facts yet",
+                "This user has no computed facts yet, which means they have not logged enough "
+                        + "for the rules to fire. There are no numbers to quote.");
+    }
+
     @Override
     public ToolClass toolClass() {
         return ToolClass.READ;
@@ -250,27 +255,41 @@ public class ReadFactsTool implements CoachTool {
                   four weeks). When you name the next training day, use its day, not its date.""";
     }
 
+    /**
+     * Today's daily summary, read once per call: the intake the rules quote and the diary figures
+     * both come out of it, so the two can never disagree. Null when it cannot be read.
+     */
+    private JsonNode dailySummary(CoachCallContext context, ZoneId zone) {
+        try {
+            return DiaryFigures.read(objectMapper.reader(),
+                    nutritionClient.dailySummary(context.bearerToken(), calendar.today(zone), zoneName(zone)));
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     @Override
     public ToolResult invoke(CoachCallContext context, JsonNode args) {
         Optional<RecommendationContextEntity> entity = contextRepository.findById(context.userId());
-        Map<String, Object> facts = new LinkedHashMap<>(entity
-                .map(found -> coachFacts.assemble(found, null))
-                .orElse(Map.of()));
+        if (entity.isEmpty()) {
+            return noFactsYet();
+        }
+        ZoneId zone = zoneOf(context, entity.get());
+        JsonNode summary = dailySummary(context, zone);
+        TodayIntake intake = DiaryTodayIntakeSource.fromSummary(summary, calendar.today(zone));
+        Map<String, Object> facts = new LinkedHashMap<>(coachFacts.assemble(entity.get(), null, intake));
 
         if (facts.isEmpty()) {
-            return ToolResult.of("no facts yet",
-                    "This user has no computed facts yet, which means they have not logged enough "
-                            + "for the rules to fire. There are no numbers to quote.");
+            return noFactsYet();
         }
 
-        ZoneId zone = zoneOf(context, entity.orElse(null));
         livePace(context, zone).ifPresent(pace -> facts.put("goalPace", pace));
         weeklyInsight(context, zoneName(zone)).ifPresent(week -> {
             currentWeek(week).ifPresent(group -> facts.put(CURRENT_WEEK_GROUP, group));
             today(week).ifPresent(group -> facts.put(TODAY_GROUP, group));
         });
 
-        addDiaryFigures(context, facts);
+        addDiaryFigures(context, zone, summary, facts);
 
         try {
             return ToolResult.of(facts.size() + " fact groups",

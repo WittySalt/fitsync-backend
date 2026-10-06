@@ -54,7 +54,7 @@ public class ColdStartRule implements Rule {
         return context.getRecentWorkoutCount() != null
                 || context.getRecentActiveDays() != null
                 || context.getCurrentStreakDays() != null
-                || context.getTodayCaloriesConsumed() != null;
+                || context.getTodayDate() != null;
     }
 
     private static List<String> splitCsv(String csv) {

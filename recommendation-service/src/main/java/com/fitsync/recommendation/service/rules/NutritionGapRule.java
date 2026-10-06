@@ -2,15 +2,13 @@ package com.fitsync.recommendation.service.rules;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Clock;
-import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 
 import com.fitsync.recommendation.domain.GoalTypes;
-import com.fitsync.recommendation.domain.UserTimeZones;
+import com.fitsync.recommendation.domain.TodayIntake;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import org.springframework.stereotype.Service;
 
@@ -21,8 +19,9 @@ import org.springframework.stereotype.Service;
  * age/sex assumption since the events carry neither — README §2 fact 3), adjusted by
  * the direction of a WEIGHT goal. The protein target is the user's explicit PROTEIN
  * goal when set, otherwise the body-weight estimate (weight × 1.6). Consumed numbers
- * come from the context's running today-totals and count only if they are for today in
- * the user's timezone.
+ * come from the Nutrition Diary's daily summary, read by the caller for today in the user's
+ * timezone. When the diary could not be read the rule states the targets only and no consumed
+ * or remaining figure, rather than one that may be wrong.
  */
 @Service
 public class NutritionGapRule implements Rule {
@@ -46,12 +45,6 @@ public class NutritionGapRule implements Rule {
     private static final double DEFAULT_ACTIVITY_FACTOR = 1.4;
     private static final Map<String, Double> ACTIVITY_FACTORS = activityFactors();
 
-    private final Clock clock;
-
-    public NutritionGapRule(Clock clock) {
-        this.clock = clock;
-    }
-
     @Override
     public String type() {
         return RecommendationTypes.NUTRITION_GAP;
@@ -59,32 +52,36 @@ public class NutritionGapRule implements Rule {
 
     @Override
     public Optional<RuleOutcome> evaluate(RecommendationContextEntity context) {
+        return evaluate(context, TodayIntake.unknown());
+    }
+
+    @Override
+    public Optional<RuleOutcome> evaluate(RecommendationContextEntity context, TodayIntake intake) {
         Integer targetCalories = resolveTargetCalories(context);
         if (targetCalories == null) {
             return Optional.empty();
         }
 
-        LocalDate today = LocalDate.now(clock.withZone(UserTimeZones.resolve(context.getTimezone())));
-        boolean totalsAreForToday = today.equals(context.getTodayDate());
-        int consumedCalories = totalsAreForToday && context.getTodayCaloriesConsumed() != null
-                ? context.getTodayCaloriesConsumed()
-                : 0;
+        boolean intakeKnown = intake != null && intake.known();
 
         Map<String, Object> facts = new LinkedHashMap<>();
         facts.put("basis", basis(context));
         facts.put("targetCalories", targetCalories);
-        facts.put("consumedCalories", consumedCalories);
-        facts.put("remainingCalories", targetCalories - consumedCalories);
+        if (intakeKnown) {
+            int consumedCalories = intake.calories();
+            facts.put("consumedCalories", consumedCalories);
+            facts.put("remainingCalories", targetCalories - consumedCalories);
+        }
 
         resolveProteinTarget(context).ifPresent(proteinTargetWithBasis -> {
             BigDecimal proteinTarget = proteinTargetWithBasis.targetGrams();
-            BigDecimal proteinConsumed = totalsAreForToday && context.getTodayProteinGrams() != null
-                    ? context.getTodayProteinGrams()
-                    : BigDecimal.ZERO;
             facts.put("proteinBasis", proteinTargetWithBasis.basis());
             facts.put("proteinTargetGrams", proteinTarget);
-            facts.put("proteinConsumedGrams", proteinConsumed);
-            facts.put("proteinRemainingGrams", proteinTarget.subtract(proteinConsumed));
+            if (intakeKnown) {
+                BigDecimal proteinConsumed = intake.proteinGrams() != null ? intake.proteinGrams() : BigDecimal.ZERO;
+                facts.put("proteinConsumedGrams", proteinConsumed);
+                facts.put("proteinRemainingGrams", proteinTarget.subtract(proteinConsumed));
+            }
         });
         return Optional.of(new RuleOutcome(type(), facts));
     }

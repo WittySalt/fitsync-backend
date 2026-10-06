@@ -1,6 +1,5 @@
 package com.fitsync.recommendation.handler;
 
-import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
@@ -19,11 +18,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Maintains the running "today" nutrition totals for the R1 daily-gap rule. A meal on a
- * new (later) day resets the totals; a meal on the tracked day accumulates; a meal on an
- * earlier day only marks the context stale (historical back-fill is not re-aggregated —
- * per {@code analytics-collaboration.md} §3 the authoritative daily aggregate lives in
- * analytics; this is a cheap local projection).
+ * Records the day of the latest logged meal (the logging-reminder rule's input) and the
+ * week's food-group balance, and marks the context stale so cached recommendations refresh.
+ *
+ * <p>It keeps no running calorie or protein total. A sum can only grow, a deleted or edited
+ * meal cannot be taken back out of it, and the coach once quoted 4910 kcal for a diary that
+ * held 476. Today's intake is read from the Nutrition Diary's daily summary when the facts are
+ * assembled; the {@code today_calories_consumed} and {@code today_protein_grams} columns are
+ * no longer written.
  */
 @Service
 public class MealLoggedEventHandler implements DomainEventConsumer<MealLoggedPayload> {
@@ -59,13 +61,6 @@ public class MealLoggedEventHandler implements DomainEventConsumer<MealLoggedPay
         LocalDate mealDate = resolveMealDate(event, payload, context);
         if (context.getTodayDate() == null || mealDate.isAfter(context.getTodayDate())) {
             context.setTodayDate(mealDate);
-            context.setTodayCaloriesConsumed(payload.totalCalories());
-            context.setTodayProteinGrams(payload.totalProteinGrams());
-        } else if (mealDate.equals(context.getTodayDate())) {
-            context.setTodayCaloriesConsumed(
-                    addCalories(context.getTodayCaloriesConsumed(), payload.totalCalories()));
-            context.setTodayProteinGrams(
-                    addGrams(context.getTodayProteinGrams(), payload.totalProteinGrams()));
         }
         accumulateWeekFoodGroups(context, mealDate, payload);
         contextStore.saveStale(context);
@@ -73,9 +68,8 @@ public class MealLoggedEventHandler implements DomainEventConsumer<MealLoggedPay
     }
 
     /**
-     * Same rollover shape as the today-totals, one level up: a meal in a new (later)
-     * week restarts the food-group accumulation, a meal in the tracked week merges into
-     * it, and a historical meal is ignored.
+     * A meal in a new (later) week restarts the food-group accumulation, a meal in the
+     * tracked week merges into it, and a historical meal is ignored.
      */
     private void accumulateWeekFoodGroups(RecommendationContextEntity context,
                                           LocalDate mealDate,
@@ -103,25 +97,5 @@ public class MealLoggedEventHandler implements DomainEventConsumer<MealLoggedPay
             return LocalDate.now(clock.withZone(zone));
         }
         return consumedAt.atZone(zone).toLocalDate();
-    }
-
-    private static Integer addCalories(Integer current, Integer increment) {
-        if (increment == null) {
-            return current;
-        }
-        if (current == null) {
-            return increment;
-        }
-        return Integer.valueOf(current.intValue() + increment.intValue());
-    }
-
-    private static BigDecimal addGrams(BigDecimal current, BigDecimal increment) {
-        if (increment == null) {
-            return current;
-        }
-        if (current == null) {
-            return increment;
-        }
-        return current.add(increment);
     }
 }

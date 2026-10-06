@@ -284,7 +284,7 @@ class RecommendationContextProjectionTests {
     }
 
     @Test
-    void mealLoggedAccumulatesWithinADayAndResetsOnANewDay() {
+    void mealLoggedKeepsTheLatestMealDayAndWritesNoRunningTotals() {
         mealLoggedEventHandler.consume(event("MealLogged", meal(
                 Instant.parse("2026-07-06T08:00:00Z"), 400, new BigDecimal("25.00"))));
         mealLoggedEventHandler.consume(event("MealLogged", meal(
@@ -292,24 +292,19 @@ class RecommendationContextProjectionTests {
 
         RecommendationContextEntity context = context();
         assertThat(context.getTodayDate()).isEqualTo(LocalDate.parse("2026-07-06"));
-        assertThat(context.getTodayCaloriesConsumed()).isEqualTo(1050);
-        assertThat(context.getTodayProteinGrams()).isEqualByComparingTo("65.50");
+        assertThat(context.getTodayCaloriesConsumed()).isNull();
+        assertThat(context.getTodayProteinGrams()).isNull();
+        assertThat(context.isStale()).isTrue();
 
         mealLoggedEventHandler.consume(event("MealLogged", meal(
                 Instant.parse("2026-07-07T07:00:00Z"), 300, new BigDecimal("18.00"))));
-
-        context = context();
-        assertThat(context.getTodayDate()).isEqualTo(LocalDate.parse("2026-07-07"));
-        assertThat(context.getTodayCaloriesConsumed()).isEqualTo(300);
-        assertThat(context.getTodayProteinGrams()).isEqualByComparingTo("18.00");
-
-        // A late-arriving historical meal must not corrupt the tracked day.
+        // A late-arriving historical meal does not move the tracked day back.
         mealLoggedEventHandler.consume(event("MealLogged", meal(
                 Instant.parse("2026-07-05T09:00:00Z"), 999, new BigDecimal("99.00"))));
 
         context = context();
         assertThat(context.getTodayDate()).isEqualTo(LocalDate.parse("2026-07-07"));
-        assertThat(context.getTodayCaloriesConsumed()).isEqualTo(300);
+        assertThat(context.getTodayCaloriesConsumed()).isNull();
     }
 
     @Test
@@ -395,7 +390,7 @@ class RecommendationContextProjectionTests {
 
         RecommendationContextEntity context = context();
         assertThat(context.isStale()).isTrue();
-        assertThat(context.getTodayCaloriesConsumed()).isEqualTo(400);
+        assertThat(context.getTodayCaloriesConsumed()).isNull();
     }
 
     @Test
@@ -454,7 +449,7 @@ class RecommendationContextProjectionTests {
         mealLoggedEventHandler.consume(event);
         mealLoggedEventHandler.consume(event);
 
-        assertThat(context().getTodayCaloriesConsumed()).isEqualTo(400);
+        assertThat(context().getTodayDate()).isEqualTo(LocalDate.parse("2026-07-06"));
         assertThat(processedEventRepository.count()).isEqualTo(1);
     }
 
