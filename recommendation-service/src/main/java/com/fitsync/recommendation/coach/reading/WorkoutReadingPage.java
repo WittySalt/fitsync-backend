@@ -6,12 +6,12 @@ import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
-/** The workout page: four training facts over the last full week, or the current one once it has enough. */
+/** The workout page: four training facts over the current week so far, Monday to today. */
 @Component
 class WorkoutReadingPage implements ReadingPage {
 
-    private static final String FACTS_NOTE = " The period label tells you whether this covers the current or "
-            + "the previous week. A fact labelled Pace gives minutes and seconds for one kilometre, "
+    private static final String FACTS_NOTE = " The period label tells you this covers the current week so far, "
+            + "Monday to today. A fact labelled Pace gives minutes and seconds for one kilometre, "
             + "so a lower pace is a faster one; its note says how many seconds faster or slower it was.";
 
     private static final String EXAMPLE = """

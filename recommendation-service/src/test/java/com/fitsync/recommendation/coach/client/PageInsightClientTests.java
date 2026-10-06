@@ -17,6 +17,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fitsync.recommendation.coach.config.CoachProperties;
 import com.fitsync.recommendation.coach.reading.NutritionInsight;
 import com.fitsync.recommendation.coach.reading.ProgressInsight;
+import com.fitsync.recommendation.coach.reading.TrainingInsight;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -35,6 +36,10 @@ class PageInsightClientTests {
              "caloriesPerDay":2173,"earlierCaloriesPerDay":2153,"calorieTargetKcal":2100,
              "proteinByMeal":[{"mealType":"BREAKFAST","label":"Breakfast","gramsPerDay":30.3}],
              "somethingNew":true}""";
+
+    private static final String TRAINING_BODY = """
+            {"timezone":"Asia/Singapore","referenceDate":"2026-10-06","period":"THIS_WEEK",
+             "periodStart":"2026-10-05","periodEnd":"2026-10-06","sessions":1,"liftingSessions":1,"lifts":[]}""";
 
     private static final String PROGRESS_BODY = """
             {"timezone":"UTC","referenceDate":"2026-10-01","weightKg":71.1,"measuredOn":"2026-09-28","entries":16,
@@ -58,7 +63,7 @@ class PageInsightClientTests {
                 .andExpect(header("Authorization", "Bearer " + CALLER))
                 .andRespond(withSuccess(NUTRITION_BODY, MediaType.APPLICATION_JSON));
 
-        NutritionInsight insight = new NutritionCatalogueClient(builder, properties, mapper).pageInsight(CALLER, "UTC");
+        NutritionInsight insight = new NutritionCatalogueClient(builder, properties, mapper).pageInsight(CALLER, "UTC", false);
 
         server.verify();
         assertThat(insight.period()).isEqualTo("PREVIOUS_WEEK");
@@ -70,17 +75,50 @@ class PageInsightClientTests {
     }
 
     @Test
+    @DisplayName("the nutrition page reading asks for the current week so far")
+    void asksNutritionForThisWeek() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(method(HttpMethod.GET))
+                .andExpect(requestTo(endsWith("/api/v1/nutrition/insights/page?thisWeek=true")))
+                .andRespond(withSuccess(NUTRITION_BODY, MediaType.APPLICATION_JSON));
+
+        new NutritionCatalogueClient(builder, properties, mapper).pageInsight(CALLER, "UTC", true);
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("the workout reading asks for the current week so far, so a Tuesday reads Monday to Tuesday")
+    void asksWorkoutForThisWeek() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(method(HttpMethod.GET))
+                .andExpect(requestTo(endsWith("/api/v1/workouts/insights/training?thisWeek=true")))
+                .andExpect(header("X-Timezone", "Asia/Singapore"))
+                .andRespond(withSuccess(TRAINING_BODY, MediaType.APPLICATION_JSON));
+
+        TrainingInsight insight = new WorkoutCatalogueClient(builder, properties, mapper)
+                .trainingInsight(CALLER, "Asia/Singapore");
+
+        server.verify();
+        assertThat(insight.period()).isEqualTo("THIS_WEEK");
+        assertThat(insight.periodStart()).isEqualTo(LocalDate.parse("2026-10-05"));
+        assertThat(insight.periodEnd()).isEqualTo(LocalDate.parse("2026-10-06"));
+    }
+
+    @Test
     @DisplayName("a nutrition body that is not the contract, or a failing upstream, reads as null")
     void nutritionFailuresAreNull() {
         RestClient.Builder unreadable = RestClient.builder();
         MockRestServiceServer first = MockRestServiceServer.bindTo(unreadable).build();
         first.expect(method(HttpMethod.GET)).andRespond(withSuccess("[1, 2]", MediaType.APPLICATION_JSON));
-        assertThat(new NutritionCatalogueClient(unreadable, properties, mapper).pageInsight(CALLER, "UTC")).isNull();
+        assertThat(new NutritionCatalogueClient(unreadable, properties, mapper).pageInsight(CALLER, "UTC", false)).isNull();
 
         RestClient.Builder failing = RestClient.builder();
         MockRestServiceServer second = MockRestServiceServer.bindTo(failing).build();
         second.expect(method(HttpMethod.GET)).andRespond(withServerError());
-        assertThat(new NutritionCatalogueClient(failing, properties, mapper).pageInsight(CALLER, "UTC")).isNull();
+        assertThat(new NutritionCatalogueClient(failing, properties, mapper).pageInsight(CALLER, "UTC", false)).isNull();
     }
 
     @Test

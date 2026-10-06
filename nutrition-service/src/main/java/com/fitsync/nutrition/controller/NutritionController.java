@@ -239,8 +239,10 @@ public class NutritionController {
 
     @GetMapping("/insights/page")
     public NutritionPageInsightView nutritionPageInsight(Authentication authentication,
-                                                         @RequestTimezone Optional<ZoneId> zone) {
-        return nutritionPageInsightService.getNutritionPageInsight(currentPrincipal(authentication), zoneId(zone));
+                                                         @RequestTimezone Optional<ZoneId> zone,
+                                                         @RequestParam(defaultValue = "false") boolean thisWeek) {
+        return nutritionPageInsightService.getNutritionPageInsight(currentPrincipal(authentication), zoneId(zone),
+                thisWeek);
     }
 
     @GetMapping("/foods/search")

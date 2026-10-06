@@ -149,7 +149,8 @@ public class WorkoutCatalogueClient extends CatalogueClient {
     }
 
     /**
-     * The pre-computed training facts a workout-page reading is built from.
+     * The pre-computed training facts a workout-page reading is built from, over the current week so far
+     * (Monday to today in the caller's zone), or period NONE while the week holds no session.
      *
      * <p>Parsed here, unlike this class's other reads, because a reading has nothing further to do
      * with the raw JSON: every caller wants the typed shape. A null return covers both "the service
@@ -160,6 +161,9 @@ public class WorkoutCatalogueClient extends CatalogueClient {
      */
     public TrainingInsight trainingInsight(String bearerToken, String timezone) {
         Map<String, Object> params = params();
+        // The workout reading reads the current week so far, never the last full week
+        // (me-achievements-spec.md, section 4c).
+        params.put("thisWeek", true);
         String body = get(TRAINING_INSIGHT, params, bearerToken, timezone);
         if (body == null) {
             return null;

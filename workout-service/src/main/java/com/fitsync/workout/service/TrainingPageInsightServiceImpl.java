@@ -77,6 +77,15 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
     public TrainingPageInsightView getTrainingPageInsight(CurrentUserPrincipal currentUser,
                                                            String timezone,
                                                            LocalDate date) {
+        return getTrainingPageInsight(currentUser, timezone, date, false);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TrainingPageInsightView getTrainingPageInsight(CurrentUserPrincipal currentUser,
+                                                           String timezone,
+                                                           LocalDate date,
+                                                           boolean thisWeekOnly) {
         ZoneId zoneId = InsightDates.resolveZone(timezone);
         LocalDate today = LocalDate.ofInstant(clock.instant(), zoneId);
         LocalDate referenceDate = date != null ? date : today;
@@ -107,7 +116,13 @@ public class TrainingPageInsightServiceImpl implements TrainingPageInsightServic
         InsightPeriod period;
         LocalDate periodStart;
         LocalDate periodEnd;
-        if (thisWeekSessions >= MIN_SESSIONS_FOR_CURRENT_WEEK || (thisWeekSessions > 0 && !hasPreviousWeekSession)) {
+        if (thisWeekOnly) {
+            // The coach readings describe the current week so far, however little it holds.
+            period = thisWeekSessions > 0 ? InsightPeriod.THIS_WEEK : InsightPeriod.NONE;
+            periodStart = thisWeekSessions > 0 ? weekStart : null;
+            periodEnd = thisWeekSessions > 0 ? referenceDate : null;
+        } else if (thisWeekSessions >= MIN_SESSIONS_FOR_CURRENT_WEEK
+                || (thisWeekSessions > 0 && !hasPreviousWeekSession)) {
             period = InsightPeriod.THIS_WEEK;
             periodStart = weekStart;
             periodEnd = referenceDate;

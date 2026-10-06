@@ -2,7 +2,9 @@ package com.fitsync.recommendation.coach.reading;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -77,7 +79,7 @@ class PageReadingServiceTests {
     @Test
     @DisplayName("nutrition: the first call is READY with rules and starts a generation, the second serves the model's reading")
     void nutritionRulesThenModel() {
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.nutrition());
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(PageInsightFixtures.nutrition());
         when(claudeClient.complete(anyString(), anyString())).thenReturn(NUTRITION_MODEL_ANSWER);
 
         CoachReadingResponse first = service.nutritionReading(userId, TOKEN, "UTC");
@@ -103,13 +105,15 @@ class PageReadingServiceTests {
         assertThat(second.reading().headline()).isEqualTo("Your protein came mostly at lunch and dinner.");
         assertThat(second.reading().citations()).containsExactly(1, 3);
         assertThat(readingRepository.findByUserIdAndSurface(userId, ReadingSurface.NUTRITION)).isPresent();
-        assertThat(readingRepository.findByUserIdAndSurface(userId, ReadingSurface.WORKOUT)).isEmpty();
+        assertThat(readingRepository.findByUserIdAndSurface(userId, ReadingSurface.WORKOUT)).isEmpty();        // The nutrition page reads the current week so far.
+        verify(nutritionClient, atLeastOnce()).pageInsight(TOKEN, "UTC", true);
+        verify(nutritionClient, never()).pageInsight(TOKEN, "UTC", false);
     }
 
     @Test
     @DisplayName("nutrition: a period of NONE is EMPTY, with no reading id and no model call")
     void nutritionNoneIsEmpty() {
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.noNutrition());
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(PageInsightFixtures.noNutrition());
 
         CoachReadingResponse response = service.nutritionReading(userId, TOKEN, "UTC");
 
@@ -123,7 +127,7 @@ class PageReadingServiceTests {
     @Test
     @DisplayName("nutrition: an upstream that cannot be read is unavailable")
     void nutritionUpstreamFailure() {
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(null);
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(null);
 
         assertThatThrownBy(() -> service.nutritionReading(userId, TOKEN, "UTC"))
                 .isInstanceOf(ReadingUnavailableException.class)
@@ -133,10 +137,10 @@ class PageReadingServiceTests {
     @Test
     @DisplayName("nutrition: a changed week has a different reading id")
     void nutritionChangedWeekChangesTheId() {
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.nutrition());
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(PageInsightFixtures.nutrition());
         String before = service.nutritionReading(userId, TOKEN, "UTC").readingId();
 
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.nutrition(
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(PageInsightFixtures.nutrition(
                 new java.math.BigDecimal("170"), null, null, null, List.of()));
         String after = service.nutritionReading(userId, TOKEN, "UTC").readingId();
 
@@ -149,7 +153,7 @@ class PageReadingServiceTests {
     @DisplayName("progress: the first call is READY with rules over four facts, the second serves the model's reading")
     void progressRulesThenModel() {
         when(userClient.progressInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.progress());
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.nutrition());
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(PageInsightFixtures.nutrition());
         when(claudeClient.complete(anyString(), anyString())).thenReturn(PROGRESS_MODEL_ANSWER);
 
         CoachReadingResponse first = service.progressReading(userId, TOKEN, "UTC");
@@ -171,14 +175,16 @@ class PageReadingServiceTests {
 
         assertThat(second.readingId()).isEqualTo(first.readingId());
         assertThat(second.reading().source()).isEqualTo("MODEL");
-        assertThat(second.reading().citations()).containsExactly(1, 2);
+        assertThat(second.reading().citations()).containsExactly(1, 2);        // The progress page keeps its calorie fact on the last full week.
+        verify(nutritionClient, atLeastOnce()).pageInsight(TOKEN, "UTC", false);
+        verify(nutritionClient, never()).pageInsight(TOKEN, "UTC", true);
     }
 
     @Test
     @DisplayName("progress: when the nutrition call returns nothing the reading is built without calories")
     void progressWithoutCalories() {
         when(userClient.progressInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.progress());
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(null);
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(null);
 
         CoachReadingResponse response = service.progressReading(userId, TOKEN, "UTC");
 
@@ -190,7 +196,7 @@ class PageReadingServiceTests {
     @DisplayName("progress: when the nutrition call throws the reading still succeeds without calories")
     void progressSurvivesTheSecondCallFailing() {
         when(userClient.progressInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.progress());
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenThrow(new IllegalStateException("down"));
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenThrow(new IllegalStateException("down"));
 
         CoachReadingResponse response = service.progressReading(userId, TOKEN, "UTC");
 
@@ -202,7 +208,7 @@ class PageReadingServiceTests {
     @DisplayName("progress: a nutrition period of NONE leaves calories out")
     void progressWithNoNutritionWeek() {
         when(userClient.progressInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.progress());
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.noNutrition());
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(PageInsightFixtures.noNutrition());
 
         assertThat(service.progressReading(userId, TOKEN, "UTC").facts()).hasSize(3);
     }
@@ -218,7 +224,7 @@ class PageReadingServiceTests {
         assertThat(response.readingId()).isNull();
         assertThat(response.facts()).isEmpty();
         assertThat(response.period()).isEqualTo("LAST_28_DAYS");
-        verify(nutritionClient, never()).pageInsight(anyString(), anyString());
+        verify(nutritionClient, never()).pageInsight(anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -237,7 +243,7 @@ class PageReadingServiceTests {
     @DisplayName("a pinned nutrition reading resolves against its own id and carries the rule-written text")
     void pinnedNutritionReading() {
         NutritionInsight insight = PageInsightFixtures.nutrition();
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(insight);
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(insight);
         String readingId = service.nutritionReading(userId, TOKEN, "UTC").readingId();
 
         Optional<CoachReadingService.PinnedReading> pinned =
@@ -257,7 +263,7 @@ class PageReadingServiceTests {
     @DisplayName("a pinned progress reading is not a week, and an id from another page does not match it")
     void pinnedProgressReading() {
         when(userClient.progressInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.progress());
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.nutrition());
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(PageInsightFixtures.nutrition());
         String progressId = service.progressReading(userId, TOKEN, "UTC").readingId();
         String nutritionId = service.nutritionReading(userId, TOKEN, "UTC").readingId();
 
@@ -274,10 +280,10 @@ class PageReadingServiceTests {
     @Test
     @DisplayName("a pinned reading is empty for an unreadable upstream, an empty period, and never writes a row")
     void pinnedReadingDegrades() {
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(null);
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(null);
         assertThat(service.pinnedReading(ReadingSurface.NUTRITION, userId, TOKEN, "UTC", "0123456789abcdef")).isEmpty();
 
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenThrow(new IllegalStateException("down"));
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenThrow(new IllegalStateException("down"));
         assertThat(service.pinnedReading(ReadingSurface.NUTRITION, userId, TOKEN, "UTC", "0123456789abcdef")).isEmpty();
 
         when(userClient.progressInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.noWeight());
@@ -291,7 +297,7 @@ class PageReadingServiceTests {
     @Test
     @DisplayName("a pinned reading prefers a stored model reading for the same facts")
     void pinnedPrefersTheStoredModelReading() {
-        when(nutritionClient.pageInsight(anyString(), anyString())).thenReturn(PageInsightFixtures.nutrition());
+        when(nutritionClient.pageInsight(anyString(), anyString(), anyBoolean())).thenReturn(PageInsightFixtures.nutrition());
         when(claudeClient.complete(anyString(), anyString())).thenReturn(NUTRITION_MODEL_ANSWER);
         String readingId = service.nutritionReading(userId, TOKEN, "UTC").readingId();
         service.nutritionReading(userId, TOKEN, "UTC");

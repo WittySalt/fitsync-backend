@@ -126,9 +126,15 @@ public class NutritionCatalogueClient extends CatalogueClient {
      * The pre-computed nutrition facts a nutrition-page reading is built from. Null covers both
      * "the service could not be reached" and "the body was not valid JSON for this contract", which
      * a caller treats alike: the upstream is unavailable.
+     *
+     * @param thisWeek true for the current week so far (the nutrition page reading), false for the last
+     *                 full week (the calorie fact of the progress reading)
      */
-    public NutritionInsight pageInsight(String bearerToken, String timezone) {
+    public NutritionInsight pageInsight(String bearerToken, String timezone, boolean thisWeek) {
         Map<String, Object> params = params();
+        if (thisWeek) {
+            params.put("thisWeek", true);
+        }
         String body = get(PAGE_INSIGHT, params, bearerToken, timezone);
         if (body == null) {
             return null;
