@@ -15,7 +15,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
           "firstSessionDate": "2026-08-03",
           "days": [
             { "date": "2026-09-03", "kind": "CARDIO", "label": "Cardio", "sessions": 1, "minutes": 35,
-              "muscles": ["CARDIO"], "record": false }
+              "muscles": ["CARDIO"], "record": false, "records": [] },
+            { "date": "2026-09-08", "kind": "STRENGTH", "label": "Strength", "sessions": 1, "minutes": 50,
+              "muscles": ["BACK"], "record": true,
+              "records": [ { "exerciseName": "Bent-Over Row", "weightKg": 27.50 } ] }
           ],
           "weeks": [
             { "weekStart": "2026-08-31", "weekEnd": "2026-09-06", "sessions": 4, "minutes": 195,

@@ -28,10 +28,12 @@ import com.fitsync.workout.domain.WorkoutSetStatus;
 import com.fitsync.workout.dto.ExerciseTopWeightRow;
 import com.fitsync.workout.dto.MonthlyDayView;
 import com.fitsync.workout.dto.MonthlyMuscleView;
+import com.fitsync.workout.dto.MonthlyRecordView;
 import com.fitsync.workout.dto.MonthlyTotalsView;
 import com.fitsync.workout.dto.MonthlyTrainingInsightView;
 import com.fitsync.workout.dto.MonthlyWeekView;
 import com.fitsync.workout.dto.SessionExerciseTopWeightRow;
+import com.fitsync.workout.entity.SessionEntry;
 import com.fitsync.workout.entity.WorkoutSessionEntity;
 import com.fitsync.workout.repository.WorkoutExerciseLogRepository;
 import com.fitsync.workout.repository.WorkoutSessionRepository;
@@ -84,7 +86,7 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
         LocalDate firstSessionDate = earliest == null ? null : LocalDate.ofInstant(earliest, zoneId);
 
         List<DatedSession> sessions = loadSessions(userId, zoneId, previousStart, loadEnd);
-        Map<LocalDate, Set<UUID>> recordExercisesByDate = sessions.isEmpty()
+        Map<LocalDate, Map<UUID, BigDecimal>> recordExercisesByDate = sessions.isEmpty()
                 ? Map.of()
                 : findRecordExercises(userId, zoneId, previousStart, loadEnd, sessions);
 
@@ -107,7 +109,7 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
                 monthEnd,
                 today,
                 firstSessionDate,
-                buildDays(monthSessions, recordExercisesByDate.keySet()),
+                buildDays(monthSessions, recordExercisesByDate),
                 buildWeeks(monthSessions, monthStart, monthEnd, today),
                 totals,
                 previousTotals,
@@ -164,7 +166,7 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
      * grouped query, and the sessions inside the range are walked oldest first so a later session
      * is compared with the earlier ones of the same range too.
      */
-    private Map<LocalDate, Set<UUID>> findRecordExercises(UUID userId,
+    private Map<LocalDate, Map<UUID, BigDecimal>> findRecordExercises(UUID userId,
                                                           ZoneId zoneId,
                                                           LocalDate start,
                                                           LocalDate end,
@@ -184,12 +186,13 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
             rowsBySession.computeIfAbsent(row.sessionId(), id -> new ArrayList<>()).add(row);
         }
 
-        Map<LocalDate, Set<UUID>> recordExercisesByDate = new HashMap<>();
+        Map<LocalDate, Map<UUID, BigDecimal>> recordExercisesByDate = new HashMap<>();
         for (DatedSession dated : sessions) {
             for (SessionExerciseTopWeightRow row : rowsBySession.getOrDefault(dated.session().getSessionId(), List.of())) {
                 BigDecimal earlierBest = bestByExercise.get(row.exerciseId());
                 if (earlierBest != null && row.maxWeightKg().compareTo(earlierBest) > 0) {
-                    recordExercisesByDate.computeIfAbsent(dated.date(), d -> new HashSet<>()).add(row.exerciseId());
+                    recordExercisesByDate.computeIfAbsent(dated.date(), d -> new HashMap<>())
+                            .merge(row.exerciseId(), row.maxWeightKg(), BigDecimal::max);
                 }
                 if (earlierBest == null || row.maxWeightKg().compareTo(earlierBest) > 0) {
                     bestByExercise.put(row.exerciseId(), row.maxWeightKg());
@@ -207,7 +210,7 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
     private MonthlyTotalsView totalsOf(List<DatedSession> sessions,
                                        LocalDate start,
                                        LocalDate end,
-                                       Map<LocalDate, Set<UUID>> recordExercisesByDate) {
+                                       Map<LocalDate, Map<UUID, BigDecimal>> recordExercisesByDate) {
         int minutes = 0;
         Set<LocalDate> trainedDates = new HashSet<>();
         for (DatedSession dated : sessions) {
@@ -215,7 +218,7 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
             trainedDates.add(dated.date());
         }
         int records = 0;
-        for (Map.Entry<LocalDate, Set<UUID>> entry : recordExercisesByDate.entrySet()) {
+        for (Map.Entry<LocalDate, Map<UUID, BigDecimal>> entry : recordExercisesByDate.entrySet()) {
             if (!entry.getKey().isBefore(start) && !entry.getKey().isAfter(end)) {
                 records += entry.getValue().size();
             }
@@ -238,7 +241,8 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
         return longest;
     }
 
-    private List<MonthlyDayView> buildDays(List<DatedSession> monthSessions, Set<LocalDate> recordDays) {
+    private List<MonthlyDayView> buildDays(List<DatedSession> monthSessions,
+                                           Map<LocalDate, Map<UUID, BigDecimal>> recordsByDate) {
         Map<LocalDate, List<DatedSession>> byDate = new TreeMap<>();
         for (DatedSession dated : monthSessions) {
             byDate.computeIfAbsent(dated.date(), d -> new ArrayList<>()).add(dated);
@@ -263,10 +267,38 @@ public class MonthlyTrainingInsightServiceImpl implements MonthlyTrainingInsight
                     .orElseThrow();
             String label = WeekByDayCalculator.kindLabel(
                     WeekByDayCalculator.trainingKind(primary.kind()), primary.sportActivity());
+            List<MonthlyRecordView> records = namedRecords(entry.getValue(),
+                    recordsByDate.getOrDefault(entry.getKey(), Map.of()));
             days.add(new MonthlyDayView(entry.getKey(), primary.kind(), label, entry.getValue().size(), minutes,
-                    List.copyOf(muscles), recordDays.contains(entry.getKey())));
+                    List.copyOf(muscles), recordsByDate.containsKey(entry.getKey()), records));
         }
         return days;
+    }
+
+    /**
+     * The records of one day by exercise name, heaviest first, so the day detail can say which lift it was
+     * and how heavy. The names come from the day's own sets, already loaded.
+     */
+    private static List<MonthlyRecordView> namedRecords(List<DatedSession> daySessions, Map<UUID, BigDecimal> records) {
+        if (records.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, String> names = new HashMap<>();
+        for (DatedSession dated : daySessions) {
+            for (SessionEntry entry : dated.session().getSetEntries()) {
+                names.putIfAbsent(entry.getExercise().getExerciseId(), entry.getExercise().getName());
+            }
+        }
+        List<MonthlyRecordView> named = new ArrayList<>();
+        for (Map.Entry<UUID, BigDecimal> record : records.entrySet()) {
+            String name = names.get(record.getKey());
+            if (name != null) {
+                named.add(new MonthlyRecordView(name, record.getValue()));
+            }
+        }
+        named.sort(Comparator.comparing(MonthlyRecordView::weightKg).reversed()
+                .thenComparing(MonthlyRecordView::exerciseName));
+        return named;
     }
 
     /** Every Monday-to-Sunday week that overlaps the month. The week's own dates are reported,
