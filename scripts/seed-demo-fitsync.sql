@@ -69,6 +69,15 @@
 --             preferences, one goal, and otherwise empty history, so the
 --             empty states can be checked.
 --
+-- Recording-day shape (steady): history runs through YESTERDAY. Today carries a
+--              breakfast and the first sip of water only, so the Home guide card, the
+--              Diary and the Today views have something true to say in the morning.
+--              One past Sunday is a FAST day (a FAST meal, no items) for the fasted-day
+--              line, three recipes are cooked (recipe_cooks plus the analytics cook
+--              counter), the badge ledger is cleared so the service writes it fresh on
+--              the first read, and the streak and energy projections are filled in.
+--              Run it after 08:00 Singapore time so today's breakfast is not in the future.
+--
 -- Demo window: a ROLLING 60-day window that always ends on "today" (the
 --              current date in Asia/Singapore) so the Dashboard "Today"/streak
 --              panels are never stale. d_start = today - 59, d_today = today.
@@ -146,6 +155,7 @@ delete from nutrition.meal_logs                    where user_id      in (select
 delete from nutrition.water_logs                   where user_id      in (select user_id from demo_config);
 delete from nutrition.meal_templates               where user_id      in (select user_id from demo_config);  -- -> meal_template_items
 delete from nutrition.recipes                      where user_id      in (select user_id from demo_config);  -- -> recipe_ingredients
+delete from nutrition.recipe_cooks                 where user_id      in (select user_id from demo_config);  -- cooks of system recipes, which the recipes delete below does not reach
 delete from nutrition.food_favorites               where user_id      in (select user_id from demo_config);
 delete from nutrition.nutrition_targets            where user_id      in (select user_id from demo_config);
 delete from nutrition.nutrition_preference_projections where user_id  in (select user_id from demo_config);
@@ -176,11 +186,20 @@ delete from analytics.analytics_user_daily_body         where user_id in (select
 delete from analytics.analytics_user_goal_progress      where user_id in (select user_id from demo_config);
 delete from analytics.analytics_user_dashboard_snapshot where user_id in (select user_id from demo_config);
 delete from analytics.analytics_processed_events        where user_id in (select user_id from demo_config);
+-- These tables arrived in later analytics migrations, so each is guarded on existing. The badge ledger
+-- is derived from the data seeded below, so it is cleared here and the service writes it fresh on the
+-- first read; a stale row would otherwise keep a badge the new data no longer earns.
 do $$
+declare
+    t text;
 begin
-    if exists (select 1 from information_schema.tables where table_schema = 'analytics' and table_name = 'analytics_user_workout_records') then
-        delete from analytics.analytics_user_workout_records where user_id in (select user_id from demo_config);
-    end if;
+    foreach t in array array['analytics_user_workout_records', 'analytics_user_achievements',
+                             'analytics_user_cooks', 'analytics_user_streak_rollup',
+                             'analytics_user_energy_profiles'] loop
+        if exists (select 1 from information_schema.tables where table_schema = 'analytics' and table_name = t) then
+            execute format('delete from analytics.%I where user_id in (select user_id from demo_config)', t);
+        end if;
+    end loop;
 end $$;
 
 -- 1e. recommendation-service projection + coach conversation history, when that
@@ -251,6 +270,15 @@ set onboarding_completed = true
 from demo_config c
 where p.user_id = c.user_id and p.onboarding_completed = false;
 
+-- The Me page shows "Member since" from the profile's creation time, and the footprint grid starts
+-- there. An account with 60 days of history should not read as a day old. The fresh persona keeps its
+-- real creation time.
+update user_domain.user_profiles p
+set date_time_created = (c.d_start + time '08:00') at time zone c.tz
+from demo_config c
+where p.user_id = c.user_id and c.persona in ('steady', 'drifting')
+  and p.date_time_created > (c.d_start + time '08:00') at time zone c.tz;
+
 -- ----------------------------------------------------------------------------
 -- 2b. demo_days — one row per calendar day in [d_start, d_today], carrying
 --     every value the rest of the script needs: the ISO weekday, an
@@ -297,6 +325,7 @@ alter table demo_days add column run_km          numeric(6,2);
 alter table demo_days add column meal_day        boolean not null default false;
 alter table demo_days add column meal_mult       numeric(5,3) not null default 1.0;
 alter table demo_days add column shake_day       boolean not null default false;
+alter table demo_days add column fast_day         boolean not null default false;
 
 -- STEADY: Monday/Friday strength, a Thursday run and Saturday badminton, every
 -- week, which is the week the plan lays out; one Thursday (week 0) and one
@@ -338,6 +367,17 @@ set meal_day  = true,
     meal_mult = case idx % 3 when 0 then 1.03 when 1 then 1.10 else 1.17 end,
     shake_day = is_training_day and not skip_session
 where persona = 'steady';
+
+-- One past Sunday is a fasted day: the most recent Sunday before today. The day carries a FAST meal
+-- and no foods, so it is not a meal day.
+update demo_days dd
+set fast_day = true,
+    meal_day = false,
+    shake_day = false
+from demo_config c
+where dd.persona = 'steady'
+  and dd.d = c.d_today - case when extract(isodow from c.d_today)::int = 7
+                              then 7 else extract(isodow from c.d_today)::int end;
 
 -- DRIFTING: same shape as steady for the oldest weeks (m >= 4, "the first
 -- five weeks"), drops to 3 sessions/week (no Saturday) for m in (2,3), then
@@ -433,9 +473,23 @@ select
 from demo_days dd
 cross join meals m
 where dd.persona <> 'fresh'
-  and dd.d < (select d_today from demo_config)
+  and (dd.d < (select d_today from demo_config) or m.code = 'BFAST')  -- today has its breakfast only
   and dd.meal_day
   and (m.workout_only = false or dd.shake_day);
+
+-- 3a-2. The fasted day: one FAST meal and no items.
+insert into nutrition.meal_logs
+    (meal_id, user_id, meal_type, name, source, consumed_at, timezone, note,
+     date_time_created, date_time_updated, created_by, updated_by, version)
+select
+    md5(dd.user_id::text || dd.d::text || 'FAST')::uuid,
+    dd.user_id, 'FAST', 'Fasted day', 'MANUAL',
+    (dd.d + time '12:00') at time zone dd.tz, dd.tz, null,
+    (dd.d + time '12:00') at time zone dd.tz,
+    (dd.d + time '12:00') at time zone dd.tz,
+    'demo-seed', 'demo-seed', 0
+from demo_days dd
+where dd.fast_day;
 
 -- 3b. meal_items — every item is linked to a real USDA SR Legacy catalogue food. The quantity is
 --     stored in grams (unit 'g') times demo_days.meal_mult, and calories and macros are recomputed
@@ -529,7 +583,7 @@ sized as (
       join meals m on m.code = it.code
       join demo_food_basis fb on fb.food_key = it.food_key
      where dd.persona <> 'fresh'
-       and dd.d < (select d_today from demo_config)
+       and (dd.d < (select d_today from demo_config) or it.code = 'BFAST')
        and dd.meal_day
        and (m.workout_only = false or dd.shake_day)
 )
@@ -690,7 +744,7 @@ on conflict do nothing;
 
 drop table snapshot_scale;
 
--- 3c. water_logs — four sips per day, ~2.3 L total, for the whole window.
+-- 3c. water_logs — four sips per day, ~2.3 L total, for the whole window (today: the first sip only).
 insert into nutrition.water_logs
     (water_id, user_id, amount_ml, logged_at, timezone,
      date_time_created, date_time_updated, created_by, updated_by, version)
@@ -708,7 +762,8 @@ select
     (dd.d + s.at_t) at time zone dd.tz,
     'demo-seed', 'demo-seed', 0
 from demo_days dd cross join sips s
-where dd.persona <> 'fresh';
+where dd.persona <> 'fresh'
+  and (dd.d < (select d_today from demo_config) or s.slot = 1);  -- today has the morning sip only
 
 -- ============================================================================
 -- 4. USER profile data — body metrics + goals.
@@ -1151,11 +1206,11 @@ insert into analytics.analytics_meal_contributions
      date_time_created, date_time_updated, created_by, updated_by, version, meal_type)
 select
     ml.meal_id, ml.user_id, (ml.consumed_at at time zone c.tz)::date,
-    sum(mi.calories)::int, sum(mi.protein_grams), sum(mi.carbs_grams), sum(mi.fat_grams),
-    count(mi.meal_item_id)::int, now(), now(), now(), 'demo-seed', 'demo-seed', 0, ml.meal_type
+    coalesce(sum(mi.calories), 0)::int, coalesce(sum(mi.protein_grams), 0), coalesce(sum(mi.carbs_grams), 0),
+    coalesce(sum(mi.fat_grams), 0), count(mi.meal_item_id)::int, now(), now(), now(), 'demo-seed', 'demo-seed', 0, ml.meal_type
 from demo_config c
 join nutrition.meal_logs ml on ml.user_id = c.user_id and ml.created_by = 'demo-seed'
-join nutrition.meal_items mi on mi.meal_id = ml.meal_id
+left join nutrition.meal_items mi on mi.meal_id = ml.meal_id  -- a FAST meal has no items and still counts as a logged meal
 group by ml.meal_id, ml.user_id, ml.meal_type, (ml.consumed_at at time zone c.tz)::date;
 
 -- 6b. daily nutrition roll-up (targets + adherence)
@@ -1174,13 +1229,13 @@ from (
     select ml.user_id,
            (ml.consumed_at at time zone c.tz)::date as activity_date,
            count(distinct ml.meal_id)               as meal_count,
-           sum(mi.calories)                         as cals,
-           sum(mi.protein_grams)                    as protein,
-           sum(mi.carbs_grams)                      as carbs,
-           sum(mi.fat_grams)                        as fat
+           coalesce(sum(mi.calories), 0)            as cals,
+           coalesce(sum(mi.protein_grams), 0)       as protein,
+           coalesce(sum(mi.carbs_grams), 0)         as carbs,
+           coalesce(sum(mi.fat_grams), 0)           as fat
     from demo_config c
     join nutrition.meal_logs ml on ml.user_id = c.user_id and ml.created_by = 'demo-seed'
-    join nutrition.meal_items mi on mi.meal_id = ml.meal_id
+    left join nutrition.meal_items mi on mi.meal_id = ml.meal_id
     group by ml.user_id, (ml.consumed_at at time zone c.tz)::date
 ) s;
 
@@ -1448,6 +1503,112 @@ begin
         date_time_updated = now(),
         updated_by = 'demo-seed';
 end $$;
+
+-- ----------------------------------------------------------------------------
+-- 6i. Recipe cooks, the cook counter, the streak rollup and the energy profile.
+--
+--     Cooks: three for steady (a Saturday, a Wednesday and the Sunday before), one older cook for
+--     drifting, none for fresh. They point at published system recipes, picked by name, so no recipe
+--     needs inserting. The analytics cook counter is rebuilt from the cook rows, the same total the
+--     RecipeCooked events would have produced, and it feeds the kitchen badges.
+--
+--     Streak rollup: the nightly job's output (best run of consecutive training days), computed here
+--     from the daily workout rows so the Progress page does not wait for the job.
+--
+--     Energy profile: the BMR the Progress energy view reads, one row dated at the start of the window,
+--     from the Mifflin-St Jeor equation when the profile has what it needs and flagged as estimated
+--     when it does not.
+-- ----------------------------------------------------------------------------
+create temporary table demo_cook_plan on commit drop as
+select c.user_id, c.tz, v.n, v.recipe_name, v.servings,
+       ((c.d_today - v.days_ago) + time '19:30') at time zone c.tz as finished_at
+from demo_config c
+join (values
+    (1, 'Salmon Avocado Salad'::text, 2.00::numeric,  3, 'steady'::text),
+    (2, 'Spanish Chicken',            4.00,           6, 'steady'),
+    (3, 'Sweet potato salad',         4.00,           9, 'steady'),
+    (1, 'Spanish Chicken',            4.00,          24, 'drifting')
+) as v(n, recipe_name, servings, days_ago, persona) on v.persona = c.persona;
+
+do $$
+begin
+    if (select count(*) from demo_cook_plan p
+         where not exists (select 1 from nutrition.recipes r
+                            where r.name = p.recipe_name and r.scope = 'SYSTEM'
+                              and r.published and r.deleted_at is null)) > 0 then
+        raise exception 'A recipe the demo cooks is missing from the system library. Import the recipe library first.';
+    end if;
+end $$;
+
+insert into nutrition.recipe_cooks
+    (cook_id, user_id, recipe_id, client_cook_id, servings, started_at, finished_at, created_at)
+select md5(p.user_id::text || 'cook' || p.n::text)::uuid,
+       p.user_id,
+       (select r.recipe_id from nutrition.recipes r
+         where r.name = p.recipe_name and r.scope = 'SYSTEM' and r.published and r.deleted_at is null
+         order by r.recipe_id limit 1),
+       md5(p.user_id::text || 'client-cook' || p.n::text)::uuid,
+       p.servings,
+       p.finished_at - interval '50 minutes',
+       p.finished_at,
+       p.finished_at
+from demo_cook_plan p;
+
+do $$
+begin
+    if exists (select 1 from information_schema.tables where table_schema = 'analytics' and table_name = 'analytics_user_cooks') then
+        insert into analytics.analytics_user_cooks (user_id, cooks, first_cook_at, last_cook_at)
+        select rc.user_id, count(*)::int, min(rc.finished_at), max(rc.finished_at)
+          from nutrition.recipe_cooks rc
+          join demo_config c on c.user_id = rc.user_id
+         where rc.deleted_at is null
+         group by rc.user_id
+        on conflict (user_id) do update set
+            cooks = excluded.cooks,
+            first_cook_at = excluded.first_cook_at,
+            last_cook_at = excluded.last_cook_at;
+    end if;
+end $$;
+
+insert into analytics.analytics_user_streak_rollup
+    (user_id, best_streak_days, best_streak_from, best_streak_to, last_active_date, computed_at,
+     date_time_created, date_time_updated, created_by, updated_by, version)
+select c.user_id, best.len, best.from_d, best.to_d,
+       (select max(w.activity_date) from analytics.analytics_user_daily_workout w
+         where w.user_id = c.user_id and w.completed_workout_count > 0),
+       now(), now(), now(), 'demo-seed', 'demo-seed', 0
+from demo_config c
+join lateral (
+    -- Runs of consecutive active dates; the longest wins, the most recent on a tie, as the job does.
+    select count(*)::int as len, min(r.d) as from_d, max(r.d) as to_d
+      from (select w.activity_date as d,
+                   w.activity_date - (row_number() over (order by w.activity_date))::int as grp
+              from analytics.analytics_user_daily_workout w
+             where w.user_id = c.user_id and w.completed_workout_count > 0) r
+     group by r.grp
+     order by count(*) desc, max(r.d) desc
+     limit 1
+) best on true;
+
+insert into analytics.analytics_user_energy_profiles
+    (event_id, user_id, bmr_kcal, estimated, computed_at,
+     date_time_created, date_time_updated, created_by, updated_by, version)
+select md5(c.user_id::text || 'energy-profile')::uuid,
+       c.user_id,
+       round(10 * w.weight_kg + 6.25 * p.height_cm
+             - 5 * extract(year from age(c.d_today, p.birth_date))
+             + case p.gender when 'MALE' then 5 when 'FEMALE' then -161 else -78 end)::int,
+       p.gender not in ('MALE', 'FEMALE'),
+       (c.d_start + time '08:00') at time zone c.tz,
+       now(), now(), 'demo-seed', 'demo-seed', 0
+from demo_config c
+join user_domain.user_profiles p on p.user_id = c.user_id
+join lateral (
+    select bd.weight_kg from analytics.analytics_user_daily_body bd
+     where bd.user_id = c.user_id and bd.weight_kg is not null
+     order by bd.metric_date asc limit 1
+) w on true
+where p.height_cm is not null and p.birth_date is not null;
 
 -- ----------------------------------------------------------------------------
 -- 8b. Fields the Phase 2 work added after this seed was written.
