@@ -15,6 +15,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
+import com.fitsync.contracts.events.nutrition.RecipeCookedPayload;
 import org.junit.jupiter.api.Test;
 
 /** The one nutrition-topic listener dispatches on the event type and respects each type's own flag. */
@@ -28,10 +29,22 @@ class MealNutritionKafkaListenerTests {
     private final DomainEventConsumer<MealUpdatedPayload> updated = mock(DomainEventConsumer.class);
     @SuppressWarnings("unchecked")
     private final DomainEventConsumer<MealDeletedPayload> deleted = mock(DomainEventConsumer.class);
+    @SuppressWarnings("unchecked")
+    private final DomainEventConsumer<RecipeCookedPayload> cooked = mock(DomainEventConsumer.class);
 
     private NutritionEventsKafkaListener listener(boolean loggedOn, boolean updatedOn, boolean deletedOn) {
-        return new NutritionEventsKafkaListener(objectMapper, logged, updated, deleted, loggedOn, updatedOn,
-                deletedOn);
+        return listener(loggedOn, updatedOn, deletedOn, false);
+    }
+
+    private NutritionEventsKafkaListener listener(boolean loggedOn, boolean updatedOn, boolean deletedOn,
+                                                  boolean cookedOn) {
+        return new NutritionEventsKafkaListener(objectMapper, logged, updated, deleted, cooked, loggedOn, updatedOn,
+                deletedOn, cookedOn);
+    }
+
+    private static RecipeCookedPayload cookedPayload() {
+        return new RecipeCookedPayload(UUID.randomUUID(), UUID.randomUUID(), new BigDecimal("2.00"),
+                Instant.parse("2026-06-14T11:00:00Z"));
     }
 
     private static <T> FitSyncDomainEvent<T> event(String type, T payload) {
@@ -71,7 +84,24 @@ class MealNutritionKafkaListenerTests {
     void ignoresOtherEventTypesOnTheSharedTopic() throws Exception {
         send(listener(true, true, true), event("WaterLogged", loggedPayload()));
 
+        verifyNoInteractions(logged, updated, deleted, cooked);
+    }
+
+    @Test
+    void routesRecipeCookedToItsConsumerWhenItsFlagIsOn() throws Exception {
+        FitSyncDomainEvent<RecipeCookedPayload> cook = event("RecipeCooked", cookedPayload());
+
+        send(listener(false, false, false, true), cook);
+
+        verify(cooked).consume(cook);
         verifyNoInteractions(logged, updated, deleted);
+    }
+
+    @Test
+    void leavesRecipeCookedAloneWhileItsFlagIsOff() throws Exception {
+        send(listener(true, true, true, false), event("RecipeCooked", cookedPayload()));
+
+        verifyNoInteractions(logged, updated, deleted, cooked);
     }
 
     @Test

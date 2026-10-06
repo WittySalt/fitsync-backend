@@ -21,5 +21,7 @@ public interface AnalyticsUserDailyNutritionRepository
                                                                                                       LocalDate from,
                                                                                                       LocalDate to);
 
+    List<AnalyticsUserDailyNutritionEntity> findByUserIdOrderByActivityDateAsc(UUID userId);
+
     void deleteByUserId(UUID userId);
 }

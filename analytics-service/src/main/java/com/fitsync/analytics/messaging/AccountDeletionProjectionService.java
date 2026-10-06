@@ -7,6 +7,8 @@ import java.util.UUID;
 import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
+import com.fitsync.analytics.repository.AnalyticsUserAchievementRepository;
+import com.fitsync.analytics.repository.AnalyticsUserCooksRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
@@ -35,6 +37,8 @@ public class AccountDeletionProjectionService {
     private final AnalyticsUserStreakRollupRepository streakRollupRepository;
     private final AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository;
     private final AnalyticsUserEnergyProfileRepository energyProfileRepository;
+    private final AnalyticsUserAchievementRepository achievementRepository;
+    private final AnalyticsUserCooksRepository cooksRepository;
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final Clock clock;
 
@@ -49,6 +53,8 @@ public class AccountDeletionProjectionService {
                                             AnalyticsUserStreakRollupRepository streakRollupRepository,
                                             AnalyticsUserWorkoutRecordsRepository workoutRecordsRepository,
                                             AnalyticsUserEnergyProfileRepository energyProfileRepository,
+                                            AnalyticsUserAchievementRepository achievementRepository,
+                                            AnalyticsUserCooksRepository cooksRepository,
                                             AnalyticsCacheInvalidationService cacheInvalidationService,
                                             Clock clock) {
         this.processedEventRepository = processedEventRepository;
@@ -62,6 +68,8 @@ public class AccountDeletionProjectionService {
         this.streakRollupRepository = streakRollupRepository;
         this.workoutRecordsRepository = workoutRecordsRepository;
         this.energyProfileRepository = energyProfileRepository;
+        this.achievementRepository = achievementRepository;
+        this.cooksRepository = cooksRepository;
         this.cacheInvalidationService = cacheInvalidationService;
         this.clock = clock;
     }
@@ -83,6 +91,8 @@ public class AccountDeletionProjectionService {
         streakRollupRepository.deleteById(userId);
         workoutRecordsRepository.deleteById(userId);
         energyProfileRepository.deleteByUserId(userId);
+        achievementRepository.deleteByUserId(userId);
+        cooksRepository.deleteById(userId);
         processedEventRepository.deleteByUserId(userId);
         recordProcessedEvent(event);
         cacheInvalidationService.evictForUser(userId);

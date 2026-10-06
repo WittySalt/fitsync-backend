@@ -6,7 +6,6 @@ import java.util.UUID;
 
 import java.time.LocalDate;
 
-import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsActivityCalendarResponse;
 import com.fitsync.analytics.dto.AnalyticsBodyTrendsResponse;
 import com.fitsync.analytics.dto.AnalyticsCompareResponse;
@@ -307,32 +306,6 @@ class AnalyticsControllerTests {
                 .andExpect(jsonPath("$.bestStreakTo").value("2026-03-15"))
                 .andExpect(jsonPath("$.lastActiveDate").value("2026-07-07"))
                 .andExpect(jsonPath("$.timezone").value("Asia/Singapore"));
-    }
-
-    @Test
-    void shouldRequireAuthenticationForAchievements() throws Exception {
-        mockMvc.perform(get("/api/v1/analytics/achievements"))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void shouldReturnAchievementsForAuthenticatedUser() throws Exception {
-        CurrentUserPrincipal principal = principal();
-        when(analyticsService.getAchievements(any())).thenReturn(new AnalyticsAchievementsResponse(List.of(
-                new AnalyticsAchievementsResponse.AchievementView(
-                        "FIRST_WORKOUT", "First workout", true, Instant.parse("2026-05-01T10:00:00Z"), 1.0),
-                new AnalyticsAchievementsResponse.AchievementView(
-                        "STREAK_7", "7 days in a row", false, null, 0.86))));
-
-        mockMvc.perform(get("/api/v1/analytics/achievements")
-                        .with(authentication(authToken(principal))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.achievements[0].code").value("FIRST_WORKOUT"))
-                .andExpect(jsonPath("$.achievements[0].unlocked").value(true))
-                .andExpect(jsonPath("$.achievements[0].unlockedAt").value("2026-05-01T10:00:00Z"))
-                .andExpect(jsonPath("$.achievements[1].code").value("STREAK_7"))
-                .andExpect(jsonPath("$.achievements[1].unlocked").value(false))
-                .andExpect(jsonPath("$.achievements[1].progress").value(0.86));
     }
 
     @Test

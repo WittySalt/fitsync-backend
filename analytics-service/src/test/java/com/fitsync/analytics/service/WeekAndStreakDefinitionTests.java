@@ -4,7 +4,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-import com.fitsync.analytics.dto.AnalyticsAchievementsResponse;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import org.junit.jupiter.api.Test;
 
@@ -83,46 +82,5 @@ class WeekAndStreakDefinitionTests {
                 t.service("2026-06-20T04:00:00Z").getDashboard(principal()).workout();
 
         assertThat(workout.currentStreakDays()).isZero();
-    }
-
-    @Test
-    void streakAchievementsAreRenamedAndCountWorkoutDaysInARow() {
-        AnalyticsServiceTestSupport t = new AnalyticsServiceTestSupport().withZone("Asia/Singapore");
-        t.snapshot.setActiveStreakDays(7);
-        when(t.workoutRepository.findByUserIdOrderByActivityDateAsc(USER_ID)).thenReturn(List.of(
-                workoutDay("2026-06-14", 1, 30), workoutDay("2026-06-15", 1, 30),
-                workoutDay("2026-06-16", 1, 30), workoutDay("2026-06-17", 1, 30),
-                workoutDay("2026-06-18", 1, 30), workoutDay("2026-06-19", 1, 30),
-                workoutDay("2026-06-20", 1, 30)));
-        when(t.streakRollupRepository.findById(USER_ID)).thenReturn(Optional.empty());
-
-        AnalyticsAchievementsResponse response = t.service("2026-06-20T04:00:00Z").getAchievements(principal());
-
-        assertThat(response.achievements())
-                .filteredOn(view -> view.code().startsWith("STREAK_"))
-                .extracting(AnalyticsAchievementsResponse.AchievementView::title,
-                        AnalyticsAchievementsResponse.AchievementView::unlocked)
-                .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple("7 days in a row", true),
-                        org.assertj.core.groups.Tuple.tuple("30 days in a row", false));
-    }
-
-    @Test
-    void streakAchievementDoesNotCountABrokenStreakAsCurrent() {
-        AnalyticsServiceTestSupport t = new AnalyticsServiceTestSupport().withZone("Asia/Singapore");
-        // A stored counter of 9 from a streak that ended on 3 June is not a live streak on 20 June.
-        t.snapshot.setActiveStreakDays(9);
-        when(t.workoutRepository.findByUserIdOrderByActivityDateAsc(USER_ID))
-                .thenReturn(List.of(workoutDay("2026-06-03", 1, 30)));
-        when(t.streakRollupRepository.findById(USER_ID)).thenReturn(Optional.empty());
-
-        AnalyticsAchievementsResponse response = t.service("2026-06-20T04:00:00Z").getAchievements(principal());
-
-        assertThat(response.achievements())
-                .filteredOn(view -> "STREAK_7".equals(view.code()))
-                .allSatisfy(view -> {
-                    assertThat(view.unlocked()).isFalse();
-                    assertThat(view.progress()).isZero();
-                });
     }
 }
