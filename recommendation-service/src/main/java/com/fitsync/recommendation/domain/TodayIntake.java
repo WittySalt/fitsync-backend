@@ -14,10 +14,8 @@ import java.time.LocalDate;
  */
 public record TodayIntake(LocalDate date, Integer calories, BigDecimal proteinGrams) {
 
-    private static final TodayIntake UNKNOWN = new TodayIntake(null, null, null);
-
     public static TodayIntake unknown() {
-        return UNKNOWN;
+        return new TodayIntake(null, null, null);
     }
 
     /** True when the diary was read. The caller chose the day, in the zone the user is speaking from. */

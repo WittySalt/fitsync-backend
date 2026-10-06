@@ -78,8 +78,9 @@ public class V16__recompute_goal_baseline_from_start extends BaseJavaMigration {
             LOG.info("event=goal_baseline_recomputed rows={}", updated);
         } catch (SQLException ex) {
             connection.rollback(savepoint);
+            // Sanitised inline against CRLF injection (CWE-117), as elsewhere in this service.
             LOG.warn("event=goal_baseline_recompute_skipped reason=analytics_read_failed sqlState={}",
-                    ex.getSQLState());
+                    String.valueOf(ex.getSQLState()).replace("\r", "_").replace("\n", "_"));
         }
     }
 

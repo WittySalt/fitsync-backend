@@ -35,6 +35,8 @@ public class GoalPaceRule implements Rule {
     static final int ON_COURSE_SLACK_DAYS = 7;
 
     private static final double DAYS_PER_WEEK = 7.0;
+    /** Kilograms closer to zero than this are zero; the weights carry two decimals. */
+    private static final double EPSILON_KG = 1e-6;
 
     private final Clock clock;
 
@@ -76,7 +78,7 @@ public class GoalPaceRule implements Rule {
         }
         double actualPerWeek = (latest - baseline) / elapsedDays * DAYS_PER_WEEK;
         double remaining = target - latest;
-        boolean reached = remaining == 0.0 || Math.signum(remaining) != Math.signum(requiredPerWeek);
+        boolean reached = Math.abs(remaining) < EPSILON_KG || Math.signum(remaining) != Math.signum(requiredPerWeek);
         LocalDate projected = reached ? null : projectedDate(today, remaining, actualPerWeek);
 
         Map<String, Object> facts = new LinkedHashMap<>();
@@ -104,7 +106,7 @@ public class GoalPaceRule implements Rule {
 
     /** Today plus the weeks the remaining kilos take at the actual rate, or null when the rate does not lead there. */
     private static LocalDate projectedDate(LocalDate today, double remaining, double actualPerWeek) {
-        if (actualPerWeek == 0.0 || Math.signum(actualPerWeek) != Math.signum(remaining)) {
+        if (Math.abs(actualPerWeek) < EPSILON_KG || Math.signum(actualPerWeek) != Math.signum(remaining)) {
             return null;
         }
         return today.plusDays(Math.round(remaining / actualPerWeek * DAYS_PER_WEEK));
