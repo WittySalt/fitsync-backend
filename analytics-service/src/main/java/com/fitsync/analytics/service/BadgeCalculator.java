@@ -348,16 +348,18 @@ final class BadgeCalculator {
         return run;
     }
 
-    /** A logged day's protein verdict: met, missed, or null when there is no target to judge it by. */
-    private static Boolean proteinMet(AnalyticsUserDailyNutritionEntity row, BigDecimal goalGrams) {
+    /** A logged day's protein verdict. */
+    private enum Verdict { MET, MISSED, NO_TARGET }
+
+    private static Verdict proteinMet(AnalyticsUserDailyNutritionEntity row, BigDecimal goalGrams) {
         BigDecimal target = row.getProteinTargetGrams() != null && row.getProteinTargetGrams().signum() > 0
                 ? row.getProteinTargetGrams()
                 : goalGrams != null && goalGrams.signum() > 0 ? goalGrams : null;
         if (target == null) {
-            return null;
+            return Verdict.NO_TARGET;
         }
         BigDecimal eaten = Objects.requireNonNullElse(row.getTotalProteinGrams(), BigDecimal.ZERO);
-        return eaten.compareTo(target) >= 0;
+        return eaten.compareTo(target) >= 0 ? Verdict.MET : Verdict.MISSED;
     }
 
     private static void protein(Map<String, Computed> out, Inputs in) {
@@ -369,10 +371,10 @@ final class BadgeCalculator {
                     || Objects.requireNonNullElse(row.getMealCount(), 0) <= 0) {
                 continue;
             }
-            Boolean verdict = proteinMet(row, in.proteinGoalGrams());
-            anyTarget = anyTarget || verdict != null;
+            Verdict verdict = proteinMet(row, in.proteinGoalGrams());
+            anyTarget = anyTarget || verdict != Verdict.NO_TARGET;
             // A day without any target to judge it by cannot be said to have met one.
-            met.put(row.getActivityDate(), Boolean.TRUE.equals(verdict));
+            met.put(row.getActivityDate(), verdict == Verdict.MET);
         }
         if (!anyTarget) {
             out.put(BadgeCatalogue.PROTEIN_WEEK, new Computed(BadgeCatalogue.PROTEIN_WEEK, null, null, null, null));

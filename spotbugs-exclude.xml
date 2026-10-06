@@ -412,6 +412,39 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Badges v2 and the Me footprint (me-achievements-spec.md): constructor-injected repositories,
+         the ledger and the clock, the same Spring-DI-on-singleton noise as the analytics services above,
+         and an intentional, token-protected read controller. -->
+    <Match>
+        <Class name="com.fitsync.analytics.controller.AchievementsController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.service.AchievementsService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.service.AchievementLedger"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.service.FootprintService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.messaging.RecipeCookProjectionService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.analytics.controller.AchievementsController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
     <!-- user-service: reconcile wiring added a UserService dependency to the internal
          controller; UserServiceImpl stores injected repos (pre-existing Spring-DI noise). -->
     <Match>
