@@ -69,6 +69,7 @@ fitsync:
       cron: "${ANALYTICS_ROLLUP_CRON:0 5 0 * * *}"
     weekly-recap:
       cron: "${ANALYTICS_WEEKLY_RECAP_CRON:0 15 0 * * MON}"
+      catch-up-on-startup: ${ANALYTICS_WEEKLY_RECAP_CATCH_UP:true}
     trends:
       max-range-days:
         day: ${ANALYTICS_TRENDS_MAX_RANGE_DAYS_DAY:370}

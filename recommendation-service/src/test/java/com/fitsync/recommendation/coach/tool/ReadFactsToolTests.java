@@ -36,6 +36,7 @@ import org.junit.jupiter.api.Test;
 class ReadFactsToolTests {
 
     private static final UUID USER = UUID.randomUUID();
+    private static final LocalDate LAST_FULL_WEEK = LocalDate.parse("2026-09-21");
     private static final CoachCallContext CALL = new CoachCallContext(USER, "caller", UUID.randomUUID());
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -52,7 +53,7 @@ class ReadFactsToolTests {
     void todayIsTheFirstOfOctoberInSingapore() {
         ZoneId singapore = ZoneId.of("Asia/Singapore");
         when(calendar.zone(USER)).thenReturn(singapore);
-        when(calendar.today(singapore)).thenReturn(LocalDate.parse("2026-10-01"));
+        when(calendar.today(any(ZoneId.class))).thenReturn(LocalDate.parse("2026-10-01"));
     }
 
     @Test
@@ -151,6 +152,58 @@ class ReadFactsToolTests {
         org.mockito.ArgumentCaptor<TodayIntake> intake = org.mockito.ArgumentCaptor.forClass(TodayIntake.class);
         org.mockito.Mockito.verify(coachFacts).assemble(any(), isNull(), intake.capture());
         assertThat(intake.getValue().known()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the last full week is named by its dates when the recap covers it")
+    void namesTheLastFullWeekByItsDates() throws Exception {
+        userWithFacts("Asia/Singapore");
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+
+        JsonNode training = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation())
+                .path("training");
+
+        assertThat(training.path("workoutCount").asInt()).isEqualTo(4);
+        assertThat(training.path("weekStart").asText()).isEqualTo("2026-09-21");
+        assertThat(training.path("weekEnd").asText()).isEqualTo("2026-09-27");
+        assertThat(training.path("dates").asText()).isEqualTo("21 September to 27 September");
+    }
+
+    @Test
+    @DisplayName("a recap older than the last full week is replaced by workout-service's previous week")
+    @SuppressWarnings("unchecked")
+    void aStaleRecapIsNotQuotedAsLastWeek() throws Exception {
+        userWithFacts("Asia/Singapore");
+        repository.findById(USER).orElseThrow().setRecentWeekStart(LocalDate.parse("2026-09-14"));
+        ((Map<String, Object>) facts.get("training")).put("targetDaysPerWeek", 4);
+        ((Map<String, Object>) facts.get("training")).put("activeDays", 3);
+        when(workoutClient.weeklyInsight(CALL.bearerToken(), "Asia/Singapore")).thenReturn(
+                "{\"weekStart\":\"2026-09-28\",\"completedSessions\":1,\"totalMinutes\":50,"
+                        + "\"previousWeekCompletedSessions\":2,\"previousWeekTotalMinutes\":85}");
+
+        String observation = tool.invoke(CALL, objectMapper.createObjectNode()).observation();
+        JsonNode training = objectMapper.readTree(observation).path("training");
+
+        assertThat(training.path("workoutCount").asInt()).isEqualTo(2);
+        assertThat(training.path("totalMinutes").asInt()).isEqualTo(85);
+        assertThat(training.path("source").asText()).isEqualTo("WORKOUT_LOG");
+        assertThat(training.path("dates").asText()).isEqualTo("21 September to 27 September");
+        assertThat(training.path("targetDaysPerWeek").asInt()).isEqualTo(4);
+        assertThat(training.has("activeDays")).isFalse();
+        assertThat(observation).doesNotContain("170");
+    }
+
+    @Test
+    @DisplayName("a stale recap is dropped when workout-service cannot give the last full week")
+    void aStaleRecapIsDroppedWithoutTheWorkoutLog() throws Exception {
+        userWithFacts("Asia/Singapore");
+        repository.findById(USER).orElseThrow().setRecentWeekStart(LocalDate.parse("2026-09-14"));
+        when(workoutClient.weeklyInsight(any(), any())).thenReturn(null);
+
+        JsonNode facts = objectMapper.readTree(tool.invoke(CALL, objectMapper.createObjectNode()).observation());
+
+        assertThat(facts.has("training")).isFalse();
+        assertThat(facts.has("nutritionToday")).isTrue();
     }
 
     @Test
@@ -349,6 +402,8 @@ class ReadFactsToolTests {
         RecommendationContextEntity entity = new RecommendationContextEntity();
         entity.setUserId(USER);
         entity.setTimezone(timezone);
+        // Thursday 1 October: the last full week is 21 to 27 September, the week the recap covered.
+        entity.setRecentWeekStart(LAST_FULL_WEEK);
         Map<String, Object> training = new LinkedHashMap<>();
         training.put("period", "LAST_FULL_WEEK");
         training.put("workoutCount", 4);

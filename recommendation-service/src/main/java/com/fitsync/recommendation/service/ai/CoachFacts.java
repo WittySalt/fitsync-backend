@@ -34,7 +34,7 @@ public class CoachFacts {
         this.objectMapper = objectMapper;
     }
 
-    static final String TRAINING_PERIOD = "LAST_FULL_WEEK";
+    public static final String TRAINING_PERIOD = "LAST_FULL_WEEK";
 
     /** @param previousNarrative last narrative for week-over-week continuity; nullable */
     public Map<String, Object> assemble(RecommendationContextEntity context, String previousNarrative) {

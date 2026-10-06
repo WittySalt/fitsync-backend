@@ -13,6 +13,8 @@ import com.fitsync.analytics.messaging.AnalyticsEventPublisher;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
+import com.fitsync.analytics.repository.AnalyticsWeeklyRecapMarkRepository;
+import com.fitsync.analytics.entity.AnalyticsWeeklyRecapMarkEntity;
 import com.fitsync.contracts.events.analytics.WeeklyRecapGeneratedPayload;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -24,6 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -74,7 +78,8 @@ class AnalyticsWeeklyRecapServiceTests {
                 .thenReturn(List.of(nutrition("2026-06-09", 1800), nutrition("2026-06-13", 2000)));
 
         AnalyticsWeeklyRecapService.RecapSummary summary = new AnalyticsWeeklyRecapService(
-                snapshotRepository, workoutRepository, nutritionRepository, publisher, clock).runWeeklyRecapOnce();
+                snapshotRepository, workoutRepository, nutritionRepository, publisher,
+                mock(AnalyticsWeeklyRecapMarkRepository.class), clock, true).runWeeklyRecapOnce();
 
         assertThat(summary.emitted()).isEqualTo(1);
         assertThat(summary.skipped()).isZero();
@@ -104,10 +109,58 @@ class AnalyticsWeeklyRecapServiceTests {
                 .thenReturn(List.of());
 
         AnalyticsWeeklyRecapService.RecapSummary summary = new AnalyticsWeeklyRecapService(
-                snapshotRepository, workoutRepository, nutritionRepository, publisher, clock).runWeeklyRecapOnce();
+                snapshotRepository, workoutRepository, nutritionRepository, publisher,
+                mock(AnalyticsWeeklyRecapMarkRepository.class), clock, true).runWeeklyRecapOnce();
 
         assertThat(summary.emitted()).isZero();
         assertThat(summary.skipped()).isEqualTo(1);
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void aMissedMondayIsCaughtUpOnStartupOnceAndMarked() {
+        // Tuesday 2026-10-06: the Monday 00:15 run was missed, the last full week is 28 Sept to 4 Oct.
+        Clock tuesday = Clock.fixed(Instant.parse("2026-10-06T09:00:00Z"), ZoneOffset.UTC);
+        LocalDate weekStart = LocalDate.parse("2026-09-28");
+        LocalDate weekEnd = LocalDate.parse("2026-10-04");
+        AnalyticsUserDashboardSnapshotRepository snapshotRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
+        AnalyticsUserDailyWorkoutRepository workoutRepository = mock(AnalyticsUserDailyWorkoutRepository.class);
+        AnalyticsUserDailyNutritionRepository nutritionRepository = mock(AnalyticsUserDailyNutritionRepository.class);
+        AnalyticsEventPublisher publisher = mock(AnalyticsEventPublisher.class);
+        AnalyticsWeeklyRecapMarkRepository marks = mock(AnalyticsWeeklyRecapMarkRepository.class);
+        when(snapshotRepository.findSnapshotUserIds(any(PageRequest.class))).thenReturn(oneUserSlice());
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(USER_ID, weekStart, weekEnd))
+                .thenReturn(List.of(workout("2026-09-28", 1, 45, 300), workout("2026-10-02", 1, 40, 280)));
+        when(nutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(any(), any(), any()))
+                .thenReturn(List.of());
+        when(marks.existsByUserIdAndWeekStart(USER_ID, weekStart)).thenReturn(false, true);
+        AnalyticsWeeklyRecapService service = new AnalyticsWeeklyRecapService(snapshotRepository,
+                workoutRepository, nutritionRepository, publisher, marks, tuesday, true);
+
+        service.catchUpOnStartup();
+        service.catchUpOnStartup();
+
+        ArgumentCaptor<WeeklyRecapGeneratedPayload> captor = ArgumentCaptor.forClass(WeeklyRecapGeneratedPayload.class);
+        verify(publisher, times(1)).publishWeeklyRecap(eq(USER_ID), captor.capture());
+        assertThat(captor.getValue().weekStart()).isEqualTo(weekStart);
+        assertThat(captor.getValue().workoutCount()).isEqualTo(2);
+        ArgumentCaptor<AnalyticsWeeklyRecapMarkEntity> mark = ArgumentCaptor.forClass(AnalyticsWeeklyRecapMarkEntity.class);
+        verify(marks, times(1)).save(mark.capture());
+        assertThat(mark.getValue().getUserId()).isEqualTo(USER_ID);
+        assertThat(mark.getValue().getWeekStart()).isEqualTo(weekStart);
+    }
+
+    @Test
+    void theStartupCatchUpCanBeSwitchedOff() {
+        AnalyticsUserDashboardSnapshotRepository snapshotRepository = mock(AnalyticsUserDashboardSnapshotRepository.class);
+        AnalyticsEventPublisher publisher = mock(AnalyticsEventPublisher.class);
+        AnalyticsWeeklyRecapService service = new AnalyticsWeeklyRecapService(snapshotRepository,
+                mock(AnalyticsUserDailyWorkoutRepository.class), mock(AnalyticsUserDailyNutritionRepository.class),
+                publisher, mock(AnalyticsWeeklyRecapMarkRepository.class), clock, false);
+
+        service.catchUpOnStartup();
+
+        verify(snapshotRepository, never()).findSnapshotUserIds(any());
         verifyNoInteractions(publisher);
     }
 }

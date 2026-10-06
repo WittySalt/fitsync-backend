@@ -1,10 +1,12 @@
 package com.fitsync.recommendation.coach.tool;
 
 import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.TemporalAdjusters;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -82,6 +84,11 @@ public class ReadFactsTool implements CoachTool {
     static final String CURRENT_WEEK_PERIOD = "CURRENT_WEEK_SO_FAR";
 
     private static final DateTimeFormatter SPOKEN_DAY = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH);
+
+    private static final DateTimeFormatter SPOKEN_DATE = DateTimeFormatter.ofPattern("d MMMM", Locale.ENGLISH);
+
+    /** Where the last full week's counts came from when the weekly recap had not covered it yet. */
+    static final String SOURCE_WORKOUT_LOG = "WORKOUT_LOG";
 
     @Override
     public String name() {
@@ -186,6 +193,63 @@ public class ReadFactsTool implements CoachTool {
         return Optional.of(group);
     }
 
+    /**
+     * Names the last full week by its dates, and keeps a recap that is older than it from being quoted as
+     * "last week".
+     *
+     * <p>The training group comes from the analytics weekly recap. A recap is emitted after the week ends,
+     * and a stack that was off when it ran left an older week in its place. When the recap covers the last
+     * full week the group only gains its dates. When it covers an older one the group is rebuilt from the
+     * previous-week counts of workout-service's weekly insight, which always means the last full week; the
+     * targets carry over, the recap's day counts do not. Without that insight the stale group is dropped,
+     * since a count from an older week said as last week's is worse than no count.
+     */
+    private static void lastFullWeek(Map<String, Object> facts, LocalDate recapWeekStart, LocalDate today,
+                                     Optional<JsonNode> weekly) {
+        LocalDate lastWeekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).minusWeeks(1);
+        Object existing = facts.get("training");
+        Map<String, Object> training = new LinkedHashMap<>();
+        if (existing instanceof Map<?, ?> map) {
+            map.forEach((key, value) -> training.put(String.valueOf(key), value));
+        }
+        if (lastWeekStart.equals(recapWeekStart)) {
+            if (!training.isEmpty()) {
+                facts.put("training", withDates(training, lastWeekStart));
+            }
+            return;
+        }
+        Optional<JsonNode> previous = weekly.filter(week -> week.path("previousWeekCompletedSessions").isInt()
+                && week.path("previousWeekTotalMinutes").isInt()
+                && (!week.path("weekStart").isTextual()
+                        || week.path("weekStart").asText().equals(lastWeekStart.plusWeeks(1).toString())));
+        if (previous.isEmpty()) {
+            facts.remove("training");
+            facts.remove("weekStart");
+            return;
+        }
+        Map<String, Object> rebuilt = new LinkedHashMap<>();
+        rebuilt.put("period", CoachFacts.TRAINING_PERIOD);
+        rebuilt.put("source", SOURCE_WORKOUT_LOG);
+        rebuilt.put("workoutCount", previous.get().path("previousWeekCompletedSessions").asInt());
+        rebuilt.put("totalMinutes", previous.get().path("previousWeekTotalMinutes").asInt());
+        for (String carried : new String[] {"targetDaysPerWeek", "targetBasis"}) {
+            if (training.containsKey(carried)) {
+                rebuilt.put(carried, training.get(carried));
+            }
+        }
+        facts.put("training", withDates(rebuilt, lastWeekStart));
+        facts.put("weekStart", lastWeekStart.toString());
+    }
+
+    /** The group with its Monday, its Sunday and the two said aloud, "28 September to 4 October". */
+    private static Map<String, Object> withDates(Map<String, Object> group, LocalDate weekStart) {
+        LocalDate weekEnd = weekStart.plusDays(6);
+        group.put("weekStart", weekStart.toString());
+        group.put("weekEnd", weekEnd.toString());
+        group.put("dates", weekStart.format(SPOKEN_DATE) + " to " + weekEnd.format(SPOKEN_DATE));
+        return group;
+    }
+
     /** What kind of day today is, where that comes from, and the next training day when there is one. */
     private static Optional<Map<String, Object>> today(JsonNode week) {
         JsonNode today = week.path("today");
@@ -248,7 +312,7 @@ public class ReadFactsTool implements CoachTool {
                   sodium and potassium against their references, water, protein at each meal and the
                   lowest vitamins and minerals, and micronutrientsWeek the lowest three over the last
                   seven days and any average above its upper limit. The training group describes
-                  the last full week, Monday to Sunday. The trainingThisWeek group describes the
+                  the last full week, Monday to Sunday, and names it by its dates. The trainingThisWeek group describes the
                   current week so far. Say which of the two weeks a count belongs to. The today group
                   says what kind of day today is (strength, cardio, mobility, a sport by name, rest, or
                   open) and where that comes from (done, in progress, the plan, or a habit of the last
@@ -284,10 +348,12 @@ public class ReadFactsTool implements CoachTool {
         }
 
         livePace(context, zone).ifPresent(pace -> facts.put("goalPace", pace));
-        weeklyInsight(context, zoneName(zone)).ifPresent(week -> {
+        Optional<JsonNode> weekly = weeklyInsight(context, zoneName(zone));
+        weekly.ifPresent(week -> {
             currentWeek(week).ifPresent(group -> facts.put(CURRENT_WEEK_GROUP, group));
             today(week).ifPresent(group -> facts.put(TODAY_GROUP, group));
         });
+        lastFullWeek(facts, entity.get().getRecentWeekStart(), calendar.today(zone), weekly);
 
         addDiaryFigures(context, zone, summary, facts);
 
