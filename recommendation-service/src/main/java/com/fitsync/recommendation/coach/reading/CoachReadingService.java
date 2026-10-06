@@ -492,8 +492,8 @@ public class CoachReadingService {
     }
 
     private void logOutcome(UUID userId, ReadingSurface surface, String outcome) {
-        // Every value is sanitised inline against CRLF injection (CWE-117), the same way
-        // WeeklyNarrativeService does it: findsecbugs only accepts replace() directly in the
+        // Every value is sanitised inline against CRLF injection (CWE-117), as elsewhere
+        // in this service: findsecbugs only accepts replace() directly in the
         // dataflow to the log sink, not through a helper method. userId is a real identifier and
         // surface and outcome are always this class's own values, but the detector flags any
         // non-constant argument regardless, so all three are cleaned the same way.

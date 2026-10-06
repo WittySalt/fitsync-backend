@@ -4,31 +4,25 @@ import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.analytics.WeeklyRecapGeneratedPayload;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
-import com.fitsync.recommendation.service.ai.WeeklyNarrativeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Reuses the analytics weekly recap as the recent-training summary (R2 weekly adherence,
- * the A1 narrative inputs) — consume, don't recompute. Only a recap for a week at
- * or after the tracked one replaces the summary (out-of-order recaps are ignored).
- * The recap is also the A1 weekly cadence: it enqueues (never runs) narrative
- * generation — this is the sanctioned exception to "no AI from events" because it
- * fires once per user per week, asynchronously, behind the change-detection gate.
+ * Reuses the analytics weekly recap as the recent-training summary (R2 weekly adherence
+ * and the coach's last full week) — consume, don't recompute. Only a recap for a week at
+ * or after the tracked one replaces the summary (out-of-order recaps are ignored). It no
+ * longer triggers the retired A1 narrative, so no event leads to a model call.
  */
 @Service
 public class WeeklyRecapGeneratedEventHandler implements DomainEventConsumer<WeeklyRecapGeneratedPayload> {
 
     private final RecommendationContextStore contextStore;
     private final ProcessedEventGuard processedEventGuard;
-    private final WeeklyNarrativeService weeklyNarrativeService;
 
     public WeeklyRecapGeneratedEventHandler(RecommendationContextStore contextStore,
-                                            ProcessedEventGuard processedEventGuard,
-                                            WeeklyNarrativeService weeklyNarrativeService) {
+                                            ProcessedEventGuard processedEventGuard) {
         this.contextStore = contextStore;
         this.processedEventGuard = processedEventGuard;
-        this.weeklyNarrativeService = weeklyNarrativeService;
     }
 
     @Override
@@ -55,6 +49,5 @@ public class WeeklyRecapGeneratedEventHandler implements DomainEventConsumer<Wee
         }
         contextStore.saveStale(context);
         processedEventGuard.record(event);
-        weeklyNarrativeService.generateAsync(event.userId());
     }
 }

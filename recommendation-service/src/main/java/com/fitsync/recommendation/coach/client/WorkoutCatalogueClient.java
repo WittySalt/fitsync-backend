@@ -172,7 +172,7 @@ public class WorkoutCatalogueClient extends CatalogueClient {
             return objectMapper.readValue(body, TrainingInsight.class);
         } catch (JsonProcessingException ex) {
             // Sanitised inline against CRLF injection (CWE-117): findsecbugs only accepts replace()
-            // directly in the dataflow to the log sink, the same way WeeklyNarrativeService does it.
+            // directly in the dataflow to the log sink, as elsewhere in this service.
             // The parser's own message can quote the body, so it is left out of the log.
             LOG.warn("event=training_insight_unreadable");
             return null;

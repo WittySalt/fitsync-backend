@@ -23,7 +23,6 @@ import com.fitsync.recommendation.entity.RecommendationResultEntity;
 import com.fitsync.recommendation.entity.RecommendationSource;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import com.fitsync.recommendation.repository.RecommendationResultRepository;
-import com.fitsync.recommendation.service.ai.WeeklyNarrativeService;
 import com.fitsync.recommendation.service.rules.NarrativeTemplates;
 import com.fitsync.recommendation.service.rules.RuleEngine;
 import com.fitsync.recommendation.service.rules.RuleOutcome;
@@ -32,13 +31,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * RC-4 — the read-path decision funnel (README §5.1):
- * <pre>cache (fresh) → rule → template → (last resort) AI</pre>
+ * <pre>cache (fresh) → rule → template</pre>
  *
  * Reads serve straight from {@code recommendation_result}; only when the context is
  * stale or results expired does the funnel drop to the rule stage — synchronous and
- * cheap (pure functions + one upsert). The AI stage never runs inline: a refresh only
- * <em>enqueues</em> the weekly-narrative generation, which is hash-gated and writes
- * into the same cache, so the read path never waits on a model.
+ * cheap (pure functions + one upsert). The A1 weekly narrative is no longer generated:
+ * the Progress weekly review is the narrative, and the coach dock no longer shows these
+ * results. The read API stays for the admin console and the tests, and a narrative
+ * stored by an older build is pruned on the next refresh.
  */
 @Service
 public class RecommendationResolver {
@@ -48,7 +48,6 @@ public class RecommendationResolver {
     private final RuleEngine ruleEngine;
     private final TodayIntakeSource todayIntakeSource;
     private final NarrativeTemplates narrativeTemplates;
-    private final WeeklyNarrativeService weeklyNarrativeService;
     private final ObjectMapper objectMapper;
     private final RecommendationProperties properties;
     private final Clock clock;
@@ -58,7 +57,6 @@ public class RecommendationResolver {
                                   RuleEngine ruleEngine,
                                   TodayIntakeSource todayIntakeSource,
                                   NarrativeTemplates narrativeTemplates,
-                                  WeeklyNarrativeService weeklyNarrativeService,
                                   ObjectMapper objectMapper,
                                   RecommendationProperties properties,
                                   Clock clock) {
@@ -67,7 +65,6 @@ public class RecommendationResolver {
         this.ruleEngine = ruleEngine;
         this.todayIntakeSource = todayIntakeSource;
         this.narrativeTemplates = narrativeTemplates;
-        this.weeklyNarrativeService = weeklyNarrativeService;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
@@ -146,15 +143,12 @@ public class RecommendationResolver {
             resultRepository.save(result);
         }
         pruneUnfiredRuleResults(context.getUserId(), outcomes);
-        pruneExpiredAiResults(context.getUserId(), now);
+        pruneRetiredAiResults(context.getUserId());
 
         context.setStale(false);
         context.setContextHash(contextHash);
         context.setLastAssembledAt(now);
         contextRepository.save(context);
-
-        // AI stage: enqueue only — hash-gated inside the service, never inline here.
-        weeklyNarrativeService.generateAsync(context.getUserId());
     }
 
     /** Today's intake from the diary, read once for this refresh. */
@@ -175,14 +169,10 @@ public class RecommendationResolver {
                 .forEach(resultRepository::delete);
     }
 
-    /**
-     * An expired AI narrative must not pin the cache stale forever (regeneration is
-     * async and may be disabled); drop it and let the AI stage rewrite it when it can.
-     */
-    private void pruneExpiredAiResults(UUID userId, Instant now) {
+    /** The A1 narrative is retired; one an older build stored is not served again. */
+    private void pruneRetiredAiResults(UUID userId) {
         resultRepository.findByUserId(userId).stream()
                 .filter(result -> result.getSource() == RecommendationSource.AI)
-                .filter(result -> result.getExpiresAt() != null && now.isAfter(result.getExpiresAt()))
                 .forEach(resultRepository::delete);
     }
 
