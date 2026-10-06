@@ -103,6 +103,8 @@ public class CoachOrchestrator {
 
             Every number you state must come from a tool result. You never calculate, estimate or
             invent a figure. If a tool has not given you a number, you do not have it.
+            Round a figure as you quote it: grams and kcal to a whole number, kilograms to one
+            decimal, for example 29 g rather than 29.15 grams.
 
             You may call tools to gather what you need. Reply with ONE JSON object and nothing else:
               {"tool":"<name>","args":{...}}   to call a tool

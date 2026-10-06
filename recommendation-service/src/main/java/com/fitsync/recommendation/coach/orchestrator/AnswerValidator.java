@@ -1,6 +1,7 @@
 package com.fitsync.recommendation.coach.orchestrator;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -71,8 +72,21 @@ public class AnswerValidator {
                     + "(?:-(?:one|two|three|four|five|six|seven|eight|nine))?"
                     + "|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen"
                     + "|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
-                    + "\\s+(?:completed\\s+|total\\s+)?"
-                    + "(sessions?|workouts?|days?|weeks?|times?|meals?|kg|km|min(?:ute)?s?|reps?|sets?)\\b");
+                    + "\\s+(?:completed\\s+|total\\s+|planned\\s+|training\\s+|active\\s+)?"
+                    + "(sessions?|workouts?|days?|weeks?|times?|meals?|kg|km|min(?:ute)?s?|reps?|sets?"
+                    + "|grams?|kcal|calories)\\b");
+
+    /**
+     * A count from one to twelve written in words in front of "of" and another number, as in "three of
+     * four planned days": the first word is a count even with no noun after it, and is checked like
+     * digits (COACH-P2-3). "One of them" has no number after "of" and is left alone.
+     */
+    private static final Pattern WORD_OF_COUNT = Pattern.compile(
+            "(?i)\\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\s+of\\s+"
+                    + "(?=(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\b)");
+
+    /** Answers round: grams and kcal to a whole number, kilograms to one decimal. */
+    private static final int MAX_ROUNDED_SCALE = 1;
 
     /** A sentence ends at a full stop that is followed by a space, so 22.5 stays whole. */
     private static final Pattern SENTENCE_END = Pattern.compile("(?<=[.])\\s+");
@@ -164,6 +178,29 @@ public class AnswerValidator {
         while (words.find()) {
             into.add(BigDecimal.valueOf(wordValue(words.group(1))));
         }
+        Matcher wordsOf = WORD_OF_COUNT.matcher(text);
+        while (wordsOf.find()) {
+            into.add(BigDecimal.valueOf(wordValue(wordsOf.group(1))));
+        }
+    }
+
+    /**
+     * A stated number is given when a record holds it, or holds a figure it is the rounding of: 29 for
+     * 29.15 g, 71.2 for 71.24 kg. Only whole numbers and one decimal count as rounded, so a figure the
+     * model worked out to two places is still its own.
+     */
+    private static boolean isGiven(BigDecimal stated, Set<BigDecimal> givenNumbers) {
+        int scale = Math.max(0, stated.scale());
+        for (BigDecimal candidate : givenNumbers) {
+            if (candidate.compareTo(stated) == 0) {
+                return true;
+            }
+            if (scale <= MAX_ROUNDED_SCALE && candidate.scale() > scale
+                    && candidate.setScale(scale, RoundingMode.HALF_UP).compareTo(stated) == 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<String> numbersNotIn(String text, Set<BigDecimal> givenNumbers) {
@@ -172,8 +209,7 @@ public class AnswerValidator {
         while (matcher.find()) {
             String token = matcher.group();
             BigDecimal parsed = parseNumber(token).stripTrailingZeros();
-            boolean given = givenNumbers.stream().anyMatch(candidate -> candidate.compareTo(parsed) == 0);
-            if (!given) {
+            if (!isGiven(parsed, givenNumbers)) {
                 offending.add(token);
             }
         }
@@ -185,6 +221,13 @@ public class AnswerValidator {
             boolean given = givenNumbers.stream().anyMatch(candidate -> candidate.compareTo(parsed) == 0);
             if (!given) {
                 offending.add(words.group(1));
+            }
+        }
+        Matcher wordsOf = WORD_OF_COUNT.matcher(text);
+        while (wordsOf.find()) {
+            BigDecimal parsed = BigDecimal.valueOf(wordValue(wordsOf.group(1)));
+            if (givenNumbers.stream().noneMatch(candidate -> candidate.compareTo(parsed) == 0)) {
+                offending.add(wordsOf.group(1));
             }
         }
         return offending;
