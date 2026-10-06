@@ -25,3 +25,6 @@ AGENTS.md
 .agents/
 .claude/
 .codex/
+
+# Real demo account addresses for scripts/demo-reseed.ps1
+scripts/demo-accounts.env
