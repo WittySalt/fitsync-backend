@@ -71,21 +71,30 @@ class NarrativeTemplatesTests {
         Map<String, Object> base = new LinkedHashMap<>();
         base.put("targetWeightKg", new BigDecimal("80"));
         base.put("targetDate", LocalDate.parse("2026-10-01"));
-        base.put("requiredRatePerWeekKg", new BigDecimal("-0.61"));
-        base.put("actualRatePerWeekKg", new BigDecimal("-0.70"));
+        base.put("distanceKg", new BigDecimal("7.2"));
+        base.put("projectedDate", LocalDate.parse("2026-09-16"));
 
         base.put("status", "AHEAD");
+        base.put("daysEarly", 15L);
         assertThat(render(RecommendationTypes.GOAL_PACE, base))
-                .isEqualTo("You're ahead of pace: 0.70 kg/week vs the 0.61 kg/week needed for 80 kg by 2026-10-01.");
+                .isEqualTo("7.2 kg to 80 kg. On course for 16 Sept, 15 days early.");
 
         base.put("status", "ON_TRACK");
         assertThat(render(RecommendationTypes.GOAL_PACE, base))
-                .isEqualTo("Right on track for 80 kg by 2026-10-01 — keep the current routine going.");
+                .isEqualTo("7.2 kg to 80 kg. On course for 16 Sept.");
 
         base.put("status", "BEHIND");
+        base.put("projectedDate", LocalDate.parse("2026-10-26"));
+        base.put("daysLate", 25L);
         assertThat(render(RecommendationTypes.GOAL_PACE, base))
-                .isEqualTo("Progress is behind pace (0.70 vs 0.61 kg/week needed)."
-                        + " Small adjustments now beat big ones later.");
+                .isEqualTo("7.2 kg to 80 kg. At this pace 26 Oct, 25 days late.");
+
+        base.remove("projectedDate");
+        assertThat(render(RecommendationTypes.GOAL_PACE, base))
+                .isEqualTo("7.2 kg to 80 kg. Your date is 1 Oct.");
+
+        base.put("status", "REACHED");
+        assertThat(render(RecommendationTypes.GOAL_PACE, base)).isEqualTo("80 kg reached.");
     }
 
     @Test

@@ -37,7 +37,13 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
     @Column(name = "current_goal_target_date")
     private LocalDate currentGoalTargetDate;
 
-    // Weight (and date) when the current weight goal was set — the R3 pace baseline.
+    // The goal the slot holds, so an update of the same goal keeps its pace baseline.
+    @Column(name = "current_goal_id")
+    private UUID currentGoalId;
+
+    // The R3 pace baseline: the first weigh-in on or after the day the weight goal was set, and its
+    // date. While no weigh-in has come since the goal was set, the weight is null and the date is the
+    // goal's start.
     @Column(name = "goal_baseline_weight_kg", precision = 6, scale = 2)
     private BigDecimal goalBaselineWeightKg;
 
@@ -192,6 +198,14 @@ public class RecommendationContextEntity extends BaseAuditableEntity {
 
     public void setCurrentGoalTargetDate(LocalDate currentGoalTargetDate) {
         this.currentGoalTargetDate = currentGoalTargetDate;
+    }
+
+    public UUID getCurrentGoalId() {
+        return currentGoalId;
+    }
+
+    public void setCurrentGoalId(UUID currentGoalId) {
+        this.currentGoalId = currentGoalId;
     }
 
     public BigDecimal getGoalBaselineWeightKg() {

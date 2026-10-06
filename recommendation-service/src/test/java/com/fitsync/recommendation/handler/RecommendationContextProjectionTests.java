@@ -239,10 +239,10 @@ class RecommendationContextProjectionTests {
     }
 
     @Test
-    void weightGoalCapturesThePaceBaselineFromTheKnownWeight() {
+    void weightGoalTakesTheWeighInOfItsStartDayAsTheBaseline() {
         bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
                 UUID.randomUUID(), new BigDecimal("90.00"), null, null,
-                Instant.parse("2026-07-01T08:00:00Z"))));
+                Instant.parse("2026-07-06T07:00:00Z"))));
         goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
                 UUID.randomUUID(), "WEIGHT", new BigDecimal("80.000"), "kg",
                 LocalDate.parse("2026-10-01"), "ACTIVE")));
@@ -250,6 +250,63 @@ class RecommendationContextProjectionTests {
         RecommendationContextEntity context = context();
         assertThat(context.getGoalBaselineWeightKg()).isEqualByComparingTo("90.00");
         assertThat(context.getGoalBaselineOn()).isEqualTo(LocalDate.parse("2026-07-06"));
+    }
+
+    @Test
+    void aWeighInFromBeforeTheGoalIsNotItsBaselineButTheFirstOneAfterIs() {
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("91.00"), null, null,
+                Instant.parse("2026-07-01T08:00:00Z"))));
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("80.000"), "kg",
+                LocalDate.parse("2026-10-01"), "ACTIVE")));
+
+        RecommendationContextEntity pending = context();
+        assertThat(pending.getGoalBaselineWeightKg()).isNull();
+        assertThat(pending.getGoalBaselineOn()).isEqualTo(LocalDate.parse("2026-07-06"));
+
+        // A back-filled weigh-in from before the start does not count.
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("92.00"), null, null,
+                Instant.parse("2026-07-03T08:00:00Z"))));
+        assertThat(context().getGoalBaselineWeightKg()).isNull();
+
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("89.80"), null, null,
+                Instant.parse("2026-07-07T08:00:00Z"))));
+        RecommendationContextEntity context = context();
+        assertThat(context.getGoalBaselineWeightKg()).isEqualByComparingTo("89.80");
+        assertThat(context.getGoalBaselineOn()).isEqualTo(LocalDate.parse("2026-07-07"));
+    }
+
+    @Test
+    void anUpdateOfTheSameGoalKeepsTheStartWeightWhileLaterWeighInsMoveOnlyTheLatest() {
+        UUID goalId = UUID.randomUUID();
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("74.20"), null, null,
+                Instant.parse("2026-07-06T07:00:00Z"))));
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                goalId, "WEIGHT", new BigDecimal("68.000"), "kg", LocalDate.parse("2026-12-11"), "ACTIVE")));
+        bodyMetricsRecordedEventHandler.consume(event("BodyMetricsRecorded", new BodyMetricsRecordedPayload(
+                UUID.randomUUID(), new BigDecimal("71.20"), null, null,
+                Instant.parse("2026-08-20T07:00:00Z"))));
+
+        // The same goal edited, or its event sent again, after the weight has moved.
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                goalId, "WEIGHT", new BigDecimal("68.000"), "kg", LocalDate.parse("2026-12-11"), "ACTIVE")));
+
+        RecommendationContextEntity context = context();
+        assertThat(context.getCurrentGoalId()).isEqualTo(goalId);
+        assertThat(context.getGoalBaselineWeightKg()).isEqualByComparingTo("74.20");
+        assertThat(context.getGoalBaselineOn()).isEqualTo(LocalDate.parse("2026-07-06"));
+        assertThat(context.getLatestWeightKg()).isEqualByComparingTo("71.20");
+
+        // A new goal starts a new baseline from the weigh-in on or after its start.
+        goalUpdatedEventHandler.consume(event("GoalUpdated", new GoalUpdatedPayload(
+                UUID.randomUUID(), "WEIGHT", new BigDecimal("66.000"), "kg", LocalDate.parse("2027-03-01"),
+                "ACTIVE")));
+        assertThat(context().getGoalBaselineWeightKg()).isEqualByComparingTo("71.20");
+        assertThat(context().getGoalBaselineOn()).isEqualTo(LocalDate.parse("2026-08-20"));
     }
 
     @Test

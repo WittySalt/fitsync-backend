@@ -1,12 +1,13 @@
 package com.fitsync.recommendation.handler;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.LocalDate;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.recommendation.domain.GoalTypes;
+import com.fitsync.recommendation.domain.UserTimeZones;
 import com.fitsync.recommendation.entity.RecommendationContextEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,8 +57,9 @@ public class BodyMetricsRecordedEventHandler implements DomainEventConsumer<Body
     }
 
     /**
-     * A weight goal set before any weight was recorded has no R3 pace baseline yet;
-     * the first weight that arrives afterwards becomes it.
+     * A weight goal with no weigh-in since it started has no R3 pace baseline yet; the first
+     * weight measured on or after the goal's start becomes it. A baseline once set is never
+     * overwritten, and a weight measured before the start (a back-filled entry) never becomes it.
      */
     private static void fillGoalBaselineIfMissing(RecommendationContextEntity context,
                                                   BodyMetricsRecordedPayload payload,
@@ -67,10 +69,15 @@ public class BodyMetricsRecordedEventHandler implements DomainEventConsumer<Body
                 || payload.weightKg() == null) {
             return;
         }
-        context.setGoalBaselineWeightKg(payload.weightKg());
-        context.setGoalBaselineOn(measuredAt == null
+        LocalDate measuredOn = measuredAt == null
                 ? null
-                : measuredAt.atZone(ZoneOffset.UTC).toLocalDate());
+                : measuredAt.atZone(UserTimeZones.resolve(context.getTimezone())).toLocalDate();
+        LocalDate startedOn = context.getGoalBaselineOn();
+        if (startedOn != null && (measuredOn == null || measuredOn.isBefore(startedOn))) {
+            return;
+        }
+        context.setGoalBaselineWeightKg(payload.weightKg());
+        context.setGoalBaselineOn(measuredOn);
     }
 
     private static boolean isNewerThanCurrent(RecommendationContextEntity context, Instant measuredAt) {
