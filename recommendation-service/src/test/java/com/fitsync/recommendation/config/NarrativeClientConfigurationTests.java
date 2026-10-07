@@ -3,6 +3,7 @@ package com.fitsync.recommendation.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fitsync.recommendation.service.ai.AnthropicClaudeClient;
+import com.fitsync.recommendation.service.ai.BedrockClaudeClient;
 import com.fitsync.recommendation.service.ai.ClaudeClient;
 import com.fitsync.recommendation.service.ai.OllamaClaudeClient;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,20 @@ class NarrativeClientConfigurationTests {
                 .run(context -> {
                     assertThat(context).hasSingleBean(ClaudeClient.class);
                     assertThat(context).getBean(ClaudeClient.class).isInstanceOf(OllamaClaudeClient.class);
+                });
+    }
+
+    @Test
+    void bedrockProviderBuildsTheBedrockAdapterWithoutAnyApiKey() {
+        // The region normally comes from the EC2 metadata or AWS_REGION; pin it so the test
+        // does not depend on the machine. Credentials are resolved lazily on the first call.
+        runner.withSystemProperties("aws.region=ap-southeast-1")
+                .withPropertyValues(
+                        "fitsync.recommendation.ai.enabled=true",
+                        "fitsync.recommendation.ai.provider=bedrock")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(ClaudeClient.class);
+                    assertThat(context).getBean(ClaudeClient.class).isInstanceOf(BedrockClaudeClient.class);
                 });
     }
 

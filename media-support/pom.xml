@@ -15,10 +15,6 @@
     <name>media-support</name>
     <description>FitSync shared media storage integration</description>
 
-    <properties>
-        <aws.sdk.version>2.25.70</aws.sdk.version>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>

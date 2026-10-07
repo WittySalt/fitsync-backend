@@ -113,3 +113,13 @@ variable "services" {
     "analytics-service",
   ]
 }
+
+variable "bedrock_models" {
+  description = "Bedrock foundation model ID patterns the app host may invoke (coach AI tier)"
+  type        = list(string)
+  default = [
+    "anthropic.claude-haiku-4-5-*",
+    "amazon.nova-micro-v1:0",
+    "amazon.nova-lite-v1:0",
+  ]
+}

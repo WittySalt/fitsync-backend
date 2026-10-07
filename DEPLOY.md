@@ -343,6 +343,36 @@ curl -sI https://fitsync-media.s3.ap-southeast-1.amazonaws.com/exercises/Barbell
 ```
 Avatars need no seeding — they upload on demand once `user-service` has the media env.
 
+## 8.6 Coach AI on Amazon Bedrock (optional)
+
+The coach's AI tier can call Amazon Bedrock with the EC2 instance role, so no model API key
+is stored anywhere. Without it the coach still works and uses its rule text.
+
+1. **Model access (one time, console).** Bedrock → Model catalog → open the Anthropic model and
+   submit the use case form. Amazon Nova models need no form. In `ap-southeast-1`, Claude Haiku 4.5
+   is reached through the `global.` inference profile and Nova through `apac.`.
+2. **Permissions.** Terraform gives the instance role `bedrock:InvokeModel` on the models in
+   `var.bedrock_models` (`ci_iam.tf`) and sets the IMDS hop limit to 2 (`compute.tf`) so the
+   containers can reach the role. For a host built by hand, do both yourself:
+   ```bash
+   aws ec2 modify-instance-metadata-options --instance-id <id>      --http-tokens required --http-put-response-hop-limit 2
+   ```
+3. **Variables** (GitHub Actions, see §7): `RECOMMENDATION_AI_ENABLED=true`,
+   `RECOMMENDATION_AI_PROVIDER=bedrock`, and `RECOMMENDATION_AI_MODEL` set to one of:
+
+   | Model ID | Price per 1M tokens (in / out) |
+   |---|---|
+   | `global.anthropic.claude-haiku-4-5-20251001-v1:0` | $1 / $5 |
+   | `apac.amazon.nova-lite-v1:0` | $0.06 / $0.24 |
+   | `apac.amazon.nova-micro-v1:0` | $0.035 / $0.14 |
+
+Check from the host after a deploy:
+```bash
+sudo docker logs fitsync-recommendation-service 2>&1 | grep -i bedrock
+```
+An `AccessDeniedException` means the role or model list is wrong; `ResourceNotFoundException`
+asking for use case details means step 1 is not done (it can take 15 minutes to apply).
+
 ## 9. TLS / nginx (optional follow-up)
 
 `deploy-prod` brings up the 6 services + redis but **not nginx** (a fresh host has

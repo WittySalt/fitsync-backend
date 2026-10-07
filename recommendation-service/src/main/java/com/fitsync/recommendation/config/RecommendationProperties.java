@@ -29,12 +29,15 @@ public record RecommendationProperties(
      *                     built when true
      * @param provider     which backend phrases the narrative: {@code anthropic} (the
      *                     Claude API via the SDK — needs {@code ANTHROPIC_API_KEY} in
-     *                     the env) or {@code ollama} (a local/self-hosted open model —
-     *                     no key at all)
+     *                     the env), {@code ollama} (a local/self-hosted open model —
+     *                     no key at all) or {@code bedrock} (Amazon Bedrock, credentials
+     *                     from the AWS default chain, e.g. the EC2 instance role)
      * @param model        model ID — configuration, never hard-coded (README §4.1
      *                     tiering: the weekly narrative defaults to the Sonnet tier;
-     *                     for ollama use whatever is pulled locally, e.g. llama3.2:3b)
-     * @param baseUrl      the ollama server URL; ignored by the anthropic provider
+     *                     for ollama use whatever is pulled locally, e.g. llama3.2:3b;
+     *                     for bedrock a model or inference-profile ID, e.g.
+     *                     global.anthropic.claude-haiku-4-5-20251001-v1:0)
+     * @param baseUrl      the ollama server URL; ignored by the other providers
      * @param maxTokens    completion budget for one narrative
      * @param narrativeTtl how long a generated narrative stays fresh (README §5.2:
      *                     cached one week)
@@ -52,6 +55,7 @@ public record RecommendationProperties(
 
         public static final String PROVIDER_ANTHROPIC = "anthropic";
         public static final String PROVIDER_OLLAMA = "ollama";
+        public static final String PROVIDER_BEDROCK = "bedrock";
 
         private static final String DEFAULT_MODEL = "claude-sonnet-4-6";
         private static final String DEFAULT_BASE_URL = "http://localhost:11434";

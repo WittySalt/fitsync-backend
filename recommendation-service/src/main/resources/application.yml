@@ -62,6 +62,9 @@ fitsync:
       # from the environment (AnthropicOkHttpClient.fromEnv()). Enabling the tier
       # without the env var fails fast at startup. The ollama provider needs no
       # key at all: point base-url at a local Ollama and set model to a pulled tag.
+      # The bedrock provider needs no key either: the AWS SDK takes credentials and region
+      # from its default chains (the EC2 instance role in the cloud), and model is a Bedrock
+      # model or inference-profile ID, e.g. global.anthropic.claude-haiku-4-5-20251001-v1:0.
       enabled: ${RECOMMENDATION_AI_ENABLED:false}
       provider: ${RECOMMENDATION_AI_PROVIDER:anthropic}
       model: ${RECOMMENDATION_AI_MODEL:claude-sonnet-4-6}
