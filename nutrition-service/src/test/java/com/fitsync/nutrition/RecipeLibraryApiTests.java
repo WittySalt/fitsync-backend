@@ -1180,6 +1180,174 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
                 .andExpect(jsonPath("$.content[2].lastCookedAt").value("2026-06-09T12:00:00Z"));
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Leftovers of a cook
+
+    private String leftoverCook(String token, UUID recipeId, String servings, String logged, Instant finishedAt)
+            throws Exception {
+        String body = "{\"clientCookId\": \"" + UUID.randomUUID() + "\", \"servings\": " + servings
+                + (logged == null ? "" : ", \"servingsLogged\": " + logged)
+                + ", \"finishedAt\": \"" + finishedAt + "\"}";
+        return JsonPath.read(cook(token, recipeId, body).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "$.cookId");
+    }
+
+    private org.springframework.test.web.servlet.ResultActions leftoverMeal(String token, String cookId, String body)
+            throws Exception {
+        return mockMvc.perform(post(RECIPES + "/cooks/" + cookId + "/leftover")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + token)
+                .content(body));
+    }
+
+    @Test
+    void servingsLeftAreTheWholeServingsCookedMinusLogged() throws Exception {
+        String token = tokenFor("left-a@example.com");
+        java.util.function.BiFunction<String, String, String> cookBody = (servings, logged) ->
+                "{\"clientCookId\": \"" + UUID.randomUUID() + "\", \"servings\": " + servings
+                        + (logged == null ? "" : ", \"servingsLogged\": " + logged) + "}";
+
+        cook(token, chickenBowl, cookBody.apply("4", "1")).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.servingsLeft").value(3));
+        // Nothing logged: every serving is left.
+        cook(token, chickenBowl, cookBody.apply("4", "0")).andExpect(jsonPath("$.servingsLeft").value(4));
+        cook(token, chickenBowl, cookBody.apply("4", "4")).andExpect(jsonPath("$.servingsLeft").value(0));
+        // Whole servings only, rounded down, and never below zero.
+        cook(token, chickenBowl, cookBody.apply("4", "1.5")).andExpect(jsonPath("$.servingsLeft").value(2));
+        cook(token, chickenBowl, cookBody.apply("2.5", "0")).andExpect(jsonPath("$.servingsLeft").value(2));
+        cook(token, chickenBowl, cookBody.apply("2", "3")).andExpect(jsonPath("$.servingsLeft").value(0));
+        // A client that does not say what it logged leaves no leftovers.
+        cook(token, chickenBowl, cookBody.apply("4", null)).andExpect(jsonPath("$.servingsLeft").value(0));
+        cook(token, chickenBowl, cookBody.apply("4", "-1")).andExpect(status().isBadRequest());
+        cook(token, chickenBowl, cookBody.apply("4", "50.5")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void leftoversListTheCallersCooksOfTheLastSevenDaysWithServingsLeft() throws Exception {
+        String token = tokenFor("left-b@example.com");
+        String other = tokenFor("left-c@example.com");
+        Instant now = Instant.now();
+        String newest = leftoverCook(token, chickenBowl, "4", "1", now.minusSeconds(60));
+        leftoverCook(token, lentilSalad, "4", "4", now.minusSeconds(120));
+        leftoverCook(token, milkPorridge, "2", "0", now.minus(java.time.Duration.ofDays(8)));
+        String older = leftoverCook(token, milkPorridge, "3", "1", now.minus(java.time.Duration.ofDays(6)));
+        String deleted = leftoverCook(token, lentilSalad, "2", "0", now.minusSeconds(30));
+        mockMvc.perform(delete(RECIPES + "/cooks/" + deleted).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        leftoverCook(other, chickenBowl, "2", "0", now.minusSeconds(10));
+
+        mockMvc.perform(get(RECIPES + "/cooks/leftovers").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].cookId").value(newest))
+                .andExpect(jsonPath("$[0].recipeId").value(chickenBowl.toString()))
+                .andExpect(jsonPath("$[0].name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$[0].servingsLeft").value(3))
+                .andExpect(jsonPath("$[0].kcalPerServing").value(377))
+                .andExpect(jsonPath("$[0].cookedAt").isNotEmpty())
+                .andExpect(jsonPath("$[1].cookId").value(older))
+                .andExpect(jsonPath("$[1].servingsLeft").value(2));
+        mockMvc.perform(get(RECIPES + "/cooks/leftovers").header("Authorization", "Bearer " + tokenFor("left-d@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get(RECIPES + "/cooks/leftovers")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aRecipeThatIsNoLongerVisibleDropsOutOfTheLeftovers() throws Exception {
+        String token = tokenFor("left-e@example.com");
+        leftoverCook(token, chickenBowl, "2", "0", Instant.now().minusSeconds(60));
+        leftoverCook(token, lentilSalad, "2", "0", Instant.now().minusSeconds(30));
+        jdbcTemplate.update("update recipes set deleted_at = current_timestamp where recipe_id = ?", chickenBowl);
+
+        mockMvc.perform(get(RECIPES + "/cooks/leftovers").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].name").value("Lentil salad"));
+    }
+
+    @Test
+    void loggingALeftoverMakesAMealAndLowersTheCountUntilNoneAreLeft() throws Exception {
+        String token = tokenFor("left-f@example.com");
+        String cookId = leftoverCook(token, chickenBowl, "3", "1", Instant.now().minusSeconds(60));
+        jdbcTemplate.update("delete from outbox_events where event_type = 'MealLogged'");
+
+        // One serving by default, into the chosen meal.
+        leftoverMeal(token, cookId, "{\"mealType\": \"LUNCH\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.cookId").value(cookId))
+                .andExpect(jsonPath("$.servingsLeft").value(1))
+                .andExpect(jsonPath("$.meal.name").value("Chicken rice bowl"))
+                .andExpect(jsonPath("$.meal.mealType").value("LUNCH"))
+                .andExpect(jsonPath("$.meal.totalCalories").value(377))
+                .andExpect(jsonPath("$.meal.items[0].recipeId").value(chickenBowl.toString()))
+                .andExpect(jsonPath("$.meal.items[0].recipeServings").value(1.0));
+        Assertions.assertEquals(1, jdbcTemplate.queryForObject(
+                "select servings_left from recipe_cooks where cook_id = ?", Integer.class, UUID.fromString(cookId)));
+        // The meal logged event fires as for any recipe meal.
+        Assertions.assertEquals(1, jdbcTemplate.queryForObject(
+                "select count(*) from outbox_events where event_type = 'MealLogged'", Integer.class));
+
+        // More than what is left is refused and changes nothing.
+        leftoverMeal(token, cookId, "{\"mealType\": \"DINNER\", \"servings\": 2}").andExpect(status().isConflict());
+        Assertions.assertEquals(1, jdbcTemplate.queryForObject(
+                "select servings_left from recipe_cooks where cook_id = ?", Integer.class, UUID.fromString(cookId)));
+        Assertions.assertEquals(1, jdbcTemplate.queryForObject(
+                "select count(*) from outbox_events where event_type = 'MealLogged'", Integer.class));
+
+        leftoverMeal(token, cookId, "{\"mealType\": \"DINNER\", \"servings\": 1}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.servingsLeft").value(0));
+        mockMvc.perform(get(RECIPES + "/cooks/leftovers").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.length()").value(0));
+        // None left: 409, and no third meal.
+        leftoverMeal(token, cookId, "{\"mealType\": \"DINNER\"}").andExpect(status().isConflict());
+        Assertions.assertEquals(2, jdbcTemplate.queryForObject(
+                "select count(*) from outbox_events where event_type = 'MealLogged'", Integer.class));
+    }
+
+    @Test
+    void aLeftoverBelongsToTheSignedInUserOr404() throws Exception {
+        String token = tokenFor("left-g@example.com");
+        String other = tokenFor("left-h@example.com");
+        String cookId = leftoverCook(token, chickenBowl, "3", "0", Instant.now().minusSeconds(60));
+        String gone = leftoverCook(token, lentilSalad, "3", "0", Instant.now().minusSeconds(60));
+        mockMvc.perform(delete(RECIPES + "/cooks/" + gone).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        leftoverMeal(other, cookId, "{\"mealType\": \"LUNCH\"}").andExpect(status().isNotFound());
+        leftoverMeal(token, UUID.randomUUID().toString(), "{\"mealType\": \"LUNCH\"}").andExpect(status().isNotFound());
+        leftoverMeal(token, gone, "{\"mealType\": \"LUNCH\"}").andExpect(status().isNotFound());
+        mockMvc.perform(post(RECIPES + "/cooks/" + cookId + "/leftover").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"mealType\": \"LUNCH\"}")).andExpect(status().isUnauthorized());
+        Assertions.assertEquals(3, jdbcTemplate.queryForObject(
+                "select servings_left from recipe_cooks where cook_id = ?", Integer.class, UUID.fromString(cookId)));
+        Assertions.assertEquals(0, jdbcTemplate.queryForObject("select count(*) from meal_logs", Integer.class));
+    }
+
+    @Test
+    void aLeftoverNeedsAMealTypeAndOneToTwentyServings() throws Exception {
+        String token = tokenFor("left-i@example.com");
+        String cookId = leftoverCook(token, chickenBowl, "6", "0", Instant.now().minusSeconds(60));
+
+        leftoverMeal(token, cookId, "{}").andExpect(status().isBadRequest());
+        leftoverMeal(token, cookId, "{\"mealType\": \"LUNCH\", \"servings\": 0}").andExpect(status().isBadRequest());
+        leftoverMeal(token, cookId, "{\"mealType\": \"LUNCH\", \"servings\": 21}").andExpect(status().isBadRequest());
+        leftoverMeal(token, cookId, "{\"mealType\": \"BRUNCH\"}").andExpect(status().isBadRequest());
+        Assertions.assertEquals(6, jdbcTemplate.queryForObject(
+                "select servings_left from recipe_cooks where cook_id = ?", Integer.class, UUID.fromString(cookId)));
+    }
+
+    @Test
+    void aLeftoverOfARecipeThatIsGoneAnswers404AndKeepsTheServings() throws Exception {
+        String token = tokenFor("left-j@example.com");
+        String cookId = leftoverCook(token, chickenBowl, "2", "0", Instant.now().minusSeconds(60));
+        jdbcTemplate.update("update recipes set deleted_at = current_timestamp where recipe_id = ?", chickenBowl);
+
+        leftoverMeal(token, cookId, "{\"mealType\": \"LUNCH\"}").andExpect(status().isNotFound());
+        Assertions.assertEquals(2, jdbcTemplate.queryForObject(
+                "select servings_left from recipe_cooks where cook_id = ?", Integer.class, UUID.fromString(cookId)));
+    }
+
     private String fromRecipeJson(String servings) {
         return "{\"servings\": " + servings + ", \"mealType\": \"DINNER\", "
                 + "\"consumedAt\": \"2026-06-11T18:00:00Z\"}";

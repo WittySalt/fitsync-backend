@@ -30,6 +30,9 @@ public class RecipeCookEntity {
     @Column(name = "servings", nullable = false, precision = 5, scale = 2)
     private BigDecimal servings;
 
+    @Column(name = "servings_left", nullable = false)
+    private int servingsLeft;
+
     @Column(name = "started_at")
     private Instant startedAt;
 
@@ -80,6 +83,14 @@ public class RecipeCookEntity {
 
     public void setServings(BigDecimal servings) {
         this.servings = servings;
+    }
+
+    public int getServingsLeft() {
+        return servingsLeft;
+    }
+
+    public void setServingsLeft(int servingsLeft) {
+        this.servingsLeft = servingsLeft;
     }
 
     public Instant getStartedAt() {

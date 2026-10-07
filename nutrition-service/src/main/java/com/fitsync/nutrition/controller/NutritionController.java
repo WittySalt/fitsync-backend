@@ -14,7 +14,10 @@ import com.fitsync.nutrition.dto.CopyMealRequest;
 import com.fitsync.nutrition.dto.CreateCustomFoodRequest;
 import com.fitsync.nutrition.dto.CreateMealRequest;
 import com.fitsync.nutrition.dto.CreateMealTemplateRequest;
+import com.fitsync.nutrition.dto.CookLeftoverView;
 import com.fitsync.nutrition.dto.CreateRecipeCookRequest;
+import com.fitsync.nutrition.dto.LeftoverMealRequest;
+import com.fitsync.nutrition.dto.LeftoverMealView;
 import com.fitsync.nutrition.dto.CreateRecipeRequest;
 import com.fitsync.nutrition.dto.MaterializeTemplateRequest;
 import com.fitsync.nutrition.dto.MealTemplateView;
@@ -462,6 +465,22 @@ public class NutritionController {
         return org.springframework.http.ResponseEntity
                 .status(recorded.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .body(recorded.view());
+    }
+
+    /** The caller's cooks of the last 7 days with servings left, newest first. */
+    @GetMapping("/recipes/cooks/leftovers")
+    public List<CookLeftoverView> cookLeftovers(Authentication authentication) {
+        return recipeCookService.leftovers(currentPrincipal(authentication));
+    }
+
+    /** Logs servings of a cook's leftovers as a meal and lowers the count; 409 when too few are left. */
+    @PostMapping("/recipes/cooks/{cookId}/leftover")
+    @ResponseStatus(HttpStatus.CREATED)
+    public LeftoverMealView logLeftover(Authentication authentication,
+                                        @PathVariable UUID cookId,
+                                        @Valid @RequestBody LeftoverMealRequest request,
+                                        @RequestTimezone Optional<ZoneId> zone) {
+        return recipeCookService.logLeftover(currentPrincipal(authentication), cookId, request, zoneId(zone));
     }
 
     @DeleteMapping("/recipes/cooks/{cookId}")

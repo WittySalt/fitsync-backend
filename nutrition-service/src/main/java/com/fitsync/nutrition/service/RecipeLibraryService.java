@@ -403,6 +403,18 @@ public class RecipeLibraryService {
         return recipe;
     }
 
+    /** The recipes among these ids that the caller may see, keyed by id; the others are left out. */
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, RecipeEntity> findVisible(UUID userId, java.util.Collection<UUID> recipeIds) {
+        java.util.Map<UUID, RecipeEntity> visible = new java.util.HashMap<>();
+        for (RecipeEntity recipe : recipeRepository.findAllById(recipeIds)) {
+            if (isVisible(userId, recipe)) {
+                visible.put(recipe.getRecipeId(), recipe);
+            }
+        }
+        return visible;
+    }
+
     /** True for a recipe that is not deleted and is either a published system recipe or one of the caller's own. */
     private static boolean isVisible(UUID userId, RecipeEntity recipe) {
         if (recipe.getDeletedAt() != null) {
