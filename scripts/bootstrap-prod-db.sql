@@ -1,16 +1,14 @@
--- Idempotent prod DB bootstrap, for a database restored from a snapshot. Same shape as
--- bootstrap-staging-db.sql, but every service gets its own password (the values of the
--- <SERVICE>_DB_PASSWORD secrets), and existing roles keep their tables and grants: only
--- the password is reset. Creates what the snapshot predates (recommendation_svc).
+-- Idempotent prod DB bootstrap. Same shape as bootstrap-staging-db.sql, but every
+-- service gets its own password (the values of the <SERVICE>_DB_PASSWORD secrets).
+-- On a fresh database it creates the six login roles and their schemas; run again, it
+-- only resets the passwords, and existing roles keep their tables and grants.
 -- Run as the RDS master from the prod EC2, because the RDS is not publicly accessible:
 --
---   psql -h <rds-host> -U fitsync_admin -d fitsync -v ON_ERROR_STOP=1 \
+--   psql -h <rds-host> -U fitsync_master -d fitsync -v ON_ERROR_STOP=1 \
 --     -v auth_pw="$AUTH_DB_PASSWORD" -v user_pw="$USER_DB_PASSWORD" \
 --     -v workout_pw="$WORKOUT_DB_PASSWORD" -v nutrition_pw="$NUTRITION_DB_PASSWORD" \
 --     -v analytics_pw="$ANALYTICS_DB_PASSWORD" -v recommendation_pw="$RECOMMENDATION_DB_PASSWORD" \
 --     -f bootstrap-prod-db.sql
---
--- The 2026-06-27 snapshot's master user is fitsync_admin (not fitsync_master).
 \set ON_ERROR_STOP on
 
 -- auth

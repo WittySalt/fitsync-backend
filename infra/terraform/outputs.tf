@@ -10,11 +10,6 @@ output "public_subnet_ids" {
   value = aws_subnet.public[*].id
 }
 
-output "ecr_repository_urls" {
-  description = "Push targets for the CI build job"
-  value       = { for k, r in aws_ecr_repository.service : k => r.repository_url }
-}
-
 output "media_bucket" {
   value = aws_s3_bucket.media.bucket
 }

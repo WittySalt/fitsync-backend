@@ -20,13 +20,12 @@ docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 | File | Resources | Cost / speed |
 |------|-----------|--------------|
 | `network.tf` | VPC, public subnets, IGW, routes, security groups | free, instant |
-| `registry.tf` | 7× ECR repos (one per service) + lifecycle policy | free (empty), instant |
 | `storage.tf` | S3 media bucket, S3 frontend bucket, CloudFront* | ~free; CloudFront slow |
 | `auth.tf` | Cognito user pool + SPA client + hosted domain | free tier, instant |
 | `ci_iam.tf` | EC2 instance role/profile, CI deploy policy | free, instant |
 | `data.tf` | RDS PostgreSQL* | **costs money**, ~10 min |
 | `compute.tf` | EC2 app host + EIP* + deploy key pair | **costs money** |
-| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary (own state, applied once) | free, instant |
+| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary, the 7 shared ECR repos (own state, applied once) | free, instant |
 
 `*` gated behind feature flags (`enable_cloudfront`, `enable_rds`, `enable_ec2`),
 default **false**, so the first apply is free and instant.
@@ -34,12 +33,16 @@ default **false**, so the first apply is free and instant.
 ## Two-environment model
 
 Both environments are built by Terraform, each in its own workspace. The hand-built
-prod of June 2026 was torn down on 2026-06-27; prod is restored from its RDS snapshot.
+prod of June 2026 was torn down on 2026-06-27 and its snapshots deleted; prod starts
+from an empty database.
 
 | Environment | tfvars | State (workspace) | Notes |
 |-------------|--------|-------------------|-------|
 | **staging** | `staging.tfvars` → `fitsync-staging-*` | `staging` | own Cognito pool, gateway open on :8088 for stress/DAST, throwaway |
-| **prod** | `prod.tfvars` → `fitsync-prod-*` | `prod` | RDS from snapshot, deletion protection + final snapshot, gateway reachable from CloudFront only |
+| **prod** | `prod.tfvars` → `fitsync-prod-*` | `prod` | empty RDS (Flyway builds it), deletion protection + final snapshot, gateway reachable from CloudFront only |
+
+Both environments pull from the same ECR repositories (`fitsync-<service>`, in
+`bootstrap/`): staging runs a commit's images first, and prod deploys the same tag.
 
 Kept outside Terraform on purpose: the prod Cognito pool `ap-southeast-1_myVyuOmPD`
 (holds real users), the media bucket `fitsync-media`, and the frontend bucket and
@@ -161,14 +164,16 @@ marked.
    terraform workspace select prod
    TF_VAR_db_password=... TF_VAR_ec2_public_key="$(cat fitsync-prod-deploy.pub)"      terraform apply -var-file=prod.tfvars
    ```
-   The RDS restores from `fitsync-db-teardown-20260627-1945` (PostgreSQL 18, master
-   user `fitsync_admin`, password reset to `TF_VAR_db_password`). Then, from the prod
-   EC2, run `scripts/bootstrap-prod-db.sql` with the six `<SERVICE>_DB_PASSWORD` values:
-   it resets the existing service passwords and creates `recommendation_svc`.
+   The database starts empty (master user `fitsync_master`). From the prod EC2, run
+   `scripts/bootstrap-prod-db.sql` with the six `<SERVICE>_DB_PASSWORD` values to create
+   the service roles and schemas; Flyway builds the tables and seeds on first boot.
    Set `PROD_EC2_HOST` (`ec2_public_ip` output), `DB_URL`
    (`jdbc:postgresql://<rds_endpoint>/fitsync`) and the other prod secrets, then CD's
    `deploy-prod` deploys on the next push to `main`. Finally point the prod CloudFront
    `/api` origin at the new EC2 public DNS name.
+   Demo data: sign in once with each demo account (auth-service creates the user on first
+   sign-in), then run `scripts/seed-demo-fitsync.sql` against the RDS as the master from
+   the EC2, the same way. `scripts/demo-reseed.ps1` only drives the local stack.
 5. **Tear down.** Staging: `terraform destroy -var-file=staging.tfvars`. Prod has
    deletion protection; turning it off is a deliberate edit, and destroy leaves the
    `fitsync-prod-db-final` snapshot behind.
@@ -180,7 +185,7 @@ marked.
 2. **Evidence**: `terraform apply` output + console screenshots + a clean
    `terraform destroy` proving full reproducibility.
 3. **Multi-environment**: `staging` and `prod` are both built from code in their own
-   workspaces; prod restores its data from a snapshot and carries deletion protection.
+   workspaces; prod carries deletion protection and a final snapshot.
 4. **Roadmap / concern**: migrate state to an S3 + DynamoDB remote backend; split
    public/private subnets + NAT; move secrets to SSM Parameter Store / Secrets Manager.
 

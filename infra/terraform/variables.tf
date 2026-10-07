@@ -131,20 +131,6 @@ variable "cognito_logout_urls" {
   default     = ["http://localhost:3000/logout/callback"]
 }
 
-variable "services" {
-  description = "Backend microservice names (one ECR repo each)"
-  type        = list(string)
-  default = [
-    "api-gateway",
-    "auth-service",
-    "user-service",
-    "workout-service",
-    "nutrition-service",
-    "analytics-service",
-    "recommendation-service",
-  ]
-}
-
 variable "bedrock_models" {
   description = "Bedrock foundation model ID patterns the app host may invoke (coach AI tier)"
   type        = list(string)

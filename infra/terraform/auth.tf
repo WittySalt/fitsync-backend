@@ -14,7 +14,7 @@ resource "aws_cognito_user_pool" "main" {
     require_lowercase = true
     require_uppercase = true
     require_numbers   = true
-    require_symbols   = false
+    require_symbols   = true # same rule as the prod pool
   }
 
   account_recovery_setting {

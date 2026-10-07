@@ -10,11 +10,12 @@
 #   - fitsync-github-cd: the role both repos' workflows assume (AWS_ROLE_ARN)
 #   - fitsync-workload-boundary: the permissions boundary every role CD creates
 #     must carry, so CD can never mint a role stronger than itself
+#   - the shared ECR repositories (registry.tf), empty ones cost nothing
 # All of this is free.
 # ─────────────────────────────────────────────────────────────────────────────
 
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.7.0" # import blocks with for_each
 
   required_providers {
     aws = {

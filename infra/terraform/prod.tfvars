@@ -1,6 +1,8 @@
 # ── PROD ─────────────────────────────────────────────────────────────────────
-# The hand-built prod environment was torn down on 2026-06-27 (EC2, RDS and EIP
-# gone; RDS snapshot kept). Prod is now rebuilt by Terraform from that snapshot:
+# The hand-built prod environment was torn down on 2026-06-27. Prod is rebuilt by
+# Terraform on an EMPTY database (the old snapshots were deleted on purpose):
+# Flyway creates every table and seed on first boot. Demo data: see RUNBOOK.md
+# "Rebuild" step 4 (scripts/demo-reseed.ps1 only drives the local stack).
 #
 #   terraform workspace select prod || terraform workspace new prod
 #   terraform apply -var-file=prod.tfvars    # with TF_VAR_db_password, TF_VAR_ec2_public_key
@@ -17,9 +19,8 @@ enable_ec2 = true
 
 ec2_instance_type = "t3.large"
 
-# The 2026-06-27 teardown snapshot of the old fitsync-db (PostgreSQL 18.3).
-db_snapshot_identifier = "fitsync-db-teardown-20260627-1945"
-db_engine_version      = "18"
+# Same PostgreSQL major version as local development and staging.
+db_engine_version = "16"
 
 # Existing pool ap-southeast-1_myVyuOmPD stays in charge of sign-in.
 enable_cognito = false

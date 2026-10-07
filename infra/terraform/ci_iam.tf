@@ -76,7 +76,8 @@ data "aws_iam_policy_document" "ci_deploy" {
       "ecr:UploadLayerPart",
       "ecr:CompleteLayerUpload",
     ]
-    resources = [for r in aws_ecr_repository.service : r.arn]
+    # The shared repositories created by bootstrap/registry.tf.
+    resources = ["arn:aws:ecr:${var.region}:${local.account_id}:repository/${var.project}-*"]
   }
 
   statement {
