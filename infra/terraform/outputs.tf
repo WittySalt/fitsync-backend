@@ -10,13 +10,13 @@ output "public_subnet_ids" {
   value = aws_subnet.public[*].id
 }
 
-output "ecr_repository_urls" {
-  description = "Push targets for the CI build job"
-  value       = { for k, r in aws_ecr_repository.service : k => r.repository_url }
+output "media_bucket" {
+  value = local.media_bucket
 }
 
-output "media_bucket" {
-  value = aws_s3_bucket.media.bucket
+output "media_public_base_url" {
+  description = "FITSYNC_MEDIA_PUBLIC_BASE_URL for this environment"
+  value       = "https://${local.media_bucket}.s3.${var.region}.amazonaws.com"
 }
 
 output "cognito_user_pool_id" {
@@ -44,4 +44,14 @@ output "rds_endpoint" {
 output "ec2_public_ip" {
   description = "App host EIP (null unless enable_ec2=true)"
   value       = var.enable_ec2 ? aws_eip.app[0].public_ip : null
+}
+
+output "alb_dns_name" {
+  description = "CloudFront /api origin and the stress/DAST target (null unless enable_alb=true)"
+  value       = var.enable_alb ? aws_lb.app[0].dns_name : null
+}
+
+output "app_secret_name" {
+  description = "Secrets Manager secret the app host reads at deploy time"
+  value       = var.enable_rds ? aws_secretsmanager_secret.app[0].name : null
 }

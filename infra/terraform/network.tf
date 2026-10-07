@@ -53,13 +53,29 @@ resource "aws_security_group" "app" {
   description = "FitSync app host: gateway 8088 + SSH"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description     = var.api_from_cloudfront_only ? "API gateway (CloudFront only)" : "API gateway (CloudFront / demo)"
-    from_port       = 8088
-    to_port         = 8088
-    protocol        = "tcp"
-    cidr_blocks     = var.api_from_cloudfront_only ? null : ["0.0.0.0/0"]
-    prefix_list_ids = var.api_from_cloudfront_only ? [data.aws_ec2_managed_prefix_list.cloudfront.id] : null
+  # With an ALB the gateway port is open to the ALB only. Without one it falls back to
+  # the edge rule the ALB would otherwise carry (CloudFront only, or open for demos).
+  dynamic "ingress" {
+    for_each = var.enable_alb ? [1] : []
+    content {
+      description     = "API gateway from the ALB"
+      from_port       = 8088
+      to_port         = 8088
+      protocol        = "tcp"
+      security_groups = [aws_security_group.alb.id]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = var.enable_alb ? [] : [1]
+    content {
+      description     = var.api_from_cloudfront_only ? "API gateway (CloudFront only)" : "API gateway (CloudFront / demo)"
+      from_port       = 8088
+      to_port         = 8088
+      protocol        = "tcp"
+      cidr_blocks     = var.api_from_cloudfront_only ? null : ["0.0.0.0/0"]
+      prefix_list_ids = var.api_from_cloudfront_only ? [data.aws_ec2_managed_prefix_list.cloudfront.id] : null
+    }
   }
 
   ingress {

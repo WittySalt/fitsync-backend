@@ -12,6 +12,14 @@
 #   Subject  : repo:WittySalt/fitsync-backend:*
 #
 # Flow: iac → docker → deploy-staging cascade → stress/DAST → prod.
+#
+# Promotion rule. Staging runs only while the STAGING_ENABLED variable is 'true', so a
+# push never rebuilds a staging that was destroyed to save money. A push deploys
+# staging at most; prod deploys only in a manual run with deploy_prod ticked, and only
+# after deploy-staging-app succeeded in that same run with the same image tag. (The
+# manual run is the approval: required reviewers on Environments need a paid plan for
+# a private repository.) The one way past staging is a manual run with skip_staging
+# ticked and a reason, written to the run summary (break-glass).
 name: CD
 
 on:
@@ -27,6 +35,18 @@ on:
         description: "Run OWASP ZAP DAST against staging"
         type: boolean
         default: false
+      deploy_prod:
+        description: "Deploy to production once staging succeeds in this run"
+        type: boolean
+        default: false
+      skip_staging:
+        description: "Break-glass: deploy prod without a staging run (needs a reason)"
+        type: boolean
+        default: false
+      skip_reason:
+        description: "Why staging is skipped (recorded in the run summary)"
+        type: string
+        default: ""
 
 concurrency:
   group: cd-${{ github.ref }}
@@ -43,10 +63,10 @@ env:
 
 jobs:
   # ── iac: terraform plan for staging (review only) ───────────────────────────
-  # The plan is printed, not uploaded: a saved plan file holds the DB password in
-  # plain text, and artifacts are readable by anyone who can read the repo.
+  # The plan is printed, not uploaded: a saved plan file can hold generated secrets
+  # in plain text, and artifacts are readable by anyone who can read the repo.
   tf-plan:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +80,6 @@ jobs:
       - name: terraform plan (staging)
         working-directory: infra/terraform
         env:
-          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
           TF_VAR_ec2_public_key: ${{ vars.STAGING_EC2_PUBLIC_KEY }}
         run: |
           terraform init
@@ -134,10 +153,9 @@ jobs:
           if-no-files-found: warn
 
   # ── deploy-staging: terraform apply (provision/update staging) ──────────────
-  # Add required reviewers to the `staging` Environment for a manual approval gate.
   # Applies a fresh plan (the reviewed one is printed by tf-plan, never stored).
   deploy-staging:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
     needs: [tf-plan, docker-image]
     environment: staging
@@ -153,58 +171,17 @@ jobs:
       - name: terraform apply (staging)
         working-directory: infra/terraform
         env:
-          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
           TF_VAR_ec2_public_key: ${{ vars.STAGING_EC2_PUBLIC_KEY }}
         run: |
           terraform init
           terraform workspace select staging
           terraform apply -input=false -auto-approve -var-file=staging.tfvars
 
-  # ── bootstrap the staging RDS: per-service roles + schemas (over SSH) ────────
-  bootstrap-staging-db:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
-    runs-on: ubuntu-latest
-    needs: [deploy-staging]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-      - name: Bootstrap DB roles + schemas from the staging EC2
-        env:
-          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
-          STAGING_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
-          STAGING_EC2_SSH_KEY: ${{ secrets.STAGING_EC2_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          cd infra/terraform
-          terraform init && terraform workspace select staging
-          STAGING_HOST="$(terraform output -raw ec2_public_ip)"
-          RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
-          cd "$GITHUB_WORKSPACE"
-          DB_HOST="${RDS_ENDPOINT%:*}"; DB_PORT="${RDS_ENDPOINT##*:}"
-          mkdir -p ~/.ssh
-          printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
-          scp -i ~/.ssh/id_ed25519 scripts/bootstrap-staging-db.sql "ec2-user@$STAGING_HOST:/tmp/bootstrap-staging-db.sql"
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" \
-            "sudo docker run --rm -e PGPASSWORD='$TF_VAR_db_password' \
-             -v /tmp/bootstrap-staging-db.sql:/b.sql:ro postgres:16 \
-             psql -h '$DB_HOST' -p '$DB_PORT' -U fitsync_master -d fitsync \
-             -v ON_ERROR_STOP=1 -v svc_pw='$STAGING_DB_PASSWORD' -f /b.sql"
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "rm -f /tmp/bootstrap-staging-db.sql"
-          echo "Staging DB roles + schemas bootstrapped."
-
   # ── deploy the app onto the staging host ────────────────────────────────────
   deploy-staging-app:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
-    needs: [bootstrap-staging-db, docker-image]
+    needs: [deploy-staging, docker-image]
     environment: staging
     steps:
       - uses: actions/checkout@v4
@@ -218,16 +195,8 @@ jobs:
       - name: Render .env + deploy via ec2-deploy.sh
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          STAGING_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
-          STAGING_JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
           STAGING_EC2_SSH_KEY: ${{ secrets.STAGING_EC2_SSH_KEY }}
           STAGING_CORS_ALLOWED_ORIGINS: ${{ vars.STAGING_CORS_ALLOWED_ORIGINS }}
-          FITSYNC_MEDIA_ENDPOINT: ${{ vars.FITSYNC_MEDIA_ENDPOINT }}
-          FITSYNC_MEDIA_REGION: ${{ vars.FITSYNC_MEDIA_REGION }}
-          FITSYNC_MEDIA_ACCESS_KEY: ${{ secrets.FITSYNC_MEDIA_ACCESS_KEY }}
-          FITSYNC_MEDIA_SECRET_KEY: ${{ secrets.FITSYNC_MEDIA_SECRET_KEY }}
-          FITSYNC_MEDIA_BUCKET: ${{ vars.FITSYNC_MEDIA_BUCKET }}
-          FITSYNC_MEDIA_PUBLIC_BASE_URL: ${{ vars.FITSYNC_MEDIA_PUBLIC_BASE_URL }}
           RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
           RECOMMENDATION_AI_PROVIDER: ${{ vars.RECOMMENDATION_AI_PROVIDER }}
           RECOMMENDATION_AI_MODEL: ${{ vars.RECOMMENDATION_AI_MODEL }}
@@ -238,10 +207,12 @@ jobs:
           cd infra/terraform
           terraform init && terraform workspace select staging
           STAGING_HOST="$(terraform output -raw ec2_public_ip)"
-          RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
           # auth-service must trust staging's own pool, not the prod default in compose.
           COGNITO_POOL_ID="$(terraform output -raw cognito_user_pool_id)"
           COGNITO_CLIENT_ID="$(terraform output -raw cognito_spa_client_id)"
+          # Staging uploads to its own bucket, never to prod's.
+          MEDIA_BUCKET="$(terraform output -raw media_bucket)"
+          MEDIA_PUBLIC_BASE_URL="$(terraform output -raw media_public_base_url)"
           cd "$GITHUB_WORKSPACE"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           IMAGE_TAG="${GITHUB_SHA:0:8}"
@@ -252,14 +223,6 @@ jobs:
           cat > .env.deploy <<EOF
           ECR_REGISTRY=$ECR_REGISTRY
           IMAGE_TAG=$IMAGE_TAG
-          DB_URL=jdbc:postgresql://${RDS_ENDPOINT}/fitsync
-          AUTH_DB_PASSWORD=$STAGING_DB_PASSWORD
-          USER_DB_PASSWORD=$STAGING_DB_PASSWORD
-          WORKOUT_DB_PASSWORD=$STAGING_DB_PASSWORD
-          NUTRITION_DB_PASSWORD=$STAGING_DB_PASSWORD
-          ANALYTICS_DB_PASSWORD=$STAGING_DB_PASSWORD
-          RECOMMENDATION_DB_PASSWORD=$STAGING_DB_PASSWORD
-          JWT_SECRET=$STAGING_JWT_SECRET
           JWT_EXPIRATION=PT2H
           REDIS_HOST=redis
           REDIS_PORT=6379
@@ -299,24 +262,26 @@ jobs:
           FITSYNC_CORS_ALLOWED_ORIGINS=${STAGING_CORS_ALLOWED_ORIGINS}
           NGINX_SERVER_NAME=_
           NGINX_CERT_NAME=localhost
-          FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
-          FITSYNC_MEDIA_REGION=${FITSYNC_MEDIA_REGION:-ap-southeast-1}
-          FITSYNC_MEDIA_ACCESS_KEY=${FITSYNC_MEDIA_ACCESS_KEY}
-          FITSYNC_MEDIA_SECRET_KEY=${FITSYNC_MEDIA_SECRET_KEY}
-          FITSYNC_MEDIA_BUCKET=${FITSYNC_MEDIA_BUCKET:-fitsync-media}
-          FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+          FITSYNC_MEDIA_ENDPOINT=https://s3.${AWS_REGION}.amazonaws.com
+          FITSYNC_MEDIA_REGION=${AWS_REGION}
+          FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS=true
+          FITSYNC_MEDIA_BUCKET=${MEDIA_BUCKET}
+          FITSYNC_MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL}
           FREE_EXERCISE_DB_IMAGES_DIR=/opt/fitsync/free-exercise-db/exercises
           EOF
           ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
           scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$STAGING_HOST:/opt/fitsync/docker-compose.prod.yml"
           scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$STAGING_HOST:/opt/fitsync/nginx/nginx.conf.template"
           scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$STAGING_HOST:/opt/fitsync/ec2-deploy.sh"
+          scp -i ~/.ssh/id_ed25519 scripts/bootstrap-db.sql "ec2-user@$STAGING_HOST:/opt/fitsync/bootstrap-db.sql"
           scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$STAGING_HOST:/opt/fitsync/.env"
+          # DB endpoint, service passwords and JWT key come from Secrets Manager on the host.
           ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" \
-            "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' bash /opt/fitsync/ec2-deploy.sh"
-          sleep 30
-          test "$(curl -s -o /dev/null -w '%{http_code}' "http://$STAGING_HOST:8088/actuator/health")" = "200"
-          echo "Staging gateway up: http://$STAGING_HOST:8088"
+            "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' APP_SECRET_ID='fitsync-staging/app' bash /opt/fitsync/ec2-deploy.sh"
+          # The gateway port is open to the ALB only, so check it from the host itself.
+          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" \
+            "curl -fsS -o /dev/null http://localhost:8088/actuator/health"
+          echo "Staging gateway healthy on $STAGING_HOST"
 
   # ── stress test against staging (manual via workflow_dispatch input) ────────
   stress-test:
@@ -380,14 +345,30 @@ jobs:
           if-no-files-found: warn
 
   # ── promote to production ───────────────────────────────────────────────────
-  # Add required reviewers to the `production` Environment for the manual
-  # confirmation gate.
+  # Manual runs only: deploy_prod after staging succeeded in the same run with this
+  # commit's images, or a break-glass run (see the promotion rule at the top).
   deploy-prod:
-    if: ${{ vars.AWS_ROLE_ARN != '' && vars.PROD_EC2_HOST != '' }}
+    if: >-
+      ${{ !cancelled() && vars.AWS_ROLE_ARN != '' && vars.PROD_EC2_HOST != ''
+      && github.event_name == 'workflow_dispatch'
+      && needs.docker-image.result == 'success'
+      && ((inputs.deploy_prod && needs.deploy-staging-app.result == 'success')
+          || (inputs.skip_staging && inputs.skip_reason != '')) }}
     runs-on: ubuntu-latest
-    needs: [docker-image]
+    needs: [docker-image, deploy-staging-app]
     environment: production
     steps:
+      - name: Record break-glass deploy
+        if: ${{ needs.deploy-staging-app.result != 'success' }}
+        env:
+          REASON: ${{ inputs.skip_reason }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          {
+            echo "### Prod deployed WITHOUT a staging run"
+            echo "- By: $ACTOR"
+            echo "- Reason: $REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -399,20 +380,10 @@ jobs:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           PROD_EC2_HOST: ${{ vars.PROD_EC2_HOST }}
           PROD_EC2_SSH_KEY: ${{ secrets.PROD_EC2_SSH_KEY }}
-          DB_URL: ${{ secrets.DB_URL }}
-          AUTH_DB_PASSWORD: ${{ secrets.AUTH_DB_PASSWORD }}
-          USER_DB_PASSWORD: ${{ secrets.USER_DB_PASSWORD }}
-          WORKOUT_DB_PASSWORD: ${{ secrets.WORKOUT_DB_PASSWORD }}
-          NUTRITION_DB_PASSWORD: ${{ secrets.NUTRITION_DB_PASSWORD }}
-          ANALYTICS_DB_PASSWORD: ${{ secrets.ANALYTICS_DB_PASSWORD }}
-          RECOMMENDATION_DB_PASSWORD: ${{ secrets.RECOMMENDATION_DB_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           COGNITO_ENABLED: ${{ vars.COGNITO_ENABLED }}
           PROD_DOMAIN: ${{ vars.PROD_DOMAIN }}
           FITSYNC_MEDIA_ENDPOINT: ${{ vars.FITSYNC_MEDIA_ENDPOINT }}
           FITSYNC_MEDIA_REGION: ${{ vars.FITSYNC_MEDIA_REGION }}
-          FITSYNC_MEDIA_ACCESS_KEY: ${{ secrets.FITSYNC_MEDIA_ACCESS_KEY }}
-          FITSYNC_MEDIA_SECRET_KEY: ${{ secrets.FITSYNC_MEDIA_SECRET_KEY }}
           FITSYNC_MEDIA_BUCKET: ${{ vars.FITSYNC_MEDIA_BUCKET }}
           FITSYNC_MEDIA_PUBLIC_BASE_URL: ${{ vars.FITSYNC_MEDIA_PUBLIC_BASE_URL }}
           RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
@@ -435,14 +406,6 @@ jobs:
           cat > .env.deploy <<EOF
           ECR_REGISTRY=$ECR_REGISTRY
           IMAGE_TAG=$IMAGE_TAG
-          DB_URL=$DB_URL
-          AUTH_DB_PASSWORD=$AUTH_DB_PASSWORD
-          USER_DB_PASSWORD=$USER_DB_PASSWORD
-          WORKOUT_DB_PASSWORD=$WORKOUT_DB_PASSWORD
-          NUTRITION_DB_PASSWORD=$NUTRITION_DB_PASSWORD
-          ANALYTICS_DB_PASSWORD=$ANALYTICS_DB_PASSWORD
-          RECOMMENDATION_DB_PASSWORD=$RECOMMENDATION_DB_PASSWORD
-          JWT_SECRET=$JWT_SECRET
           JWT_EXPIRATION=PT2H
           REDIS_HOST=redis
           REDIS_PORT=6379
@@ -479,18 +442,19 @@ jobs:
           COGNITO_ENABLED=${COGNITO_ENABLED:-false}
           NGINX_SERVER_NAME=${PROD_DOMAIN:-_}
           NGINX_CERT_NAME=${PROD_DOMAIN:-localhost}
-          FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
+          FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT:-https://s3.ap-southeast-1.amazonaws.com}
           FITSYNC_MEDIA_REGION=${FITSYNC_MEDIA_REGION:-ap-southeast-1}
-          FITSYNC_MEDIA_ACCESS_KEY=${FITSYNC_MEDIA_ACCESS_KEY}
-          FITSYNC_MEDIA_SECRET_KEY=${FITSYNC_MEDIA_SECRET_KEY}
+          FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS=true
           FITSYNC_MEDIA_BUCKET=${FITSYNC_MEDIA_BUCKET:-fitsync-media}
-          FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+          FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL:-https://fitsync-media.s3.ap-southeast-1.amazonaws.com}
           FREE_EXERCISE_DB_IMAGES_DIR=/opt/fitsync/free-exercise-db/exercises
           EOF
           ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
           scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$PROD_EC2_HOST:/opt/fitsync/docker-compose.prod.yml"
           scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$PROD_EC2_HOST:/opt/fitsync/nginx/nginx.conf.template"
           scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$PROD_EC2_HOST:/opt/fitsync/ec2-deploy.sh"
+          scp -i ~/.ssh/id_ed25519 scripts/bootstrap-db.sql "ec2-user@$PROD_EC2_HOST:/opt/fitsync/bootstrap-db.sql"
           scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$PROD_EC2_HOST:/opt/fitsync/.env"
+          # DB endpoint, service passwords and JWT key come from Secrets Manager on the host.
           ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" \
-            "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' bash /opt/fitsync/ec2-deploy.sh"
+            "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' APP_SECRET_ID='fitsync-prod/app' bash /opt/fitsync/ec2-deploy.sh"

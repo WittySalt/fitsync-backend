@@ -6,7 +6,7 @@
 # ⚠️ COST: enable_ec2 + enable_rds bill while up. This config stands up the full
 # app+DB so stress/DAST can run against it; `terraform destroy` after the demo.
 # Also required at apply time:
-#   - TF_VAR_db_password     RDS master password (env var; never commit)
+#   - (no DB password: RDS manages the master one, Terraform generates the rest into Secrets Manager)
 #   - TF_VAR_ec2_public_key  SSH public key for the deploy key pair; its private half
 #                            is the STAGING_EC2_SSH_KEY secret (CI reads the public
 #                            half from the STAGING_EC2_PUBLIC_KEY variable)

@@ -16,8 +16,9 @@ commands below.
 |---|---|---|
 | `AWS_ROLE_ARN` | all CD | **Master gate.** IAM role ARN with the GitHub OIDC trust. Leave empty to keep CD dormant. |
 | `AWS_REGION` | all CD | e.g. `ap-southeast-1` |
+| `STAGING_ENABLED` | staging jobs, deploy-prod | `true` while staging exists. Anything else skips every staging job, so a push never re-creates a destroyed staging, and a push then does not deploy prod (use a manual run with `skip_staging` + reason) |
 | `AWS_ACCOUNT_ID` | docker, deploy | for the ECR registry host |
-| `PROD_EC2_HOST` | deploy-prod | prod EC2 public host/IP; also gates deploy-prod |
+| `PROD_EC2_HOST` | deploy-prod | prod EC2 public IP (`ec2_public_ip` output, SSH only; traffic enters through the ALB); also gates deploy-prod |
 | `PROD_DOMAIN` | deploy-prod | nginx server name (optional) |
 | `COGNITO_ENABLED` | deploy-prod | `true`/`false` (optional) |
 | `FITSYNC_MEDIA_ENDPOINT` `FITSYNC_MEDIA_REGION` `FITSYNC_MEDIA_BUCKET` `FITSYNC_MEDIA_PUBLIC_BASE_URL` | deploy | S3 media config |
@@ -32,20 +33,24 @@ commands below.
 
 | Secret | Used by |
 |---|---|
-| `TF_VAR_DB_PASSWORD` | tf-plan, deploy-staging, bootstrap-staging-db (RDS master pw) |
-| `STAGING_DB_PASSWORD` `STAGING_JWT_SECRET` `STAGING_EC2_SSH_KEY` | staging deploy |
-| `DB_URL` `AUTH_DB_PASSWORD` `USER_DB_PASSWORD` `WORKOUT_DB_PASSWORD` `NUTRITION_DB_PASSWORD` `ANALYTICS_DB_PASSWORD` `RECOMMENDATION_DB_PASSWORD` `JWT_SECRET` | deploy-prod |
+| `STAGING_EC2_SSH_KEY` | deploy-staging-app |
 | `PROD_EC2_SSH_KEY` | deploy-prod |
-| `FITSYNC_MEDIA_ACCESS_KEY` `FITSYNC_MEDIA_SECRET_KEY` | deploy |
 | `ANTHROPIC_API_KEY` | deploy (only when `RECOMMENDATION_AI_PROVIDER=anthropic`) |
 | `STRESS_USER_EMAIL` `STRESS_USER_PASSWORD` | stress-test |
 | `SONAR_TOKEN` `NVD_API_KEY` | optional (CI) |
 
+No database endpoint, database password or JWT key is a GitHub secret. Terraform
+generates them into Secrets Manager (`fitsync-<env>/app`, `secrets.tf`), RDS manages
+its own master password, and `scripts/ec2-deploy.sh` reads both with the EC2 instance
+role at deploy time.
+
 ## Manual gates (Environments)
 
 `deploy-staging`, `deploy-staging-app` and `deploy-prod` use the `staging` /
-`production` Environments. To require a click-to-approve gate, add
-**required reviewers** to those Environments under Settings → Environments.
+`production` Environments, which also scope the OIDC trust of the CD role.
+GitHub offers required reviewers on Environments only for public repositories or paid
+plans, so this private repository gets its prod gate from the workflow instead: a push
+never deploys prod, a person has to start a manual run. See the promotion rule at the top of `cd.yml`.
 
 ## Quick set with `gh`
 
@@ -54,6 +59,5 @@ commands below.
 gh variable set AWS_REGION    --repo WittySalt/fitsync-backend --body "ap-southeast-1"
 gh variable set AWS_ROLE_ARN  --repo WittySalt/fitsync-backend --body "arn:aws:iam::<acct>:role/<role>"
 # secrets (prompts / reads file)
-gh secret   set JWT_SECRET    --repo WittySalt/fitsync-backend
 gh secret   set PROD_EC2_SSH_KEY --repo WittySalt/fitsync-backend < path/to/id_ed25519
 ```

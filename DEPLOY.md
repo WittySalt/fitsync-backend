@@ -4,8 +4,8 @@ Single-host (EC2 + docker-compose) deployment that lights up the **gated**
 `docker-image` and `deploy-prod` jobs in [`.github/workflows/cd.yml`](.github/workflows/cd.yml)
 (full variable/secret reference: [`.github/CICD-VARIABLES.md`](.github/CICD-VARIABLES.md)).
 Region: **ap-southeast-1 (Singapore)**. Everything below is one-time setup; after
-it, every push to `main` builds 6 images and deploys them (behind the `production`
-Environment's approval gate, if you add required reviewers).
+it, every push to `main` builds 7 images and deploys them to staging; prod is deployed
+from a manual run with `deploy_prod` ticked (see the promotion rule in `cd.yml`).
 
 > The pipeline stays gated (green, jobs skipped) until the **`AWS_ROLE_ARN`**
 > repository variable is set. Set it last, on purpose.
@@ -218,28 +218,25 @@ for which job reads each one and `gh` one-liners.
 | `AWS_ROLE_ARN` | arn of `fitsync-github-ci` (step 2c) | no | **set LAST — this un-gates the pipeline** |
 | `AWS_REGION` | `ap-southeast-1` | no | |
 | `AWS_ACCOUNT_ID` | your 12-digit account id | no | |
-| `DB_URL` | `jdbc:postgresql://<rds>:5432/fitsync` | yes | shared (one db) |
-| `AUTH_DB_PASSWORD` | password for DB user `auth_svc` | yes | per-service least-privilege user |
-| `USER_DB_PASSWORD` | password for DB user `user_svc` | yes | |
-| `WORKOUT_DB_PASSWORD` | password for DB user `workout_svc` | yes | |
-| `NUTRITION_DB_PASSWORD` | password for DB user `nutrition_svc` | yes | |
-| `ANALYTICS_DB_PASSWORD` | password for DB user `analytics_svc` | yes | |
-| `RECOMMENDATION_DB_PASSWORD` | password for DB user `recommendation_svc` | yes | |
-| `JWT_SECRET` | long random string | yes | `openssl rand -base64 48` |
-| `PROD_EC2_HOST` | the Elastic IP | no | |
+| `PROD_EC2_HOST` | the Elastic IP (`ec2_public_ip` output) | no | SSH target; traffic enters through the ALB |
 | `PROD_EC2_SSH_KEY` | contents of `fitsync_ed25519` | yes | the **private** key, full file |
 | `PROD_DOMAIN` | your domain (optional, for nginx/TLS) | no | leave unset until you add DNS |
 
-Media / images (only if you want exercise images + avatars — see §8.5):
+No database endpoint, database password or JWT key is a GitHub secret. Terraform
+generates them into Secrets Manager (`fitsync-<env>/app`, `secrets.tf`), RDS manages
+its own master password, and `scripts/ec2-deploy.sh` reads both with the EC2 instance
+role at deploy time.
+
+Media / images for **prod** (see §8.5). Staging needs none of these: CD reads its own
+bucket and URL from Terraform. Both environments upload with the EC2 instance role, so
+there are no media keys:
 
 | Name | Value | Secret | Notes |
 |---|---|---|---|
 | `FITSYNC_MEDIA_ENDPOINT` | `https://s3.ap-southeast-1.amazonaws.com` | no | S3 API the SDK writes through (path-style) |
 | `FITSYNC_MEDIA_REGION` | `ap-southeast-1` | no | defaults to this if unset |
-| `FITSYNC_MEDIA_ACCESS_KEY` | IAM user key id (§8.5) | yes | static key — **not** the EC2 instance role |
-| `FITSYNC_MEDIA_SECRET_KEY` | IAM user secret | yes | |
 | `FITSYNC_MEDIA_BUCKET` | `fitsync-media` | no | defaults to this if unset |
-| `FITSYNC_MEDIA_PUBLIC_BASE_URL` | `https://fitsync-media.s3.ap-southeast-1.amazonaws.com` | no | browser-reachable **https** base baked into stored URLs |
+| `FITSYNC_MEDIA_PUBLIC_BASE_URL` | `https://fitsync-media.s3.ap-southeast-1.amazonaws.com` | no | defaults to this; browser-reachable **https** base **baked into stored URLs**, so it must be right before workout-service first starts |
 
 Coach AI tier (optional; unset leaves it off and the coach uses its rule text):
 
@@ -265,10 +262,11 @@ and `SPRING_CACHE_TYPE` (`simple`) are fixed in the rendered `.env` — edit `cd
 
 1. Set all variables/secrets above **except** `AWS_ROLE_ARN`. Confirm the `main` CD run is green (AWS jobs skipped).
 2. Set `AWS_ROLE_ARN`. Push to `main` (or Actions → CD → **Run workflow**) → `docker-image` builds + pushes all 6 images to ECR.
-3. `deploy-prod` runs after `docker-image` (it needs `PROD_EC2_HOST` set). For a manual
-   confirmation step, add required reviewers to the `production` Environment.
+3. Run the workflow by hand with `deploy_prod` ticked (it needs `PROD_EC2_HOST` set);
+   `deploy-prod` runs once staging succeeded in that run.
    - First run auto-installs Docker + compose + aws-cli on the host, renders `/opt/fitsync/.env` from the variables, pulls from ECR, `compose up --wait`, health-gates the gateway, writes the rollback tag.
-4. Check: `curl http://<EIP>:8088/actuator/health` → `{"status":"UP"}`.
+4. Check through the ALB or CloudFront: `curl http://<alb_dns_name>/actuator/health` (staging) or
+   `https://<prod-cloudfront>/actuator/health` → `{"status":"UP"}`. Port 8088 is open to the ALB only.
 
 ## 8.5 Media / images (S3) — exercise images + avatars
 
@@ -314,21 +312,13 @@ aws s3api put-bucket-policy --bucket fitsync-media --policy file://media-bucket-
 > Prefer no public bucket? Put CloudFront in front and set `FITSYNC_MEDIA_PUBLIC_BASE_URL`
 > to the distribution domain instead. Public-read https is the minimal working option.
 
-**b. IAM user with write access** (media-support uses static keys, not the instance role):
-```bash
-aws iam create-user --user-name fitsync-media-writer
-cat > media-writer-policy.json <<JSON
-{ "Version":"2012-10-17","Statement":[{
-  "Effect":"Allow","Action":["s3:PutObject","s3:DeleteObject"],
-  "Resource":"arn:aws:s3:::fitsync-media/*" }]}
-JSON
-aws iam put-user-policy --user-name fitsync-media-writer \
-  --policy-name s3-media-write --policy-document file://media-writer-policy.json
-aws iam create-access-key --user-name fitsync-media-writer
-# -> AccessKeyId  -> FITSYNC_MEDIA_ACCESS_KEY,  SecretAccessKey -> FITSYNC_MEDIA_SECRET_KEY
-```
+**b. Write access comes from the EC2 instance role.** Terraform grants it `s3:PutObject`
+on the environment's media bucket (`storage.tf`), CD sets
+`FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS=true`, and media-support then ignores the
+access/secret keys. The keys remain only for local MinIO. The old `fitsync-media-writer`
+IAM user and its static key can be deleted once prod runs on the role.
 
-**c. Set the 6 media variables/secrets** from the table in §7 (access + secret key as Secrets).
+**c. Set the media variables** from the table in §7 (prod only).
 
 **d. Put the source images on the EC2 host** (one-time, ~90MB; not committed to the repo):
 ```bash

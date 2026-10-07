@@ -30,7 +30,8 @@ class S3MediaStorageServiceTests {
                 "fitsync",
                 "fitsync-password",
                 "fitsync-media",
-                "http://media.test/fitsync-media/");
+                "http://media.test/fitsync-media/",
+                false);
         S3MediaStorageService service = new S3MediaStorageService(s3ClientProvider(s3Client), properties);
 
         String url = service.put("exercises/Bench Press/0.jpg", "image".getBytes(StandardCharsets.UTF_8), "image/jpeg");
@@ -53,7 +54,8 @@ class S3MediaStorageServiceTests {
                 "fitsync",
                 "fitsync-password",
                 "fitsync-media",
-                "http://media.test/fitsync-media"));
+                "http://media.test/fitsync-media",
+                false));
 
         assertThrows(IllegalArgumentException.class, () -> service.urlFor("../secret.jpg"));
         assertThrows(IllegalArgumentException.class, () -> service.urlFor("/absolute.jpg"));

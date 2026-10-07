@@ -70,13 +70,6 @@ variable "db_username" {
   default     = "fitsync_master"
 }
 
-variable "db_password" {
-  description = "RDS master password (set via TF_VAR_db_password env var, never commit)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
 variable "ec2_instance_type" {
   description = "EC2 instance type for the app host"
   type        = string
@@ -85,6 +78,30 @@ variable "ec2_instance_type" {
 
 variable "ec2_public_key" {
   description = "SSH public key for the deploy key pair (preferred over ec2_key_name)"
+  type        = string
+  default     = ""
+}
+
+variable "enable_alb" {
+  description = "Put an Application Load Balancer in front of the gateway"
+  type        = bool
+  default     = true
+}
+
+variable "alb_idle_timeout" {
+  description = "Seconds the ALB keeps an idle connection (coach replies stream)"
+  type        = number
+  default     = 120
+}
+
+variable "db_multi_az" {
+  description = "Run RDS with a synchronous standby in the second AZ (doubles the RDS cost)"
+  type        = bool
+  default     = false
+}
+
+variable "existing_media_bucket" {
+  description = "Use this existing media bucket instead of creating one (prod: fitsync-media)"
   type        = string
   default     = ""
 }
@@ -129,20 +146,6 @@ variable "cognito_logout_urls" {
   description = "Allowed sign-out URLs for the SPA client"
   type        = list(string)
   default     = ["http://localhost:3000/logout/callback"]
-}
-
-variable "services" {
-  description = "Backend microservice names (one ECR repo each)"
-  type        = list(string)
-  default = [
-    "api-gateway",
-    "auth-service",
-    "user-service",
-    "workout-service",
-    "nutrition-service",
-    "analytics-service",
-    "recommendation-service",
-  ]
 }
 
 variable "bedrock_models" {
