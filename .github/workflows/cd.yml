@@ -217,7 +217,8 @@ jobs:
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           IMAGE_TAG="${GITHUB_SHA:0:8}"
           mkdir -p ~/.ssh
-          printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
+          # GitHub drops a secret's trailing newline; OpenSSH refuses a key without one.
+          printf '%s\n' "$STAGING_EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
           cat > .env.deploy <<EOF
@@ -400,7 +401,8 @@ jobs:
             docker manifest inspect "$ECR_REGISTRY/fitsync-$svc:$IMAGE_TAG" > /dev/null
           done
           mkdir -p ~/.ssh
-          printf "%s" "$PROD_EC2_SSH_KEY" > ~/.ssh/id_ed25519
+          # GitHub drops a secret's trailing newline; OpenSSH refuses a key without one.
+          printf '%s\n' "$PROD_EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$PROD_EC2_HOST" >> ~/.ssh/known_hosts
           cat > .env.deploy <<EOF
