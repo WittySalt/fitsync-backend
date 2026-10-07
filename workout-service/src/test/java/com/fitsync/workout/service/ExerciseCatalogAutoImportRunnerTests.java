@@ -27,7 +27,8 @@ class ExerciseCatalogAutoImportRunnerTests {
                 .thenReturn(new ExerciseCatalogImportResponse(2, 1, 1, 0, List.of()));
         ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
                 exerciseCatalogImportService,
-                true);
+                true,
+                Runnable::run);
 
         runner.run(new DefaultApplicationArguments());
 
@@ -40,7 +41,8 @@ class ExerciseCatalogAutoImportRunnerTests {
         when(exerciseCatalogImportService.isFreeExerciseDbImageSetPresent()).thenReturn(true);
         ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
                 exerciseCatalogImportService,
-                true);
+                true,
+                Runnable::run);
 
         runner.run(new DefaultApplicationArguments());
 
@@ -58,7 +60,8 @@ class ExerciseCatalogAutoImportRunnerTests {
                 .thenReturn(new ExerciseCatalogImportResponse(876, 0, 876, 0, List.of()));
         ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
                 exerciseCatalogImportService,
-                true);
+                true,
+                Runnable::run);
 
         runner.run(new DefaultApplicationArguments());
 
@@ -66,10 +69,31 @@ class ExerciseCatalogAutoImportRunnerTests {
     }
 
     @Test
+    void runsTheImportOnTheExecutorSoStartupIsNotHeldUp() {
+        java.util.List<Runnable> submitted = new java.util.ArrayList<>();
+        ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
+                exerciseCatalogImportService,
+                true,
+                submitted::add);
+
+        runner.run(new DefaultApplicationArguments());
+
+        // run() has returned and the import has only been handed to the executor.
+        verify(exerciseCatalogImportService, never()).importFreeExerciseDbCatalog();
+        org.assertj.core.api.Assertions.assertThat(submitted).hasSize(1);
+
+        when(exerciseCatalogImportService.importFreeExerciseDbCatalog())
+                .thenReturn(new ExerciseCatalogImportResponse(1, 1, 0, 0, List.of()));
+        submitted.get(0).run();
+        verify(exerciseCatalogImportService).importFreeExerciseDbCatalog();
+    }
+
+    @Test
     void shouldSkipCatalogImportWhenAutoImportIsDisabled() {
         ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
                 exerciseCatalogImportService,
-                false);
+                false,
+                Runnable::run);
 
         runner.run(new DefaultApplicationArguments());
 
@@ -82,7 +106,8 @@ class ExerciseCatalogAutoImportRunnerTests {
                 .thenThrow(new IllegalStateException("storage unavailable"));
         ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
                 exerciseCatalogImportService,
-                true);
+                true,
+                Runnable::run);
 
         assertDoesNotThrow(() -> runner.run(new DefaultApplicationArguments()));
 

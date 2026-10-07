@@ -114,22 +114,23 @@ internally, so there is no separate validate job.
 
 ```
 PR   ─► (app CI only: verify + SAST — no terraform)
-push to main ─► CI ─(passed)─┐
-                             ├─► docker-image ─┬─ (STAGING_ENABLED=true) tf-plan ─► deploy-staging ─► deploy-staging-app
-manual run ──────────────────┘                 │                                                           │ success
-                                               └──────────────────► (manual run, deploy_prod) deploy-prod ◄┘
+push to main ─► CI (tests, SAST)
+manual run ─► ci-gate (CI passed for this commit?) ─► docker-image ─┬─ (STAGING_ENABLED=true) tf-plan ─► deploy-staging ─► deploy-staging-app
+                                                                    │                                                           │ success
+                                                                    └─────────────────── (manual run, deploy_prod) deploy-prod ◄┘
 ```
 
-Promotion rule: a push deploys staging at most. Prod deploys only from a manual run
-(Actions → CD → Run workflow) with `deploy_prod` ticked, and only after staging succeeded
-in that same run with the same image tag. With `STAGING_ENABLED` not `true`, staging jobs
-are skipped, so a push never re-creates a destroyed staging. To deploy prod without
+Promotion rule: CD never starts by itself. A person runs it on main (Actions → CD → Run
+workflow) once CI has passed, and `ci-gate` refuses any commit without a successful CI
+run. A run deploys staging; prod deploys only with `deploy_prod` ticked, and only after
+staging succeeded in that same run with the same image tag. With `STAGING_ENABLED` not
+`true`, staging jobs are skipped, so a run never re-creates a destroyed staging. To deploy prod without
 staging, tick `skip_staging` and give a reason; the run summary records who skipped
 staging and why.
 
 GitHub offers required reviewers on Environments only for public repositories or paid
-plans, so this private repository gets its prod gate from the workflow instead: a push
-never deploys prod, a person has to start a manual run.
+plans, so this private repository gets its prod gate from the workflow instead: nothing
+deploys unless a person starts a run, and prod needs `deploy_prod` ticked in it.
 
 ### Remote-state bootstrap (done)
 
