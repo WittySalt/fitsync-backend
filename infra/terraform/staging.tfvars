@@ -1,14 +1,15 @@
 # ── STAGING — the environment we run for deploy→test→promote ─────────────────
 # Apply with:  terraform workspace select staging && terraform apply -var-file=staging.tfvars
-# All resources are named fitsync-staging-* and are fully isolated from the
-# existing hand-built production environment (which Terraform never touches).
+# All resources are named fitsync-staging-* and are fully isolated from prod
+# (the prod workspace, prod.tfvars).
 #
 # ⚠️ COST: enable_ec2 + enable_rds bill while up. This config stands up the full
 # app+DB so stress/DAST can run against it; `terraform destroy` after the demo.
 # Also required at apply time:
-#   - TF_VAR_db_password   RDS master password (env var; never commit)
-#   - ec2_key_name below   must match an EXISTING EC2 key pair; its private half
-#                          is the STAGING_EC2_SSH_KEY CI variable
+#   - TF_VAR_db_password     RDS master password (env var; never commit)
+#   - TF_VAR_ec2_public_key  SSH public key for the deploy key pair; its private half
+#                            is the STAGING_EC2_SSH_KEY secret (CI reads the public
+#                            half from the STAGING_EC2_PUBLIC_KEY variable)
 
 region = "ap-southeast-1"
 env    = "staging"
@@ -19,13 +20,9 @@ env    = "staging"
 enable_rds = true
 enable_ec2 = true
 
-# Existing EC2 key pair name (create once: `aws ec2 create-key-pair --key-name
-# fitsync-staging ...`). Empty = no SSH key on the instance (deploy-staging-app
-# would not be able to connect).
-ec2_key_name = "fitsync-staging"
-
-# The full 6-service stack + kafka + redis needs ~5-6 GB; the t3.small default
-# (2 GB) cannot run it. Match prod's t3.large.
+# The full 7-service stack + kafka + redis idles at ~3 GB with ~7 GB of container
+# limits; the t3.small default (2 GB) cannot run it. Match prod's t3.large, and
+# move both to t3.xlarge if deploys hit the health-check timeout.
 ec2_instance_type = "t3.large"
 
 cognito_callback_urls = ["http://localhost:3000/auth/callback"]

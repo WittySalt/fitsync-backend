@@ -1,5 +1,9 @@
 # ── Cognito user pool + SPA app client (free tier) ───────────────────────────
+# Off for prod: prod keeps its existing pool (created by hand, holds real users), and
+# auth-service / the SPA are pointed at it by configuration instead.
 resource "aws_cognito_user_pool" "main" {
+  count = var.enable_cognito ? 1 : 0
+
   name = "${local.name}-users"
 
   username_attributes      = ["email"]
@@ -24,8 +28,10 @@ resource "aws_cognito_user_pool" "main" {
 }
 
 resource "aws_cognito_user_pool_client" "spa" {
+  count = var.enable_cognito ? 1 : 0
+
   name         = "FitSync"
-  user_pool_id = aws_cognito_user_pool.main.id
+  user_pool_id = aws_cognito_user_pool.main[0].id
 
   generate_secret = false
 
@@ -46,6 +52,8 @@ resource "aws_cognito_user_pool_client" "spa" {
 }
 
 resource "aws_cognito_user_pool_domain" "main" {
+  count = var.enable_cognito ? 1 : 0
+
   domain       = "${local.name}-${local.account_id}"
-  user_pool_id = aws_cognito_user_pool.main.id
+  user_pool_id = aws_cognito_user_pool.main[0].id
 }

@@ -20,32 +20,30 @@ docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 | File | Resources | Cost / speed |
 |------|-----------|--------------|
 | `network.tf` | VPC, public subnets, IGW, routes, security groups | free, instant |
-| `registry.tf` | 6× ECR repos (one per service) + lifecycle policy | free (empty), instant |
+| `registry.tf` | 7× ECR repos (one per service) + lifecycle policy | free (empty), instant |
 | `storage.tf` | S3 media bucket, S3 frontend bucket, CloudFront* | ~free; CloudFront slow |
 | `auth.tf` | Cognito user pool + SPA client + hosted domain | free tier, instant |
 | `ci_iam.tf` | EC2 instance role/profile, CI deploy policy | free, instant |
 | `data.tf` | RDS PostgreSQL* | **costs money**, ~10 min |
-| `compute.tf` | EC2 app host + EIP* | **costs money** |
+| `compute.tf` | EC2 app host + EIP* + deploy key pair | **costs money** |
+| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary (own state, applied once) | free, instant |
 
 `*` gated behind feature flags (`enable_cloudfront`, `enable_rds`, `enable_ec2`),
 default **false**, so the first apply is free and instant.
 
 ## Two-environment model
 
-Two environments are **defined** (`staging.tfvars`, `prod.tfvars`), but only
-**staging is run for now**. The existing live production app stays on its
-hand-built environment, which Terraform deliberately does **not** manage until
-a deliberate post-defense cut-over.
+Both environments are built by Terraform, each in its own workspace. The hand-built
+prod of June 2026 was torn down on 2026-06-27; prod is restored from its RDS snapshot.
 
-| Environment | tfvars | State (workspace) | Status |
-|-------------|--------|-------------------|--------|
-| **staging** | `staging.tfvars` → `fitsync-staging-*` | `staging` | ✅ run now (free footprint) |
-| **prod** | `prod.tfvars` → `fitsync-prod-*` | `prod` | ⏸️ reserved — apply at cut-over |
-| existing live prod | (not managed) | — | 🔒 untouched, serves the demo |
+| Environment | tfvars | State (workspace) | Notes |
+|-------------|--------|-------------------|-------|
+| **staging** | `staging.tfvars` → `fitsync-staging-*` | `staging` | own Cognito pool, gateway open on :8088 for stress/DAST, throwaway |
+| **prod** | `prod.tfvars` → `fitsync-prod-*` | `prod` | RDS from snapshot, deletion protection + final snapshot, gateway reachable from CloudFront only |
 
-Resource names are env-prefixed, so nothing here collides with the existing
-unprefixed prod resources (`fitsync-db`, `fitsync-media`, `fitsync-frontend-prod`,
-`fitsync-<svc>` ECR repos).
+Kept outside Terraform on purpose: the prod Cognito pool `ap-southeast-1_myVyuOmPD`
+(holds real users), the media bucket `fitsync-media`, and the frontend bucket and
+CloudFront distribution of prod.
 
 ## Prerequisites
 
@@ -53,7 +51,7 @@ unprefixed prod resources (`fitsync-db`, `fitsync-media`, `fitsync-frontend-prod
 - AWS credentials configured (`aws sts get-caller-identity` works)
 - Region: `ap-southeast-1`
 
-## Run staging (the only thing to do now)
+## Run staging by hand
 
 > **PowerShell note:** PowerShell mangles the bare `-var-file=staging.tfvars`
 > token (terraform ends up seeing `.tfvars` as a plan file →
@@ -103,10 +101,10 @@ requests — the same rule the container build (`docker-image`) already follows.
 runs (`ci.yml`) stay app-focused (tests + SAST). `terraform plan` validates
 internally, so there is no separate validate job.
 
-- `tf-plan` — assumes the AWS role, `terraform plan` against remote state,
-  uploads `tfplan` as an artifact.
+- `tf-plan` — assumes the AWS role and prints `terraform plan` against remote state.
+  The plan is not uploaded: a saved plan holds the DB password in plain text.
 - `deploy-staging` — `environment: staging` (add required reviewers for a manual
-  gate), consumes `tfplan` and runs `terraform apply`. Staging delivered by Terraform.
+  gate), runs `terraform apply` on a fresh plan. Staging delivered by Terraform.
 - `deploy-prod` — the existing SSH deploy, `environment: production`.
 
 ```
@@ -121,44 +119,59 @@ State bucket `s3://fitsync-tfstate-437659978621` (versioned, private,
 `use_lockfile`) is created and the local staging state has been migrated into it,
 so CI and local share one state.
 
-### ⚠️ Remaining prerequisite — CI role permissions
+### CD role (bootstrap/)
 
-The pipeline assumes `AWS_ROLE_ARN` (GitHub OIDC). For `tf-plan` / `deploy-staging`
-to provision, **that role needs create permissions** for VPC, ECR, S3, Cognito, IAM
-(the existing role is deploy-scoped: ECR push + SSM). Attach a broader policy
-(scoped IaC policy, or `PowerUserAccess` + IAM, for the capstone) to the GitHub
-Actions role before enabling `deploy-staging`. Also add the secret `TF_VAR_DB_PASSWORD`
-if you later set `enable_rds=true`.
+`bootstrap/` creates, once per account, the GitHub OIDC provider and the role both
+repos assume (`AWS_ROLE_ARN` = its `github_cd_role_arn` output). It has its own state
+and no workspaces.
 
-## Cut-over plan (AFTER the defense — do NOT run before)
+- Trust: only `main` and the `staging` / `production` environments of the two repos,
+  so feature branches and forks cannot assume it.
+- Permissions: `PowerUserAccess` (no IAM) plus an inline policy that may manage only
+  `fitsync-staging-*` / `fitsync-prod-*` roles, policies and instance profiles.
+- Every role it creates must carry `fitsync-workload-boundary` (all actions except
+  IAM, Organizations and Account), so CD can never mint a role stronger than itself.
+  `ci_iam.tf` sets that boundary on the EC2 role.
 
-The reserved `prod` interface (`prod.tfvars` → `fitsync-prod-*`) is how the live
-app eventually moves onto IaC. Two viable strategies:
+## Rebuild (bootstrap → staging → prod)
 
-- **Greenfield + cut-over**: `terraform workspace new prod` →
-  `terraform apply -var-file=prod.tfvars` to stand up a clean prod, deploy the 6
-  services, migrate RDS data, then switch CloudFront/DNS traffic and retire the
-  old box. Cleanest end state.
-- **Import in place**: bring the existing hand-built resources under Terraform
-  with `terraform import` (no rebuild), then `terraform plan` until it shows
-  "No changes". Lower disruption, but resource names won't match the prefixed
-  scheme — expect a one-off config reconciliation.
+Run from `infra/terraform` with an admin AWS profile. Every step that costs money is
+marked.
 
-Add `lifecycle { prevent_destroy = true }` to imported/prod RDS + EC2 first.
-
-## Bringing the EXISTING prod under management (import, no rebuild)
-
-The live prod resources were created by hand. To codify them **without recreating**
-anything, import them into a separate `prod` state and confirm zero drift:
-
-```bash
-# example — repeat per existing resource with its real AWS id
-terraform import 'aws_ecr_repository.service["api-gateway"]' fitsync-api-gateway
-terraform import aws_cognito_user_pool.main ap-southeast-1_myVyuOmPD
-terraform plan    # goal: "No changes" => code matches live infra
-```
-
-Add `lifecycle { prevent_destroy = true }` to imported RDS/EC2 before applying.
+1. **Bootstrap (free).** `cd bootstrap && terraform init && terraform apply`, then set
+   `AWS_ROLE_ARN`, `AWS_ACCOUNT_ID`, `AWS_REGION` as repository variables in both repos.
+2. **Deploy keys.** One key per environment:
+   ```bash
+   ssh-keygen -t ed25519 -N "" -C fitsync-staging-deploy -f fitsync-staging-deploy
+   ssh-keygen -t ed25519 -N "" -C fitsync-prod-deploy    -f fitsync-prod-deploy
+   ```
+   Public halves → `STAGING_EC2_PUBLIC_KEY` variable / `TF_VAR_ec2_public_key` for prod;
+   private halves → `STAGING_EC2_SSH_KEY` / `PROD_EC2_SSH_KEY` secrets. Never commit them.
+3. **Staging (costs money while up).** Either push to `main` with the CD variables
+   and secrets set (`tf-plan` → `deploy-staging` → `bootstrap-staging-db` →
+   `deploy-staging-app`), or locally:
+   ```bash
+   terraform workspace select staging
+   TF_VAR_db_password=... TF_VAR_ec2_public_key="$(cat fitsync-staging-deploy.pub)"      terraform apply -var-file=staging.tfvars
+   ```
+   Then point the frontend's staging config at the new pool, client and EC2 host
+   (`terraform output`).
+4. **Prod (costs money while up).** Applied locally, not by CD:
+   ```bash
+   terraform workspace select prod
+   TF_VAR_db_password=... TF_VAR_ec2_public_key="$(cat fitsync-prod-deploy.pub)"      terraform apply -var-file=prod.tfvars
+   ```
+   The RDS restores from `fitsync-db-teardown-20260627-1945` (PostgreSQL 18, master
+   user `fitsync_admin`, password reset to `TF_VAR_db_password`). Then, from the prod
+   EC2, run `scripts/bootstrap-prod-db.sql` with the six `<SERVICE>_DB_PASSWORD` values:
+   it resets the existing service passwords and creates `recommendation_svc`.
+   Set `PROD_EC2_HOST` (`ec2_public_ip` output), `DB_URL`
+   (`jdbc:postgresql://<rds_endpoint>/fitsync`) and the other prod secrets, then CD's
+   `deploy-prod` deploys on the next push to `main`. Finally point the prod CloudFront
+   `/api` origin at the new EC2 public DNS name.
+5. **Tear down.** Staging: `terraform destroy -var-file=staging.tfvars`. Prod has
+   deletion protection; turning it off is a deliberate edit, and destroy leaves the
+   `fitsync-prod-db-final` snapshot behind.
 
 ## Presentation talking points
 
@@ -166,8 +179,8 @@ Add `lifecycle { prevent_destroy = true }` to imported RDS/EC2 before applying.
    (docker-compose + GitHub Actions) — both version-controlled and reproducible.
 2. **Evidence**: `terraform apply` output + console screenshots + a clean
    `terraform destroy` proving full reproducibility.
-3. **Multi-environment**: `staging` provisioned greenfield via `apply`; `prod`
-   brought under management via `import` with `prevent_destroy` guards.
+3. **Multi-environment**: `staging` and `prod` are both built from code in their own
+   workspaces; prod restores its data from a snapshot and carries deletion protection.
 4. **Roadmap / concern**: migrate state to an S3 + DynamoDB remote backend; split
    public/private subnets + NAT; move secrets to SSM Parameter Store / Secrets Manager.
 
@@ -177,8 +190,8 @@ Stand up the full staging app+DB so `stress-test` / `owasp-zap` can run against 
 then tear it down to stop the bill.
 
 **Prerequisites**
-1. EC2 key pair: `aws ec2 create-key-pair --key-name fitsync-staging --query KeyMaterial --output text > fitsync-staging.pem` (private key → Actions secret `STAGING_EC2_SSH_KEY`). `ec2_key_name` in `staging.tfvars` already references it.
-2. Actions secrets: `STAGING_EC2_SSH_KEY`, `STAGING_DB_PASSWORD`, `STAGING_JWT_SECRET`, `TF_VAR_DB_PASSWORD` (plus the existing `AWS_ROLE_ARN` / `AWS_ACCOUNT_ID` / `AWS_REGION` variables).
+1. Deploy key: see "Rebuild" step 2 (public half → `STAGING_EC2_PUBLIC_KEY` variable, private half → `STAGING_EC2_SSH_KEY` secret).
+2. Actions secrets: `STAGING_EC2_SSH_KEY`, `STAGING_DB_PASSWORD`, `STAGING_JWT_SECRET`, `TF_VAR_DB_PASSWORD`; variables `STAGING_EC2_PUBLIC_KEY`, `STAGING_CORS_ALLOWED_ORIGINS` (plus `AWS_ROLE_ARN` / `AWS_ACCOUNT_ID` / `AWS_REGION`).
 3. RDS master password at apply time: `export TF_VAR_db_password=...`.
 
 **Order (jobs of the CD workflow on `main`, or local terraform):**

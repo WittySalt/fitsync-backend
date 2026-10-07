@@ -1,23 +1,28 @@
-# ── PROD — RESERVED INTERFACE. DO NOT APPLY BEFORE THE DEFENSE. ───────────────
-# This file exists so the prod environment is defined and ready, but it is NOT
-# provisioned yet. The live production app currently runs on the existing
-# hand-built environment, which Terraform deliberately does not manage.
+# ── PROD ─────────────────────────────────────────────────────────────────────
+# The hand-built prod environment was torn down on 2026-06-27 (EC2, RDS and EIP
+# gone; RDS snapshot kept). Prod is now rebuilt by Terraform from that snapshot:
 #
-# Post-defense cut-over (see RUNBOOK.md "Cut-over plan"):
-#   terraform workspace new prod
-#   terraform apply -var-file=prod.tfvars      # stand up the IaC prod env
-#   ...deploy services + migrate data, then switch traffic...
+#   terraform workspace select prod || terraform workspace new prod
+#   terraform apply -var-file=prod.tfvars    # with TF_VAR_db_password, TF_VAR_ec2_public_key
 #
-# Resources are named fitsync-prod-* and do NOT collide with the existing
-# unprefixed prod resources (fitsync-db, fitsync-media, fitsync-frontend-prod).
+# Resources are named fitsync-prod-*. Kept outside Terraform on purpose: the
+# Cognito pool (real users), the media bucket fitsync-media, the frontend bucket
+# fitsync-frontend-prod and its CloudFront distribution. See RUNBOOK.md "Rebuild".
 
 region = "ap-southeast-1"
 env    = "prod"
 
-# Reserved: keep paid/compute resources OFF until the deliberate cut-over.
-enable_rds = false
-enable_ec2 = false
+enable_rds = true
+enable_ec2 = true
 
-# Point these at the real production frontend origin during cut-over.
-cognito_callback_urls = ["http://localhost:3000/auth/callback"]
-cognito_logout_urls   = ["http://localhost:3000/logout/callback"]
+ec2_instance_type = "t3.large"
+
+# The 2026-06-27 teardown snapshot of the old fitsync-db (PostgreSQL 18.3).
+db_snapshot_identifier = "fitsync-db-teardown-20260627-1945"
+db_engine_version      = "18"
+
+# Existing pool ap-southeast-1_myVyuOmPD stays in charge of sign-in.
+enable_cognito = false
+
+# Only the prod CloudFront distribution reaches the gateway, as before the teardown.
+api_from_cloudfront_only = true

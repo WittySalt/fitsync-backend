@@ -42,7 +42,9 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION }}
 
 jobs:
-  # ── iac: terraform plan for staging ─────────────────────────────────────────
+  # ── iac: terraform plan for staging (review only) ───────────────────────────
+  # The plan is printed, not uploaded: a saved plan file holds the DB password in
+  # plain text, and artifacts are readable by anyone who can read the repo.
   tf-plan:
     if: ${{ vars.AWS_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
@@ -57,15 +59,13 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
       - name: terraform plan (staging)
         working-directory: infra/terraform
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+          TF_VAR_ec2_public_key: ${{ vars.STAGING_EC2_PUBLIC_KEY }}
         run: |
           terraform init
           terraform workspace select staging || terraform workspace new staging
-          terraform plan -var-file=staging.tfvars -out=tfplan
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: infra/terraform/tfplan
-          retention-days: 7
+          terraform plan -input=false -var-file=staging.tfvars
 
   # ── docker: build jars, build + Trivy-scan + push the 7 service images ───────
   docker-image:
@@ -135,6 +135,7 @@ jobs:
 
   # ── deploy-staging: terraform apply (provision/update staging) ──────────────
   # Add required reviewers to the `staging` Environment for a manual approval gate.
+  # Applies a fresh plan (the reviewed one is printed by tf-plan, never stored).
   deploy-staging:
     if: ${{ vars.AWS_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
@@ -149,18 +150,15 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: tfplan
-          path: infra/terraform
       - name: terraform apply (staging)
         working-directory: infra/terraform
         env:
           TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+          TF_VAR_ec2_public_key: ${{ vars.STAGING_EC2_PUBLIC_KEY }}
         run: |
           terraform init
           terraform workspace select staging
-          terraform apply -auto-approve tfplan
+          terraform apply -input=false -auto-approve -var-file=staging.tfvars
 
   # ── bootstrap the staging RDS: per-service roles + schemas (over SSH) ────────
   bootstrap-staging-db:
@@ -223,6 +221,7 @@ jobs:
           STAGING_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
           STAGING_JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
           STAGING_EC2_SSH_KEY: ${{ secrets.STAGING_EC2_SSH_KEY }}
+          STAGING_CORS_ALLOWED_ORIGINS: ${{ vars.STAGING_CORS_ALLOWED_ORIGINS }}
           FITSYNC_MEDIA_ENDPOINT: ${{ vars.FITSYNC_MEDIA_ENDPOINT }}
           FITSYNC_MEDIA_REGION: ${{ vars.FITSYNC_MEDIA_REGION }}
           FITSYNC_MEDIA_ACCESS_KEY: ${{ secrets.FITSYNC_MEDIA_ACCESS_KEY }}
@@ -240,6 +239,9 @@ jobs:
           terraform init && terraform workspace select staging
           STAGING_HOST="$(terraform output -raw ec2_public_ip)"
           RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
+          # auth-service must trust staging's own pool, not the prod default in compose.
+          COGNITO_POOL_ID="$(terraform output -raw cognito_user_pool_id)"
+          COGNITO_CLIENT_ID="$(terraform output -raw cognito_spa_client_id)"
           cd "$GITHUB_WORKSPACE"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           IMAGE_TAG="${GITHUB_SHA:0:8}"
@@ -292,6 +294,9 @@ jobs:
           RECOMMENDATION_AI_BASE_URL=${RECOMMENDATION_AI_BASE_URL}
           ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
           COGNITO_ENABLED=false
+          AUTH_COGNITO_ISSUER_URI=https://cognito-idp.${AWS_REGION}.amazonaws.com/${COGNITO_POOL_ID}
+          AUTH_COGNITO_AUDIENCE=${COGNITO_CLIENT_ID}
+          FITSYNC_CORS_ALLOWED_ORIGINS=${STAGING_CORS_ALLOWED_ORIGINS}
           NGINX_SERVER_NAME=_
           NGINX_CERT_NAME=localhost
           FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}

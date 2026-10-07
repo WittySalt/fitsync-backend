@@ -83,6 +83,36 @@ variable "ec2_instance_type" {
   default     = "t3.small"
 }
 
+variable "ec2_public_key" {
+  description = "SSH public key for the deploy key pair (preferred over ec2_key_name)"
+  type        = string
+  default     = ""
+}
+
+variable "enable_cognito" {
+  description = "Create a Cognito user pool for this environment (false = use an existing pool)"
+  type        = bool
+  default     = true
+}
+
+variable "db_snapshot_identifier" {
+  description = "Restore RDS from this snapshot instead of creating an empty database"
+  type        = string
+  default     = null
+}
+
+variable "db_engine_version" {
+  description = "PostgreSQL major version (must match the snapshot when restoring)"
+  type        = string
+  default     = "16"
+}
+
+variable "api_from_cloudfront_only" {
+  description = "Allow the gateway port only from CloudFront's origin-facing IP ranges"
+  type        = bool
+  default     = false
+}
+
 variable "ec2_key_name" {
   description = "Existing EC2 key pair name for SSH (optional, empty = no key)"
   type        = string
