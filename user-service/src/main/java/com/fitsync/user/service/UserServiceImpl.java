@@ -79,6 +79,7 @@ import com.fitsync.user.repository.AccountDataExportRequestRepository;
 import com.fitsync.user.repository.BodyMetricEntryRepository;
 import com.fitsync.user.repository.UserAppPreferencesRepository;
 import com.fitsync.user.repository.UserGoalRepository;
+import com.fitsync.user.repository.UserGuideStateRepository;
 import com.fitsync.user.repository.UserHealthReadinessRepository;
 import com.fitsync.user.repository.UserNotificationPreferencesRepository;
 import com.fitsync.user.repository.UserNutritionPreferencesRepository;
@@ -122,6 +123,7 @@ public class UserServiceImpl implements UserService {
     private final UserNotificationPreferencesRepository userNotificationPreferencesRepository;
     private final BodyMetricEntryRepository bodyMetricEntryRepository;
     private final UserGoalRepository userGoalRepository;
+    private final UserGuideStateRepository userGuideStateRepository;
 
     public UserServiceImpl(DomainEventPublisher domainEventPublisher,
                            ObjectProvider<MediaStorageService> mediaStorageServiceProvider,
@@ -134,6 +136,7 @@ public class UserServiceImpl implements UserService {
                            UserNotificationPreferencesRepository userNotificationPreferencesRepository,
                            BodyMetricEntryRepository bodyMetricEntryRepository,
                            UserGoalRepository userGoalRepository,
+                           UserGuideStateRepository userGuideStateRepository,
                            EnergyProfileService energyProfileService) {
         this.energyProfileService = energyProfileService;
         this.domainEventPublisher = domainEventPublisher;
@@ -147,6 +150,7 @@ public class UserServiceImpl implements UserService {
         this.userNotificationPreferencesRepository = userNotificationPreferencesRepository;
         this.bodyMetricEntryRepository = bodyMetricEntryRepository;
         this.userGoalRepository = userGoalRepository;
+        this.userGuideStateRepository = userGuideStateRepository;
     }
 
     @Override
@@ -756,6 +760,7 @@ public class UserServiceImpl implements UserService {
         userNutritionPreferencesRepository.deleteById(userId);
         userTrainingPreferencesRepository.deleteById(userId);
         userAppPreferencesRepository.deleteById(userId);
+        userGuideStateRepository.deleteById(userId);
         userProfileRepository.deleteById(userId);
 
         domainEventPublisher.publish(

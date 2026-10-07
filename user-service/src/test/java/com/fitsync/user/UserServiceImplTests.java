@@ -55,6 +55,7 @@ import com.fitsync.user.repository.AccountDataExportRequestRepository;
 import com.fitsync.user.repository.BodyMetricEntryRepository;
 import com.fitsync.user.repository.UserAppPreferencesRepository;
 import com.fitsync.user.repository.UserGoalRepository;
+import com.fitsync.user.repository.UserGuideStateRepository;
 import com.fitsync.user.repository.UserHealthReadinessRepository;
 import com.fitsync.user.repository.UserNotificationPreferencesRepository;
 import com.fitsync.user.repository.UserNutritionPreferencesRepository;
@@ -394,6 +395,7 @@ class UserServiceImplTests {
                 mock(UserNotificationPreferencesRepository.class);
         private final BodyMetricEntryRepository bodyMetricEntryRepository = mock(BodyMetricEntryRepository.class);
         private final UserGoalRepository userGoalRepository = mock(UserGoalRepository.class);
+        private final UserGuideStateRepository userGuideStateRepository = mock(UserGuideStateRepository.class);
         private final EnergyProfileService energyProfileService = mock(EnergyProfileService.class);
 
         private Fixtures() {
@@ -412,6 +414,7 @@ class UserServiceImplTests {
                 userNotificationPreferencesRepository,
                 bodyMetricEntryRepository,
                 userGoalRepository,
+                userGuideStateRepository,
                 energyProfileService);
     }
 }
