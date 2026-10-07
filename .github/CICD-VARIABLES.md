@@ -21,7 +21,7 @@ commands below.
 | `PROD_DOMAIN` | deploy-prod | nginx server name (optional) |
 | `COGNITO_ENABLED` | deploy-prod | `true`/`false` (optional) |
 | `FITSYNC_MEDIA_ENDPOINT` `FITSYNC_MEDIA_REGION` `FITSYNC_MEDIA_BUCKET` `FITSYNC_MEDIA_PUBLIC_BASE_URL` | deploy | S3 media config |
-| `RECOMMENDATION_AI_ENABLED` `RECOMMENDATION_AI_PROVIDER` `RECOMMENDATION_AI_MODEL` | deploy | coach AI tier (optional). Unset = off, the coach falls back to rule text |
+| `RECOMMENDATION_AI_ENABLED` `RECOMMENDATION_AI_PROVIDER` `RECOMMENDATION_AI_MODEL` `RECOMMENDATION_AI_BASE_URL` | deploy | coach AI tier (optional). Unset = off, the coach falls back to rule text |
 | `STRESS_TARGET_URL` `STRESS_PROFILE` | stress-test | k6 target + profile |
 | `DAST_TARGET_URL` | owasp-zap | ZAP target base URL |
 | `SONAR_HOST_URL` `SONAR_PROJECT_KEY` `SONAR_ORGANIZATION` `SONAR_QUALITYGATE_WAIT` | verify (optional) | only if using Sonar |

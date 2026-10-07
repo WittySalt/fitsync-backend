@@ -243,6 +243,7 @@ Coach AI tier (optional; unset leaves it off and the coach uses its rule text):
 | `RECOMMENDATION_AI_ENABLED` | `true` | no | defaults to `false` |
 | `RECOMMENDATION_AI_PROVIDER` | `anthropic` | no | compose default when unset |
 | `RECOMMENDATION_AI_MODEL` | e.g. `claude-haiku-4-5-20251001` | no | compose default when unset |
+| `RECOMMENDATION_AI_BASE_URL` | e.g. `http://ollama:11434` | no | needed only for the `ollama` provider; the compose default `localhost` points at the container itself |
 | `ANTHROPIC_API_KEY` | Anthropic API key | yes | needed only for the `anthropic` provider |
 
 > The workout-service image dir is fixed to `/opt/fitsync/free-exercise-db/exercises`
