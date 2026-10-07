@@ -31,6 +31,11 @@ SELECT format('CREATE ROLE %I LOGIN', 'nutrition_svc') WHERE NOT EXISTS (SELECT 
 ALTER ROLE nutrition_svc LOGIN PASSWORD :'nutrition_pw';
 CREATE SCHEMA IF NOT EXISTS nutrition;
 GRANT USAGE, CREATE ON SCHEMA nutrition TO nutrition_svc;
+-- Typo-tolerant food search (nutrition V30) needs pg_trgm. Creating an extension needs CREATE
+-- on the database, which the service role does not get, so the master creates it here, in the
+-- schema the service's connections search (hikari.schema = nutrition). V30's
+-- "create extension if not exists" then finds it and moves on.
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA nutrition;
 
 -- analytics
 SELECT format('CREATE ROLE %I LOGIN', 'analytics_svc') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'analytics_svc')\gexec
