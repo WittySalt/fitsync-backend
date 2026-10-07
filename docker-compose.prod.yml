@@ -2,7 +2,7 @@
 # FitSync production stack — single-host (EC2) deployment.
 #
 #   Managed externally : PostgreSQL  -> Amazon RDS  (DB_URL / DB_USERNAME / DB_PASSWORD)
-#   On this host       : Redis (cache/session), the 6 services, nginx (TLS).
+#   On this host       : Redis (cache/session), Kafka, the 7 services, nginx (TLS).
 #
 # Images are built + pushed by scripts/build-images.sh as fitsync-<service>.
 # Provide the env values via a .env file next to this compose file
@@ -40,7 +40,7 @@ x-app-env: &app-env
   JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
 
 # Consumer-side listener switches (default off — granular rollout). Merged into the
-# consuming services (user/nutrition/analytics). A service ignores the flags for
+# consuming services (user/workout/nutrition/analytics/recommendation). A service ignores the flags for
 # listeners it does not declare, so one shared block is safe.
 x-kafka-consumer-env: &kafka-consumer-env
   KAFKA_USER_REGISTERED_LISTENER_ENABLED: ${KAFKA_USER_REGISTERED_LISTENER_ENABLED:-false}
@@ -55,6 +55,10 @@ x-kafka-consumer-env: &kafka-consumer-env
   KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED: ${KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED:-false}
   KAFKA_WORKOUT_DELETED_LISTENER_ENABLED: ${KAFKA_WORKOUT_DELETED_LISTENER_ENABLED:-false}
   KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED: ${KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED:-false}
+  # Consumed by several services (account deletion cascades into nutrition, workout, analytics
+  # and recommendation; profile updates feed analytics and recommendation), so they live here.
+  KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:-false}
+  KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:-false}
 
 # Object storage for media — workout exercise images AND user avatars. Both the
 # workout-service (catalog import) and user-service (avatar upload) write here via
@@ -227,7 +231,7 @@ services:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-workout-service:${IMAGE_TAG:-latest}
     container_name: fitsync-workout-service
     environment:
-      <<: [*app-env, *media-env]
+      <<: [*app-env, *kafka-consumer-env, *media-env]
       DB_USERNAME: workout_svc
       DB_PASSWORD: ${WORKOUT_DB_PASSWORD}
       SERVER_PORT: 8082
@@ -295,7 +299,7 @@ services:
   # thirteen event streams into a per-user context projection, and serves the read API the
   # gateway proxies at /api/v1/recommendations/**.
   #
-  # Its listeners are OFF by default like every other consumer. Five of them have no entry in
+  # Its listeners are OFF by default like every other consumer. Three of them have no entry in
   # the shared x-kafka-consumer-env anchor because only this service consumes them, so they are
   # declared here.
   #
@@ -311,11 +315,9 @@ services:
       DB_PASSWORD: ${RECOMMENDATION_DB_PASSWORD}
       SERVER_PORT: 8086
       # Consumed only by this service, so absent from the shared anchor.
-      KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED: ${KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED:-false}
       KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED: ${KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED:-false}
       KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED: ${KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED:-false}
       KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED: ${KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED:-false}
-      KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:-false}
       # AI narrative tier (A1 weekly narrative + A4 coach Q&A).
       RECOMMENDATION_AI_ENABLED: ${RECOMMENDATION_AI_ENABLED:-false}
       RECOMMENDATION_AI_PROVIDER: ${RECOMMENDATION_AI_PROVIDER:-anthropic}

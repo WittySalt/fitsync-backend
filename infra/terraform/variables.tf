@@ -111,5 +111,6 @@ variable "services" {
     "workout-service",
     "nutrition-service",
     "analytics-service",
+    "recommendation-service",
   ]
 }

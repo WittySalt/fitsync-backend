@@ -22,7 +22,7 @@ ROLLBACK_FILE="$DEPLOY_DIR/.previous_prod_tag"
 # The runnable images (nginx is handled separately once TLS certs exist). `kafka`
 # is in the `events` compose profile (enabled below) and backs the cross-service
 # event projections (e.g. goal targets → nutrition daily budget).
-SERVICES="redis kafka api-gateway auth-service user-service workout-service nutrition-service analytics-service"
+SERVICES="redis kafka api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service"
 
 # --profile events so the in-stack kafka broker (profiled) is eligible to start.
 compose() { sudo docker compose -f docker-compose.prod.yml --profile events "$@"; }

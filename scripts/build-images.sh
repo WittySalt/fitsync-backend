@@ -8,8 +8,8 @@
 #   ECR_REGISTRY=123456789012.dkr.ecr.ap-southeast-1.amazonaws.com \
 #     PUSH=1 scripts/build-images.sh                         # also tag + push to ECR
 #
-# recommendation-service / notification-service are intentionally skipped — they
-# are empty placeholder modules (pom.xml only, no source) and are not runnable.
+# notification-service is intentionally skipped: it is an empty placeholder module
+# (pom.xml only, no source) and is not runnable.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # backend root (Docker build context)
@@ -26,6 +26,7 @@ SERVICES=(
   "workout-service:8082"
   "nutrition-service:8083"
   "analytics-service:8085"
+  "recommendation-service:8086"
 )
 
 for entry in "${SERVICES[@]}"; do

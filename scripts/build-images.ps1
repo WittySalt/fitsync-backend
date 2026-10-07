@@ -7,8 +7,8 @@
 #   $env:ECR_REGISTRY = "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com"
 #   $env:PUSH = "1"; backend\scripts\build-images.ps1
 #
-# recommendation-service / notification-service are intentionally skipped — they
-# are empty placeholder modules (pom.xml only, no source) and are not runnable.
+# notification-service is intentionally skipped: it is an empty placeholder module
+# (pom.xml only, no source) and is not runnable.
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')   # backend root (Docker build context)
 
@@ -24,6 +24,7 @@ $services = [ordered]@{
   'workout-service'   = 8082
   'nutrition-service' = 8083
   'analytics-service' = 8085
+  'recommendation-service' = 8086
 }
 
 foreach ($svc in $services.Keys) {

@@ -12,9 +12,9 @@ Environment's approval gate, if you add required reviewers).
 
 ## What runs where
 
-- **6 images** in ECR: `fitsync-{api-gateway,auth-service,user-service,workout-service,nutrition-service,analytics-service}`
-- **EC2** (t3.medium, Amazon Linux 2023): runs all 6 + a `redis` container, via `/opt/fitsync/docker-compose.prod.yml`
-- **RDS PostgreSQL**: one DB `fitsync`, 5 schemas (`auth`, `user_domain`, `workout`, `nutrition`, `analytics`) auto-created by Flyway
+- **7 images** in ECR: `fitsync-{api-gateway,auth-service,user-service,workout-service,nutrition-service,analytics-service,recommendation-service}`
+- **EC2** (t3.medium, Amazon Linux 2023): runs all 7 + `redis` and `kafka` containers, via `/opt/fitsync/docker-compose.prod.yml`
+- **RDS PostgreSQL**: one DB `fitsync`, 6 schemas (`auth`, `user_domain`, `workout`, `nutrition`, `analytics`, `recommendation`) auto-created by Flyway
 - CI authenticates to AWS via **GitHub OIDC → IAM role** (no static keys). The EC2 host pulls from ECR via its **instance role**.
 
 Set these shell vars first to paste the commands as-is:
@@ -30,7 +30,7 @@ export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 The `docker-image` job auto-creates each repo on first push, so this is optional —
 but you can pre-create them:
 ```bash
-for s in api-gateway auth-service user-service workout-service nutrition-service analytics-service; do
+for s in api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service; do
   aws ecr create-repository --repository-name "fitsync-$s" \
     --image-scanning-configuration scanOnPush=true --region "$AWS_REGION" || true
 done
@@ -157,11 +157,11 @@ aws rds describe-db-instances --db-instance-identifier fitsync-prod \
 ```
 - `DB_URL` = `jdbc:postgresql://<that-endpoint>:5432/fitsync`
 - **Per-service least-privilege users (not the master).** Each service connects as
-  its own DB user (`auth_svc`/`user_svc`/`workout_svc`/`nutrition_svc`/`analytics_svc`),
+  its own DB user (`auth_svc`/`user_svc`/`workout_svc`/`nutrition_svc`/`analytics_svc`/`recommendation_svc`),
   scoped to its schema, so a compromise of one service can't reach another's tables.
   One-time setup, run as the master once after the instance is up:
   ```sql
-  CREATE SCHEMA IF NOT EXISTS auth;        -- + user_domain, workout, nutrition, analytics
+  CREATE SCHEMA IF NOT EXISTS auth;        -- + user_domain, workout, nutrition, analytics, recommendation
   CREATE USER auth_svc WITH PASSWORD '<AUTH_DB_PASSWORD>';   -- one per service
   GRANT ALL ON SCHEMA auth TO auth_svc;    ALTER ROLE auth_svc SET search_path = auth;
   ```
@@ -219,6 +219,7 @@ for which job reads each one and `gh` one-liners.
 | `WORKOUT_DB_PASSWORD` | password for DB user `workout_svc` | yes | |
 | `NUTRITION_DB_PASSWORD` | password for DB user `nutrition_svc` | yes | |
 | `ANALYTICS_DB_PASSWORD` | password for DB user `analytics_svc` | yes | |
+| `RECOMMENDATION_DB_PASSWORD` | password for DB user `recommendation_svc` | yes | |
 | `JWT_SECRET` | long random string | yes | `openssl rand -base64 48` |
 | `PROD_EC2_HOST` | the Elastic IP | no | |
 | `PROD_EC2_SSH_KEY` | contents of `fitsync_ed25519` | yes | the **private** key, full file |
@@ -234,6 +235,16 @@ Media / images (only if you want exercise images + avatars — see §8.5):
 | `FITSYNC_MEDIA_SECRET_KEY` | IAM user secret | yes | |
 | `FITSYNC_MEDIA_BUCKET` | `fitsync-media` | no | defaults to this if unset |
 | `FITSYNC_MEDIA_PUBLIC_BASE_URL` | `https://fitsync-media.s3.ap-southeast-1.amazonaws.com` | no | browser-reachable **https** base baked into stored URLs |
+
+Coach AI tier (optional; unset leaves it off and the coach uses its rule text):
+
+| Name | Value | Secret | Notes |
+|---|---|---|---|
+| `RECOMMENDATION_AI_ENABLED` | `true` | no | defaults to `false` |
+| `RECOMMENDATION_AI_PROVIDER` | `anthropic` | no | compose default when unset |
+| `RECOMMENDATION_AI_MODEL` | e.g. `claude-haiku-4-5-20251001` | no | compose default when unset |
+| `RECOMMENDATION_AI_BASE_URL` | e.g. `http://ollama:11434` | no | needed only for the `ollama` provider; the compose default `localhost` points at the container itself |
+| `ANTHROPIC_API_KEY` | Anthropic API key | yes | needed only for the `anthropic` provider |
 
 > The workout-service image dir is fixed to `/opt/fitsync/free-exercise-db/exercises`
 > by `cd.yml` (see §8.5 d).
@@ -345,7 +356,7 @@ Avatars need no seeding — they upload on demand once `user-service` has the me
 
 ## 9. TLS / nginx (optional follow-up)
 
-`deploy-prod` brings up the 6 services + redis but **not nginx** (a fresh host has
+`deploy-prod` brings up the 7 services + redis + kafka but **not nginx** (a fresh host has
 no certs). To add HTTPS:
 ```bash
 ssh -i fitsync_ed25519 ec2-user@<EIP>
