@@ -4,8 +4,8 @@ Single-host (EC2 + docker-compose) deployment that lights up the **gated**
 `docker-image` and `deploy-prod` jobs in [`.github/workflows/cd.yml`](.github/workflows/cd.yml)
 (full variable/secret reference: [`.github/CICD-VARIABLES.md`](.github/CICD-VARIABLES.md)).
 Region: **ap-southeast-1 (Singapore)**. Everything below is one-time setup; after
-it, every push to `main` builds 6 images and deploys them (behind the `production`
-Environment's approval gate, if you add required reviewers).
+it, every push to `main` builds 7 images and deploys them to staging; prod is deployed
+from a manual run with `deploy_prod` ticked (see the promotion rule in `cd.yml`).
 
 > The pipeline stays gated (green, jobs skipped) until the **`AWS_ROLE_ARN`**
 > repository variable is set. Set it last, on purpose.
@@ -262,8 +262,8 @@ and `SPRING_CACHE_TYPE` (`simple`) are fixed in the rendered `.env` — edit `cd
 
 1. Set all variables/secrets above **except** `AWS_ROLE_ARN`. Confirm the `main` CD run is green (AWS jobs skipped).
 2. Set `AWS_ROLE_ARN`. Push to `main` (or Actions → CD → **Run workflow**) → `docker-image` builds + pushes all 6 images to ECR.
-3. `deploy-prod` runs after `docker-image` (it needs `PROD_EC2_HOST` set). For a manual
-   confirmation step, add required reviewers to the `production` Environment.
+3. Run the workflow by hand with `deploy_prod` ticked (it needs `PROD_EC2_HOST` set);
+   `deploy-prod` runs once staging succeeded in that run.
    - First run auto-installs Docker + compose + aws-cli on the host, renders `/opt/fitsync/.env` from the variables, pulls from ECR, `compose up --wait`, health-gates the gateway, writes the rollback tag.
 4. Check through the ALB or CloudFront: `curl http://<alb_dns_name>/actuator/health` (staging) or
    `https://<prod-cloudfront>/actuator/health` → `{"status":"UP"}`. Port 8088 is open to the ALB only.

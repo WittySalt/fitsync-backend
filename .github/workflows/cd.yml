@@ -14,11 +14,12 @@
 # Flow: iac → docker → deploy-staging cascade → stress/DAST → prod.
 #
 # Promotion rule. Staging runs only while the STAGING_ENABLED variable is 'true', so a
-# push never rebuilds a staging that was destroyed to save money. On a push, prod
-# deploys only after deploy-staging-app succeeded with the same image tag; with
-# staging off, a push builds images and stops there. The one way past staging is a
-# manual run with skip_staging ticked and a reason, which still needs the
-# `production` Environment approval and is written to the run summary (break-glass).
+# push never rebuilds a staging that was destroyed to save money. A push deploys
+# staging at most; prod deploys only in a manual run with deploy_prod ticked, and only
+# after deploy-staging-app succeeded in that same run with the same image tag. (The
+# manual run is the approval: required reviewers on Environments need a paid plan for
+# a private repository.) The one way past staging is a manual run with skip_staging
+# ticked and a reason, written to the run summary (break-glass).
 name: CD
 
 on:
@@ -32,6 +33,10 @@ on:
         default: false
       run_dast:
         description: "Run OWASP ZAP DAST against staging"
+        type: boolean
+        default: false
+      deploy_prod:
+        description: "Deploy to production once staging succeeds in this run"
         type: boolean
         default: false
       skip_staging:
@@ -148,7 +153,6 @@ jobs:
           if-no-files-found: warn
 
   # ── deploy-staging: terraform apply (provision/update staging) ──────────────
-  # Add required reviewers to the `staging` Environment for a manual approval gate.
   # Applies a fresh plan (the reviewed one is printed by tf-plan, never stored).
   deploy-staging:
     if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
@@ -341,15 +345,15 @@ jobs:
           if-no-files-found: warn
 
   # ── promote to production ───────────────────────────────────────────────────
-  # Add required reviewers to the `production` Environment for the manual
-  # confirmation gate. Runs after staging succeeded with this commit's images, or
-  # on a break-glass manual run (see the promotion rule at the top).
+  # Manual runs only: deploy_prod after staging succeeded in the same run with this
+  # commit's images, or a break-glass run (see the promotion rule at the top).
   deploy-prod:
     if: >-
       ${{ !cancelled() && vars.AWS_ROLE_ARN != '' && vars.PROD_EC2_HOST != ''
+      && github.event_name == 'workflow_dispatch'
       && needs.docker-image.result == 'success'
-      && (needs.deploy-staging-app.result == 'success'
-          || (github.event_name == 'workflow_dispatch' && inputs.skip_staging && inputs.skip_reason != '')) }}
+      && ((inputs.deploy_prod && needs.deploy-staging-app.result == 'success')
+          || (inputs.skip_staging && inputs.skip_reason != '')) }}
     runs-on: ubuntu-latest
     needs: [docker-image, deploy-staging-app]
     environment: production

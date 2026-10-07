@@ -107,25 +107,28 @@ runs (`ci.yml`) stay app-focused (tests + SAST). `terraform plan` validates
 internally, so there is no separate validate job.
 
 - `tf-plan` — assumes the AWS role and prints `terraform plan` against remote state.
-  The plan is not uploaded: a saved plan holds the DB password in plain text.
-- `deploy-staging` — `environment: staging` (add required reviewers for a manual
-  gate), runs `terraform apply` on a fresh plan. Staging delivered by Terraform.
-- `deploy-prod` — the existing SSH deploy, `environment: production`.
+  The plan is not uploaded: a saved plan can hold generated secrets in plain text.
+- `deploy-staging` — `environment: staging`, runs `terraform apply` on a fresh plan.
+- `deploy-staging-app` — SSH deploy of this commit's images to staging.
+- `deploy-prod` — SSH deploy to prod, `environment: production`, manual runs only.
 
 ```
 PR   ─► (app CI only: verify + SAST — no terraform)
-main ─► docker-image ─┬─ (STAGING_ENABLED=true) tf-plan ─► [gated] deploy-staging ─► bootstrap-db ─► deploy-staging-app
-                      │                                                                                   │ success
-                      └──────────────────────────────────────────────────────────► [gated] deploy-prod ◄─┘
+push / manual ─► docker-image ─┬─ (STAGING_ENABLED=true) tf-plan ─► deploy-staging ─► deploy-staging-app
+                               │                                                          │ success
+                               └──────────────────► (manual run, deploy_prod) deploy-prod ◄┘
 ```
 
-Promotion rule: on a push, prod deploys only after staging succeeded with the same image
-tag. With `STAGING_ENABLED` not `true`, staging jobs are skipped (a push never re-creates
-a destroyed staging) and a push stops after building images. To deploy prod without
-staging, run the workflow by hand with `skip_staging` ticked and a reason: it still needs
-the `production` approval, and the run summary records who skipped staging and why.
-Add yourself as a required reviewer on the `production` Environment so every prod
-deploy, break-glass included, waits for a click.
+Promotion rule: a push deploys staging at most. Prod deploys only from a manual run
+(Actions → CD → Run workflow) with `deploy_prod` ticked, and only after staging succeeded
+in that same run with the same image tag. With `STAGING_ENABLED` not `true`, staging jobs
+are skipped, so a push never re-creates a destroyed staging. To deploy prod without
+staging, tick `skip_staging` and give a reason; the run summary records who skipped
+staging and why.
+
+GitHub offers required reviewers on Environments only for public repositories or paid
+plans, so this private repository gets its prod gate from the workflow instead: a push
+never deploys prod, a person has to start a manual run.
 
 ### Remote-state bootstrap (done)
 

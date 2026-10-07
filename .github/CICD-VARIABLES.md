@@ -47,8 +47,10 @@ role at deploy time.
 ## Manual gates (Environments)
 
 `deploy-staging`, `deploy-staging-app` and `deploy-prod` use the `staging` /
-`production` Environments. To require a click-to-approve gate, add
-**required reviewers** to those Environments under Settings → Environments.
+`production` Environments, which also scope the OIDC trust of the CD role.
+GitHub offers required reviewers on Environments only for public repositories or paid
+plans, so this private repository gets its prod gate from the workflow instead: a push
+never deploys prod, a person has to start a manual run. See the promotion rule at the top of `cd.yml`.
 
 ## Quick set with `gh`
 
