@@ -610,7 +610,7 @@ class NutritionDiaryReadApiTests extends DiaryApiTestBase {
                         .param("from", "2026-06-11").param("to", "2026-06-11"))
                 .andExpect(jsonPath("$.referenceLabel").value("for male ranges, aged 71 and over"));
         mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-05-11").param("to", "2026-06-11"))
+                        .param("from", "2026-03-13").param("to", "2026-06-11"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
                         .param("from", "2026-06-12").param("to", "2026-06-11"))
