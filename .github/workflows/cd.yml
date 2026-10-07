@@ -11,7 +11,12 @@
 #   Audience : sts.amazonaws.com
 #   Subject  : repo:WittySalt/fitsync-backend:*
 #
-# Flow: iac → docker → deploy-staging cascade → stress/DAST → prod.
+# Flow: CI → iac → docker → deploy-staging cascade → stress/DAST → prod.
+#
+# Trigger. CD starts when the CI workflow finishes on a push to main, and only if CI
+# passed, so nothing is built or deployed from a commit whose tests failed. It builds
+# exactly the commit CI tested (RELEASE_SHA), not whatever main points at by then.
+# Manual runs (workflow_dispatch) build the commit they are started on.
 #
 # Promotion rule. Staging runs only while the STAGING_ENABLED variable is 'true', so a
 # push never rebuilds a staging that was destroyed to save money. A push deploys
@@ -23,7 +28,9 @@
 name: CD
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -57,6 +64,8 @@ permissions:
   contents: read
 
 env:
+  # The commit CI tested for a workflow_run, the run's own commit for a manual run.
+  RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
   RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service"
   TF_VERSION: "1.15.7"
   AWS_REGION: ${{ vars.AWS_REGION }}
@@ -66,10 +75,12 @@ jobs:
   # The plan is printed, not uploaded: a saved plan file can hold generated secrets
   # in plain text, and artifacts are readable by anyone who can read the repo.
   tf-plan:
-    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -88,10 +99,12 @@ jobs:
 
   # ── docker: build jars, build + Trivy-scan + push the 7 service images ───────
   docker-image:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -113,7 +126,7 @@ jobs:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          SHORT_SHA="${GITHUB_SHA:0:8}"
+          SHORT_SHA="${RELEASE_SHA:0:8}"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           # The Dockerfile copies pre-built jars, so package first.
           mvn --batch-mode --no-transfer-progress -DskipTests package
@@ -161,6 +174,8 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -185,6 +200,8 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -215,7 +232,7 @@ jobs:
           MEDIA_PUBLIC_BASE_URL="$(terraform output -raw media_public_base_url)"
           cd "$GITHUB_WORKSPACE"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          IMAGE_TAG="${GITHUB_SHA:0:8}"
+          IMAGE_TAG="${RELEASE_SHA:0:8}"
           mkdir -p ~/.ssh
           # GitHub drops a secret's trailing newline; OpenSSH refuses a key without one.
           printf '%s\n' "$STAGING_EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
@@ -295,6 +312,8 @@ jobs:
       options: --entrypoint ""
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
       - name: k6 load test
         env:
           STRESS_TARGET_URL: ${{ vars.STRESS_TARGET_URL }}
@@ -371,6 +390,8 @@ jobs:
             echo "- Reason: $REASON"
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -394,7 +415,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
-          IMAGE_TAG="${GITHUB_SHA:0:8}"
+          IMAGE_TAG="${RELEASE_SHA:0:8}"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           # Refuse to touch prod unless all 7 images exist for this tag.
           for svc in $RUNNABLE_SERVICES; do

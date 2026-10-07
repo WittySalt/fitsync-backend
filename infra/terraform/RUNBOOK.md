@@ -114,9 +114,10 @@ internally, so there is no separate validate job.
 
 ```
 PR   ─► (app CI only: verify + SAST — no terraform)
-push / manual ─► docker-image ─┬─ (STAGING_ENABLED=true) tf-plan ─► deploy-staging ─► deploy-staging-app
-                               │                                                          │ success
-                               └──────────────────► (manual run, deploy_prod) deploy-prod ◄┘
+push to main ─► CI ─(passed)─┐
+                             ├─► docker-image ─┬─ (STAGING_ENABLED=true) tf-plan ─► deploy-staging ─► deploy-staging-app
+manual run ──────────────────┘                 │                                                           │ success
+                                               └──────────────────► (manual run, deploy_prod) deploy-prod ◄┘
 ```
 
 Promotion rule: a push deploys staging at most. Prod deploys only from a manual run
