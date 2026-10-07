@@ -24,7 +24,8 @@ spring:
     # profile. Flyway shares ONE version namespace across both locations, so the ranges must not
     # overlap: a seed numbered inside the schema range collides with a future migration and the
     # service refuses to start. DuplicateFlywayVersionTest enforces this.
-    locations: classpath:db/migration,classpath:db/seed
+    # db/postgres holds PostgreSQL-only DDL (pg_trgm); the test profile leaves it out because H2 cannot run it.
+    locations: classpath:db/migration,classpath:db/seed,classpath:db/postgres
     # A database that has run the V900 seed sees every later schema migration as older than what
     # it has applied, and would refuse to start. Schema migrations are therefore allowed to run
     # after a higher seed version.
@@ -86,6 +87,9 @@ fitsync:
         enabled: ${KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED:false}
       account-deleted:
         enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}
+  nutrition:
+    # Typo-tolerant food search through pg_trgm; false turns the fuzzy fallback off.
+    fuzzy-search-enabled: ${FITSYNC_FUZZY_SEARCH_ENABLED:true}
   outbox:
     relay:
       enabled: ${OUTBOX_RELAY_ENABLED:false}
