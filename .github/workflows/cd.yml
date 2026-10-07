@@ -222,12 +222,6 @@ jobs:
           STAGING_JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
           STAGING_EC2_SSH_KEY: ${{ secrets.STAGING_EC2_SSH_KEY }}
           STAGING_CORS_ALLOWED_ORIGINS: ${{ vars.STAGING_CORS_ALLOWED_ORIGINS }}
-          FITSYNC_MEDIA_ENDPOINT: ${{ vars.FITSYNC_MEDIA_ENDPOINT }}
-          FITSYNC_MEDIA_REGION: ${{ vars.FITSYNC_MEDIA_REGION }}
-          FITSYNC_MEDIA_ACCESS_KEY: ${{ secrets.FITSYNC_MEDIA_ACCESS_KEY }}
-          FITSYNC_MEDIA_SECRET_KEY: ${{ secrets.FITSYNC_MEDIA_SECRET_KEY }}
-          FITSYNC_MEDIA_BUCKET: ${{ vars.FITSYNC_MEDIA_BUCKET }}
-          FITSYNC_MEDIA_PUBLIC_BASE_URL: ${{ vars.FITSYNC_MEDIA_PUBLIC_BASE_URL }}
           RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
           RECOMMENDATION_AI_PROVIDER: ${{ vars.RECOMMENDATION_AI_PROVIDER }}
           RECOMMENDATION_AI_MODEL: ${{ vars.RECOMMENDATION_AI_MODEL }}
@@ -242,6 +236,9 @@ jobs:
           # auth-service must trust staging's own pool, not the prod default in compose.
           COGNITO_POOL_ID="$(terraform output -raw cognito_user_pool_id)"
           COGNITO_CLIENT_ID="$(terraform output -raw cognito_spa_client_id)"
+          # Staging uploads to its own bucket, never to prod's.
+          MEDIA_BUCKET="$(terraform output -raw media_bucket)"
+          MEDIA_PUBLIC_BASE_URL="$(terraform output -raw media_public_base_url)"
           cd "$GITHUB_WORKSPACE"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           IMAGE_TAG="${GITHUB_SHA:0:8}"
@@ -299,12 +296,11 @@ jobs:
           FITSYNC_CORS_ALLOWED_ORIGINS=${STAGING_CORS_ALLOWED_ORIGINS}
           NGINX_SERVER_NAME=_
           NGINX_CERT_NAME=localhost
-          FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
-          FITSYNC_MEDIA_REGION=${FITSYNC_MEDIA_REGION:-ap-southeast-1}
-          FITSYNC_MEDIA_ACCESS_KEY=${FITSYNC_MEDIA_ACCESS_KEY}
-          FITSYNC_MEDIA_SECRET_KEY=${FITSYNC_MEDIA_SECRET_KEY}
-          FITSYNC_MEDIA_BUCKET=${FITSYNC_MEDIA_BUCKET:-fitsync-media}
-          FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+          FITSYNC_MEDIA_ENDPOINT=https://s3.${AWS_REGION}.amazonaws.com
+          FITSYNC_MEDIA_REGION=${AWS_REGION}
+          FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS=true
+          FITSYNC_MEDIA_BUCKET=${MEDIA_BUCKET}
+          FITSYNC_MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL}
           FREE_EXERCISE_DB_IMAGES_DIR=/opt/fitsync/free-exercise-db/exercises
           EOF
           ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
@@ -411,8 +407,6 @@ jobs:
           PROD_DOMAIN: ${{ vars.PROD_DOMAIN }}
           FITSYNC_MEDIA_ENDPOINT: ${{ vars.FITSYNC_MEDIA_ENDPOINT }}
           FITSYNC_MEDIA_REGION: ${{ vars.FITSYNC_MEDIA_REGION }}
-          FITSYNC_MEDIA_ACCESS_KEY: ${{ secrets.FITSYNC_MEDIA_ACCESS_KEY }}
-          FITSYNC_MEDIA_SECRET_KEY: ${{ secrets.FITSYNC_MEDIA_SECRET_KEY }}
           FITSYNC_MEDIA_BUCKET: ${{ vars.FITSYNC_MEDIA_BUCKET }}
           FITSYNC_MEDIA_PUBLIC_BASE_URL: ${{ vars.FITSYNC_MEDIA_PUBLIC_BASE_URL }}
           RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
@@ -479,12 +473,11 @@ jobs:
           COGNITO_ENABLED=${COGNITO_ENABLED:-false}
           NGINX_SERVER_NAME=${PROD_DOMAIN:-_}
           NGINX_CERT_NAME=${PROD_DOMAIN:-localhost}
-          FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT}
+          FITSYNC_MEDIA_ENDPOINT=${FITSYNC_MEDIA_ENDPOINT:-https://s3.ap-southeast-1.amazonaws.com}
           FITSYNC_MEDIA_REGION=${FITSYNC_MEDIA_REGION:-ap-southeast-1}
-          FITSYNC_MEDIA_ACCESS_KEY=${FITSYNC_MEDIA_ACCESS_KEY}
-          FITSYNC_MEDIA_SECRET_KEY=${FITSYNC_MEDIA_SECRET_KEY}
+          FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS=true
           FITSYNC_MEDIA_BUCKET=${FITSYNC_MEDIA_BUCKET:-fitsync-media}
-          FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL}
+          FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL:-https://fitsync-media.s3.ap-southeast-1.amazonaws.com}
           FREE_EXERCISE_DB_IMAGES_DIR=/opt/fitsync/free-exercise-db/exercises
           EOF
           ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"

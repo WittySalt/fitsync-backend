@@ -8,7 +8,8 @@
 #   terraform apply -var-file=prod.tfvars    # with TF_VAR_db_password, TF_VAR_ec2_public_key
 #
 # Resources are named fitsync-prod-*. Kept outside Terraform on purpose: the
-# Cognito pool (real users), the media bucket fitsync-media, the frontend bucket
+# Cognito pool (real users), the media bucket fitsync-media (prod uploads to it
+# with the instance role, granted here), the frontend bucket
 # fitsync-frontend-prod and its CloudFront distribution. See RUNBOOK.md "Rebuild".
 
 region = "ap-southeast-1"
@@ -21,6 +22,9 @@ ec2_instance_type = "t3.large"
 
 # Same PostgreSQL major version as local development and staging.
 db_engine_version = "16"
+
+# The existing media bucket (exercise images already uploaded). Staging gets its own.
+existing_media_bucket = "fitsync-media"
 
 # Existing pool ap-southeast-1_myVyuOmPD stays in charge of sign-in.
 enable_cognito = false

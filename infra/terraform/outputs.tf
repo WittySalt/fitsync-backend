@@ -11,7 +11,12 @@ output "public_subnet_ids" {
 }
 
 output "media_bucket" {
-  value = aws_s3_bucket.media.bucket
+  value = local.media_bucket
+}
+
+output "media_public_base_url" {
+  description = "FITSYNC_MEDIA_PUBLIC_BASE_URL for this environment"
+  value       = "https://${local.media_bucket}.s3.${var.region}.amazonaws.com"
 }
 
 output "cognito_user_pool_id" {

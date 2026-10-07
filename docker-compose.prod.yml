@@ -73,6 +73,8 @@ x-media-env: &media-env
   FITSYNC_MEDIA_REGION: ${FITSYNC_MEDIA_REGION:-ap-southeast-1}
   FITSYNC_MEDIA_ACCESS_KEY: ${FITSYNC_MEDIA_ACCESS_KEY:-fitsync}
   FITSYNC_MEDIA_SECRET_KEY: ${FITSYNC_MEDIA_SECRET_KEY:-fitsync-password}
+  # true in the cloud: uploads use the EC2 instance role and the two keys above are ignored.
+  FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS: ${FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS:-false}
   FITSYNC_MEDIA_BUCKET: ${FITSYNC_MEDIA_BUCKET:-fitsync-media}
   FITSYNC_MEDIA_PUBLIC_BASE_URL: ${FITSYNC_MEDIA_PUBLIC_BASE_URL:-http://localhost:9000/fitsync-media}
 

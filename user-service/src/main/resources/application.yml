@@ -67,6 +67,8 @@ fitsync:
     region: ${FITSYNC_MEDIA_REGION:us-east-1}
     access-key: ${FITSYNC_MEDIA_ACCESS_KEY:${MINIO_ROOT_USER:fitsync}}
     secret-key: ${FITSYNC_MEDIA_SECRET_KEY:${MINIO_ROOT_PASSWORD:fitsync-password}}
+    # true in the cloud: credentials come from the EC2 instance role and the keys are ignored.
+    aws-default-credentials: ${FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS:false}
     bucket: ${FITSYNC_MEDIA_BUCKET:${MINIO_BUCKET:fitsync-media}}
     public-base-url: ${FITSYNC_MEDIA_PUBLIC_BASE_URL:http://localhost:9000/fitsync-media}
   kafka:

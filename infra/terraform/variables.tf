@@ -89,6 +89,12 @@ variable "ec2_public_key" {
   default     = ""
 }
 
+variable "existing_media_bucket" {
+  description = "Use this existing media bucket instead of creating one (prod: fitsync-media)"
+  type        = string
+  default     = ""
+}
+
 variable "enable_cognito" {
   description = "Create a Cognito user pool for this environment (false = use an existing pool)"
   type        = bool

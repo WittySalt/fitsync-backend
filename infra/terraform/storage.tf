@@ -1,11 +1,23 @@
-# ── S3: exercise demo media (public read) ────────────────────────────────────
+# ── S3: media (exercise images + avatars, public read) ───────────────────────
+# Each environment writes to its own bucket. Staging gets a bucket made here; prod
+# keeps the existing fitsync-media (var.existing_media_bucket), which Terraform does
+# not manage. The services upload with the EC2 instance role (s3:PutObject only).
+locals {
+  create_media_bucket = var.existing_media_bucket == ""
+  media_bucket        = local.create_media_bucket ? aws_s3_bucket.media[0].bucket : var.existing_media_bucket
+}
+
 resource "aws_s3_bucket" "media" {
+  count = local.create_media_bucket ? 1 : 0
+
   bucket = "${local.name}-media-${local.account_id}"
   tags   = { Name = "${local.name}-media" }
 }
 
 resource "aws_s3_bucket_public_access_block" "media" {
-  bucket                  = aws_s3_bucket.media.id
+  count = local.create_media_bucket ? 1 : 0
+
+  bucket                  = aws_s3_bucket.media[0].id
   block_public_acls       = false
   block_public_policy     = false
   ignore_public_acls      = false
@@ -13,7 +25,9 @@ resource "aws_s3_bucket_public_access_block" "media" {
 }
 
 resource "aws_s3_bucket_policy" "media_public_read" {
-  bucket = aws_s3_bucket.media.id
+  count = local.create_media_bucket ? 1 : 0
+
+  bucket = aws_s3_bucket.media[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -21,10 +35,24 @@ resource "aws_s3_bucket_policy" "media_public_read" {
       Effect    = "Allow"
       Principal = "*"
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.media.arn}/*"
+      Resource  = "${aws_s3_bucket.media[0].arn}/*"
     }]
   })
   depends_on = [aws_s3_bucket_public_access_block.media]
+}
+
+data "aws_iam_policy_document" "ec2_media" {
+  statement {
+    sid       = "UploadMedia"
+    actions   = ["s3:PutObject"]
+    resources = ["arn:aws:s3:::${local.media_bucket}/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "ec2_media" {
+  name   = "${local.name}-ec2-media"
+  role   = aws_iam_role.ec2_app.id
+  policy = data.aws_iam_policy_document.ec2_media.json
 }
 
 # ── Frontend SPA bucket + CloudFront MOVED to frontend/infra/terraform/ ───────

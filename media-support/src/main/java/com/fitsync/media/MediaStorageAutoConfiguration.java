@@ -9,6 +9,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.util.StringUtils;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -23,13 +25,20 @@ public class MediaStorageAutoConfiguration {
     S3Client mediaS3Client(MediaStorageProperties properties) {
         S3ClientBuilder builder = S3Client.builder()
                 .region(Region.of(properties.region()))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(properties.accessKey(), properties.secretKey())))
+                .credentialsProvider(credentialsProvider(properties))
                 .forcePathStyle(true);
         if (StringUtils.hasText(properties.endpoint())) {
             builder.endpointOverride(URI.create(properties.endpoint()));
         }
         return builder.build();
+    }
+
+    private static AwsCredentialsProvider credentialsProvider(MediaStorageProperties properties) {
+        if (properties.awsDefaultCredentials()) {
+            return DefaultCredentialsProvider.create();
+        }
+        return StaticCredentialsProvider.create(
+                AwsBasicCredentials.create(properties.accessKey(), properties.secretKey()));
     }
 
     @Bean

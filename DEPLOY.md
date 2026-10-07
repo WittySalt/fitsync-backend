@@ -230,16 +230,16 @@ for which job reads each one and `gh` one-liners.
 | `PROD_EC2_SSH_KEY` | contents of `fitsync_ed25519` | yes | the **private** key, full file |
 | `PROD_DOMAIN` | your domain (optional, for nginx/TLS) | no | leave unset until you add DNS |
 
-Media / images (only if you want exercise images + avatars — see §8.5):
+Media / images for **prod** (see §8.5). Staging needs none of these: CD reads its own
+bucket and URL from Terraform. Both environments upload with the EC2 instance role, so
+there are no media keys:
 
 | Name | Value | Secret | Notes |
 |---|---|---|---|
 | `FITSYNC_MEDIA_ENDPOINT` | `https://s3.ap-southeast-1.amazonaws.com` | no | S3 API the SDK writes through (path-style) |
 | `FITSYNC_MEDIA_REGION` | `ap-southeast-1` | no | defaults to this if unset |
-| `FITSYNC_MEDIA_ACCESS_KEY` | IAM user key id (§8.5) | yes | static key — **not** the EC2 instance role |
-| `FITSYNC_MEDIA_SECRET_KEY` | IAM user secret | yes | |
 | `FITSYNC_MEDIA_BUCKET` | `fitsync-media` | no | defaults to this if unset |
-| `FITSYNC_MEDIA_PUBLIC_BASE_URL` | `https://fitsync-media.s3.ap-southeast-1.amazonaws.com` | no | browser-reachable **https** base baked into stored URLs |
+| `FITSYNC_MEDIA_PUBLIC_BASE_URL` | `https://fitsync-media.s3.ap-southeast-1.amazonaws.com` | no | defaults to this; browser-reachable **https** base **baked into stored URLs**, so it must be right before workout-service first starts |
 
 Coach AI tier (optional; unset leaves it off and the coach uses its rule text):
 
@@ -314,21 +314,13 @@ aws s3api put-bucket-policy --bucket fitsync-media --policy file://media-bucket-
 > Prefer no public bucket? Put CloudFront in front and set `FITSYNC_MEDIA_PUBLIC_BASE_URL`
 > to the distribution domain instead. Public-read https is the minimal working option.
 
-**b. IAM user with write access** (media-support uses static keys, not the instance role):
-```bash
-aws iam create-user --user-name fitsync-media-writer
-cat > media-writer-policy.json <<JSON
-{ "Version":"2012-10-17","Statement":[{
-  "Effect":"Allow","Action":["s3:PutObject","s3:DeleteObject"],
-  "Resource":"arn:aws:s3:::fitsync-media/*" }]}
-JSON
-aws iam put-user-policy --user-name fitsync-media-writer \
-  --policy-name s3-media-write --policy-document file://media-writer-policy.json
-aws iam create-access-key --user-name fitsync-media-writer
-# -> AccessKeyId  -> FITSYNC_MEDIA_ACCESS_KEY,  SecretAccessKey -> FITSYNC_MEDIA_SECRET_KEY
-```
+**b. Write access comes from the EC2 instance role.** Terraform grants it `s3:PutObject`
+on the environment's media bucket (`storage.tf`), CD sets
+`FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS=true`, and media-support then ignores the
+access/secret keys. The keys remain only for local MinIO. The old `fitsync-media-writer`
+IAM user and its static key can be deleted once prod runs on the role.
 
-**c. Set the 6 media variables/secrets** from the table in §7 (access + secret key as Secrets).
+**c. Set the media variables** from the table in §7 (prod only).
 
 **d. Put the source images on the EC2 host** (one-time, ~90MB; not committed to the repo):
 ```bash
