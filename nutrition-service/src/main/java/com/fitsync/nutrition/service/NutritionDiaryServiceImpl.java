@@ -66,6 +66,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class NutritionDiaryServiceImpl implements NutritionDiaryService {
 
     private static final int MAX_RANGE_DAYS = 31;
+    /** The nutrient table and one nutrient page also serve the 90 days of Progress. */
+    private static final int MAX_NUTRIENT_RANGE_DAYS = 90;
     private static final int USUAL_FOODS = 20;
     private static final int USUAL_FOODS_WINDOW_DAYS = 30;
     private static final int TOP_SOURCES = 3;
@@ -372,7 +374,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
                                                   String timezone, String scope) {
         boolean all = parseScope(scope);
         ZoneId zone = resolveZone(timezone);
-        int days = validateRange(from, to);
+        int days = validateRange(from, to, MAX_NUTRIENT_RANGE_DAYS);
         Instant start = from.atStartOfDay(zone).toInstant();
         Instant end = to.plusDays(1).atStartOfDay(zone).toInstant();
         UUID userId = principal.userId();
@@ -434,7 +436,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         ZoneId zone = resolveZone(timezone);
         LocalDate last = to != null ? to : LocalDate.ofInstant(clock.instant(), zone);
         LocalDate first = from != null ? from : last.minusDays(DEFAULT_PAGE_DAYS - 1L);
-        int days = validateRange(first, last);
+        int days = validateRange(first, last, MAX_NUTRIENT_RANGE_DAYS);
         Instant start = first.atStartOfDay(zone).toInstant();
         Instant end = last.plusDays(1).atStartOfDay(zone).toInstant();
         UUID userId = principal.userId();
@@ -684,12 +686,16 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
     // Shared helpers
 
     private int validateRange(LocalDate from, LocalDate to) {
+        return validateRange(from, to, MAX_RANGE_DAYS);
+    }
+
+    private int validateRange(LocalDate from, LocalDate to, int maxDays) {
         if (to.isBefore(from)) {
             throw new BadRequestException("to must not be before from");
         }
         long days = ChronoUnit.DAYS.between(from, to) + 1;
-        if (days > MAX_RANGE_DAYS) {
-            throw new BadRequestException("The range must not exceed " + MAX_RANGE_DAYS + " days");
+        if (days > maxDays) {
+            throw new BadRequestException("The range must not exceed " + maxDays + " days");
         }
         return (int) days;
     }
