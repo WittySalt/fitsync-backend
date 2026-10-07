@@ -4,15 +4,17 @@
 # health-gated automatic rollback. Invoked by the GitHub Actions `deploy-prod` job over
 # SSH; can also be run by hand for debugging.
 #
-#   Required env : ECR_REGISTRY  IMAGE_TAG  AWS_REGION
+#   Required env : ECR_REGISTRY  IMAGE_TAG  AWS_REGION  APP_SECRET_ID
 #   Optional env : DEPLOY_DIR (default /opt/fitsync)
 #
-# The runtime .env (DB creds, JWT_SECRET, ...) is rendered by the CI job from
-# GitHub Actions variables/secrets and placed in $DEPLOY_DIR/.env before this runs.
+# CI renders the non-secret settings into $DEPLOY_DIR/.env before this runs; this
+# script adds the DB endpoint, service passwords and JWT key from Secrets Manager,
+# and bootstraps the per-service DB roles (bootstrap-db.sql) on every deploy.
 # nginx/TLS is intentionally NOT started here (see EC2 setup runbook) so a fresh
 # host without certs can still come up.
 set -euo pipefail
 
+APP_SECRET_ID="${APP_SECRET_ID:?APP_SECRET_ID required (fitsync-<env>/app)}"
 ECR_REGISTRY="${ECR_REGISTRY:?ECR_REGISTRY required}"
 IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG required}"
 AWS_REGION="${AWS_REGION:?AWS_REGION required}"
@@ -53,6 +55,52 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 
 cd "$DEPLOY_DIR"
+
+# ── secrets from Secrets Manager (EC2 instance role) ─────────────────────────
+# fitsync-<env>/app holds the DB endpoint, the six service passwords and the JWT key;
+# the RDS master credentials live in the secret RDS manages (and rotates) itself.
+# Nothing here is passed in by CI, and nothing is echoed.
+secret_json() {
+  aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$1" \
+    --query SecretString --output text
+}
+json_field() { python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$1"; }
+
+APP_SECRET="$(secret_json "$APP_SECRET_ID")"
+DB_HOST="$(json_field db_host <<<"$APP_SECRET")"
+DB_PORT="$(json_field db_port <<<"$APP_SECRET")"
+DB_NAME="$(json_field db_name <<<"$APP_SECRET")"
+MASTER_SECRET="$(secret_json "$(json_field db_master_secret_arn <<<"$APP_SECRET")")"
+
+# ── per-service DB roles + schemas (idempotent; also re-applies passwords) ───
+umask 077
+BOOT_DIR="$(mktemp -d)"
+trap 'rm -rf "$BOOT_DIR"' EXIT
+{
+  echo "PGPASSWORD=$(json_field password <<<"$MASTER_SECRET")"
+} > "$BOOT_DIR/pg.env"
+{
+  for svc in auth user workout nutrition analytics recommendation; do
+    echo "\\set ${svc}_pw '$(json_field "${svc}_db_password" <<<"$APP_SECRET")'"
+  done
+} > "$BOOT_DIR/vars.sql"
+echo "==> bootstrapping DB roles + schemas"
+sudo docker run --rm --env-file "$BOOT_DIR/pg.env" \
+  -v "$BOOT_DIR/vars.sql:/vars.sql:ro" -v "$DEPLOY_DIR/bootstrap-db.sql:/b.sql:ro" \
+  postgres:16 psql -q -h "$DB_HOST" -p "$DB_PORT" -U "$(json_field username <<<"$MASTER_SECRET")" \
+  -d "$DB_NAME" -v ON_ERROR_STOP=1 -f /vars.sql -f /b.sql
+
+# ── runtime .env: CI's rendered settings + the secrets above ─────────────────
+{
+  grep -vE '^(DB_URL|[A-Z]+_DB_PASSWORD|JWT_SECRET)=' .env || true
+  echo "DB_URL=jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME"
+  for svc in auth user workout nutrition analytics recommendation; do
+    echo "$(tr '[:lower:]' '[:upper:]' <<<"$svc")_DB_PASSWORD=$(json_field "${svc}_db_password" <<<"$APP_SECRET")"
+  done
+  echo "JWT_SECRET=$(json_field jwt_secret <<<"$APP_SECRET")"
+} > .env.next
+mv .env.next .env
+umask 022
 
 # ── ECR login (EC2 instance role supplies creds via IMDS) ────────────────────
 aws ecr get-login-password --region "$AWS_REGION" \

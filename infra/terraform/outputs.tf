@@ -45,3 +45,13 @@ output "ec2_public_ip" {
   description = "App host EIP (null unless enable_ec2=true)"
   value       = var.enable_ec2 ? aws_eip.app[0].public_ip : null
 }
+
+output "alb_dns_name" {
+  description = "CloudFront /api origin and the stress/DAST target (null unless enable_alb=true)"
+  value       = var.enable_alb ? aws_lb.app[0].dns_name : null
+}
+
+output "app_secret_name" {
+  description = "Secrets Manager secret the app host reads at deploy time"
+  value       = var.enable_rds ? aws_secretsmanager_secret.app[0].name : null
+}

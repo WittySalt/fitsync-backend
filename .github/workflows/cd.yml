@@ -58,8 +58,8 @@ env:
 
 jobs:
   # ── iac: terraform plan for staging (review only) ───────────────────────────
-  # The plan is printed, not uploaded: a saved plan file holds the DB password in
-  # plain text, and artifacts are readable by anyone who can read the repo.
+  # The plan is printed, not uploaded: a saved plan file can hold generated secrets
+  # in plain text, and artifacts are readable by anyone who can read the repo.
   tf-plan:
     if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
@@ -75,7 +75,6 @@ jobs:
       - name: terraform plan (staging)
         working-directory: infra/terraform
         env:
-          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
           TF_VAR_ec2_public_key: ${{ vars.STAGING_EC2_PUBLIC_KEY }}
         run: |
           terraform init
@@ -168,58 +167,17 @@ jobs:
       - name: terraform apply (staging)
         working-directory: infra/terraform
         env:
-          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
           TF_VAR_ec2_public_key: ${{ vars.STAGING_EC2_PUBLIC_KEY }}
         run: |
           terraform init
           terraform workspace select staging
           terraform apply -input=false -auto-approve -var-file=staging.tfvars
 
-  # ── bootstrap the staging RDS: per-service roles + schemas (over SSH) ────────
-  bootstrap-staging-db:
-    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
-    runs-on: ubuntu-latest
-    needs: [deploy-staging]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-      - name: Bootstrap DB roles + schemas from the staging EC2
-        env:
-          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
-          STAGING_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
-          STAGING_EC2_SSH_KEY: ${{ secrets.STAGING_EC2_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          cd infra/terraform
-          terraform init && terraform workspace select staging
-          STAGING_HOST="$(terraform output -raw ec2_public_ip)"
-          RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
-          cd "$GITHUB_WORKSPACE"
-          DB_HOST="${RDS_ENDPOINT%:*}"; DB_PORT="${RDS_ENDPOINT##*:}"
-          mkdir -p ~/.ssh
-          printf "%s" "$STAGING_EC2_SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
-          scp -i ~/.ssh/id_ed25519 scripts/bootstrap-staging-db.sql "ec2-user@$STAGING_HOST:/tmp/bootstrap-staging-db.sql"
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" \
-            "sudo docker run --rm -e PGPASSWORD='$TF_VAR_db_password' \
-             -v /tmp/bootstrap-staging-db.sql:/b.sql:ro postgres:16 \
-             psql -h '$DB_HOST' -p '$DB_PORT' -U fitsync_master -d fitsync \
-             -v ON_ERROR_STOP=1 -v svc_pw='$STAGING_DB_PASSWORD' -f /b.sql"
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "rm -f /tmp/bootstrap-staging-db.sql"
-          echo "Staging DB roles + schemas bootstrapped."
-
   # ── deploy the app onto the staging host ────────────────────────────────────
   deploy-staging-app:
     if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
-    needs: [bootstrap-staging-db, docker-image]
+    needs: [deploy-staging, docker-image]
     environment: staging
     steps:
       - uses: actions/checkout@v4
@@ -233,8 +191,6 @@ jobs:
       - name: Render .env + deploy via ec2-deploy.sh
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          STAGING_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
-          STAGING_JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
           STAGING_EC2_SSH_KEY: ${{ secrets.STAGING_EC2_SSH_KEY }}
           STAGING_CORS_ALLOWED_ORIGINS: ${{ vars.STAGING_CORS_ALLOWED_ORIGINS }}
           RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
@@ -247,7 +203,6 @@ jobs:
           cd infra/terraform
           terraform init && terraform workspace select staging
           STAGING_HOST="$(terraform output -raw ec2_public_ip)"
-          RDS_ENDPOINT="$(terraform output -raw rds_endpoint)"
           # auth-service must trust staging's own pool, not the prod default in compose.
           COGNITO_POOL_ID="$(terraform output -raw cognito_user_pool_id)"
           COGNITO_CLIENT_ID="$(terraform output -raw cognito_spa_client_id)"
@@ -264,14 +219,6 @@ jobs:
           cat > .env.deploy <<EOF
           ECR_REGISTRY=$ECR_REGISTRY
           IMAGE_TAG=$IMAGE_TAG
-          DB_URL=jdbc:postgresql://${RDS_ENDPOINT}/fitsync
-          AUTH_DB_PASSWORD=$STAGING_DB_PASSWORD
-          USER_DB_PASSWORD=$STAGING_DB_PASSWORD
-          WORKOUT_DB_PASSWORD=$STAGING_DB_PASSWORD
-          NUTRITION_DB_PASSWORD=$STAGING_DB_PASSWORD
-          ANALYTICS_DB_PASSWORD=$STAGING_DB_PASSWORD
-          RECOMMENDATION_DB_PASSWORD=$STAGING_DB_PASSWORD
-          JWT_SECRET=$STAGING_JWT_SECRET
           JWT_EXPIRATION=PT2H
           REDIS_HOST=redis
           REDIS_PORT=6379
@@ -322,12 +269,15 @@ jobs:
           scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$STAGING_HOST:/opt/fitsync/docker-compose.prod.yml"
           scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$STAGING_HOST:/opt/fitsync/nginx/nginx.conf.template"
           scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$STAGING_HOST:/opt/fitsync/ec2-deploy.sh"
+          scp -i ~/.ssh/id_ed25519 scripts/bootstrap-db.sql "ec2-user@$STAGING_HOST:/opt/fitsync/bootstrap-db.sql"
           scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$STAGING_HOST:/opt/fitsync/.env"
+          # DB endpoint, service passwords and JWT key come from Secrets Manager on the host.
           ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" \
-            "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' bash /opt/fitsync/ec2-deploy.sh"
-          sleep 30
-          test "$(curl -s -o /dev/null -w '%{http_code}' "http://$STAGING_HOST:8088/actuator/health")" = "200"
-          echo "Staging gateway up: http://$STAGING_HOST:8088"
+            "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' APP_SECRET_ID='fitsync-staging/app' bash /opt/fitsync/ec2-deploy.sh"
+          # The gateway port is open to the ALB only, so check it from the host itself.
+          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" \
+            "curl -fsS -o /dev/null http://localhost:8088/actuator/health"
+          echo "Staging gateway healthy on $STAGING_HOST"
 
   # ── stress test against staging (manual via workflow_dispatch input) ────────
   stress-test:
@@ -426,14 +376,6 @@ jobs:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           PROD_EC2_HOST: ${{ vars.PROD_EC2_HOST }}
           PROD_EC2_SSH_KEY: ${{ secrets.PROD_EC2_SSH_KEY }}
-          DB_URL: ${{ secrets.DB_URL }}
-          AUTH_DB_PASSWORD: ${{ secrets.AUTH_DB_PASSWORD }}
-          USER_DB_PASSWORD: ${{ secrets.USER_DB_PASSWORD }}
-          WORKOUT_DB_PASSWORD: ${{ secrets.WORKOUT_DB_PASSWORD }}
-          NUTRITION_DB_PASSWORD: ${{ secrets.NUTRITION_DB_PASSWORD }}
-          ANALYTICS_DB_PASSWORD: ${{ secrets.ANALYTICS_DB_PASSWORD }}
-          RECOMMENDATION_DB_PASSWORD: ${{ secrets.RECOMMENDATION_DB_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           COGNITO_ENABLED: ${{ vars.COGNITO_ENABLED }}
           PROD_DOMAIN: ${{ vars.PROD_DOMAIN }}
           FITSYNC_MEDIA_ENDPOINT: ${{ vars.FITSYNC_MEDIA_ENDPOINT }}
@@ -460,14 +402,6 @@ jobs:
           cat > .env.deploy <<EOF
           ECR_REGISTRY=$ECR_REGISTRY
           IMAGE_TAG=$IMAGE_TAG
-          DB_URL=$DB_URL
-          AUTH_DB_PASSWORD=$AUTH_DB_PASSWORD
-          USER_DB_PASSWORD=$USER_DB_PASSWORD
-          WORKOUT_DB_PASSWORD=$WORKOUT_DB_PASSWORD
-          NUTRITION_DB_PASSWORD=$NUTRITION_DB_PASSWORD
-          ANALYTICS_DB_PASSWORD=$ANALYTICS_DB_PASSWORD
-          RECOMMENDATION_DB_PASSWORD=$RECOMMENDATION_DB_PASSWORD
-          JWT_SECRET=$JWT_SECRET
           JWT_EXPIRATION=PT2H
           REDIS_HOST=redis
           REDIS_PORT=6379
@@ -515,6 +449,8 @@ jobs:
           scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$PROD_EC2_HOST:/opt/fitsync/docker-compose.prod.yml"
           scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$PROD_EC2_HOST:/opt/fitsync/nginx/nginx.conf.template"
           scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$PROD_EC2_HOST:/opt/fitsync/ec2-deploy.sh"
+          scp -i ~/.ssh/id_ed25519 scripts/bootstrap-db.sql "ec2-user@$PROD_EC2_HOST:/opt/fitsync/bootstrap-db.sql"
           scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$PROD_EC2_HOST:/opt/fitsync/.env"
+          # DB endpoint, service passwords and JWT key come from Secrets Manager on the host.
           ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" \
-            "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' bash /opt/fitsync/ec2-deploy.sh"
+            "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' APP_SECRET_ID='fitsync-prod/app' bash /opt/fitsync/ec2-deploy.sh"

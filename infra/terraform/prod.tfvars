@@ -5,7 +5,7 @@
 # "Rebuild" step 4 (scripts/demo-reseed.ps1 only drives the local stack).
 #
 #   terraform workspace select prod || terraform workspace new prod
-#   terraform apply -var-file=prod.tfvars    # with TF_VAR_db_password, TF_VAR_ec2_public_key
+#   terraform apply -var-file=prod.tfvars    # with TF_VAR_ec2_public_key
 #
 # Resources are named fitsync-prod-*. Kept outside Terraform on purpose: the
 # Cognito pool (real users), the media bucket fitsync-media (prod uploads to it
@@ -20,8 +20,9 @@ enable_ec2 = true
 
 ec2_instance_type = "t3.large"
 
-# Same PostgreSQL major version as local development and staging.
+# Same PostgreSQL major version as local development and staging, with a standby in AZ-b.
 db_engine_version = "16"
+db_multi_az       = true
 
 # The existing media bucket (exercise images already uploaded). Staging gets its own.
 existing_media_bucket = "fitsync-media"

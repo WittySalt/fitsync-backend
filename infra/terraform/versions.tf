@@ -6,6 +6,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    # Generates the service passwords and JWT secret kept in Secrets Manager (secrets.tf).
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   # Remote state in S3 so ephemeral CI runners and local share one state.

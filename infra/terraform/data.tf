@@ -18,12 +18,16 @@ resource "aws_db_instance" "main" {
   storage_type      = "gp3"
   storage_encrypted = true
 
-  # Restoring a snapshot brings its own database and master user; the password is
-  # still reset to db_password.
+  # Restoring a snapshot brings its own database and master user.
   snapshot_identifier = var.db_snapshot_identifier
   db_name             = var.db_snapshot_identifier == null ? var.db_name : null
   username            = var.db_snapshot_identifier == null ? var.db_username : null
-  password            = var.db_password
+  # RDS generates the master password, keeps it in Secrets Manager and rotates it; nobody
+  # types or stores it. The app host reads it there when it bootstraps the service roles.
+  manage_master_user_password = true
+
+  # A synchronous standby in the second AZ with automatic failover (prod).
+  multi_az = var.db_multi_az
 
   db_subnet_group_name   = aws_db_subnet_group.main[0].name
   vpc_security_group_ids = [aws_security_group.db.id]

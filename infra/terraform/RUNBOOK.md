@@ -20,15 +20,17 @@ docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 | File | Resources | Cost / speed |
 |------|-----------|--------------|
 | `network.tf` | VPC, public subnets, IGW, routes, security groups | free, instant |
+| `alb.tf` | Application Load Balancer across both public subnets, gateway target group, HTTP listener* | ~$20/month while up |
+| `secrets.tf` | Secrets Manager `fitsync-<env>/app` (DB endpoint, generated service passwords, JWT key) + read access for the EC2 role | ~$0.4/month |
 | `storage.tf` | S3 media bucket, S3 frontend bucket, CloudFront* | ~free; CloudFront slow |
 | `auth.tf` | Cognito user pool + SPA client + hosted domain | free tier, instant |
 | `ci_iam.tf` | EC2 instance role/profile, CI deploy policy | free, instant |
-| `data.tf` | RDS PostgreSQL* | **costs money**, ~10 min |
+| `data.tf` | RDS PostgreSQL* (RDS-managed master password; Multi-AZ when `db_multi_az`) | **costs money**, ~10 min (Multi-AZ doubles it) |
 | `compute.tf` | EC2 app host + EIP* + deploy key pair | **costs money** |
 | `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary, the 7 shared ECR repos (own state, applied once) | free, instant |
 
-`*` gated behind feature flags (`enable_cloudfront`, `enable_rds`, `enable_ec2`),
-default **false**, so the first apply is free and instant.
+`*` gated behind feature flags (`enable_rds`, `enable_ec2` default **false**; `enable_alb`
+defaults to true, `db_multi_az` to false and is on in `prod.tfvars`).
 
 ## Two-environment model
 
@@ -38,8 +40,8 @@ from an empty database.
 
 | Environment | tfvars | State (workspace) | Notes |
 |-------------|--------|-------------------|-------|
-| **staging** | `staging.tfvars` → `fitsync-staging-*` | `staging` | own Cognito pool, gateway open on :8088 for stress/DAST, throwaway |
-| **prod** | `prod.tfvars` → `fitsync-prod-*` | `prod` | empty RDS (Flyway builds it), deletion protection + final snapshot, gateway reachable from CloudFront only |
+| **staging** | `staging.tfvars` → `fitsync-staging-*` | `staging` | own Cognito pool, ALB open on :80 for stress/DAST, single-AZ RDS, throwaway |
+| **prod** | `prod.tfvars` → `fitsync-prod-*` | `prod` | empty Multi-AZ RDS (Flyway builds it), deletion protection + final snapshot, ALB reachable from CloudFront only |
 
 Both environments pull from the same ECR repositories (`fitsync-<service>`, in
 `bootstrap/`): staging runs a commit's images first, and prod deploys the same tag.
@@ -79,10 +81,10 @@ Screenshot the `apply` summary and the AWS console — that is your IaC artifact
 
 ### Phase 2 — the paid resources (only if you want to demo the full env)
 
-Enable one flag at a time. RDS needs a master password (never commit it):
+Enable one flag at a time. No password is typed: RDS manages its master password and
+Terraform generates the rest into Secrets Manager.
 
 ```bash
-export TF_VAR_db_password='<a-strong-password>'
 terraform apply -var-file=staging.tfvars -var="enable_rds=true"
 terraform apply -var-file=staging.tfvars -var="enable_ec2=true"
 terraform apply -var-file=staging.tfvars -var="enable_cloudfront=true"   # ~15-20 min
@@ -160,29 +162,30 @@ marked.
    Public halves → `STAGING_EC2_PUBLIC_KEY` variable / `TF_VAR_ec2_public_key` for prod;
    private halves → `STAGING_EC2_SSH_KEY` / `PROD_EC2_SSH_KEY` secrets. Never commit them.
 3. **Staging (costs money while up).** Either push to `main` with the CD variables
-   and secrets set (`tf-plan` → `deploy-staging` → `bootstrap-staging-db` →
-   `deploy-staging-app`), or locally:
+   and secrets set (`tf-plan` → `deploy-staging` → `deploy-staging-app`), or locally:
    ```bash
    terraform workspace select staging
-   TF_VAR_db_password=... TF_VAR_ec2_public_key="$(cat fitsync-staging-deploy.pub)"      terraform apply -var-file=staging.tfvars
+   TF_VAR_ec2_public_key="$(cat fitsync-staging-deploy.pub)" \
+     terraform apply -var-file=staging.tfvars
    ```
-   Then point the frontend's staging config at the new pool, client and EC2 host
-   (`terraform output`).
+   Then point the frontend's staging config at the new pool and client, and its
+   CloudFront `/api` origin at `alb_dns_name` (`terraform output`).
 4. **Prod (costs money while up).** Applied locally, not by CD:
    ```bash
    terraform workspace select prod
-   TF_VAR_db_password=... TF_VAR_ec2_public_key="$(cat fitsync-prod-deploy.pub)"      terraform apply -var-file=prod.tfvars
+   TF_VAR_ec2_public_key="$(cat fitsync-prod-deploy.pub)" \
+     terraform apply -var-file=prod.tfvars
    ```
-   The database starts empty (master user `fitsync_master`). From the prod EC2, run
-   `scripts/bootstrap-prod-db.sql` with the six `<SERVICE>_DB_PASSWORD` values to create
-   the service roles and schemas; Flyway builds the tables and seeds on first boot.
-   Set `PROD_EC2_HOST` (`ec2_public_ip` output), `DB_URL`
-   (`jdbc:postgresql://<rds_endpoint>/fitsync`) and the other prod secrets, then CD's
-   `deploy-prod` deploys on the next push to `main`. Finally point the prod CloudFront
-   `/api` origin at the new EC2 public DNS name.
+   The database starts empty. Set `PROD_EC2_HOST` (`ec2_public_ip` output) and push
+   to `main`: `deploy-prod` copies `scripts/bootstrap-db.sql` to the host, and
+   `ec2-deploy.sh` reads `fitsync-prod/app` and the RDS master secret, creates the six
+   service roles and schemas, renders the DB settings and JWT key into `.env`, and
+   starts the stack; Flyway builds the tables and seeds on first boot. Finally point
+   the prod CloudFront `/api` origin at `alb_dns_name`.
    Demo data: sign in once with each demo account (auth-service creates the user on first
    sign-in), then run `scripts/seed-demo-fitsync.sql` against the RDS as the master from
-   the EC2, the same way. `scripts/demo-reseed.ps1` only drives the local stack.
+   the EC2 (credentials in the RDS-managed secret). `scripts/demo-reseed.ps1` only
+   drives the local stack.
 5. **Tear down.** Staging: `terraform destroy -var-file=staging.tfvars`. Prod has
    deletion protection; turning it off is a deliberate edit, and destroy leaves the
    `fitsync-prod-db-final` snapshot behind.
@@ -195,8 +198,9 @@ marked.
    `terraform destroy` proving full reproducibility.
 3. **Multi-environment**: `staging` and `prod` are both built from code in their own
    workspaces; prod carries deletion protection and a final snapshot.
-4. **Roadmap / concern**: migrate state to an S3 + DynamoDB remote backend; split
-   public/private subnets + NAT; move secrets to SSM Parameter Store / Secrets Manager.
+4. **Roadmap / concern**: a second app host behind the ALB needs Kafka and Redis moved
+   off the host and a lock on the scheduled jobs and the outbox relay first; split
+   public/private subnets + NAT.
 
 ## Staging bring-up (deploy→test→promote target)
 
@@ -205,13 +209,11 @@ then tear it down to stop the bill.
 
 **Prerequisites**
 1. Deploy key: see "Rebuild" step 2 (public half → `STAGING_EC2_PUBLIC_KEY` variable, private half → `STAGING_EC2_SSH_KEY` secret).
-2. Actions secrets: `STAGING_EC2_SSH_KEY`, `STAGING_DB_PASSWORD`, `STAGING_JWT_SECRET`, `TF_VAR_DB_PASSWORD`; variables `STAGING_EC2_PUBLIC_KEY`, `STAGING_CORS_ALLOWED_ORIGINS` (plus `AWS_ROLE_ARN` / `AWS_ACCOUNT_ID` / `AWS_REGION`).
-3. RDS master password at apply time: `export TF_VAR_db_password=...`.
+2. Variables `STAGING_ENABLED=true`, `STAGING_EC2_PUBLIC_KEY`, `STAGING_CORS_ALLOWED_ORIGINS` (plus `AWS_ROLE_ARN` / `AWS_ACCOUNT_ID` / `AWS_REGION`); secret `STAGING_EC2_SSH_KEY`. No database or JWT secret: they live in Secrets Manager.
 
 **Order (jobs of the CD workflow on `main`, or local terraform):**
-1. `tf-plan` → **`deploy-staging`** (terraform apply: VPC/EC2/RDS/ECR/Cognito).
-2. Per-service DB roles in the new staging RDS (the app connects as `*_svc` users) — the `bootstrap-staging-db` job does this after `deploy-staging` (`scripts/bootstrap-staging-db.sql`). By hand: connect as master and create `auth_svc` / `user_svc` / `workout_svc` / `nutrition_svc` / `analytics_svc` / `recommendation_svc` with `STAGING_DB_PASSWORD`, plus their databases — Flyway then runs on first boot.
-3. **`deploy-staging-app`** (SSH-deploys the app; prints `http://<staging-eip>:8088`).
-4. Set `STRESS_TARGET_URL` / `DAST_TARGET_URL` = `http://<staging-eip>:8088` (+ `STRESS_USER_EMAIL/PASSWORD` of a seeded staging user), then run **`stress-test`** / **`owasp-zap`** (Actions → CD → **Run workflow** with the stress / DAST boxes ticked).
-5. Frontend (optional for API stress/DAST): a frontend PR adds `frontend_infra_staging` + `deploy_staging` (s3 sync). Only needed to exercise the SPA.
-6. **`terraform destroy -var-file=staging.tfvars`** when done.
+1. `tf-plan` → **`deploy-staging`** (terraform apply: VPC, ALB, EC2, RDS, Cognito, Secrets Manager).
+2. **`deploy-staging-app`** (SSH-deploys the app; `ec2-deploy.sh` bootstraps the six service roles from `fitsync-staging/app` before starting the stack, then the job checks the gateway health on the host).
+3. Set `STRESS_TARGET_URL` / `DAST_TARGET_URL` = `http://<alb_dns_name>` (+ `STRESS_USER_EMAIL/PASSWORD` of a seeded staging user), then run **`stress-test`** / **`owasp-zap`** (Actions → CD → **Run workflow** with the stress / DAST boxes ticked).
+4. Frontend: point the staging SPA at the new pool, client and ALB (frontend PR).
+5. **`terraform destroy -var-file=staging.tfvars`** when done.
