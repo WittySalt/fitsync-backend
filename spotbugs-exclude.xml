@@ -96,6 +96,18 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <!-- Guide state: signed-in endpoints are intentional Spring entrypoints; the service keeps the shared
+         Spring-managed ObjectMapper and never mutates it. -->
+    <Match>
+        <Class name="com.fitsync.user.controller.UserGuideController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <Match>
+        <Class name="com.fitsync.user.service.UserGuideStateService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- Spring wiring and controllers in user-service -->
     <Match>
         <Class name="com.fitsync.user.config.SecurityConfig"/>
