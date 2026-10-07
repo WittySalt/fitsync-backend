@@ -12,7 +12,9 @@ data "aws_iam_policy_document" "ec2_assume" {
 resource "aws_iam_role" "ec2_app" {
   name               = "${local.name}-ec2-app"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
-  tags               = { Name = "${local.name}-ec2-app" }
+  # Created by bootstrap/. The CD role may only create roles that carry it.
+  permissions_boundary = "arn:aws:iam::${local.account_id}:policy/fitsync-workload-boundary"
+  tags                 = { Name = "${local.name}-ec2-app" }
 }
 
 resource "aws_iam_role_policy_attachment" "ec2_ecr_pull" {

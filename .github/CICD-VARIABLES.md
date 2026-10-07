@@ -22,6 +22,8 @@ commands below.
 | `COGNITO_ENABLED` | deploy-prod | `true`/`false` (optional) |
 | `FITSYNC_MEDIA_ENDPOINT` `FITSYNC_MEDIA_REGION` `FITSYNC_MEDIA_BUCKET` `FITSYNC_MEDIA_PUBLIC_BASE_URL` | deploy | S3 media config |
 | `RECOMMENDATION_AI_ENABLED` `RECOMMENDATION_AI_PROVIDER` `RECOMMENDATION_AI_MODEL` `RECOMMENDATION_AI_BASE_URL` | deploy | coach AI tier (optional). Unset = off, the coach falls back to rule text |
+| `STAGING_EC2_PUBLIC_KEY` | tf-plan, deploy-staging | public half of the staging deploy key (the private half is `STAGING_EC2_SSH_KEY`) |
+| `STAGING_CORS_ALLOWED_ORIGINS` | deploy-staging-app | the staging SPA origin, e.g. `https://<staging-cloudfront>.cloudfront.net` |
 | `STRESS_TARGET_URL` `STRESS_PROFILE` | stress-test | k6 target + profile |
 | `DAST_TARGET_URL` | owasp-zap | ZAP target base URL |
 | `SONAR_HOST_URL` `SONAR_PROJECT_KEY` `SONAR_ORGANIZATION` `SONAR_QUALITYGATE_WAIT` | verify (optional) | only if using Sonar |
@@ -30,7 +32,7 @@ commands below.
 
 | Secret | Used by |
 |---|---|
-| `TF_VAR_DB_PASSWORD` | deploy-staging, bootstrap-staging-db (RDS master pw) |
+| `TF_VAR_DB_PASSWORD` | tf-plan, deploy-staging, bootstrap-staging-db (RDS master pw) |
 | `STAGING_DB_PASSWORD` `STAGING_JWT_SECRET` `STAGING_EC2_SSH_KEY` | staging deploy |
 | `DB_URL` `AUTH_DB_PASSWORD` `USER_DB_PASSWORD` `WORKOUT_DB_PASSWORD` `NUTRITION_DB_PASSWORD` `ANALYTICS_DB_PASSWORD` `RECOMMENDATION_DB_PASSWORD` `JWT_SECRET` | deploy-prod |
 | `PROD_EC2_SSH_KEY` | deploy-prod |

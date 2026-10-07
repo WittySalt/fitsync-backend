@@ -44,17 +44,22 @@ resource "aws_route_table_association" "public" {
 }
 
 # ── Security groups ──────────────────────────────────────────────────────────
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
 resource "aws_security_group" "app" {
   name        = "${local.name}-app-sg"
   description = "FitSync app host: gateway 8088 + SSH"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "API gateway (CloudFront / demo)"
-    from_port   = 8088
-    to_port     = 8088
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = var.api_from_cloudfront_only ? "API gateway (CloudFront only)" : "API gateway (CloudFront / demo)"
+    from_port       = 8088
+    to_port         = 8088
+    protocol        = "tcp"
+    cidr_blocks     = var.api_from_cloudfront_only ? null : ["0.0.0.0/0"]
+    prefix_list_ids = var.api_from_cloudfront_only ? [data.aws_ec2_managed_prefix_list.cloudfront.id] : null
   }
 
   ingress {

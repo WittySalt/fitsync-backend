@@ -10,6 +10,11 @@ Environment's approval gate, if you add required reviewers).
 > The pipeline stays gated (green, jobs skipped) until the **`AWS_ROLE_ARN`**
 > repository variable is set. Set it last, on purpose.
 
+> **Since 2026-10:** both staging and prod are built by Terraform, and the CD role comes
+> from `infra/terraform/bootstrap/`. Follow [`infra/terraform/RUNBOOK.md`](infra/terraform/RUNBOOK.md)
+> "Rebuild" for the order. The hand-built steps below (§1-§6) remain as reference for what
+> each resource is; §7 onward (variables, media, Bedrock, TLS) still applies as written.
+
 ## What runs where
 
 - **7 images** in ECR: `fitsync-{api-gateway,auth-service,user-service,workout-service,nutrition-service,analytics-service,recommendation-service}`

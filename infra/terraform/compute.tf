@@ -13,6 +13,14 @@ data "aws_ami" "al2023" {
   }
 }
 
+# CD deploys over SSH; its private half lives only in the <ENV>_EC2_SSH_KEY secret.
+resource "aws_key_pair" "app" {
+  count = var.enable_ec2 && var.ec2_public_key != "" ? 1 : 0
+
+  key_name   = "${local.name}-deploy"
+  public_key = var.ec2_public_key
+}
+
 resource "aws_instance" "app" {
   count = var.enable_ec2 ? 1 : 0
 
@@ -21,7 +29,7 @@ resource "aws_instance" "app" {
   subnet_id              = aws_subnet.public[0].id
   vpc_security_group_ids = [aws_security_group.app.id]
   iam_instance_profile   = aws_iam_instance_profile.ec2_app.name
-  key_name               = var.ec2_key_name != "" ? var.ec2_key_name : null
+  key_name               = var.ec2_public_key != "" ? aws_key_pair.app[0].key_name : (var.ec2_key_name != "" ? var.ec2_key_name : null)
 
   # Mirrors the bootstrap in backend/scripts/ec2-deploy.sh: install docker +
   # compose plugin so the CD deploy job can render docker-compose.prod.yml.

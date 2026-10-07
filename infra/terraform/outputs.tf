@@ -20,15 +20,16 @@ output "media_bucket" {
 }
 
 output "cognito_user_pool_id" {
-  value = aws_cognito_user_pool.main.id
+  description = "null unless enable_cognito=true"
+  value       = var.enable_cognito ? aws_cognito_user_pool.main[0].id : null
 }
 
 output "cognito_spa_client_id" {
-  value = aws_cognito_user_pool_client.spa.id
+  value = var.enable_cognito ? aws_cognito_user_pool_client.spa[0].id : null
 }
 
 output "cognito_domain" {
-  value = "${aws_cognito_user_pool_domain.main.domain}.auth.${var.region}.amazoncognito.com"
+  value = var.enable_cognito ? "${aws_cognito_user_pool_domain.main[0].domain}.auth.${var.region}.amazoncognito.com" : null
 }
 
 output "ci_deploy_policy_arn" {
