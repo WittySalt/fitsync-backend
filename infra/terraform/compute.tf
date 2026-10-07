@@ -3,9 +3,11 @@ data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["amazon"]
 
+  # The plain AL2023 image. A looser "al2023-ami-*" also matches the ECS and Neuron variants,
+  # which ship an ecs-agent container this host never uses.
   filter {
     name   = "name"
-    values = ["al2023-ami-*-x86_64"]
+    values = ["al2023-ami-2023.*-kernel-6.1-x86_64"]
   }
   filter {
     name   = "architecture"
@@ -60,6 +62,12 @@ resource "aws_instance" "app" {
   }
 
   tags = { Name = "${local.name}-app" }
+
+  # A new AL2023 release must not silently replace the host on the next apply; move to a
+  # newer image on purpose with `terraform apply -replace='aws_instance.app[0]'`.
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 resource "aws_eip" "app" {
