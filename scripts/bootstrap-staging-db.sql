@@ -18,6 +18,7 @@
 --   workout_svc   -> workout
 --   nutrition_svc -> nutrition
 --   analytics_svc -> analytics
+--   recommendation_svc -> recommendation
 \set ON_ERROR_STOP on
 
 -- auth
@@ -49,3 +50,9 @@ SELECT format('CREATE ROLE %I LOGIN', 'analytics_svc') WHERE NOT EXISTS (SELECT 
 ALTER ROLE analytics_svc LOGIN PASSWORD :'svc_pw';
 CREATE SCHEMA IF NOT EXISTS analytics;
 GRANT USAGE, CREATE ON SCHEMA analytics TO analytics_svc;
+
+-- recommendation
+SELECT format('CREATE ROLE %I LOGIN', 'recommendation_svc') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'recommendation_svc')\gexec
+ALTER ROLE recommendation_svc LOGIN PASSWORD :'svc_pw';
+CREATE SCHEMA IF NOT EXISTS recommendation;
+GRANT USAGE, CREATE ON SCHEMA recommendation TO recommendation_svc;

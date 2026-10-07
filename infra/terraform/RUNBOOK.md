@@ -183,7 +183,7 @@ then tear it down to stop the bill.
 
 **Order (jobs of the CD workflow on `main`, or local terraform):**
 1. `tf-plan` → **`deploy-staging`** (terraform apply: VPC/EC2/RDS/ECR/Cognito).
-2. Per-service DB roles in the new staging RDS (the app connects as `*_svc` users) — the `bootstrap-staging-db` job does this after `deploy-staging` (`scripts/bootstrap-staging-db.sql`). By hand: connect as master and create `auth_svc` / `user_svc` / `workout_svc` / `nutrition_svc` / `analytics_svc` with `STAGING_DB_PASSWORD`, plus their databases — Flyway then runs on first boot.
+2. Per-service DB roles in the new staging RDS (the app connects as `*_svc` users) — the `bootstrap-staging-db` job does this after `deploy-staging` (`scripts/bootstrap-staging-db.sql`). By hand: connect as master and create `auth_svc` / `user_svc` / `workout_svc` / `nutrition_svc` / `analytics_svc` / `recommendation_svc` with `STAGING_DB_PASSWORD`, plus their databases — Flyway then runs on first boot.
 3. **`deploy-staging-app`** (SSH-deploys the app; prints `http://<staging-eip>:8088`).
 4. Set `STRESS_TARGET_URL` / `DAST_TARGET_URL` = `http://<staging-eip>:8088` (+ `STRESS_USER_EMAIL/PASSWORD` of a seeded staging user), then run **`stress-test`** / **`owasp-zap`** (Actions → CD → **Run workflow** with the stress / DAST boxes ticked).
 5. Frontend (optional for API stress/DAST): a frontend PR adds `frontend_infra_staging` + `deploy_staging` (s3 sync). Only needed to exercise the SPA.

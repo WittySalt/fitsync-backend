@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 env:
-  RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service"
+  RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service"
   TF_VERSION: "1.15.7"
   AWS_REGION: ${{ vars.AWS_REGION }}
 
@@ -67,7 +67,7 @@ jobs:
           path: infra/terraform/tfplan
           retention-days: 7
 
-  # ── docker: build jars, build + Trivy-scan + push the 6 service images ───────
+  # ── docker: build jars, build + Trivy-scan + push the 7 service images ───────
   docker-image:
     if: ${{ vars.AWS_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
@@ -98,7 +98,7 @@ jobs:
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           # The Dockerfile copies pre-built jars, so package first.
           mvn --batch-mode --no-transfer-progress -DskipTests package
-          # Build + tag all 6 services (no push yet).
+          # Build + tag all 7 services (no push yet).
           ECR_REGISTRY="$ECR_REGISTRY" IMAGE_TAG="$SHORT_SHA" PUSH=0 bash scripts/build-images.sh
           for svc in $RUNNABLE_SERVICES; do
             repo="fitsync-$svc"; img="$ECR_REGISTRY/$repo"
@@ -229,6 +229,10 @@ jobs:
           FITSYNC_MEDIA_SECRET_KEY: ${{ secrets.FITSYNC_MEDIA_SECRET_KEY }}
           FITSYNC_MEDIA_BUCKET: ${{ vars.FITSYNC_MEDIA_BUCKET }}
           FITSYNC_MEDIA_PUBLIC_BASE_URL: ${{ vars.FITSYNC_MEDIA_PUBLIC_BASE_URL }}
+          RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
+          RECOMMENDATION_AI_PROVIDER: ${{ vars.RECOMMENDATION_AI_PROVIDER }}
+          RECOMMENDATION_AI_MODEL: ${{ vars.RECOMMENDATION_AI_MODEL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
           cd infra/terraform
@@ -251,6 +255,7 @@ jobs:
           WORKOUT_DB_PASSWORD=$STAGING_DB_PASSWORD
           NUTRITION_DB_PASSWORD=$STAGING_DB_PASSWORD
           ANALYTICS_DB_PASSWORD=$STAGING_DB_PASSWORD
+          RECOMMENDATION_DB_PASSWORD=$STAGING_DB_PASSWORD
           JWT_SECRET=$STAGING_JWT_SECRET
           JWT_EXPIRATION=PT2H
           REDIS_HOST=redis
@@ -273,6 +278,17 @@ jobs:
           KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED=true
           KAFKA_WORKOUT_DELETED_LISTENER_ENABLED=true
           KAFKA_ANALYTICS_ENERGY_PROFILE_LISTENER_ENABLED=true
+          KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED=true
+          KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED=true
+          KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED=true
+          KAFKA_RECIPE_COOKED_LISTENER_ENABLED=true
+          KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED=true
+          KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED=true
+          KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED=true
+          RECOMMENDATION_AI_ENABLED=${RECOMMENDATION_AI_ENABLED:-false}
+          RECOMMENDATION_AI_PROVIDER=${RECOMMENDATION_AI_PROVIDER}
+          RECOMMENDATION_AI_MODEL=${RECOMMENDATION_AI_MODEL}
+          ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
           COGNITO_ENABLED=false
           NGINX_SERVER_NAME=_
           NGINX_CERT_NAME=localhost
@@ -382,6 +398,7 @@ jobs:
           WORKOUT_DB_PASSWORD: ${{ secrets.WORKOUT_DB_PASSWORD }}
           NUTRITION_DB_PASSWORD: ${{ secrets.NUTRITION_DB_PASSWORD }}
           ANALYTICS_DB_PASSWORD: ${{ secrets.ANALYTICS_DB_PASSWORD }}
+          RECOMMENDATION_DB_PASSWORD: ${{ secrets.RECOMMENDATION_DB_PASSWORD }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           COGNITO_ENABLED: ${{ vars.COGNITO_ENABLED }}
           PROD_DOMAIN: ${{ vars.PROD_DOMAIN }}
@@ -391,11 +408,15 @@ jobs:
           FITSYNC_MEDIA_SECRET_KEY: ${{ secrets.FITSYNC_MEDIA_SECRET_KEY }}
           FITSYNC_MEDIA_BUCKET: ${{ vars.FITSYNC_MEDIA_BUCKET }}
           FITSYNC_MEDIA_PUBLIC_BASE_URL: ${{ vars.FITSYNC_MEDIA_PUBLIC_BASE_URL }}
+          RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
+          RECOMMENDATION_AI_PROVIDER: ${{ vars.RECOMMENDATION_AI_PROVIDER }}
+          RECOMMENDATION_AI_MODEL: ${{ vars.RECOMMENDATION_AI_MODEL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
           IMAGE_TAG="${GITHUB_SHA:0:8}"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          # Refuse to touch prod unless all 6 images exist for this tag.
+          # Refuse to touch prod unless all 7 images exist for this tag.
           for svc in $RUNNABLE_SERVICES; do
             docker manifest inspect "$ECR_REGISTRY/fitsync-$svc:$IMAGE_TAG" > /dev/null
           done
@@ -412,6 +433,7 @@ jobs:
           WORKOUT_DB_PASSWORD=$WORKOUT_DB_PASSWORD
           NUTRITION_DB_PASSWORD=$NUTRITION_DB_PASSWORD
           ANALYTICS_DB_PASSWORD=$ANALYTICS_DB_PASSWORD
+          RECOMMENDATION_DB_PASSWORD=$RECOMMENDATION_DB_PASSWORD
           JWT_SECRET=$JWT_SECRET
           JWT_EXPIRATION=PT2H
           REDIS_HOST=redis
@@ -434,6 +456,17 @@ jobs:
           KAFKA_WORKOUT_UPDATED_LISTENER_ENABLED=true
           KAFKA_WORKOUT_DELETED_LISTENER_ENABLED=true
           KAFKA_ANALYTICS_ENERGY_PROFILE_LISTENER_ENABLED=true
+          KAFKA_PERSONAL_RECORD_ACHIEVED_LISTENER_ENABLED=true
+          KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED=true
+          KAFKA_USER_PROFILE_UPDATED_LISTENER_ENABLED=true
+          KAFKA_RECIPE_COOKED_LISTENER_ENABLED=true
+          KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED=true
+          KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED=true
+          KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED=true
+          RECOMMENDATION_AI_ENABLED=${RECOMMENDATION_AI_ENABLED:-false}
+          RECOMMENDATION_AI_PROVIDER=${RECOMMENDATION_AI_PROVIDER}
+          RECOMMENDATION_AI_MODEL=${RECOMMENDATION_AI_MODEL}
+          ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
           COGNITO_ENABLED=${COGNITO_ENABLED:-false}
           NGINX_SERVER_NAME=${PROD_DOMAIN:-_}
           NGINX_CERT_NAME=${PROD_DOMAIN:-localhost}

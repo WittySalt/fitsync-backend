@@ -21,6 +21,7 @@ commands below.
 | `PROD_DOMAIN` | deploy-prod | nginx server name (optional) |
 | `COGNITO_ENABLED` | deploy-prod | `true`/`false` (optional) |
 | `FITSYNC_MEDIA_ENDPOINT` `FITSYNC_MEDIA_REGION` `FITSYNC_MEDIA_BUCKET` `FITSYNC_MEDIA_PUBLIC_BASE_URL` | deploy | S3 media config |
+| `RECOMMENDATION_AI_ENABLED` `RECOMMENDATION_AI_PROVIDER` `RECOMMENDATION_AI_MODEL` | deploy | coach AI tier (optional). Unset = off, the coach falls back to rule text |
 | `STRESS_TARGET_URL` `STRESS_PROFILE` | stress-test | k6 target + profile |
 | `DAST_TARGET_URL` | owasp-zap | ZAP target base URL |
 | `SONAR_HOST_URL` `SONAR_PROJECT_KEY` `SONAR_ORGANIZATION` `SONAR_QUALITYGATE_WAIT` | verify (optional) | only if using Sonar |
@@ -31,9 +32,10 @@ commands below.
 |---|---|
 | `TF_VAR_DB_PASSWORD` | deploy-staging, bootstrap-staging-db (RDS master pw) |
 | `STAGING_DB_PASSWORD` `STAGING_JWT_SECRET` `STAGING_EC2_SSH_KEY` | staging deploy |
-| `DB_URL` `AUTH_DB_PASSWORD` `USER_DB_PASSWORD` `WORKOUT_DB_PASSWORD` `NUTRITION_DB_PASSWORD` `ANALYTICS_DB_PASSWORD` `JWT_SECRET` | deploy-prod |
+| `DB_URL` `AUTH_DB_PASSWORD` `USER_DB_PASSWORD` `WORKOUT_DB_PASSWORD` `NUTRITION_DB_PASSWORD` `ANALYTICS_DB_PASSWORD` `RECOMMENDATION_DB_PASSWORD` `JWT_SECRET` | deploy-prod |
 | `PROD_EC2_SSH_KEY` | deploy-prod |
 | `FITSYNC_MEDIA_ACCESS_KEY` `FITSYNC_MEDIA_SECRET_KEY` | deploy |
+| `ANTHROPIC_API_KEY` | deploy (only when `RECOMMENDATION_AI_PROVIDER=anthropic`) |
 | `STRESS_USER_EMAIL` `STRESS_USER_PASSWORD` | stress-test |
 | `SONAR_TOKEN` `NVD_API_KEY` | optional (CI) |
 
