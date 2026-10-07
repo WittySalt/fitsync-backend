@@ -1,6 +1,7 @@
 package com.fitsync.nutrition;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -1346,6 +1347,77 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
         leftoverMeal(token, cookId, "{\"mealType\": \"LUNCH\"}").andExpect(status().isNotFound());
         Assertions.assertEquals(2, jdbcTemplate.queryForObject(
                 "select servings_left from recipe_cooks where cook_id = ?", Integer.class, UUID.fromString(cookId)));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions reportLogged(String token, String cookId, String body)
+            throws Exception {
+        var request = patch(RECIPES + "/cooks/" + cookId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+        return mockMvc.perform(token == null ? request : request.header("Authorization", "Bearer " + token));
+    }
+
+    private int servingsLeftOf(String cookId) {
+        return jdbcTemplate.queryForObject("select servings_left from recipe_cooks where cook_id = ?",
+                Integer.class, UUID.fromString(cookId));
+    }
+
+    @Test
+    void servingsLoggedAfterTheCookSetTheLeftoversAndRepeatingItChangesNothing() throws Exception {
+        String token = tokenFor("logged-a@example.com");
+        String cookId = leftoverCook(token, chickenBowl, "4", null, Instant.now().minusSeconds(60));
+        Assertions.assertEquals(0, servingsLeftOf(cookId));
+
+        for (int i = 0; i < 2; i++) {
+            reportLogged(token, cookId, "{\"servingsLogged\": 1.5}").andExpect(status().isOk())
+                    .andExpect(jsonPath("$.cookId").value(cookId))
+                    .andExpect(jsonPath("$.servings").value(4.0))
+                    .andExpect(jsonPath("$.servingsLeft").value(2));
+            Assertions.assertEquals(2, servingsLeftOf(cookId));
+        }
+        reportLogged(token, cookId, "{\"servingsLogged\": 50}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.servingsLeft").value(0));
+        reportLogged(token, cookId, "{\"servingsLogged\": 0}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.servingsLeft").value(4));
+    }
+
+    @Test
+    void servingsLoggedForSomebodyElsesOrAnUnknownOrADeletedCookAnswer404() throws Exception {
+        String token = tokenFor("logged-b@example.com");
+        String other = tokenFor("logged-c@example.com");
+        String cookId = leftoverCook(token, chickenBowl, "4", null, Instant.now().minusSeconds(60));
+
+        reportLogged(other, cookId, "{\"servingsLogged\": 1}").andExpect(status().isNotFound());
+        reportLogged(token, UUID.randomUUID().toString(), "{\"servingsLogged\": 1}").andExpect(status().isNotFound());
+        mockMvc.perform(delete(RECIPES + "/cooks/" + cookId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        reportLogged(token, cookId, "{\"servingsLogged\": 1}").andExpect(status().isNotFound());
+        Assertions.assertEquals(0, servingsLeftOf(cookId));
+    }
+
+    @Test
+    void servingsLoggedMoreThan24HoursAfterTheCookAnswer409AndKeepTheLeftovers() throws Exception {
+        String token = tokenFor("logged-d@example.com");
+        String old = leftoverCook(token, chickenBowl, "4", "1", Instant.now().minusSeconds(25 * 3600));
+        String recent = leftoverCook(token, chickenBowl, "4", "1", Instant.now().minusSeconds(23 * 3600));
+
+        reportLogged(token, old, "{\"servingsLogged\": 0}").andExpect(status().isConflict());
+        Assertions.assertEquals(3, servingsLeftOf(old));
+        reportLogged(token, recent, "{\"servingsLogged\": 0}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.servingsLeft").value(4));
+    }
+
+    @Test
+    void servingsLoggedAreValidatedAndNeedASignedInUser() throws Exception {
+        String token = tokenFor("logged-e@example.com");
+        String cookId = leftoverCook(token, chickenBowl, "4", "1", Instant.now().minusSeconds(60));
+
+        reportLogged(token, cookId, "{}").andExpect(status().isBadRequest());
+        reportLogged(token, cookId, "{\"servingsLogged\": -1}").andExpect(status().isBadRequest());
+        reportLogged(token, cookId, "{\"servingsLogged\": 50.5}").andExpect(status().isBadRequest());
+        reportLogged(token, cookId, "{\"servingsLogged\": \"many\"}").andExpect(status().isBadRequest());
+        Assertions.assertEquals(3, servingsLeftOf(cookId));
+        reportLogged(null, cookId, "{\"servingsLogged\": 1}").andExpect(status().isUnauthorized());
     }
 
     private String fromRecipeJson(String servings) {

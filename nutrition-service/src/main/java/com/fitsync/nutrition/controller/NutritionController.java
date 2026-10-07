@@ -483,6 +483,14 @@ public class NutritionController {
         return recipeCookService.logLeftover(currentPrincipal(authentication), cookId, request, zoneId(zone));
     }
 
+    /** Sets the servings logged for the caller's own cook (and so its leftovers); 409 after 24 hours. */
+    @org.springframework.web.bind.annotation.PatchMapping("/recipes/cooks/{cookId}")
+    public RecipeCookView updateCook(Authentication authentication,
+                                     @PathVariable UUID cookId,
+                                     @Valid @RequestBody com.fitsync.nutrition.dto.UpdateRecipeCookRequest request) {
+        return recipeCookService.updateServingsLogged(currentPrincipal(authentication), cookId, request);
+    }
+
     @DeleteMapping("/recipes/cooks/{cookId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteCook(Authentication authentication, @PathVariable UUID cookId) {

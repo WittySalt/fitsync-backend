@@ -18,6 +18,7 @@ import com.fitsync.nutrition.dto.LeftoverMealRequest;
 import com.fitsync.nutrition.dto.LeftoverMealView;
 import com.fitsync.nutrition.dto.RecipeMealRequest;
 import com.fitsync.nutrition.dto.RecipeCookView;
+import com.fitsync.nutrition.dto.UpdateRecipeCookRequest;
 import com.fitsync.nutrition.entity.RecipeCookEntity;
 import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.repository.RecipeCookRepository;
@@ -38,6 +39,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class RecipeCookService {
 
     static final Duration ALLOWED_SKEW = Duration.ofMinutes(5);
+    /** A cook can be given its logged servings this long after it finished. */
+    static final Duration LOGGED_UPDATE_WINDOW = Duration.ofHours(24);
     static final String RECIPE_COOKED = "RecipeCooked";
     /** Cooks of this many days back still offer their leftovers. */
     static final Duration LEFTOVER_WINDOW = Duration.ofDays(7);
@@ -172,6 +175,23 @@ public class RecipeCookService {
         int left = cookRepository.findByCookIdAndUserIdAndDeletedAtIsNull(cookId, userId)
                 .map(RecipeCookEntity::getServingsLeft).orElse(0);
         return new LeftoverMealView(cookId, left, meal);
+    }
+
+    /**
+     * Sets the leftovers of the caller's own cook from the servings that were logged, which lets a client record the
+     * cook first and report the servings afterwards. The value is set, not added, so repeating it changes nothing.
+     * Somebody else's, an unknown or a deleted cook answers 404; a cook that finished over 24 hours ago answers 409.
+     */
+    @Transactional
+    public RecipeCookView updateServingsLogged(CurrentUserPrincipal principal, UUID cookId,
+                                               UpdateRecipeCookRequest request) {
+        RecipeCookEntity cook = cookRepository.findByCookIdAndUserIdAndDeletedAtIsNull(cookId, principal.userId())
+                .orElseThrow(() -> new ResourceNotFoundException("Cook not found"));
+        if (clock.instant().isAfter(cook.getFinishedAt().plus(LOGGED_UPDATE_WINDOW))) {
+            throw new ConflictException("The servings of that cook can no longer be changed");
+        }
+        cook.setServingsLeft(servingsLeft(cook.getServings(), request.servingsLogged()));
+        return toView(cookRepository.save(cook));
     }
 
     /** Marks the caller's own cook as deleted; anybody else's, or one already deleted, answers 404. */
