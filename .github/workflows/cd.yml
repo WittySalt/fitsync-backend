@@ -13,25 +13,21 @@
 #
 # Flow: CI → iac → docker → deploy-staging cascade → stress/DAST → prod.
 #
-# Trigger. CD starts when the CI workflow finishes on a push to main, and only if CI
-# passed, so nothing is built or deployed from a commit whose tests failed. It builds
-# exactly the commit CI tested (RELEASE_SHA), not whatever main points at by then.
-# Manual runs (workflow_dispatch) build the commit they are started on.
+# Trigger. CD runs only when someone starts it (Actions → CD → Run workflow) on main,
+# so staging never changes under a demo by itself. Its first job, ci-gate, refuses to
+# go on unless the CI workflow succeeded on a push for exactly this commit: CI passing
+# says a commit may be deployed, a person decides when (continuous delivery).
 #
 # Promotion rule. Staging runs only while the STAGING_ENABLED variable is 'true', so a
-# push never rebuilds a staging that was destroyed to save money. A push deploys
-# staging at most; prod deploys only in a manual run with deploy_prod ticked, and only
-# after deploy-staging-app succeeded in that same run with the same image tag. (The
+# run never rebuilds a staging that was destroyed to save money. A run deploys staging;
+# prod deploys only when deploy_prod is ticked, and only after deploy-staging-app
+# succeeded in that same run with the same image tag. (The
 # manual run is the approval: required reviewers on Environments need a paid plan for
 # a private repository.) The one way past staging is a manual run with skip_staging
 # ticked and a reason, written to the run summary (break-glass).
 name: CD
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       run_stress:
@@ -62,21 +58,42 @@ concurrency:
 permissions:
   id-token: write   # required for AWS OIDC
   contents: read
+  actions: read     # ci-gate reads the CI runs of this commit
 
 env:
-  # The commit CI tested for a workflow_run, the run's own commit for a manual run.
-  RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  # The commit this run builds and deploys (the head of main when the run started).
+  RELEASE_SHA: ${{ github.sha }}
   RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service"
   TF_VERSION: "1.15.7"
   AWS_REGION: ${{ vars.AWS_REGION }}
 
 jobs:
+  # ── ci-gate: deploy only a commit on main whose CI passed ────────────────────
+  ci-gate:
+    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a successful CI run on main for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "CD deploys main only, not $GITHUB_REF."; exit 1
+          fi
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$RELEASE_SHA&event=push&status=success" --jq '.total_count')"
+          if [ "$passed" -lt 1 ]; then
+            echo "No successful CI run on main for $RELEASE_SHA yet; wait for CI, then run CD again."; exit 1
+          fi
+          echo "CI passed for $RELEASE_SHA."
+
   # ── iac: terraform plan for staging (review only) ───────────────────────────
   # The plan is printed, not uploaded: a saved plan file can hold generated secrets
   # in plain text, and artifacts are readable by anyone who can read the repo.
   tf-plan:
-    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')) }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !inputs.skip_staging }}
     runs-on: ubuntu-latest
+    needs: [ci-gate]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,8 +116,9 @@ jobs:
 
   # ── docker: build jars, build + Trivy-scan + push the 7 service images ───────
   docker-image:
-    if: ${{ vars.AWS_ROLE_ARN != '' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')) }}
+    if: ${{ vars.AWS_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
+    needs: [ci-gate]
     steps:
       - uses: actions/checkout@v4
         with:
