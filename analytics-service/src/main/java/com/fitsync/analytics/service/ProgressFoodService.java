@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -31,6 +32,7 @@ import com.fitsync.analytics.dto.ProgressFoodResponse.Macro;
 import com.fitsync.analytics.dto.ProgressFoodResponse.Macros;
 import com.fitsync.analytics.dto.ProgressFoodResponse.MealShare;
 import com.fitsync.analytics.dto.ProgressFoodResponse.Meals;
+import com.fitsync.analytics.dto.ProgressFoodResponse.MonthDays;
 import com.fitsync.analytics.dto.ProgressFoodResponse.Plate;
 import com.fitsync.analytics.dto.ProgressFoodResponse.PlateChange;
 import com.fitsync.analytics.dto.ProgressFoodResponse.PlateGroup;
@@ -45,6 +47,7 @@ import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
 import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
+import com.fitsync.web.error.BadRequestException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,6 +67,9 @@ public class ProgressFoodService {
     static final String UP = "UP";
     static final String STEADY = "STEADY";
     static final String DOWN = "DOWN";
+    static final String GRANULARITY_WEEK = "week";
+    static final String GRANULARITY_MONTH = "month";
+    static final String SO_FAR = "so far";
     private static final int PLATE_CHANGES = 3;
 
     private final AnalyticsUserDailyNutritionRepository dailyNutritionRepository;
@@ -86,6 +92,16 @@ public class ProgressFoodService {
 
     @Transactional(readOnly = true)
     public ProgressFoodResponse getFood(UUID userId, ProgressWindow window, String timezone) {
+        return getFood(userId, window, timezone, GRANULARITY_WEEK);
+    }
+
+    /**
+     * {@code granularity} is "week" (one point per Monday week) or "month" (one point per calendar month: the
+     * months the period covers whole, plus the month that holds today as "so far"); anything else is a 400.
+     */
+    @Transactional(readOnly = true)
+    public ProgressFoodResponse getFood(UUID userId, ProgressWindow window, String timezone, String granularity) {
+        boolean monthly = isMonthly(granularity);
         ZoneId zone = energyService.resolveZone(userId, timezone);
         LocalDate today = LocalDate.now(clock.withZone(zone));
 
@@ -104,12 +120,9 @@ public class ProgressFoodService {
         boolean currentWeekIncluded = thisWeekDays.size() >= ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK;
 
         AnalyticsEnergyWeeklyResponse thisWeek = energyService.getWeekly(userId, null, zone.getId());
-        LocalDate lastMonday = ProgressWindow.weekStart(window.to().isAfter(today) ? today : window.to());
-        List<WeekBalance> balances = energyService
-                .weeklyBalances(userId, ProgressWindow.weekStart(window.from()), lastMonday, zone).stream()
-                .filter(week -> !week.current() || week.daysLogged() >= ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK)
-                .map(week -> new WeekBalance(week.weekStart(), week.balance(), week.daysLogged(), week.current()))
-                .toList();
+        List<MonthBucket> months = monthly ? months(window, today) : List.of();
+        List<WeekBalance> balances = monthly ? monthlyBalances(userId, months, zone)
+                : weeklyBalances(userId, window, today, zone);
 
         Map<String, AnalyticsUserGoalProgressEntity> goals = activeGoals(userId);
         Integer eaten = averageKcal(current);
@@ -125,11 +138,22 @@ public class ProgressFoodService {
         BigDecimal proteinTarget = target(goals.get(GoalProgressEvaluator.PROTEIN), current);
         List<AnalyticsUserDailyNutritionEntity> weekly = currentWeekIncluded ? current
                 : current.stream().filter(row -> row.getActivityDate().isBefore(thisMonday)).toList();
-        Macro protein = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalProteinGrams, proteinTarget);
-        Macro carbs = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalCarbsGrams,
-                goalTarget(goals.get(GoalProgressEvaluator.CARBS)));
-        Macro fat = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalFatGrams,
-                goalTarget(goals.get(GoalProgressEvaluator.FAT)));
+        Macro protein;
+        Macro carbs;
+        Macro fat;
+        if (monthly) {
+            protein = monthMacro(months, current, AnalyticsUserDailyNutritionEntity::getTotalProteinGrams, proteinTarget);
+            carbs = monthMacro(months, current, AnalyticsUserDailyNutritionEntity::getTotalCarbsGrams,
+                    goalTarget(goals.get(GoalProgressEvaluator.CARBS)));
+            fat = monthMacro(months, current, AnalyticsUserDailyNutritionEntity::getTotalFatGrams,
+                    goalTarget(goals.get(GoalProgressEvaluator.FAT)));
+        } else {
+            protein = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalProteinGrams, proteinTarget);
+            carbs = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalCarbsGrams,
+                    goalTarget(goals.get(GoalProgressEvaluator.CARBS)));
+            fat = macro(window, weekly, AnalyticsUserDailyNutritionEntity::getTotalFatGrams,
+                    goalTarget(goals.get(GoalProgressEvaluator.FAT)));
+        }
         List<SummaryLine> summary = new ArrayList<>();
         addLine(summary, "Protein", protein);
         addLine(summary, "Carbs", carbs);
@@ -145,9 +169,11 @@ public class ProgressFoodService {
         List<MealShare> shares = mealShares(meals, current, previous);
 
         List<ProgressHighlight> highlights = new ArrayList<>();
-        addIfFired(highlights, ProgressHighlightRules.proteinDrift(
-                protein.series().stream().map(WeekValue::weekStart).toList(),
-                protein.series().stream().map(WeekValue::value).toList(), proteinTarget));
+        if (!monthly) {
+            addIfFired(highlights, ProgressHighlightRules.proteinDrift(
+                    protein.series().stream().map(WeekValue::weekStart).toList(),
+                    protein.series().stream().map(WeekValue::value).toList(), proteinTarget));
+        }
         if (!changes.isEmpty()) {
             String group = changes.get(0).group();
             addIfFired(highlights, ProgressHighlightRules.plateShift(group, share(plateBefore, group),
@@ -157,8 +183,136 @@ public class ProgressFoodService {
 
         return new ProgressFoodResponse(new ProgressPeriod(window.from(), window.to()),
                 new ProgressPeriod(window.previousFrom(), window.previousTo()), hero, highlights,
-                new Energy(thisWeek, balances), new Macros(protein, carbs, fat, summary), plate, new Meals(shares),
-                new Habits(current.size()), currentWeek);
+                new Energy(thisWeek, balances), new Macros(protein, carbs, fat, summary), plate,
+                new Meals(shares, previousMealShares(meals, previous)),
+                new Habits(current.size(), monthly ? loggedDaysPerMonth(months, current) : List.of()), currentWeek,
+                monthly ? GRANULARITY_MONTH : GRANULARITY_WEEK);
+    }
+
+    static boolean isMonthly(String granularity) {
+        if (granularity == null || GRANULARITY_WEEK.equals(granularity)) {
+            return false;
+        }
+        if (GRANULARITY_MONTH.equals(granularity)) {
+            return true;
+        }
+        throw new BadRequestException("granularity must be week or month");
+    }
+
+    private List<WeekBalance> weeklyBalances(UUID userId, ProgressWindow window, LocalDate today, ZoneId zone) {
+        LocalDate lastMonday = ProgressWindow.weekStart(window.to().isAfter(today) ? today : window.to());
+        return energyService.weeklyBalances(userId, ProgressWindow.weekStart(window.from()), lastMonday, zone).stream()
+                .filter(week -> !week.current() || week.daysLogged() >= ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK)
+                .map(week -> new WeekBalance(week.weekStart(), week.balance(), week.daysLogged(), week.current()))
+                .toList();
+    }
+
+    private List<WeekBalance> monthlyBalances(UUID userId, List<MonthBucket> months, ZoneId zone) {
+        if (months.isEmpty()) {
+            return List.of();
+        }
+        Map<LocalDate, MonthBucket> byStart = new HashMap<>();
+        months.forEach(month -> byStart.put(month.start(), month));
+        List<WeekBalance> bars = new ArrayList<>();
+        for (AnalyticsEnergyService.WeekBalance bar : energyService.monthlyBalances(userId, months.get(0).start(),
+                months.get(months.size() - 1).start(), zone)) {
+            MonthBucket month = byStart.get(bar.weekStart());
+            if (month == null || month.current() && bar.daysLogged() < ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK) {
+                continue;
+            }
+            bars.add(new WeekBalance(bar.weekStart(), bar.balance(), bar.daysLogged(), month.current(), month.label(),
+                    month.current(), month.current() ? SO_FAR : null));
+        }
+        return bars;
+    }
+
+    /**
+     * A calendar month of a monthly series: a month the period covers whole, or the month that holds today
+     * when the period reaches today ({@code current}, shown as "so far").
+     */
+    record MonthBucket(LocalDate start, LocalDate end, boolean current) {
+
+        String label() {
+            return YearMonth.from(start).toString();
+        }
+
+        boolean contains(LocalDate date) {
+            return !date.isBefore(start) && !date.isAfter(end);
+        }
+    }
+
+    static List<MonthBucket> months(ProgressWindow window, LocalDate today) {
+        List<MonthBucket> buckets = new ArrayList<>();
+        for (LocalDate start = window.from().withDayOfMonth(1); !start.isAfter(window.to());
+             start = start.plusMonths(1)) {
+            LocalDate end = start.plusMonths(1).minusDays(1);
+            boolean startsInside = !start.isBefore(window.from());
+            boolean holdsToday = !today.isBefore(start) && !today.isAfter(end);
+            boolean whole = startsInside && !end.isAfter(window.to());
+            if (whole || startsInside && holdsToday && window.contains(today)) {
+                buckets.add(new MonthBucket(start, end, holdsToday));
+            }
+        }
+        return buckets;
+    }
+
+    /**
+     * Grams a day over the logged days of each calendar month; a month without a logged day stays in the
+     * series as a point with a null value. The month that holds today enters with two logged days before
+     * today, as the current week does.
+     */
+    static Macro monthMacro(List<MonthBucket> months, List<AnalyticsUserDailyNutritionEntity> logged,
+                            Function<AnalyticsUserDailyNutritionEntity, BigDecimal> grams, BigDecimal target) {
+        List<WeekValue> series = new ArrayList<>();
+        for (MonthBucket month : months) {
+            List<AnalyticsUserDailyNutritionEntity> days = logged.stream()
+                    .filter(row -> month.contains(row.getActivityDate())).toList();
+            if (month.current() && days.size() < ProgressWindow.MIN_FULL_DAYS_FOR_CURRENT_WEEK) {
+                continue;
+            }
+            series.add(new WeekValue(month.start(), averageGrams(days, grams), month.label(), month.current(),
+                    month.current() ? SO_FAR : null));
+        }
+        BigDecimal first = series.stream().map(WeekValue::value).filter(Objects::nonNull).findFirst().orElse(null);
+        BigDecimal last = series.stream().map(WeekValue::value).filter(Objects::nonNull).reduce((a, b) -> b)
+                .orElse(null);
+        return new Macro(first, last, target, series);
+    }
+
+    private static List<MonthDays> loggedDaysPerMonth(List<MonthBucket> months,
+                                                      List<AnalyticsUserDailyNutritionEntity> logged) {
+        return months.stream().map(month -> new MonthDays(month.label(),
+                (int) logged.stream().filter(row -> month.contains(row.getActivityDate())).count())).toList();
+    }
+
+    /** The previous period's meal shares in the same shape, null when it holds no meals. */
+    static List<MealShare> previousMealShares(List<AnalyticsMealContributionEntity> meals,
+                                              List<AnalyticsUserDailyNutritionEntity> previous) {
+        Set<LocalDate> days = new HashSet<>();
+        previous.forEach(row -> days.add(row.getActivityDate()));
+        Map<String, Long> before = new LinkedHashMap<>();
+        MEAL_ORDER.forEach(type -> before.put(type, 0L));
+        for (AnalyticsMealContributionEntity meal : meals) {
+            if (days.contains(meal.getActivityDate())) {
+                before.merge(mealType(AnalyticsEnergyService.mealGroup(meal.getMealType())),
+                        (long) Objects.requireNonNullElse(meal.getTotalCalories(), 0), Long::sum);
+            }
+        }
+        if (before.values().stream().mapToLong(Long::longValue).sum() <= 0) {
+            return null;
+        }
+        int[] pct = largestRemainder(List.copyOf(before.values()), 100);
+        List<MealShare> shares = new ArrayList<>();
+        for (int i = 0; i < MEAL_ORDER.size(); i++) {
+            String type = MEAL_ORDER.get(i);
+            if ("OTHER".equals(type) && before.get(type) == 0) {
+                continue;
+            }
+            int kcalPerDay = BigDecimal.valueOf(before.get(type))
+                    .divide(BigDecimal.valueOf(previous.size()), 0, RoundingMode.HALF_UP).intValue();
+            shares.add(new MealShare(type, pct[i], null, kcalPerDay));
+        }
+        return shares;
     }
 
     /** A logged day that is over: at least one meal and before today. */

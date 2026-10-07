@@ -354,28 +354,54 @@ public class AnalyticsEnergyService {
         if (lastMonday.isBefore(firstMonday)) {
             return List.of();
         }
-        LocalDate end = lastMonday.plusDays(6);
+        List<LocalDate[]> buckets = new ArrayList<>();
+        for (LocalDate monday = firstMonday; !monday.isAfter(lastMonday); monday = monday.plusWeeks(1)) {
+            buckets.add(new LocalDate[] {monday, monday.plusDays(6)});
+        }
+        return bucketBalances(userId, buckets, zone);
+    }
+
+    /**
+     * The same balance per calendar month: one entry for each month from {@code firstMonth} to
+     * {@code lastMonth} (both any day of their month), weekStart being the first day of the month. The
+     * average is per logged day of the month, today left out, as in the weekly series.
+     */
+    @Transactional(readOnly = true)
+    public List<WeekBalance> monthlyBalances(UUID userId, LocalDate firstMonth, LocalDate lastMonth, ZoneId zone) {
+        LocalDate first = firstMonth.withDayOfMonth(1);
+        LocalDate last = lastMonth.withDayOfMonth(1);
+        List<LocalDate[]> buckets = new ArrayList<>();
+        for (LocalDate month = first; !month.isAfter(last); month = month.plusMonths(1)) {
+            buckets.add(new LocalDate[] {month, month.plusMonths(1).minusDays(1)});
+        }
+        return bucketBalances(userId, buckets, zone);
+    }
+
+    private List<WeekBalance> bucketBalances(UUID userId, List<LocalDate[]> buckets, ZoneId zone) {
+        if (buckets.isEmpty()) {
+            return List.of();
+        }
+        LocalDate rangeStart = buckets.get(0)[0];
+        LocalDate end = buckets.get(buckets.size() - 1)[1];
         Map<LocalDate, AnalyticsUserDailyNutritionEntity> nutrition = new HashMap<>();
-        dailyNutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, firstMonday, end)
+        dailyNutritionRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, rangeStart, end)
                 .forEach(row -> nutrition.put(row.getActivityDate(), row));
         Map<LocalDate, AnalyticsUserDailyWorkoutEntity> workouts = new HashMap<>();
-        dailyWorkoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, firstMonday, end)
+        dailyWorkoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, rangeStart, end)
                 .forEach(row -> workouts.put(row.getActivityDate(), row));
-        BmrTimeline timeline = loadTimeline(userId, firstMonday, end, zone);
+        BmrTimeline timeline = loadTimeline(userId, rangeStart, end, zone);
         Map<LocalDate, Integer> mealsPerDay = mealsPerDay(
-                mealContributionRepository.findByUserIdAndActivityDateBetween(userId, firstMonday, end), nutrition);
+                mealContributionRepository.findByUserIdAndActivityDateBetween(userId, rangeStart, end), nutrition);
         LocalDate today = LocalDate.now(clock.withZone(zone));
-        LocalDate thisMonday = today.with(WeekFields.ISO.dayOfWeek(), 1);
 
-        List<WeekBalance> weeks = new ArrayList<>();
-        for (LocalDate monday = firstMonday; !monday.isAfter(lastMonday); monday = monday.plusWeeks(1)) {
+        List<WeekBalance> result = new ArrayList<>();
+        for (LocalDate[] bucket : buckets) {
             int loggedDays = 0;
             long eatenSum = 0;
             long restingSum = 0;
             long workoutSum = 0;
             boolean allLoggedHaveBmr = true;
-            for (int d = 0; d < 7; d++) {
-                LocalDate date = monday.plusDays(d);
+            for (LocalDate date = bucket[0]; !date.isAfter(bucket[1]); date = date.plusDays(1)) {
                 AnalyticsUserDailyNutritionEntity row = nutrition.get(date);
                 if (row == null || date.equals(today)
                         || mealsPerDay.getOrDefault(date, 0) < MIN_MEALS_FOR_A_LOGGED_DAY) {
@@ -397,9 +423,10 @@ public class AnalyticsEnergyService {
                 balance = average(eatenSum, loggedDays)
                         - (average(restingSum, loggedDays) + average(workoutSum, loggedDays));
             }
-            weeks.add(new WeekBalance(monday, balance, loggedDays, monday.equals(thisMonday)));
+            boolean current = !today.isBefore(bucket[0]) && !today.isAfter(bucket[1]);
+            result.add(new WeekBalance(bucket[0], balance, loggedDays, current));
         }
-        return weeks;
+        return result;
     }
 
     /** One week of {@link #weeklyBalances}: the average balance per logged day, null without a logged day or a BMR. */

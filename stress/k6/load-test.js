@@ -1,12 +1,26 @@
 // FitSync API load / stress test (k6).
 //
-// Drives the public API Gateway the way the SPA does: log in once, then hammer
+// Drives the public API Gateway the way the SPA does: sign in once, then hammer
 // the hot read endpoints (dashboard, current user) plus the gateway health probe.
 //
-// Run locally (needs a running stack + a seeded user):
-//   k6 run -e BASE_URL=http://localhost:8088 \
-//          -e USER_EMAIL=alice@example.com -e USER_PASSWORD='ExampleOnlyPassword123!' \
+// Sign-in is the one the app uses. Cognito InitiateAuth (USER_PASSWORD_AUTH) returns an id token, and
+// POST /api/v1/auth/bootstrap trades it for the gateway token that every other call carries. The old
+// /api/v1/auth/login with a sample account no longer exists. The user must be a real account of the pool
+// the target uses, and the pool's app client must allow USER_PASSWORD_AUTH.
+//
+// Run (needs a running stack, the pool's app client id and an account of that pool):
+//   k6 run -e BASE_URL=https://your-host \
+//          -e COGNITO_CLIENT_ID=<app client id of the pool> \
+//          -e USER_EMAIL=<account email> -e USER_PASSWORD=<account password> \
 //          stress/k6/load-test.js
+//
+// Environment:
+//   BASE_URL           gateway or CloudFront host (default http://localhost:8088)
+//   COGNITO_CLIENT_ID  required unless ACCESS_TOKEN is given
+//   COGNITO_REGION     default ap-southeast-1 (or set COGNITO_ENDPOINT for another endpoint)
+//   USER_EMAIL, USER_PASSWORD   required unless ACCESS_TOKEN is given
+//   ACCESS_TOKEN       a gateway token from /api/v1/auth/bootstrap; skips the sign-in (it expires after
+//                      about two hours, so it suits a smoke run rather than a long stress run)
 //
 // Profiles (override with -e PROFILE=smoke|load|stress, default load):
 //   smoke  - 1 VU, 30s            (sanity / wiring check)
@@ -22,8 +36,12 @@ import { Trend } from 'k6/metrics';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.3/index.js';
 
 const BASE_URL = (__ENV.BASE_URL || 'http://localhost:8088').replace(/\/$/, '');
-const USER_EMAIL = __ENV.USER_EMAIL || 'alice@example.com';
-const USER_PASSWORD = __ENV.USER_PASSWORD || 'ExampleOnlyPassword123!';
+const USER_EMAIL = __ENV.USER_EMAIL || '';
+const USER_PASSWORD = __ENV.USER_PASSWORD || '';
+const COGNITO_CLIENT_ID = __ENV.COGNITO_CLIENT_ID || '';
+const COGNITO_REGION = __ENV.COGNITO_REGION || 'ap-southeast-1';
+const COGNITO_ENDPOINT = __ENV.COGNITO_ENDPOINT || `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/`;
+const PRESET_TOKEN = __ENV.ACCESS_TOKEN || '';
 const PROFILE = __ENV.PROFILE || 'load';
 
 const PROFILES = {
@@ -64,21 +82,50 @@ export const options = {
   },
 };
 
-// Log in once per VU and reuse the JWT for the whole run.
+// Sign in once and share the gateway token with every VU, the way the SPA does it.
 export function setup() {
-  const res = http.post(
-    `${BASE_URL}/api/v1/auth/login`,
-    JSON.stringify({ email: USER_EMAIL, password: USER_PASSWORD }),
-    { headers: { 'Content-Type': 'application/json' }, tags: { name: 'login' } },
-  );
-  if (res.status !== 200) {
+  if (PRESET_TOKEN) {
+    return { token: PRESET_TOKEN };
+  }
+  if (!COGNITO_CLIENT_ID || !USER_EMAIL || !USER_PASSWORD) {
     fail(
-      `login failed (${res.status}) for ${USER_EMAIL} at ${BASE_URL} — ` +
-        `seed the user first or pass -e USER_EMAIL/-e USER_PASSWORD. body=${res.body}`,
+      'sign-in needs -e COGNITO_CLIENT_ID, -e USER_EMAIL and -e USER_PASSWORD ' +
+        '(or -e ACCESS_TOKEN with a token from /api/v1/auth/bootstrap)',
     );
   }
-  const token = res.json('accessToken');
-  if (!token) fail('login succeeded but no accessToken in response');
+
+  // 1. Cognito InitiateAuth with the user's password, as the login page does.
+  const cognito = http.post(
+    COGNITO_ENDPOINT,
+    JSON.stringify({
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: COGNITO_CLIENT_ID,
+      AuthParameters: { USERNAME: USER_EMAIL, PASSWORD: USER_PASSWORD },
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/x-amz-json-1.1',
+        'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth',
+      },
+      tags: { name: 'cognito_sign_in' },
+    },
+  );
+  if (cognito.status !== 200) {
+    fail(`Cognito sign-in failed (${cognito.status}) for ${USER_EMAIL}; check the client id, the pool and the account`);
+  }
+  const idToken = cognito.json('AuthenticationResult.IdToken');
+  if (!idToken) fail('Cognito answered without an id token (a challenge such as MFA cannot be scripted)');
+
+  // 2. The gateway token the rest of the API expects.
+  const bootstrap = http.post(`${BASE_URL}/api/v1/auth/bootstrap`, '{}', {
+    headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    tags: { name: 'bootstrap' },
+  });
+  if (bootstrap.status !== 200) {
+    fail(`bootstrap failed (${bootstrap.status}) at ${BASE_URL}; the target must use the same pool as the client id`);
+  }
+  const token = bootstrap.json('accessToken');
+  if (!token) fail('bootstrap succeeded but no accessToken in response');
   return { token };
 }
 

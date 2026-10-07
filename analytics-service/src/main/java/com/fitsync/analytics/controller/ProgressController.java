@@ -67,11 +67,12 @@ public class ProgressController {
     @Operation(summary = "Get the Food page of a period",
             description = "Eaten and protein a day, energy balance, macros by week, plate shares by calories, "
                     + "meal shares and logged days from from to to (inclusive, at most 370 days), compared with "
-                    + "the period of the same length right before it.",
+                    + "the period of the same length right before it. With granularity=month the weekly series are "
+                    + "calendar months (full months plus the current one as so far).",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Food page returned"),
-            @ApiResponse(responseCode = "400", description = "from after to, a period over 370 days or a malformed date"),
+            @ApiResponse(responseCode = "400", description = "from after to, a period over 370 days, a malformed date or an unknown granularity"),
             @ApiResponse(responseCode = "401", description = "Authentication required")
     })
     public ProgressFoodResponse food(Authentication authentication,
@@ -79,10 +80,12 @@ public class ProgressController {
                                      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                      @Parameter(description = "Inclusive period end, ISO-8601.")
                                      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                     @Parameter(description = "week (default) or month: one point per Monday week or per calendar month.")
+                                     @RequestParam(defaultValue = "week") String granularity,
                                      @RequestTimezone Optional<ZoneId> zone) {
         ProgressWindow window = ProgressWindow.of(from, to);
         return progressFoodService.getFood(currentPrincipal(authentication).userId(), window,
-                zone.map(ZoneId::getId).orElse(null));
+                zone.map(ZoneId::getId).orElse(null), granularity);
     }
 
     private CurrentUserPrincipal currentPrincipal(Authentication authentication) {

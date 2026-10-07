@@ -125,6 +125,8 @@ public class NutritionServiceImpl implements NutritionService {
     private static final String NUTRITION_EVENTS_TOPIC = "nutrition-events";
     private static final int FOOD_SEARCH_MAX_SIZE = 50;
     private static final int EXTERNAL_SEARCH_FALLBACK_THRESHOLD = 5;
+    /** A search that finds fewer foods than this by name adds the ones with a similar name. */
+    static final int FUZZY_SEARCH_THRESHOLD = 5;
     private static final int LOGGED_FOOD_DEFAULT_LIMIT = 20;
     private static final int LOGGED_FOOD_MAX_LIMIT = 50;
     private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
@@ -157,6 +159,7 @@ public class NutritionServiceImpl implements NutritionService {
     private final NutritionDiaryService nutritionDiaryService;
     private final RecipeLibraryService recipeLibraryService;
     private final RecipeInsightService recipeInsightService;
+    private final FuzzyFoodSearch fuzzyFoodSearch;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
@@ -180,7 +183,9 @@ public class NutritionServiceImpl implements NutritionService {
                                 PlatformTransactionManager transactionManager,
                                 NutritionDiaryService nutritionDiaryService,
                                 RecipeLibraryService recipeLibraryService,
-                                RecipeInsightService recipeInsightService) {
+                                RecipeInsightService recipeInsightService,
+                                FuzzyFoodSearch fuzzyFoodSearch) {
+        this.fuzzyFoodSearch = fuzzyFoodSearch;
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
@@ -520,7 +525,14 @@ public class NutritionServiceImpl implements NutritionService {
                         principal.userId(), normalizedQuery, today, categoryCode, pathPrefix,
                         criteria.brandId(), criteria.verified(), criteria.scope(), foodGroup),
                 pageRequest);
-        List<FoodCatalogItemEntity> foods = foodPage.getContent();
+        List<FoodCatalogItemEntity> exactFoods = foodPage.getContent();
+        List<FoodCatalogItemEntity> extraFoods = shouldSearchSimilarFoods(criteria, normalizedQuery, page,
+                exactFoods.size())
+                ? similarFoods(principal.userId(), normalizedQuery, today, exactFoods, size - exactFoods.size())
+                : List.of();
+        List<FoodCatalogItemEntity> foods = extraFoods.isEmpty() ? exactFoods
+                : mergeSimilar(exactFoods, extraFoods, size);
+        long totalFound = foodPage.getTotalElements() + extraFoods.size();
 
         Map<UUID, String> brandNames = loadBrandNames(foods.stream()
                 .map(FoodCatalogItemEntity::getBrandId)
@@ -548,11 +560,11 @@ public class NutritionServiceImpl implements NutritionService {
                         defaultServings.get(food.getFoodId())))
                 .toList();
         if (!shouldSearchExternalFoods(criteria, normalizedQuery, page, localResults.size())) {
-            return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
+            return new PageImpl<>(localResults, pageRequest, totalFound);
         }
         int externalLimit = Math.min(size - localResults.size(), EXTERNAL_SEARCH_FALLBACK_THRESHOLD - localResults.size());
         if (externalLimit <= 0) {
-            return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
+            return new PageImpl<>(localResults, pageRequest, totalFound);
         }
         List<String> localBarcodes = primaryBarcodes.values().stream()
                 .filter(java.util.Objects::nonNull)
@@ -564,14 +576,52 @@ public class NutritionServiceImpl implements NutritionService {
                     .limit(externalLimit)
                     .toList();
         } catch (RuntimeException ex) {
-            return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
+            return new PageImpl<>(localResults, pageRequest, totalFound);
         }
         if (externalResults.isEmpty()) {
-            return new PageImpl<>(localResults, pageRequest, foodPage.getTotalElements());
+            return new PageImpl<>(localResults, pageRequest, totalFound);
         }
         List<FoodSearchResultView> combined = new ArrayList<>(localResults);
         combined.addAll(externalResults);
-        return new PageImpl<>(combined, pageRequest, foodPage.getTotalElements() + externalResults.size());
+        return new PageImpl<>(combined, pageRequest, totalFound + externalResults.size());
+    }
+
+    /**
+     * The fuzzy fallback runs for a plain text search on the first page that found fewer than five foods by name:
+     * with a category, brand, verified, scope or food-group filter the exact search stays as it is.
+     */
+    private boolean shouldSearchSimilarFoods(FoodSearchCriteria criteria, String normalizedQuery, int page,
+                                             int foundCount) {
+        return normalizedQuery != null
+                && page == 0
+                && foundCount < FUZZY_SEARCH_THRESHOLD
+                && criteria.categoryId() == null
+                && criteria.brandId() == null
+                && criteria.verified() == null
+                && criteria.scope() == null
+                && blankToNull(criteria.foodGroup()) == null;
+    }
+
+    private List<FoodCatalogItemEntity> similarFoods(UUID userId, String query, LocalDate today,
+                                                     List<FoodCatalogItemEntity> found, int limit) {
+        Set<UUID> foundIds = found.stream().map(FoodCatalogItemEntity::getFoodId).collect(java.util.stream.Collectors.toSet());
+        List<UUID> ids = fuzzyFoodSearch.similarFoodIds(userId, query, today, foundIds, limit);
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, FoodCatalogItemEntity> byId = new HashMap<>();
+        foodCatalogItemRepository.findAllById(ids).forEach(food -> byId.put(food.getFoodId(), food));
+        return ids.stream().filter(id -> !foundIds.contains(id)).map(byId::get).filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    /** The exact matches first, then the similar ones in their order, no food twice, at most one page. */
+    static List<FoodCatalogItemEntity> mergeSimilar(List<FoodCatalogItemEntity> exact,
+                                                    List<FoodCatalogItemEntity> similar, int pageSize) {
+        Map<UUID, FoodCatalogItemEntity> merged = new LinkedHashMap<>();
+        exact.forEach(food -> merged.putIfAbsent(food.getFoodId(), food));
+        similar.forEach(food -> merged.putIfAbsent(food.getFoodId(), food));
+        return merged.values().stream().limit(pageSize).toList();
     }
 
     private boolean shouldSearchExternalFoods(FoodSearchCriteria criteria,

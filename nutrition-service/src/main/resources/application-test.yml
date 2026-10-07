@@ -33,5 +33,7 @@ fitsync:
   nutrition:
     # The richest-foods cache is off in tests, which replace the catalogue between cases.
     richest-cache-ttl: PT0S
+    # H2 cannot run pg_trigram queries.
+    fuzzy-search-enabled: false
   kafka:
     enabled: false

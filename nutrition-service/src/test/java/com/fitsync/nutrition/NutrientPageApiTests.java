@@ -235,13 +235,37 @@ class NutrientPageApiTests extends DiaryApiTestBase {
     }
 
     @Test
+    void theSummaryAndThePageServeNinetyDaysButNotMore() throws Exception {
+        String token = logVitaminDDays(tokenFor("ninety@example.com"));
+
+        // 14 Mar to 12 Jun 2026 is exactly 91 days; 15 Mar is the first day of a 90-day range.
+        mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-03-15").param("to", "2026-06-12").param("scope", "all")
+                        .header("X-Timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days").value(90))
+                .andExpect(jsonPath("$.nutrients[0].days", hasSize(90)));
+        mockMvc.perform(get(BASE + "/nutrients/summary").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-03-14").param("to", "2026-06-12"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get(BASE + "/nutrients/VIT_D").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-03-15").param("to", "2026-06-12").header("X-Timezone", "UTC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days").value(90))
+                .andExpect(jsonPath("$.dayValues", hasSize(90)));
+        mockMvc.perform(get(BASE + "/nutrients/VIT_D").header("Authorization", "Bearer " + token)
+                        .param("from", "2026-03-14").param("to", "2026-06-12"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void anUnknownCodeIs404AndALongRangeIs400() throws Exception {
         String token = tokenFor("errors@example.com");
 
         mockMvc.perform(get(BASE + "/nutrients/NOT_A_NUTRIENT").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get(BASE + "/nutrients/VIT_D").header("Authorization", "Bearer " + token)
-                        .param("from", "2026-05-01").param("to", "2026-06-12"))
+                        .param("from", "2026-03-14").param("to", "2026-06-12"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get(BASE + "/nutrients/VIT_D").header("Authorization", "Bearer " + token)
                         .param("from", "2026-06-12").param("to", "2026-06-01"))

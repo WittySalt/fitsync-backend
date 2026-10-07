@@ -1,6 +1,7 @@
 package com.fitsync.user.controller;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import com.fitsync.user.dto.OutboxPendingResponse;
 import com.fitsync.user.dto.OutboxRelayResponse;
@@ -13,7 +14,11 @@ import com.fitsync.user.messaging.repository.OutboxEventRepository;
 import com.fitsync.user.service.UserService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import com.fitsync.user.security.CurrentUserPrincipal;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,6 +30,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 @RestController
 @RequestMapping("/api/v1/internal")
 public class InternalMessagingController {
+
+    private static final Logger LOG = LoggerFactory.getLogger(InternalMessagingController.class);
 
     private final OutboxEventRelay outboxEventRelay;
     private final OutboxEventRepository outboxEventRepository;
@@ -68,8 +75,30 @@ public class InternalMessagingController {
         return ResponseEntity.ok(userService.republishPersonFacts());
     }
 
+    /**
+     * Republishes every active goal. It acts on all users, so who asked and how many users it touched are logged
+     * (the admin by id, never by email).
+     */
     @PostMapping("/goals/reconcile")
-    public ResponseEntity<GoalReconcileResponse> reconcileActiveGoals() {
-        return ResponseEntity.ok(new GoalReconcileResponse(userService.republishActiveGoals()));
+    public ResponseEntity<GoalReconcileResponse> reconcileActiveGoals(Authentication authentication) {
+        GoalReconcileResponse result = userService.republishActiveGoals();
+        LOG.info("Goal reconcile by admin {} republished {} active goals of {} users",
+                sanitizeForLog(adminId(authentication)),
+                result.publishedCount(), result.usersTouched());
+        return ResponseEntity.ok(result);
+    }
+
+    /** The admin's user id, or null when the caller is not a signed-in user (never a free-text name, so it is safe to log). */
+    private static UUID adminId(Authentication authentication) {
+        if (authentication != null && authentication.getPrincipal() instanceof CurrentUserPrincipal principal) {
+            return principal.userId();
+        }
+        return null;
+    }
+
+    private static String sanitizeForLog(Object value) {
+        return String.valueOf(value)
+                .replace("\r", "_")
+                .replace("\n", "_");
     }
 }

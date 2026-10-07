@@ -19,7 +19,8 @@ public record ProgressFoodResponse(
         Plate plate,
         Meals meals,
         Habits habits,
-        CurrentWeek currentWeek) {
+        CurrentWeek currentWeek,
+        String granularity) {
 
     public ProgressFoodResponse {
         highlights = List.copyOf(highlights);
@@ -74,7 +75,17 @@ public record ProgressFoodResponse(
         }
     }
 
-    public record WeekBalance(LocalDate weekStart, Integer balance, int daysLogged, boolean current) {
+    /**
+     * One bar of the balance series. With {@code granularity=month} the bar is a calendar month: weekStart is
+     * its first day, month is "2026-09", partial marks the month that holds today and label reads "so far".
+     * In week mode month is null, partial false and label null.
+     */
+    public record WeekBalance(LocalDate weekStart, Integer balance, int daysLogged, boolean current, String month,
+                              boolean partial, String label) {
+
+        public WeekBalance(LocalDate weekStart, Integer balance, int daysLogged, boolean current) {
+            this(weekStart, balance, daysLogged, current, null, false, null);
+        }
     }
 
     public record Macros(Macro protein, Macro carbs, Macro fat, List<SummaryLine> summary) {
@@ -105,7 +116,17 @@ public record ProgressFoodResponse(
         }
     }
 
-    public record WeekValue(LocalDate weekStart, BigDecimal value) {
+    /**
+     * One point of a macro series. With {@code granularity=month} the point is a calendar month: weekStart is
+     * its first day, month is "2026-09", partial marks the month that holds today and label reads "so far";
+     * value is null for a month without a logged day (the point stays in the series). In week mode month is
+     * null, partial false and label null.
+     */
+    public record WeekValue(LocalDate weekStart, BigDecimal value, String month, boolean partial, String label) {
+
+        public WeekValue(LocalDate weekStart, BigDecimal value) {
+            this(weekStart, value, null, false, null);
+        }
     }
 
     /** trend is UP, STEADY or DOWN. */
@@ -147,15 +168,26 @@ public record ProgressFoodResponse(
     public record PlateChange(String group, BigDecimal deltaPoints) {
     }
 
-    public record Meals(List<MealShare> share) {
+    /** previous is the same shape for the period before, null when that period holds no meals. */
+    public record Meals(List<MealShare> share, List<MealShare> previous) {
+
+        public Meals(List<MealShare> share) {
+            this(share, null);
+        }
 
         public Meals {
             share = List.copyOf(share);
+            previous = previous == null ? null : List.copyOf(previous);
         }
 
         @Override
         public List<MealShare> share() {
             return List.copyOf(share);
+        }
+
+        @Override
+        public List<MealShare> previous() {
+            return previous == null ? null : List.copyOf(previous);
         }
     }
 
@@ -164,6 +196,23 @@ public record ProgressFoodResponse(
     }
 
     /** Water and fibre live in nutrition-service and come from section 3.1. */
-    public record Habits(int loggedDays) {
+    public record Habits(int loggedDays, List<MonthDays> loggedDaysPerMonth) {
+
+        public Habits(int loggedDays) {
+            this(loggedDays, List.of());
+        }
+
+        public Habits {
+            loggedDaysPerMonth = List.copyOf(loggedDaysPerMonth);
+        }
+
+        @Override
+        public List<MonthDays> loggedDaysPerMonth() {
+            return List.copyOf(loggedDaysPerMonth);
+        }
+    }
+
+    /** Full logged days of a calendar month ("2026-09"); the list is empty in week mode. */
+    public record MonthDays(String month, int days) {
     }
 }

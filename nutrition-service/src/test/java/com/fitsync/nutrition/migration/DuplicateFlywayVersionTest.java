@@ -42,6 +42,8 @@ class DuplicateFlywayVersionTest {
 
     private static final Path MIGRATION_DIR = Paths.get("src/main/resources/db/migration");
     private static final Path SEED_DIR = Paths.get("src/main/resources/db/seed");
+    /** PostgreSQL-only DDL; loaded in every profile except test, and numbered in the schema range. */
+    private static final Path POSTGRES_DIR = Paths.get("src/main/resources/db/postgres");
 
     private static final Pattern VERSIONED_MIGRATION =
             Pattern.compile("^V(\\d+(?:[._]\\d+)*)__(.+)\\.sql$");
@@ -50,7 +52,7 @@ class DuplicateFlywayVersionTest {
     @DisplayName("no two migrations share a version across db/migration and db/seed")
     void versionsAreUniqueAcrossEveryConfiguredLocation() throws IOException {
         Map<String, List<String>> byVersion = new LinkedHashMap<>();
-        for (Path dir : List.of(MIGRATION_DIR, SEED_DIR)) {
+        for (Path dir : List.of(MIGRATION_DIR, SEED_DIR, POSTGRES_DIR)) {
             for (Path file : sqlFilesIn(dir)) {
                 Matcher matcher = VERSIONED_MIGRATION.matcher(file.getFileName().toString());
                 if (matcher.matches()) {
@@ -79,7 +81,9 @@ class DuplicateFlywayVersionTest {
     @DisplayName("schema migrations stay below the reserved seed range")
     void schemaMigrationsStayBelowTheSeedRange() throws IOException {
         List<String> offenders = new ArrayList<>();
-        for (Path file : sqlFilesIn(MIGRATION_DIR)) {
+        List<Path> schemaFiles = new ArrayList<>(sqlFilesIn(MIGRATION_DIR));
+        schemaFiles.addAll(sqlFilesIn(POSTGRES_DIR));
+        for (Path file : schemaFiles) {
             Matcher matcher = VERSIONED_MIGRATION.matcher(file.getFileName().toString());
             if (matcher.matches() && majorVersion(matcher.group(1)) >= SEED_RANGE_START) {
                 offenders.add(file.getFileName().toString());

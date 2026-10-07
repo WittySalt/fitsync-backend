@@ -132,8 +132,9 @@ class ProgressControllerTests {
                 new ProgressFoodResponse.Meals(List.of(new ProgressFoodResponse.MealShare("DINNER", 38, 2, 807))),
                 new ProgressFoodResponse.Habits(26),
                 new ProgressFoodResponse.CurrentWeek(LocalDate.parse("2026-09-28"), false, 0, null, null, 476,
-                        new BigDecimal("29.0")));
-        when(progressFoodService.getFood(eq(principal.userId()), any(), isNull())).thenReturn(response);
+                        new BigDecimal("29.0")), "week");
+        when(progressFoodService.getFood(eq(principal.userId()), any(), isNull(), eq("week"))).thenReturn(response);
+        when(progressFoodService.getFood(eq(principal.userId()), any(), isNull(), eq("month"))).thenReturn(response);
 
         mockMvc.perform(get("/api/v1/analytics/progress/food")
                         .with(authentication(authToken(principal)))
@@ -146,7 +147,32 @@ class ProgressControllerTests {
                 .andExpect(jsonPath("$.currentWeek.daysLogged").value(0))
                 .andExpect(jsonPath("$.currentWeek.eatenTodaySoFarKcal").value(476))
                 .andExpect(jsonPath("$.plate.basis").value("CALORIES"))
-                .andExpect(jsonPath("$.meals.share[0].sharePct").value(38));
+                .andExpect(jsonPath("$.meals.share[0].sharePct").value(38))
+                .andExpect(jsonPath("$.meals.previous").value(nullValue()))
+                .andExpect(jsonPath("$.habits.loggedDaysPerMonth").isEmpty())
+                .andExpect(jsonPath("$.granularity").value("week"));
+        verify(progressFoodService).getFood(eq(principal.userId()), any(), isNull(), eq("week"));
+    }
+
+    @Test
+    void foodPassesTheMonthGranularityThrough() throws Exception {
+        CurrentUserPrincipal principal = principal();
+        when(progressFoodService.getFood(eq(principal.userId()), any(), isNull(), eq("month")))
+                .thenReturn(new ProgressFoodResponse(new ProgressPeriod(FROM, TO),
+                        new ProgressPeriod(LocalDate.parse("2026-08-10"), LocalDate.parse("2026-09-06")),
+                        null, List.of(), null, null, null,
+                        new ProgressFoodResponse.Meals(List.of(), List.of()),
+                        new ProgressFoodResponse.Habits(20,
+                                List.of(new ProgressFoodResponse.MonthDays("2026-09", 20))), null, "month"));
+
+        mockMvc.perform(get("/api/v1/analytics/progress/food")
+                        .with(authentication(authToken(principal)))
+                        .param("from", "2026-07-01").param("to", "2026-10-04").param("granularity", "month"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.granularity").value("month"))
+                .andExpect(jsonPath("$.habits.loggedDaysPerMonth[0].month").value("2026-09"))
+                .andExpect(jsonPath("$.habits.loggedDaysPerMonth[0].days").value(20));
+        verify(progressFoodService).getFood(eq(principal.userId()), any(), isNull(), eq("month"));
     }
 
     @Test
