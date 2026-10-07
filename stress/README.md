@@ -19,16 +19,24 @@ the gate used in CI.
 
 ## Run locally
 
-Needs a running stack and a seeded user (see `scripts/seed-demo-fitsync.sql`).
+Needs a running stack and an account of the Cognito pool the target uses (the demo accounts of
+`scripts/demo-accounts.example.env` are accounts of that kind). The script signs in the way the app does:
+Cognito `InitiateAuth` with `USER_PASSWORD_AUTH`, then `POST /api/v1/auth/bootstrap` for the gateway token. The
+pool's app client therefore has to allow `USER_PASSWORD_AUTH`, and the target has to validate tokens of that pool.
 
 ```bash
 # install k6: https://grafana.com/docs/k6/latest/set-up/install-k6/
 k6 run -e BASE_URL=http://localhost:8088 \
-       -e USER_EMAIL=alice@example.com \
-       -e USER_PASSWORD='ExampleOnlyPassword123!' \
+       -e COGNITO_CLIENT_ID=<app client id of the pool> \
+       -e USER_EMAIL=<account email> \
+       -e USER_PASSWORD=<account password> \
        -e PROFILE=load \
        stress/k6/load-test.js
 ```
+
+To skip the sign-in, pass `-e ACCESS_TOKEN=<gateway token>` taken from `/api/v1/auth/bootstrap`. It expires after
+about two hours, so it suits a smoke run. `COGNITO_REGION` (default `ap-southeast-1`) or `COGNITO_ENDPOINT` points the
+script at another region or a local stand-in.
 
 Or without installing k6, via Docker (mount the repo so artifacts are written back):
 
@@ -46,7 +54,10 @@ with *Run k6 stress test against staging* ticked. It is configured with reposito
 variables and secrets:
 
 - `STRESS_TARGET_URL` — base URL of the gateway/host to hit
-- `STRESS_USER_EMAIL`, `STRESS_USER_PASSWORD` — credentials of a seeded user
+- `STRESS_USER_EMAIL`, `STRESS_USER_PASSWORD` — credentials of an account of the target's Cognito pool
+- the job also has to pass the pool's app client id as `-e COGNITO_CLIENT_ID=...` (a new `STRESS_COGNITO_CLIENT_ID`
+  variable); `.github/workflows/cd.yml` does not pass it yet (it is a protected file), so the CI job cannot
+  sign in until that line is added
 - `STRESS_PROFILE` — `smoke` | `load` | `stress` (default `load`)
 
 Artifacts produced: `stress/k6/summary.json`, `stress/k6/summary.txt` (attach these
