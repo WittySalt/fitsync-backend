@@ -39,6 +39,16 @@
         <jjwt.version>0.12.6</jjwt.version>
         <!-- One AWS SDK version for every module that talks to AWS (media S3, coach Bedrock). -->
         <aws.sdk.version>2.25.70</aws.sdk.version>
+        <!-- Patch-level overrides of Spring Boot 3.5.15's managed versions, for CVEs Trivy found
+             in the images (2026-10-08). Drop each one once Spring Boot ships an equal or newer version. -->
+        <!-- Tomcat 10.1.55: CVE-2026-65182/65905/68525 (CRITICAL), fixed in 10.1.58+. -->
+        <tomcat.version>10.1.60</tomcat.version>
+        <!-- Netty 4.1.135: CVE-2026-75595 (CRITICAL) + codec/http HIGHs, fixed in 4.1.137+. -->
+        <netty.version>4.1.139.Final</netty.version>
+        <!-- Jackson 2.21.4: five HIGH denial-of-service CVEs, fixed in 2.21.7. -->
+        <jackson-bom.version>2.21.7</jackson-bom.version>
+        <!-- PostgreSQL JDBC 42.7.11: CVE-2026-54291 (HIGH), fixed in 42.7.12. -->
+        <postgresql.version>42.7.12</postgresql.version>
         <!-- Security / Quality plugin versions -->
         <jacoco.version>0.8.12</jacoco.version>
         <spotbugs.version>4.8.6.4</spotbugs.version>
