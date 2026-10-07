@@ -156,9 +156,10 @@ class UserServiceImplTests {
         when(fixtures.userGoalRepository.findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus.ACTIVE))
                 .thenReturn(java.util.List.of(calories, protein));
 
-        int publishedCount = fixtures.service.republishActiveGoals();
+        var result = fixtures.service.republishActiveGoals();
 
-        assertEquals(2, publishedCount);
+        assertEquals(2, result.publishedCount());
+        assertEquals(1, result.usersTouched());
         ArgumentCaptor<FitSyncDomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(FitSyncDomainEvent.class);
         verify(fixtures.domainEventPublisher, times(2))
                 .publish(org.mockito.ArgumentMatchers.eq("progress-events"),

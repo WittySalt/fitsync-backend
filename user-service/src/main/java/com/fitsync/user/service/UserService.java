@@ -12,6 +12,7 @@ import com.fitsync.user.domain.GoalType;
 import com.fitsync.user.dto.BodyMetricTrendResponse;
 import com.fitsync.user.dto.BodyMetricView;
 import com.fitsync.user.dto.CompleteOnboardingRequest;
+import com.fitsync.user.dto.GoalReconcileResponse;
 import com.fitsync.user.dto.PersonFactsReconcileResponse;
 import com.fitsync.user.dto.CreateBodyMetricRequest;
 import com.fitsync.user.dto.CurrentUserResponse;
@@ -75,7 +76,7 @@ public interface UserService {
     /** A null zone means the request named none, so the zone kept in the profile is used, else UTC. */
     ProgressInsightResponse getProgressInsight(CurrentUserPrincipal principal, ZoneId zone);
 
-    int republishActiveGoals();
+    GoalReconcileResponse republishActiveGoals();
 
     PersonFactsReconcileResponse republishPersonFacts();
 

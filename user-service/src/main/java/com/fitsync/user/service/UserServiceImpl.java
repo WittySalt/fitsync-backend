@@ -60,6 +60,7 @@ import com.fitsync.user.dto.TrainingPreferencesView;
 import com.fitsync.user.dto.UpsertHealthReadinessRequest;
 import com.fitsync.user.dto.UpsertUserGoalRequest;
 import com.fitsync.user.dto.UpsertUserPreferencesRequest;
+import com.fitsync.user.dto.GoalReconcileResponse;
 import com.fitsync.user.dto.PersonFactsReconcileResponse;
 import com.fitsync.user.dto.UpsertUserProfileRequest;
 import com.fitsync.user.dto.UserGoalView;
@@ -673,10 +674,11 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public int republishActiveGoals() {
+    public GoalReconcileResponse republishActiveGoals() {
         List<UserGoalEntity> activeGoals = userGoalRepository.findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus.ACTIVE);
         activeGoals.forEach(this::publishGoalUpdated);
-        return activeGoals.size();
+        int users = (int) activeGoals.stream().map(UserGoalEntity::getUserId).distinct().count();
+        return new GoalReconcileResponse(activeGoals.size(), users);
     }
 
     /**

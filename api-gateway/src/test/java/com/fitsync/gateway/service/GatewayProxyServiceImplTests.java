@@ -193,8 +193,8 @@ class GatewayProxyServiceImplTests {
         server.expect(once(), requestTo("http://auth-service:8080" + INTERNAL_OUTBOX_PUBLISH))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
-        server.expect(once(), requestTo("http://user-service:8081/api/v1/internal/users?email=demo%40fitsync.app"))
-                .andExpect(method(HttpMethod.GET))
+        server.expect(once(), requestTo("http://user-service:8081/api/v1/internal/goals/reconcile?dryRun=false"))
+                .andExpect(method(HttpMethod.POST))
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
         server.expect(once(), requestTo("http://workout-service:8082/api/v1/internal/workouts/exercises/summary"))
                 .andExpect(method(HttpMethod.GET))
@@ -212,8 +212,8 @@ class GatewayProxyServiceImplTests {
         service.forwardToAdminService("auth",
                 new MockHttpServletRequest("POST", "/api/v1/admin/auth/outbox/publish"), null);
 
-        MockHttpServletRequest usersRequest = new MockHttpServletRequest("GET", "/api/v1/admin/users/users");
-        usersRequest.setQueryString("email=demo%40fitsync.app");
+        MockHttpServletRequest usersRequest = new MockHttpServletRequest("POST", "/api/v1/admin/users/goals/reconcile");
+        usersRequest.setQueryString("dryRun=false");
         service.forwardToAdminService("users", usersRequest, null);
 
         service.forwardToAdminService("workouts",
@@ -264,6 +264,29 @@ class GatewayProxyServiceImplTests {
                 new MockHttpServletRequest("GET", "/api/v1/admin/payments/anything"), null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown admin service");
+    }
+
+    @Test
+    void anInternalPathThatIsNotListedIsNeverForwarded() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, coachRequestFactory(),
+                new GatewayRoutesProperties("http://auth-service:8080", "http://user-service:8081",
+                        "http://workout-service:8082", "http://nutrition-service:8083",
+                        "http://analytics-service:8085", "http://recommendation-service:8086"));
+
+        for (String path : new String[] {"/api/v1/admin/users/profiles/reconcile", "/api/v1/admin/users/users",
+                "/api/v1/admin/users", "/api/v1/admin/analytics/outbox/pending",
+                "/api/v1/admin/coach/coach/quality/extra"}) {
+            String service1 = path.split("/")[4];
+            assertThatThrownBy(() -> service.forwardToAdminService(service1,
+                    new MockHttpServletRequest("POST", path), null))
+                    .as(path)
+                    .isInstanceOf(com.fitsync.gateway.exception.AdminRouteNotListedException.class);
+        }
+
+        // Nothing was expected, so a call to a service would have failed here.
+        server.verify();
     }
 
     @Test

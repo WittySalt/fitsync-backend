@@ -1185,7 +1185,10 @@ class UserProfileTests {
         mockMvc.perform(post("/api/v1/internal/goals/reconcile")
                         .with(user("admin").roles("ADMIN")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.publishedCount").value(activeGoals));
+                .andExpect(jsonPath("$.publishedCount").value(activeGoals))
+                .andExpect(jsonPath("$.usersTouched").value(
+                        userGoalRepository.findByStatusOrderByUserIdAscGoalTypeAsc(GoalStatus.ACTIVE).stream()
+                                .map(goal -> goal.getUserId()).distinct().count()));
         assertTrue(activeGoals >= 1);
     }
 

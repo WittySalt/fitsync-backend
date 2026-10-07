@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Set;
 
 import com.fitsync.gateway.dto.ApiError;
+import com.fitsync.gateway.exception.AdminRouteNotListedException;
 import com.fitsync.gateway.service.GatewayProxyService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -98,7 +99,8 @@ public class GatewayProxyController {
      * <p>{@code service} is matched against a fixed set before anything is forwarded, and an
      * unmatched value answers 404 without ever reaching the proxy service, so it can never be used
      * to reach a host outside that fixed set. Role enforcement lives in {@code SecurityConfig},
-     * which requires ADMIN for the whole {@code /api/v1/admin/**} tree.
+     * which requires ADMIN for the whole {@code /api/v1/admin/**} tree. Only the internal paths listed in
+     * {@code GatewayInternalPaths} are forwarded; any other path of a known service answers 404.
      */
     @RequestMapping(path = "/api/v1/admin/{service}/**",
             method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH,
@@ -118,6 +120,14 @@ public class GatewayProxyController {
 
         try {
             return gatewayProxyService.forwardToAdminService(service, request, body);
+        } catch (AdminRouteNotListedException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ApiError(
+                            "NOT_FOUND",
+                            ex.getMessage(),
+                            request.getRequestURI(),
+                            Instant.now(),
+                            request.getHeader("X-Correlation-Id")));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(new ApiError(

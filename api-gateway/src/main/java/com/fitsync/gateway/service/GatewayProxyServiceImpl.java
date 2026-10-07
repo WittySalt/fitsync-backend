@@ -12,7 +12,9 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
+import com.fitsync.gateway.config.GatewayInternalPaths;
 import com.fitsync.gateway.config.GatewayRoutesProperties;
+import com.fitsync.gateway.exception.AdminRouteNotListedException;
 import com.fitsync.gateway.exception.DownstreamServiceException;
 import com.fitsync.gateway.security.GatewayUserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
@@ -134,6 +136,10 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         }
 
         String rewrittenPath = rewriteAdminPath(service, request.getRequestURI());
+        // The decision for every internal path is the list in GatewayInternalPaths; anything else is not found.
+        if (!GatewayInternalPaths.isForwardable(service, rewrittenPath.substring(INTERNAL_ROUTE_PREFIX.length()))) {
+            throw new AdminRouteNotListedException("Unknown admin route");
+        }
         return forward(baseUrlLookup.apply(routesProperties), request, body, rewrittenPath);
     }
 
