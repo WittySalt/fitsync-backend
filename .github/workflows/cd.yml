@@ -128,12 +128,12 @@ jobs:
             # Triage report of fixable HIGH+CRITICAL (non-blocking).
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
               -v "$PWD/.trivycache:/root/.cache/trivy" \
-              aquasec/trivy:0.56.2 image --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed \
+              aquasec/trivy:0.56.2 image --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed --ignorefile /work/.trivyignore \
               --format table "$img:$SHORT_SHA"
             # Gate: block push only on fixable CRITICAL CVEs.
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
               -v "$PWD/.trivycache:/root/.cache/trivy" \
-              aquasec/trivy:0.56.2 image --scanners vuln --severity CRITICAL --ignore-unfixed \
+              aquasec/trivy:0.56.2 image --scanners vuln --severity CRITICAL --ignore-unfixed --ignorefile /work/.trivyignore \
               --exit-code 1 --format sarif --output "/work/trivy-$svc.sarif" "$img:$SHORT_SHA"
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" \
               -v "$PWD/.trivycache:/root/.cache/trivy" \

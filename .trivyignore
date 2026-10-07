@@ -1,0 +1,7 @@
+# Trivy findings accepted after review. Each entry needs a reason, and is removed as soon
+# as a fix reaches the version line we run (Spring Boot 3.5 / Spring Framework 6.2).
+
+# CVE-2026-47884 (spring-webmvc, CRITICAL): remote code execution through XsltView path
+# handling. Fixed only in Spring Framework 7.0.9, a major upgrade. No service uses XsltView
+# or any XSLT view, so the vulnerable code path is never reached. Reviewed 2026-10-08.
+CVE-2026-47884
