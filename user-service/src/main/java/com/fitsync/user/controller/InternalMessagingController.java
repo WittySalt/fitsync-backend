@@ -1,6 +1,7 @@
 package com.fitsync.user.controller;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import com.fitsync.user.dto.OutboxPendingResponse;
 import com.fitsync.user.dto.OutboxRelayResponse;
@@ -81,15 +82,23 @@ public class InternalMessagingController {
     @PostMapping("/goals/reconcile")
     public ResponseEntity<GoalReconcileResponse> reconcileActiveGoals(Authentication authentication) {
         GoalReconcileResponse result = userService.republishActiveGoals();
-        LOG.info("Goal reconcile by admin {} republished {} active goals of {} users", adminId(authentication),
+        LOG.info("Goal reconcile by admin {} republished {} active goals of {} users",
+                sanitizeForLog(adminId(authentication)),
                 result.publishedCount(), result.usersTouched());
         return ResponseEntity.ok(result);
     }
 
-    private static String adminId(Authentication authentication) {
+    /** The admin's user id, or null when the caller is not a signed-in user (never a free-text name, so it is safe to log). */
+    private static UUID adminId(Authentication authentication) {
         if (authentication != null && authentication.getPrincipal() instanceof CurrentUserPrincipal principal) {
-            return String.valueOf(principal.userId());
+            return principal.userId();
         }
-        return authentication == null ? "unknown" : authentication.getName();
+        return null;
+    }
+
+    private static String sanitizeForLog(Object value) {
+        return String.valueOf(value)
+                .replace("\r", "_")
+                .replace("\n", "_");
     }
 }
