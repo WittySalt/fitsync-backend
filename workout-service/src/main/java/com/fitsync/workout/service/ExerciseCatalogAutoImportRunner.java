@@ -31,8 +31,13 @@ public class ExerciseCatalogAutoImportRunner implements ApplicationRunner {
         }
 
         if (exerciseCatalogImportService.isFreeExerciseDbCatalogPresent()) {
-            LOGGER.info("free-exercise-db catalog already present, skipping auto import");
-            return;
+            if (exerciseCatalogImportService.isFreeExerciseDbImageSetPresent()) {
+                LOGGER.info("free-exercise-db catalog already present, skipping auto import");
+                return;
+            }
+            // Present but without a single image: an earlier import ran with an unusable
+            // image source. Re-running it fills the images in; existing rows are updated.
+            LOGGER.warn("free-exercise-db catalog has no images, re-running the import to fill them in");
         }
 
         try {

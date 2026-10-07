@@ -26,6 +26,9 @@ public interface ExerciseRepository extends JpaRepository<ExerciseEntity, UUID>,
 
     long countByExternalSource(String externalSource);
 
+    @Query("select count(e) from ExerciseEntity e where e.externalSource = :source and e.images is not empty")
+    long countByExternalSourceWithImages(@Param("source") String externalSource);
+
     @Query("""
             select exercise from ExerciseEntity exercise
             where exercise.exerciseId = :exerciseId

@@ -11,4 +11,10 @@ public interface ExerciseCatalogImportService {
      *         so the startup auto-import can be skipped.
      */
     boolean isFreeExerciseDbCatalogPresent();
+
+    /**
+     * @return true if at least one free-exercise-db exercise has an image. False after a
+     *         first import whose image source was unusable, which the auto-import repairs.
+     */
+    boolean isFreeExerciseDbImageSetPresent();
 }

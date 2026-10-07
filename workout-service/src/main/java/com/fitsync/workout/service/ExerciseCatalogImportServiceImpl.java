@@ -115,6 +115,11 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         return exerciseRepository.countByExternalSource(FREE_EXERCISE_DB) > 0;
     }
 
+    @Override
+    public boolean isFreeExerciseDbImageSetPresent() {
+        return exerciseRepository.countByExternalSourceWithImages(FREE_EXERCISE_DB) > 0;
+    }
+
     private boolean upsertSourceExercise(FreeExercise source, Map<FallbackKey, Integer> fallbackCounts) {
         ExerciseEntity entity = exerciseRepository
                 .findByExternalSourceAndExternalRef(FREE_EXERCISE_DB, source.id())

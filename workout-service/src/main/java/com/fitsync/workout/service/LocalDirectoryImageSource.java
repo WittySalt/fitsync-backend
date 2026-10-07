@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -22,9 +23,25 @@ public class LocalDirectoryImageSource implements CatalogImageSource {
         this.imageSourceDirectory = normalizeImageSourceDirectory(imageSourceDirectory);
     }
 
+    /**
+     * Available only when the configured directory exists and holds something. Docker creates
+     * an empty directory for a bind mount whose host path is missing; treating that as a source
+     * would skip every image instead of falling back to the upstream download.
+     */
     @Override
     public boolean isAvailable() {
-        return imageSourceDirectory.isPresent();
+        return imageSourceDirectory.filter(LocalDirectoryImageSource::hasEntries).isPresent();
+    }
+
+    private static boolean hasEntries(Path directory) {
+        if (!Files.isDirectory(directory)) {
+            return false;
+        }
+        try (Stream<Path> entries = Files.list(directory)) {
+            return entries.findAny().isPresent();
+        } catch (IOException ex) {
+            return false;
+        }
     }
 
     @Override

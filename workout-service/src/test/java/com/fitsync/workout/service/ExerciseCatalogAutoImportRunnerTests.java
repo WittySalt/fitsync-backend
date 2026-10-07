@@ -35,8 +35,9 @@ class ExerciseCatalogAutoImportRunnerTests {
     }
 
     @Test
-    void shouldSkipCatalogImportWhenCatalogAlreadyPresent() {
+    void shouldSkipCatalogImportWhenCatalogAndItsImagesArePresent() {
         when(exerciseCatalogImportService.isFreeExerciseDbCatalogPresent()).thenReturn(true);
+        when(exerciseCatalogImportService.isFreeExerciseDbImageSetPresent()).thenReturn(true);
         ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
                 exerciseCatalogImportService,
                 true);
@@ -45,6 +46,23 @@ class ExerciseCatalogAutoImportRunnerTests {
 
         verify(exerciseCatalogImportService).isFreeExerciseDbCatalogPresent();
         verify(exerciseCatalogImportService, never()).importFreeExerciseDbCatalog();
+    }
+
+    @Test
+    void shouldReimportWhenTheCatalogIsPresentButHasNoImagesAtAll() {
+        // A first boot whose image source was unusable leaves every exercise without images;
+        // without this the runner would see "catalog present" and never try again.
+        when(exerciseCatalogImportService.isFreeExerciseDbCatalogPresent()).thenReturn(true);
+        when(exerciseCatalogImportService.isFreeExerciseDbImageSetPresent()).thenReturn(false);
+        when(exerciseCatalogImportService.importFreeExerciseDbCatalog())
+                .thenReturn(new ExerciseCatalogImportResponse(876, 0, 876, 0, List.of()));
+        ExerciseCatalogAutoImportRunner runner = new ExerciseCatalogAutoImportRunner(
+                exerciseCatalogImportService,
+                true);
+
+        runner.run(new DefaultApplicationArguments());
+
+        verify(exerciseCatalogImportService).importFreeExerciseDbCatalog();
     }
 
     @Test
