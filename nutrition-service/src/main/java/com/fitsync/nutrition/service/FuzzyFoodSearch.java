@@ -56,7 +56,7 @@ public class FuzzyFoodSearch {
                     .limit(limit)
                     .toList();
         } catch (RuntimeException ex) {
-            LOG.warn("Fuzzy food search skipped: {}", ex.getMessage());
+            LOG.warn("Fuzzy food search skipped after {}", ex.getClass().getSimpleName());
             return List.of();
         }
     }
