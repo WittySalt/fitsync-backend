@@ -112,9 +112,18 @@ internally, so there is no separate validate job.
 
 ```
 PR   ─► (app CI only: verify + SAST — no terraform)
-main ─► tf-plan ─►  [gated] deploy-staging (terraform apply)
-                    [gated] deploy-prod    (ssh, existing)
+main ─► docker-image ─┬─ (STAGING_ENABLED=true) tf-plan ─► [gated] deploy-staging ─► bootstrap-db ─► deploy-staging-app
+                      │                                                                                   │ success
+                      └──────────────────────────────────────────────────────────► [gated] deploy-prod ◄─┘
 ```
+
+Promotion rule: on a push, prod deploys only after staging succeeded with the same image
+tag. With `STAGING_ENABLED` not `true`, staging jobs are skipped (a push never re-creates
+a destroyed staging) and a push stops after building images. To deploy prod without
+staging, run the workflow by hand with `skip_staging` ticked and a reason: it still needs
+the `production` approval, and the run summary records who skipped staging and why.
+Add yourself as a required reviewer on the `production` Environment so every prod
+deploy, break-glass included, waits for a click.
 
 ### Remote-state bootstrap (done)
 

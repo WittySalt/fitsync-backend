@@ -12,6 +12,13 @@
 #   Subject  : repo:WittySalt/fitsync-backend:*
 #
 # Flow: iac → docker → deploy-staging cascade → stress/DAST → prod.
+#
+# Promotion rule. Staging runs only while the STAGING_ENABLED variable is 'true', so a
+# push never rebuilds a staging that was destroyed to save money. On a push, prod
+# deploys only after deploy-staging-app succeeded with the same image tag; with
+# staging off, a push builds images and stops there. The one way past staging is a
+# manual run with skip_staging ticked and a reason, which still needs the
+# `production` Environment approval and is written to the run summary (break-glass).
 name: CD
 
 on:
@@ -27,6 +34,14 @@ on:
         description: "Run OWASP ZAP DAST against staging"
         type: boolean
         default: false
+      skip_staging:
+        description: "Break-glass: deploy prod without a staging run (needs a reason)"
+        type: boolean
+        default: false
+      skip_reason:
+        description: "Why staging is skipped (recorded in the run summary)"
+        type: string
+        default: ""
 
 concurrency:
   group: cd-${{ github.ref }}
@@ -46,7 +61,7 @@ jobs:
   # The plan is printed, not uploaded: a saved plan file holds the DB password in
   # plain text, and artifacts are readable by anyone who can read the repo.
   tf-plan:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -137,7 +152,7 @@ jobs:
   # Add required reviewers to the `staging` Environment for a manual approval gate.
   # Applies a fresh plan (the reviewed one is printed by tf-plan, never stored).
   deploy-staging:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
     needs: [tf-plan, docker-image]
     environment: staging
@@ -162,7 +177,7 @@ jobs:
 
   # ── bootstrap the staging RDS: per-service roles + schemas (over SSH) ────────
   bootstrap-staging-db:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
     needs: [deploy-staging]
     steps:
@@ -202,7 +217,7 @@ jobs:
 
   # ── deploy the app onto the staging host ────────────────────────────────────
   deploy-staging-app:
-    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    if: ${{ vars.AWS_ROLE_ARN != '' && vars.STAGING_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.skip_staging) }}
     runs-on: ubuntu-latest
     needs: [bootstrap-staging-db, docker-image]
     environment: staging
@@ -377,13 +392,29 @@ jobs:
 
   # ── promote to production ───────────────────────────────────────────────────
   # Add required reviewers to the `production` Environment for the manual
-  # confirmation gate.
+  # confirmation gate. Runs after staging succeeded with this commit's images, or
+  # on a break-glass manual run (see the promotion rule at the top).
   deploy-prod:
-    if: ${{ vars.AWS_ROLE_ARN != '' && vars.PROD_EC2_HOST != '' }}
+    if: >-
+      ${{ !cancelled() && vars.AWS_ROLE_ARN != '' && vars.PROD_EC2_HOST != ''
+      && needs.docker-image.result == 'success'
+      && (needs.deploy-staging-app.result == 'success'
+          || (github.event_name == 'workflow_dispatch' && inputs.skip_staging && inputs.skip_reason != '')) }}
     runs-on: ubuntu-latest
-    needs: [docker-image]
+    needs: [docker-image, deploy-staging-app]
     environment: production
     steps:
+      - name: Record break-glass deploy
+        if: ${{ needs.deploy-staging-app.result != 'success' }}
+        env:
+          REASON: ${{ inputs.skip_reason }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          {
+            echo "### Prod deployed WITHOUT a staging run"
+            echo "- By: $ACTOR"
+            echo "- Reason: $REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:

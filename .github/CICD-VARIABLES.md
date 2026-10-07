@@ -16,6 +16,7 @@ commands below.
 |---|---|---|
 | `AWS_ROLE_ARN` | all CD | **Master gate.** IAM role ARN with the GitHub OIDC trust. Leave empty to keep CD dormant. |
 | `AWS_REGION` | all CD | e.g. `ap-southeast-1` |
+| `STAGING_ENABLED` | staging jobs, deploy-prod | `true` while staging exists. Anything else skips every staging job, so a push never re-creates a destroyed staging, and a push then does not deploy prod (use a manual run with `skip_staging` + reason) |
 | `AWS_ACCOUNT_ID` | docker, deploy | for the ECR registry host |
 | `PROD_EC2_HOST` | deploy-prod | prod EC2 public host/IP; also gates deploy-prod |
 | `PROD_DOMAIN` | deploy-prod | nginx server name (optional) |
