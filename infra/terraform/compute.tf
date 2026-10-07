@@ -38,6 +38,14 @@ resource "aws_instance" "app" {
     mkdir -p /opt/fitsync
   EOF
 
+  # Containers sit one network hop behind the host, so the instance role (Bedrock, ECR)
+  # is only reachable from inside docker with a hop limit of 2. IMDSv2 stays mandatory.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
   root_block_device {
     volume_size = 30
     volume_type = "gp3"

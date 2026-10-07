@@ -26,6 +26,27 @@ resource "aws_iam_role_policy_attachment" "ec2_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Lets the coach call Amazon Bedrock with the instance role (provider `bedrock`), so no
+# model API key lives on the host. Scoped to the models in var.bedrock_models, reached
+# either directly or through a cross-region inference profile (global./apac.). A global
+# profile routes to a foundation model ARN with no region, which the `*` region matches.
+data "aws_iam_policy_document" "ec2_bedrock" {
+  statement {
+    sid     = "InvokeCoachModels"
+    actions = ["bedrock:InvokeModel"]
+    resources = concat(
+      [for m in var.bedrock_models : "arn:aws:bedrock:*::foundation-model/${m}"],
+      [for m in var.bedrock_models : "arn:aws:bedrock:*:${local.account_id}:inference-profile/*.${m}"],
+    )
+  }
+}
+
+resource "aws_iam_role_policy" "ec2_bedrock" {
+  name   = "${local.name}-ec2-bedrock"
+  role   = aws_iam_role.ec2_app.id
+  policy = data.aws_iam_policy_document.ec2_bedrock.json
+}
+
 resource "aws_iam_instance_profile" "ec2_app" {
   name = "${local.name}-ec2-app"
   role = aws_iam_role.ec2_app.name

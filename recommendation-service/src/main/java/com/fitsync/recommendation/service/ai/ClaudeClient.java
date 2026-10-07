@@ -5,8 +5,8 @@ package com.fitsync.recommendation.service.ai;
  * this type exists only when the AI tier is enabled ({@code fitsync.recommendation.ai.enabled});
  * callers must treat its absence as "AI tier off" and fall back to rule/template output.
  * {@code fitsync.recommendation.ai.provider} selects the implementation — the Claude API
- * ({@code anthropic}, key via {@code ANTHROPIC_API_KEY}) or a local open model
- * ({@code ollama}, no key).
+ * ({@code anthropic}, key via {@code ANTHROPIC_API_KEY}), a local open model
+ * ({@code ollama}, no key) or Amazon Bedrock ({@code bedrock}, IAM credentials, no key).
  */
 public interface ClaudeClient {
 

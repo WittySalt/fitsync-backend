@@ -303,8 +303,9 @@ services:
   # the shared x-kafka-consumer-env anchor because only this service consumes them, so they are
   # declared here.
   #
-  # The AI narrative tier is off by default too. Two providers are supported: `anthropic` needs
-  # ANTHROPIC_API_KEY in the environment, `ollama` needs a reachable local model and no key.
+  # The AI narrative tier is off by default too. Three providers are supported: `anthropic` needs
+  # ANTHROPIC_API_KEY in the environment, `ollama` needs a reachable local model and no key, and
+  # `bedrock` uses the EC2 instance role (no key) with a Bedrock model or inference-profile ID.
   recommendation-service:
     <<: *service-defaults
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-recommendation-service:${IMAGE_TAG:-latest}
@@ -324,6 +325,9 @@ services:
       RECOMMENDATION_AI_MODEL: ${RECOMMENDATION_AI_MODEL:-claude-sonnet-4-6}
       RECOMMENDATION_AI_BASE_URL: ${RECOMMENDATION_AI_BASE_URL:-http://localhost:11434}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Region for the bedrock provider. On EC2 the SDK would also find it in the instance
+      # metadata; set here so a local run behaves the same.
+      AWS_REGION: ${AWS_REGION:-ap-southeast-1}
       # The coach reads every other service through the API gateway's public paths, forwarding
       # the caller's own token, so it sees exactly what the user would see and nothing more.
       FITSYNC_COACH_API_BASE_URL: ${FITSYNC_COACH_API_BASE_URL:-http://api-gateway:8088}
