@@ -8,7 +8,6 @@ import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -37,8 +36,7 @@ class AnalyticsDailyRollupServiceTests {
         when(snapshotRepository.findSnapshotUserIds(PageRequest.of(1, 200)))
                 .thenReturn(new SliceImpl<>(List.of(lastUser), PageRequest.of(1, 200), false));
         doThrow(new IllegalStateException("boom"))
-                .when(userProcessor).rollupUser(failingUser, LocalDate.parse("2026-06-18"),
-                        Instant.parse("2026-06-18T00:05:00Z"));
+                .when(userProcessor).rollupUser(failingUser, Instant.parse("2026-06-18T00:05:00Z"));
 
         AnalyticsDailyRollupService service = new AnalyticsDailyRollupService(
                 snapshotRepository, userProcessor, clock);
@@ -49,11 +47,8 @@ class AnalyticsDailyRollupServiceTests {
         assertThat(summary.failedUsers()).isEqualTo(1);
 
         InOrder order = inOrder(userProcessor);
-        order.verify(userProcessor).rollupUser(firstUser, LocalDate.parse("2026-06-18"),
-                Instant.parse("2026-06-18T00:05:00Z"));
-        order.verify(userProcessor).rollupUser(failingUser, LocalDate.parse("2026-06-18"),
-                Instant.parse("2026-06-18T00:05:00Z"));
-        order.verify(userProcessor).rollupUser(lastUser, LocalDate.parse("2026-06-18"),
-                Instant.parse("2026-06-18T00:05:00Z"));
+        order.verify(userProcessor).rollupUser(firstUser, Instant.parse("2026-06-18T00:05:00Z"));
+        order.verify(userProcessor).rollupUser(failingUser, Instant.parse("2026-06-18T00:05:00Z"));
+        order.verify(userProcessor).rollupUser(lastUser, Instant.parse("2026-06-18T00:05:00Z"));
     }
 }

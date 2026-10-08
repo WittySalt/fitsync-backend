@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserWorkoutRecordsEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserWorkoutRecordsRepository;
@@ -42,7 +41,7 @@ public class WorkoutRecordsProjectionService {
             return;
         }
         if (event.userId() == null || recordCount <= 0) {
-            recordProcessedEvent(event);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             return;
         }
 
@@ -57,7 +56,7 @@ public class WorkoutRecordsProjectionService {
             records.setLastRecordAt(recordedAt);
         }
         workoutRecordsRepository.save(records);
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(event.userId());
     }
 
@@ -80,14 +79,5 @@ public class WorkoutRecordsProjectionService {
 
     private int defaultInt(Integer value) {
         return value == null ? 0 : value;
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() == null ? Instant.now(clock) : event.occurredAt());
-        processedEventRepository.save(processedEvent);
     }
 }

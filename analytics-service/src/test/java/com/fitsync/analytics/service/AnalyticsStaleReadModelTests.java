@@ -13,6 +13,7 @@ import com.fitsync.analytics.config.AnalyticsProperties;
 import com.fitsync.analytics.dto.AnalyticsDashboardResponse;
 import com.fitsync.analytics.dto.AnalyticsStreaksResponse;
 import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
+import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
@@ -69,6 +70,8 @@ class AnalyticsStaleReadModelTests {
             mock(AnalyticsUserDailyWorkoutRepository.class);
     private final AnalyticsUserStreakRollupRepository streakRollupRepository =
             mock(AnalyticsUserStreakRollupRepository.class);
+    private final AnalyticsUserDailyNutritionRepository nutritionRepository =
+            mock(AnalyticsUserDailyNutritionRepository.class);
 
     @Test
     @DisplayName("a streak whose last active day has passed is no longer current")
@@ -143,6 +146,9 @@ class AnalyticsStaleReadModelTests {
         snapshot.setWeekWorkoutCount(5);
         snapshot.setWeekWorkoutMinutes(178);
         snapshot.setTodayCaloriesConsumed(1860);
+        givenNutritionRow(LocalDate.parse("2026-09-26"), 1860, "132.50");
+        givenWorkoutRows(LocalDate.parse("2026-09-20"), LocalDate.parse("2026-09-26"),
+                workoutRow("2026-09-26", 1, 40), workoutRow("2026-09-24", 2, 80), workoutRow("2026-09-21", 2, 58));
         givenLastActiveDay(LocalDate.parse("2026-09-26"));
 
         AnalyticsDashboardResponse response = serviceAt(TODAY).getDashboard(PRINCIPAL);
@@ -152,6 +158,95 @@ class AnalyticsStaleReadModelTests {
         assertThat(response.workout().weekWorkoutMinutes()).isEqualTo(178);
         assertThat(response.workout().activeStreakDays()).isEqualTo(4);
         assertThat(response.nutrition().todayCaloriesConsumed()).isEqualTo(1860);
+    }
+
+    @Test
+    @DisplayName("a snapshot moved to today by a non-meal event does not pass yesterday's nutrition off as today's")
+    void snapshotBumpedTodayDoesNotReportYesterdaysNutrition() {
+        // Yesterday's last meal left 1860 kcal on the snapshot; a workout, body, goal or timezone event
+        // this morning, or the nightly rebuild, then moved generatedAt to today without touching it.
+        AnalyticsUserDashboardSnapshotEntity snapshot = givenSnapshotWithStreak(0);
+        snapshot.setGeneratedAt(Instant.parse("2026-09-26T01:00:00Z"));
+        snapshot.setTodayCaloriesConsumed(1860);
+        snapshot.setTodayProteinGrams(new BigDecimal("132.50"));
+        snapshot.setTodayCaloriesTarget(2100);
+        givenLastActiveDay(LAST_ACTIVE);
+        givenNutritionRow(LocalDate.parse("2026-09-25"), 1860, "132.50");
+
+        AnalyticsDashboardResponse response = serviceAt(TODAY).getDashboard(PRINCIPAL);
+
+        assertThat(response.nutrition().todayCaloriesConsumed())
+                .withFailMessage("nothing has been eaten on 26 Sept in Singapore")
+                .isZero();
+        assertThat(response.nutrition().todayProteinGrams()).isZero();
+        assertThat(response.nutrition().todayCaloriesTarget()).isEqualTo(2100);
+    }
+
+    @Test
+    @DisplayName("a snapshot moved to today by a non-workout event does not pass yesterday's workouts off as today's")
+    void snapshotBumpedTodayDoesNotReportYesterdaysWorkoutCount() {
+        // Yesterday's workout event left these on the snapshot; a meal logged this morning then moved
+        // generatedAt to today without touching them.
+        AnalyticsUserDashboardSnapshotEntity snapshot = givenSnapshotWithStreak(1);
+        snapshot.setGeneratedAt(Instant.parse("2026-09-26T01:00:00Z"));
+        snapshot.setTodayWorkoutCount(1);
+        snapshot.setWeekWorkoutCount(5);
+        snapshot.setWeekWorkoutMinutes(178);
+        givenWorkoutRows(LocalDate.parse("2026-09-20"), LocalDate.parse("2026-09-26"),
+                workoutRow("2026-09-25", 1, 40));
+        givenLastActiveDay(LocalDate.parse("2026-09-25"));
+
+        AnalyticsDashboardResponse.WorkoutSummary workout = serviceAt(TODAY).getDashboard(PRINCIPAL).workout();
+
+        assertThat(workout.todayWorkoutCount())
+                .withFailMessage("the only workout was on 25 Sept; nothing has been done on 26 Sept")
+                .isZero();
+        assertThat(workout.weekWorkoutCount()).isEqualTo(1);
+        assertThat(workout.weekWorkoutMinutes()).isEqualTo(40);
+        assertThat(workout.activeStreakDays()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a snapshot moved into a new week does not report last week's workouts as this week's")
+    void snapshotBumpedIntoNewWeekDoesNotReportLastWeeksWorkouts() {
+        // The last workouts were on Monday 21 Sept, so the snapshot holds that week's figures. A body
+        // reading on Monday 28 Sept then moved generatedAt into the new week.
+        AnalyticsUserDashboardSnapshotEntity snapshot = givenSnapshotWithStreak(0);
+        snapshot.setGeneratedAt(Instant.parse("2026-09-28T01:00:00Z"));
+        snapshot.setTodayWorkoutCount(2);
+        snapshot.setWeekWorkoutCount(5);
+        snapshot.setWeekWorkoutMinutes(178);
+        givenLastActiveDay(LocalDate.parse("2026-09-21"));
+
+        // 02:00 UTC is 10:00 on Monday 28 Sept in Singapore. No rows in either window, so the
+        // repository mocks answer with empty lists.
+        AnalyticsDashboardResponse.WorkoutSummary workout = serviceAt(Instant.parse("2026-09-28T02:00:00Z"))
+                .getDashboard(PRINCIPAL).workout();
+
+        assertThat(workout.todayWorkoutCount()).isZero();
+        assertThat(workout.weekWorkoutCount())
+                .withFailMessage("21 Sept is outside the seven days ending 28 Sept")
+                .isZero();
+        assertThat(workout.weekWorkoutMinutes()).isZero();
+        assertThat(workout.workoutsThisWeek()).isZero();
+        assertThat(workout.minutesThisWeek()).isZero();
+    }
+
+    @Test
+    @DisplayName("today's nutrition comes from today's daily row in the user's zone")
+    void todaysNutritionIsReadFromTodaysRow() {
+        // 08:00 UTC is 16:00 in Singapore, so the user's today is 26 Sept. The snapshot's stale
+        // figures must not win over the row, whatever generatedAt says.
+        AnalyticsUserDashboardSnapshotEntity snapshot = givenSnapshotWithStreak(0);
+        snapshot.setGeneratedAt(Instant.parse("2026-09-26T07:00:00Z"));
+        snapshot.setTodayCaloriesConsumed(1860);
+        givenLastActiveDay(LAST_ACTIVE);
+        givenNutritionRow(LocalDate.parse("2026-09-26"), 640, "41.25");
+
+        AnalyticsDashboardResponse response = serviceAt(TODAY).getDashboard(PRINCIPAL);
+
+        assertThat(response.nutrition().todayCaloriesConsumed()).isEqualTo(640);
+        assertThat(response.nutrition().todayProteinGrams()).isEqualTo(41.25);
     }
 
     @Test
@@ -261,6 +356,29 @@ class AnalyticsStaleReadModelTests {
         return snapshot;
     }
 
+    private void givenWorkoutRows(LocalDate from, LocalDate to, AnalyticsUserDailyWorkoutEntity... rows) {
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(USER_ID, from, to))
+                .thenReturn(List.of(rows));
+    }
+
+    private static AnalyticsUserDailyWorkoutEntity workoutRow(String date, int count, int minutes) {
+        AnalyticsUserDailyWorkoutEntity row = new AnalyticsUserDailyWorkoutEntity();
+        row.setUserId(USER_ID);
+        row.setActivityDate(LocalDate.parse(date));
+        row.setCompletedWorkoutCount(count);
+        row.setTotalWorkoutMinutes(minutes);
+        return row;
+    }
+
+    private void givenNutritionRow(LocalDate day, int calories, String proteinGrams) {
+        AnalyticsUserDailyNutritionEntity row = new AnalyticsUserDailyNutritionEntity();
+        row.setUserId(USER_ID);
+        row.setActivityDate(day);
+        row.setTotalCaloriesConsumed(calories);
+        row.setTotalProteinGrams(new BigDecimal(proteinGrams));
+        when(nutritionRepository.findByUserIdAndActivityDate(USER_ID, day)).thenReturn(Optional.of(row));
+    }
+
     private void givenLastActiveDay(LocalDate day) {
         AnalyticsUserDailyWorkoutEntity row = new AnalyticsUserDailyWorkoutEntity();
         row.setUserId(USER_ID);
@@ -275,7 +393,7 @@ class AnalyticsStaleReadModelTests {
                 goalRepository,
                 bodyRepository,
                 workoutRepository,
-                mock(AnalyticsUserDailyNutritionRepository.class),
+                nutritionRepository,
                 streakRollupRepository,
                 Clock.fixed(now, ZoneOffset.UTC),
                 new AnalyticsProperties(new AnalyticsProperties.Trends(

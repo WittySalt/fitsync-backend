@@ -1,16 +1,13 @@
 package com.fitsync.analytics.messaging;
 
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsWorkoutContributionEntity;
@@ -18,8 +15,10 @@ import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDailyWorkoutRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
+import com.fitsync.analytics.service.ActiveStreak;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
 import com.fitsync.analytics.service.GoalProgressEvaluator;
+import com.fitsync.analytics.service.UserZone;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,10 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class WorkoutProjectionService {
-
-    private static final ZoneId DEFAULT_ZONE = ZoneOffset.UTC;
-    /** How far back a streak is counted: past the longest milestone, so none is cut short at a week. */
-    private static final int STREAK_WINDOW_DAYS = 400;
 
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsWorkoutContributionRepository workoutContributionRepository;
@@ -76,12 +71,12 @@ public class WorkoutProjectionService {
             return;
         }
         if (sessionId == null || startedAt == null) {
-            recordProcessedEvent(event);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             return;
         }
 
         AnalyticsUserDashboardSnapshotEntity snapshot = findOrCreateDashboardSnapshot(event.userId(), event.occurredAt());
-        ZoneId userZone = resolveZone(snapshot.getTimezone());
+        ZoneId userZone = UserZone.of(snapshot.getTimezone());
         LocalDate activityDate = startedAt.atZone(userZone).toLocalDate();
         AnalyticsWorkoutContributionEntity existingContribution = workoutContributionRepository.findById(sessionId).orElse(null);
 
@@ -104,7 +99,7 @@ public class WorkoutProjectionService {
 
         applyContributionDelta(event.userId(), activityDate, null, newContribution, event.occurredAt());
         recomputeWorkoutGoals(event.userId());
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(event.userId());
     }
 
@@ -114,7 +109,7 @@ public class WorkoutProjectionService {
             return;
         }
         if (sessionId == null) {
-            recordProcessedEvent(event);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             return;
         }
 
@@ -124,7 +119,7 @@ public class WorkoutProjectionService {
             workoutContributionRepository.delete(existingContribution);
             recomputeWorkoutGoals(event.userId());
         }
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(event.userId());
     }
 
@@ -169,7 +164,7 @@ public class WorkoutProjectionService {
 
     private void syncDashboardSnapshot(UUID userId, Instant occurredAt) {
         AnalyticsUserDashboardSnapshotEntity snapshot = findOrCreateDashboardSnapshot(userId, occurredAt);
-        ZoneId userZone = resolveZone(snapshot.getTimezone());
+        ZoneId userZone = UserZone.of(snapshot.getTimezone());
         LocalDate today = LocalDate.now(clock.withZone(userZone));
         // The snapshot's week fields are a rolling seven days ending today, not the calendar week.
         LocalDate windowStart = today.minusDays(6);
@@ -183,8 +178,9 @@ public class WorkoutProjectionService {
         int weekWorkoutMinutes = lastSevenDays.stream()
                 .mapToInt(row -> defaultInt(row.getTotalWorkoutMinutes()))
                 .sum();
-        int activeStreakDays = calculateActiveStreak(dailyWorkoutRepository
-                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, today.minusDays(STREAK_WINDOW_DAYS), today), today);
+        int activeStreakDays = ActiveStreak.days(dailyWorkoutRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                        userId, today.minusDays(ActiveStreak.WINDOW_DAYS), today), today);
         int todayWorkoutCount = lastSevenDays.stream()
                 .filter(row -> today.equals(row.getActivityDate()))
                 .mapToInt(row -> defaultInt(row.getCompletedWorkoutCount()))
@@ -206,46 +202,10 @@ public class WorkoutProjectionService {
                 goalProgressEvaluator.todayForUser(userId));
     }
 
-    /**
-     * Counts consecutive days with a completed workout, walking back from today over rows sorted newest
-     * first. A streak may also start yesterday, so it is not reported as broken before today's workout.
-     */
-    private int calculateActiveStreak(List<AnalyticsUserDailyWorkoutEntity> rows, LocalDate today) {
-        int streak = 0;
-        LocalDate expectedDate = today;
-        for (AnalyticsUserDailyWorkoutEntity row : rows) {
-            if (!expectedDate.equals(row.getActivityDate())) {
-                if (streak == 0 && row.getActivityDate().equals(today.minusDays(1))
-                        && defaultInt(row.getCompletedWorkoutCount()) > 0) {
-                    // No row for today yet, but yesterday was active: the streak starts there.
-                } else {
-                    break;
-                }
-            }
-            if (defaultInt(row.getCompletedWorkoutCount()) <= 0) {
-                break;
-            }
-            streak++;
-            expectedDate = row.getActivityDate().minusDays(1);
-        }
-        return streak;
-    }
-
     private AnalyticsUserDashboardSnapshotEntity findOrCreateDashboardSnapshot(UUID userId, Instant occurredAt) {
         dashboardSnapshotInitializer.insertIfMissing(userId, resolveOccurredAt(occurredAt, null));
         return dashboardSnapshotRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException("Dashboard snapshot was not created"));
-    }
-
-    private ZoneId resolveZone(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            return DEFAULT_ZONE;
-        }
-        try {
-            return ZoneId.of(timezone.trim());
-        } catch (DateTimeException ex) {
-            return DEFAULT_ZONE;
-        }
     }
 
     private int contributionCount(AnalyticsWorkoutContributionEntity contribution) {
@@ -281,14 +241,5 @@ public class WorkoutProjectionService {
             return fallback;
         }
         return Instant.now(clock);
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(resolveOccurredAt(event.occurredAt(), null));
-        processedEventRepository.save(processedEvent);
     }
 }

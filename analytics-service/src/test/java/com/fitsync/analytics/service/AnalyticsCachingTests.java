@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.dto.BodyTrendBucket;
 import com.fitsync.analytics.dto.ComparePeriod;
@@ -91,6 +92,33 @@ class AnalyticsCachingTests {
 
         verify(goalProgressRepository, times(2))
                 .findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE");
+    }
+
+    @Test
+    void shouldNotServeYesterdaysDashboardNutritionFromCacheAfterTheUsersMidnight() {
+        // Today's calories are read from today's daily row, so a cached dashboard must not outlive the
+        // user's day even when no event evicts it: the key carries the user's local date.
+        UUID userId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "gina@example.com", "Gina", "USER");
+        when(dashboardSnapshotRepository.findById(userId))
+                .thenReturn(Optional.of(dashboardSnapshot(userId, "Asia/Singapore")));
+        when(goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
+                .thenReturn(List.of());
+        AnalyticsUserDailyNutritionEntity yesterday = new AnalyticsUserDailyNutritionEntity();
+        yesterday.setUserId(userId);
+        yesterday.setActivityDate(LocalDate.parse("2026-06-14"));
+        yesterday.setTotalCaloriesConsumed(900);
+        yesterday.setTotalProteinGrams(new BigDecimal("60.00"));
+        when(dailyNutritionRepository.findByUserIdAndActivityDate(userId, LocalDate.parse("2026-06-14")))
+                .thenReturn(Optional.of(yesterday));
+
+        // 15:30 UTC is 23:30 in Singapore on 14 June.
+        setUserZoneClockInstant("2026-06-14T15:30:00Z");
+        assertThat(analyticsService.getDashboard(principal).nutrition().todayCaloriesConsumed()).isEqualTo(900);
+
+        // 16:30 UTC is 00:30 on 15 June in Singapore; nothing has been eaten yet.
+        setUserZoneClockInstant("2026-06-14T16:30:00Z");
+        assertThat(analyticsService.getDashboard(principal).nutrition().todayCaloriesConsumed()).isZero();
     }
 
     @Test

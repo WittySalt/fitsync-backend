@@ -1,8 +1,8 @@
 package com.fitsync.analytics.messaging;
 
+import java.time.Clock;
 import java.time.Instant;
 
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserEnergyProfileEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserEnergyProfileRepository;
@@ -21,11 +21,14 @@ public class EnergyProfileComputedEventConsumerImpl implements DomainEventConsum
 
     private final AnalyticsProcessedEventRepository processedEventRepository;
     private final AnalyticsUserEnergyProfileRepository energyProfileRepository;
+    private final Clock clock;
 
     public EnergyProfileComputedEventConsumerImpl(AnalyticsProcessedEventRepository processedEventRepository,
-                                                  AnalyticsUserEnergyProfileRepository energyProfileRepository) {
+                                                  AnalyticsUserEnergyProfileRepository energyProfileRepository,
+                                                  Clock clock) {
         this.processedEventRepository = processedEventRepository;
         this.energyProfileRepository = energyProfileRepository;
+        this.clock = clock;
     }
 
     @Override
@@ -47,15 +50,6 @@ public class EnergyProfileComputedEventConsumerImpl implements DomainEventConsum
             entity.setComputedAt(computedAt);
             energyProfileRepository.save(entity);
         }
-        recordProcessedEvent(event);
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() == null ? Instant.now() : event.occurredAt());
-        processedEventRepository.save(processedEvent);
+        ProcessedEvents.record(processedEventRepository, event, clock);
     }
 }

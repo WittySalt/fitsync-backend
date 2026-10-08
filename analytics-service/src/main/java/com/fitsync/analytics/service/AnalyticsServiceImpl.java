@@ -3,7 +3,6 @@ package com.fitsync.analytics.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -102,10 +101,11 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     public AnalyticsDashboardResponse getDashboard(CurrentUserPrincipal principal) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
                 .orElse(null);
-        ZoneId zone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        ZoneId zone = UserZone.of(snapshot == null ? null : snapshot.getTimezone());
         LocalDate today = LocalDate.now(clock.withZone(zone));
+        LiveNutritionDay todayNutrition = new LiveNutritionDay(principal.userId(), today);
         List<AnalyticsDashboardResponse.GoalProgressSummary> goals =
-                loadGoalSummaries(principal.userId(), GoalExpiryPolicy.ACTIVE_STATUS, today);
+                loadGoalSummaries(principal.userId(), GoalExpiryPolicy.ACTIVE_STATUS, today, todayNutrition);
 
         if (snapshot == null) {
             return emptyDashboard(goals);
@@ -115,11 +115,14 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         // whatever it last held. Fields named "today" and "week" therefore have to be re-checked
         // against the clock at read time, or they report months-old activity as current. See
         // Documents/architecture/functional-defects-2026-09-26.md, defect 4.
-        LocalDate snapshotDay = snapshot.getGeneratedAt() == null
-                ? null
-                : snapshot.getGeneratedAt().atZone(zone).toLocalDate();
-        boolean sameDay = today.equals(snapshotDay);
-        boolean sameWeek = isSameIsoWeek(snapshotDay, today);
+        // Those fields are not taken from the snapshot at all. Checking its generatedAt against today
+        // was not enough: every event and the nightly rebuild move generatedAt, but each rewrites only
+        // its own fields, so a meal logged this morning dated yesterday's workout count as today's.
+        // Today's calories and protein come from today's daily nutrition row in the user's zone (the
+        // same row the live goal values use), the workout counts from the daily workout rows (see
+        // workoutSummary), and both read 0 when there are no rows. The cache key carries the user's
+        // local date and every meal and workout event evicts the user's entries, so the cached
+        // response cannot outlive those rows or that day.
 
         return new AnalyticsDashboardResponse(
                 snapshot.getGeneratedAt(),
@@ -132,11 +135,11 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         latestBodyMeasurementDate(principal.userId()),
                         toDouble(snapshot.getLatestWaistCm()),
                         snapshot.getWaistMeasuredOn()),
-                workoutSummary(principal.userId(), snapshot, today, sameDay, sameWeek),
+                workoutSummary(principal.userId(), snapshot, today),
                 new AnalyticsDashboardResponse.NutritionSummary(
-                        sameDay ? snapshot.getTodayCaloriesConsumed() : Integer.valueOf(0),
+                        todayNutrition.valueFor(GoalProgressEvaluator.CALORIES).intValue(),
                         snapshot.getTodayCaloriesTarget(),
-                        sameDay ? toDouble(snapshot.getTodayProteinGrams()) : Double.valueOf(0),
+                        todayNutrition.valueFor(GoalProgressEvaluator.PROTEIN).doubleValue(),
                         toDouble(snapshot.getTodayProteinTargetGrams())),
                 goals);
     }
@@ -400,7 +403,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         String timezone = dashboardSnapshotRepository.findById(userId)
                 .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
                 .orElse(null);
-        return LocalDate.now(clock.withZone(resolveZone(timezone)));
+        return LocalDate.now(clock.withZone(UserZone.of(timezone)));
     }
 
     /** Cache-key part for read models that depend on "today", so entries roll over at the user's midnight. */
@@ -479,9 +482,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     public AnalyticsStreaksResponse getStreaks(CurrentUserPrincipal principal) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
                 .orElse(null);
-        // Normalized through resolveZone so an invalid stored timezone is reported as the UTC
+        // Normalized through UserZone so an invalid stored timezone is reported as the UTC
         // fallback actually used to evaluate streak days, not echoed verbatim.
-        ZoneId streakZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        ZoneId streakZone = UserZone.of(snapshot == null ? null : snapshot.getTimezone());
         String timezone = ZoneOffset.UTC.equals(streakZone) ? DEFAULT_TIMEZONE : streakZone.getId();
 
         LocalDate lastActiveDate = dailyWorkoutRepository
@@ -555,27 +558,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .orElse(null);
     }
 
-    private boolean isSameIsoWeek(LocalDate left, LocalDate right) {
-        if (left == null || right == null) {
-            return false;
-        }
-        WeekFields isoWeek = WeekFields.ISO;
-        return left.get(isoWeek.weekBasedYear()) == right.get(isoWeek.weekBasedYear())
-                && left.get(isoWeek.weekOfWeekBasedYear()) == right.get(isoWeek.weekOfWeekBasedYear());
-    }
-
-    /** The stored IANA zone, or UTC when none is stored or the stored value is not a valid zone. */
-    private ZoneId resolveZone(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            return ZoneOffset.UTC;
-        }
-        try {
-            return ZoneId.of(timezone.trim());
-        } catch (DateTimeException ex) {
-            return ZoneOffset.UTC;
-        }
-    }
-
     /**
      * Single-week recap. Workout totals reuse the same daily-row aggregation as /workouts/summary
      * and /summary/compare, and the week-over-week deltas compare full ISO weeks (this week's window
@@ -637,7 +619,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         String timezone = dashboardSnapshotRepository.findById(userId)
                 .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
                 .orElse(null);
-        return LocalDate.now(clock.withZone(resolveZone(timezone)))
+        return LocalDate.now(clock.withZone(UserZone.of(timezone)))
                 .with(WeekFields.ISO.dayOfWeek(), 1);
     }
 
@@ -676,10 +658,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     }
 
     private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(
-            UUID userId, String status, LocalDate today) {
+            UUID userId, String status, LocalDate today, LiveNutritionDay liveDay) {
         String normalizedStatus = normalizeStatus(status);
         Map<String, AnalyticsUserGoalProgressEntity> latestByGoalType = new HashMap<>();
-        LiveNutritionDay liveDay = new LiveNutritionDay(userId, today);
         goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, normalizedStatus)
                 .forEach(entity -> latestByGoalType.merge(
                         entity.getGoalType(),
@@ -771,21 +752,34 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     /**
      * One definition of "this week" (Monday to Sunday in the user's zone) and of a streak
      * (consecutive days with a completed workout, ending today or yesterday). The three old fields
-     * keep their rolling-seven-day meaning for existing clients.
+     * keep their rolling-seven-day meaning for existing clients, and like the new ones they are
+     * summed from the daily workout rows at read time rather than copied from the snapshot, whose
+     * copies are only as fresh as the last workout event.
      */
     private AnalyticsDashboardResponse.WorkoutSummary workoutSummary(UUID userId,
                                                                     AnalyticsUserDashboardSnapshotEntity snapshot,
-                                                                    LocalDate today,
-                                                                    boolean sameDay,
-                                                                    boolean sameWeek) {
+                                                                    LocalDate today) {
         LocalDate monday = today.with(DayOfWeek.MONDAY);
         WorkoutSummaryAggregation thisWeek = aggregateWorkoutSummary(userId, monday, monday.plusDays(6));
+        // The same seven days, ending today, that the workout projection and the rebuild write.
+        List<AnalyticsUserDailyWorkoutEntity> lastSevenDays = dailyWorkoutRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, today.minusDays(6), today);
+        int todayWorkoutCount = lastSevenDays.stream()
+                .filter(row -> today.equals(row.getActivityDate()))
+                .mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount()))
+                .sum();
+        int rollingWorkoutCount = lastSevenDays.stream()
+                .mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount()))
+                .sum();
+        int rollingWorkoutMinutes = lastSevenDays.stream()
+                .mapToInt(row -> defaultInteger(row.getTotalWorkoutMinutes()))
+                .sum();
         int streak = liveStreakDays(userId, snapshot.getActiveStreakDays(), today);
         // The old activeStreakDays and the new currentStreakDays carry the same live value.
         return new AnalyticsDashboardResponse.WorkoutSummary(
-                sameDay ? defaultInteger(snapshot.getTodayWorkoutCount()) : 0,
-                sameWeek ? defaultInteger(snapshot.getWeekWorkoutCount()) : 0,
-                sameWeek ? defaultInteger(snapshot.getWeekWorkoutMinutes()) : 0,
+                todayWorkoutCount,
+                rollingWorkoutCount,
+                rollingWorkoutMinutes,
                 streak,
                 thisWeek.totalWorkoutCount(),
                 thisWeek.totalWorkoutMinutes(),

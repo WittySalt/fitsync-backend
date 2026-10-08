@@ -1,16 +1,21 @@
 package com.fitsync.analytics;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserEnergyProfileEntity;
 import com.fitsync.analytics.messaging.AccountDeletionProjectionService;
+import com.fitsync.analytics.messaging.EnergyProfileComputedEventConsumerImpl;
 import com.fitsync.analytics.messaging.EnergyProfileComputedKafkaListener;
 import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
@@ -28,6 +33,7 @@ import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
@@ -68,6 +74,23 @@ class EnergyProjectionTests {
     private ApplicationContext applicationContext;
 
     // ---- EnergyProfileComputed -------------------------------------------------------------------
+
+    @Test
+    void anEventWithoutAnOccurrenceTimeIsStampedFromTheInjectedClock() {
+        // The processed-event row used the system clock here (and in BodyMetricsRecorded) while every other
+        // projection used the injected one; all of them now share one recorder.
+        AnalyticsProcessedEventRepository processedEvents = mock(AnalyticsProcessedEventRepository.class);
+        Instant fixedNow = Instant.parse("2020-01-02T03:04:05Z");
+        EnergyProfileComputedEventConsumerImpl consumer = new EnergyProfileComputedEventConsumerImpl(
+                processedEvents, mock(AnalyticsUserEnergyProfileRepository.class), Clock.fixed(fixedNow, ZoneOffset.UTC));
+
+        consumer.consume(new FitSyncDomainEvent<>(UUID.randomUUID(), "EnergyProfileComputed", 1, null, "user-service",
+                UUID.randomUUID(), new EnergyProfileComputedPayload(null, null, null, null)));
+
+        ArgumentCaptor<AnalyticsProcessedEventEntity> saved = ArgumentCaptor.forClass(AnalyticsProcessedEventEntity.class);
+        verify(processedEvents).save(saved.capture());
+        assertThat(saved.getValue().getProcessedAt()).isEqualTo(fixedNow);
+    }
 
     @Test
     void energyProfileEventIsKeptAsHistoryAndAReplayAddsNothing() {

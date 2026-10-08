@@ -39,11 +39,11 @@ public class AnalyticsDailyRollupUserProcessor {
     }
 
     /**
-     * {@code todayUtc} is not used: "today" is resolved in the user's own zone instead, so goals expire at the
-     * user's midnight. The parameter is kept for the existing callers.
+     * "Today" is resolved in the user's own zone rather than taken from the caller, so goals expire at the
+     * user's midnight.
      */
     @Transactional
-    public void rollupUser(UUID userId, LocalDate todayUtc, Instant evaluatedAt) {
+    public void rollupUser(UUID userId, Instant evaluatedAt) {
         LocalDate today = goalProgressEvaluator.todayForUser(userId);
         updateActiveGoalCountdowns(userId, today, evaluatedAt);
         goalProgressEvaluator.recompute(userId, GoalProgressEvaluator.ALL_GOAL_TYPES, today);

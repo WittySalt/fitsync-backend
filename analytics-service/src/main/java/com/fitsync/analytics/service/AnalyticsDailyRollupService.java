@@ -2,8 +2,6 @@ package com.fitsync.analytics.service;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.UUID;
 
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
@@ -44,7 +42,6 @@ public class AnalyticsDailyRollupService {
     RollupSummary runDailyRollupOnce() {
         long startedAt = System.nanoTime();
         Instant evaluatedAt = Instant.now(clock);
-        LocalDate todayUtc = LocalDate.now(clock.withZone(ZoneOffset.UTC));
         int processedUsers = 0;
         int failedUsers = 0;
         int page = 0;
@@ -54,7 +51,7 @@ public class AnalyticsDailyRollupService {
             userIds = dashboardSnapshotRepository.findSnapshotUserIds(PageRequest.of(page, BATCH_SIZE));
             for (UUID userId : userIds.getContent()) {
                 try {
-                    userProcessor.rollupUser(userId, todayUtc, evaluatedAt);
+                    userProcessor.rollupUser(userId, evaluatedAt);
                     processedUsers++;
                 } catch (RuntimeException exception) {
                     failedUsers++;

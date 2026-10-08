@@ -2,12 +2,9 @@ package com.fitsync.analytics.service;
 
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -39,9 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
 
-    private static final ZoneId DEFAULT_ZONE = ZoneOffset.UTC;
-    /** How far back a streak is counted: past the longest milestone, so none is cut short at a week. */
-    private static final int STREAK_WINDOW_DAYS = 400;
     private static final String ACTIVE_STATUS = "ACTIVE";
     private static final String CALORIES_GOAL_TYPE = "CALORIES";
     private static final String PROTEIN_GOAL_TYPE = "PROTEIN";
@@ -85,7 +79,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
     public AnalyticsRebuildResponse rebuildDashboard(UUID userId) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(userId)
                 .orElseGet(() -> createDashboardSnapshot(userId));
-        ZoneId userZone = resolveZone(snapshot.getTimezone());
+        ZoneId userZone = UserZone.of(snapshot.getTimezone());
         LocalDate today = LocalDate.now(clock.withZone(userZone));
 
         dailyBodyRepository.findTopByUserIdOrderByMetricDateDesc(userId)
@@ -93,7 +87,8 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
                     snapshot.setLatestWeightKg(body.getWeightKg());
                     snapshot.setLatestBodyFatRate(body.getBodyFatRate());
                     snapshot.setBmi(body.getBmi());
-                    snapshot.setWeightChange30d(body.getWeightDeltaFromStart());
+                    snapshot.setWeightChange30d(BodyWeightChange.over30Days(
+                            dailyBodyRepository, userId, body.getMetricDate(), body.getWeightKg()));
                 });
 
         dailyBodyRepository.findTopByUserIdAndWaistCmIsNotNullOrderByMetricDateDesc(userId)
@@ -102,13 +97,15 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
                     snapshot.setWaistMeasuredOn(body.getMetricDate());
                 });
 
-        dailyNutritionRepository.findByUserIdAndActivityDate(userId, today)
-                .ifPresent(nutrition -> {
-                    snapshot.setTodayCaloriesConsumed(nutrition.getTotalCaloriesConsumed());
-                    snapshot.setTodayCaloriesTarget(nutrition.getCalorieTarget());
-                    snapshot.setTodayProteinGrams(nutrition.getTotalProteinGrams());
-                    snapshot.setTodayProteinTargetGrams(nutrition.getProteinTargetGrams());
-                });
+        // Without a row for today nothing was eaten today, so the stored figures go back to zero rather
+        // than keep the last day that had a meal: the rebuild moves generatedAt to now, which would
+        // otherwise date that day's totals as today's. The targets are not taken from the row; the
+        // active goals set them below.
+        AnalyticsUserDailyNutritionEntity todayNutrition =
+                dailyNutritionRepository.findByUserIdAndActivityDate(userId, today).orElse(null);
+        snapshot.setTodayCaloriesConsumed(
+                todayNutrition == null ? Integer.valueOf(0) : todayNutrition.getTotalCaloriesConsumed());
+        snapshot.setTodayProteinGrams(todayNutrition == null ? BigDecimal.ZERO : todayNutrition.getTotalProteinGrams());
 
         List<AnalyticsUserDailyWorkoutEntity> lastSeven = dailyWorkoutRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, today.minusDays(6), today);
@@ -120,8 +117,9 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         snapshot.setWeekWorkoutCount(lastSeven.stream().mapToInt(row -> defaultInt(row.getCompletedWorkoutCount())).sum());
         snapshot.setWeekWorkoutMinutes(lastSeven.stream().mapToInt(row -> defaultInt(row.getTotalWorkoutMinutes())).sum());
         int previousStreak = defaultInt(snapshot.getActiveStreakDays());
-        int newStreak = calculateActiveStreak(dailyWorkoutRepository
-                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, today.minusDays(STREAK_WINDOW_DAYS), today), today);
+        int newStreak = ActiveStreak.days(dailyWorkoutRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                        userId, today.minusDays(ActiveStreak.WINDOW_DAYS), today), today);
         snapshot.setActiveStreakDays(newStreak);
 
         applyTargetsFromGoals(snapshot, userId);
@@ -175,7 +173,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add));
         applyTargetsFromGoals(daily, userId);
         daily.setProjectionUpdatedAt(Instant.now(clock));
-        recalculateNutritionScores(daily);
+        NutritionAdherence.recalculate(daily);
         dailyNutritionRepository.save(daily);
         rebuildDashboard(userId);
         cacheInvalidationService.evictForUser(userId);
@@ -289,66 +287,11 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
                 });
     }
 
-    private void recalculateNutritionScores(AnalyticsUserDailyNutritionEntity daily) {
-        if (daily.getCalorieTarget() != null && daily.getCalorieTarget() > 0) {
-            daily.setCalorieAdherenceRatio(
-                    BigDecimal.valueOf(defaultInt(daily.getTotalCaloriesConsumed()))
-                            .divide(BigDecimal.valueOf(daily.getCalorieTarget()), 4, java.math.RoundingMode.HALF_UP));
-        }
-        if (daily.getProteinTargetGrams() != null && daily.getProteinTargetGrams().compareTo(BigDecimal.ZERO) > 0) {
-            daily.setMacroAdherenceScore(
-                    defaultDecimal(daily.getTotalProteinGrams())
-                            .divide(daily.getProteinTargetGrams(), 4, java.math.RoundingMode.HALF_UP));
-        }
-    }
-
-    /**
-     * Preserves a user's streak during the current day in the user's zone when the latest activity was
-     * yesterday. The streak decays only when the latest active row is two or more days before today.
-     */
-    private int calculateActiveStreak(List<AnalyticsUserDailyWorkoutEntity> rows, LocalDate today) {
-        int streak = 0;
-        LocalDate expected = today;
-        for (AnalyticsUserDailyWorkoutEntity row : rows.stream()
-                .sorted(Comparator.comparing(AnalyticsUserDailyWorkoutEntity::getActivityDate).reversed())
-                .toList()) {
-            if (!expected.equals(row.getActivityDate())) {
-                if (streak == 0 && row.getActivityDate().equals(today.minusDays(1))
-                        && defaultInt(row.getCompletedWorkoutCount()) > 0) {
-                    // No row for today yet, but yesterday was active: the streak starts there.
-                } else {
-                    break;
-                }
-            }
-            if (defaultInt(row.getCompletedWorkoutCount()) <= 0) {
-                break;
-            }
-            streak++;
-            expected = row.getActivityDate().minusDays(1);
-        }
-        return streak;
-    }
-
     private int defaultInt(Integer value) {
         return value == null ? 0 : value;
     }
 
-    private BigDecimal defaultDecimal(BigDecimal value) {
-        return value == null ? BigDecimal.ZERO : value;
-    }
-
     private String normalize(String value) {
         return value == null ? "" : value.toUpperCase(Locale.ROOT);
-    }
-
-    private ZoneId resolveZone(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            return DEFAULT_ZONE;
-        }
-        try {
-            return ZoneId.of(timezone.trim());
-        } catch (DateTimeException ex) {
-            return DEFAULT_ZONE;
-        }
     }
 }
