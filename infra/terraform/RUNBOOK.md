@@ -25,10 +25,10 @@ docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 | `storage.tf` | S3 media bucket, S3 frontend bucket, CloudFront* | ~free; CloudFront slow |
 | `auth.tf` | Cognito user pool + SPA client + hosted domain | free tier, instant |
 | `ci_iam.tf` | EC2 instance role/profile, CI deploy policy | free, instant |
-| `email.tf` | SES sender identity + `ses:SendEmail` for the EC2 role, only when `notify_email_sender` is set | free (SES bills per email) |
+| `email.tf` | `ses:SendEmail` for the EC2 role pinned to `notify_email_sender` (+ an address identity only when `notify_email_create_identity`) | free (SES bills per email) |
 | `data.tf` | RDS PostgreSQL* (RDS-managed master password; Multi-AZ when `db_multi_az`) | **costs money**, ~10 min (Multi-AZ doubles it) |
 | `compute.tf` | EC2 app host + EIP* + deploy key pair | **costs money** |
-| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary, the 8 shared ECR repos (own state, applied by hand) | free, instant |
+| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary, the 8 shared ECR repos, the SES sending domain + its hosted zone and DNS records when `notify_email_domain` is set (own state, applied by hand) | free, instant (the hosted zone is $0.50/month) |
 
 `*` gated behind feature flags (`enable_rds`, `enable_ec2` default **false**; `enable_alb`
 defaults to true, `db_multi_az` to false and is on in `prod.tfvars`).
@@ -219,39 +219,102 @@ already exists. In that case import it first:
 notification-service sends email through Amazon SES with the EC2 instance role. Until the
 steps below are done it only writes each email to its log, which is the default everywhere.
 
-1. **Pick the sender per environment** and put it in `notify_email_sender` in
-   `staging.tfvars` / `prod.tfvars`. An SES identity belongs to the account, not the
-   workspace, so either use two addresses (plus-addressing such as `name+staging@example.com`
-   is a separate identity) or let one workspace create it and set
-   `notify_email_create_identity = false` in the other. A personal mailbox works for the
-   demo; a domain you control (with DKIM) is what keeps mail out of spam later.
-2. **Apply Terraform.** It creates the SES identity and gives the EC2 role `ses:SendEmail` /
-   `ses:SendRawEmail` with the From address pinned to the sender (`email.tf`). The CD role
-   needs nothing new: `PowerUserAccess` covers SES and the workload boundary allows it.
-3. **Verify the sender.** SES mails a verification link to the sender address right after the
-   apply; someone must open that mailbox and click it. Check with
-   `aws sesv2 get-email-identity --email-identity <sender> --query VerifiedForSendingStatus`.
-4. **Sandbox: verify every recipient too.** A new account is in the SES sandbox: it can send
+Mail goes out from the domain `fitsync.link`. The domain is one SES identity for the whole
+account and region, shared by staging and prod, so it lives in `bootstrap/email.tf` and is
+applied by hand. Each workspace only names its own From address and gets permission to send
+from it:
+
+| Environment | `notify_email_sender` / `NOTIFY_EMAIL_SENDER` | From header | Subject |
+|---|---|---|---|
+| prod | `noreply@fitsync.link` | `FitSync <noreply@fitsync.link>` | as composed |
+| staging | `noreply-staging@fitsync.link` | `FitSync Staging <noreply-staging@fitsync.link>` | `[Staging] ` + subject |
+
+The display name and the subject prefix are rendered by `cd.yml` (`FITSYNC_NOTIFY_SENDER_NAME`,
+`FITSYNC_NOTIFY_SUBJECT_PREFIX`); nothing needs setting for them.
+
+The domain was registered in a different account (438465161112). Route 53 created its hosted
+zone there, and a hosted zone does not move with a transferred registration, so bootstrap
+creates a new public zone for it in this account (437659978621) and writes every SES record
+into that zone. The order:
+
+1. **Registration completes in 438465161112.** Check there with
+   `aws route53domains get-domain-detail --region us-east-1 --domain-name fitsync.link --query StatusList`.
+2. **Transfer the registration to 437659978621.** In the console of 438465161112: Route 53 →
+   Registered domains → fitsync.link → Actions → Transfer to another AWS account, target
+   account 437659978621; note the password it shows. Then accept in 437659978621:
+
+   ```bash
+   aws route53domains accept-domain-transfer-from-another-aws-account \
+     --region us-east-1 --domain-name fitsync.link --password '<pw>'
+   ```
+
+3. **Apply the domain identity in bootstrap** with an admin profile of 437659978621:
+
+   ```bash
+   cd infra/terraform/bootstrap
+   terraform init
+   terraform plan  -var notify_email_domain=fitsync.link   # expect 9 to add: hosted zone, identity, MAIL FROM, 3 DKIM CNAMEs, MX, SPF, DMARC
+   terraform apply -var notify_email_domain=fitsync.link
+   terraform output notify_email_domain_name_servers
+   ```
+
+   To receive DMARC aggregate reports add `-var notify_email_dmarc_rua=<mailbox>`; without it
+   the record is just `v=DMARC1; p=none;`. Keep passing the same `-var` values on every later
+   bootstrap apply (or put them in an untracked `bootstrap/terraform.tfvars`), otherwise the
+   apply removes the zone and the identity again.
+4. **Point the registration at the new zone**, using the four name servers from the output
+   (run in the account that holds the registration at that moment, 437659978621 after step 2):
+
+   ```bash
+   aws route53domains update-domain-nameservers --region us-east-1 --domain-name fitsync.link \
+     --nameservers Name=<ns-1> Name=<ns-2> Name=<ns-3> Name=<ns-4>
+   ```
+
+   Steps 2 and 4 can happen in either order, but DKIM only verifies once the registrar
+   points at the new zone. Check with `dig NS fitsync.link +short` (or `nslookup -type=NS fitsync.link`).
+5. **Wait for SES verification.** SES checks the DKIM CNAMEs itself, usually within minutes
+   of the name servers taking effect and at most 72 hours. No mailbox has to click anything.
+   `aws sesv2 get-email-identity --email-identity fitsync.link --query '[VerifiedForSendingStatus,DkimAttributes.Status,MailFromAttributes.MailFromDomainStatus]'`
+   should read `true`, `SUCCESS`, `SUCCESS` (`terraform refresh` then
+   `terraform output notify_email_domain_dkim_status` shows the same DKIM status).
+6. **Delete the unused zone in 438465161112.** The zone Route 53 created at registration
+   answers nothing once the name servers point here, and costs $0.50 a month. In that
+   account delete its non-default records (if any), then the zone:
+   `aws route53 list-hosted-zones-by-name --dns-name fitsync.link` to find the id, then
+   `aws route53 delete-hosted-zone --id <zone-id>`. Make sure it is the zone in 438465161112,
+   not the one bootstrap created here.
+
+Then set up the environments:
+
+7. **Set the sender in each workspace.** Uncomment `notify_email_sender` in `staging.tfvars`
+   and `prod.tfvars` (the two addresses above) and apply each workspace (CD's terraform step
+   does it on the next run). `notify_email_create_identity` stays `false`: the workspace then
+   only gives the EC2 role `ses:SendEmail` / `ses:SendRawEmail` with `ses:FromAddress` pinned
+   to that address (`email.tf`). Set it to `true` only for a sender outside the domain, which
+   makes the workspace create an address identity whose verification link someone must click.
+   The CD role needs nothing new: `PowerUserAccess` covers SES and the boundary allows it.
+8. **Sandbox: verify every recipient too.** A new account is in the SES sandbox: it can send
    only to verified addresses, at most 200 emails a day and 1 per second. For each demo
    account's email address run
    `aws sesv2 create-email-identity --email-identity <recipient>`, and the owner of that
    mailbox must click the link SES sends. Sends to anyone else fail with
    `MessageRejected: Email address is not verified`.
-5. **Set the repository variables** (Settings → Secrets and variables → Actions, or on the
-   `staging` / `production` environments when the senders differ): `NOTIFY_EMAIL_SENDER` =
-   the same address as `notify_email_sender`, and `NOTIFY_EMAIL_ENABLED=true`. Optionally
+9. **Set the environment variables** in GitHub (Settings → Environments → `staging` /
+   `production`, see `.github/CICD-VARIABLES.md`): `NOTIFY_EMAIL_SENDER` = the same address as
+   that workspace's `notify_email_sender`, and `NOTIFY_EMAIL_ENABLED=true`. Optionally
    `APP_BASE_URL`, where email links point (prod defaults to
    `https://d26vi6hikexzev.cloudfront.net`; staging to the first https origin of
    `STAGING_CORS_ALLOWED_ORIGINS`). Then run CD; the variables reach the host's `.env`.
-6. **Production access (later).** To mail real users, request it in the console (SES →
-   Account dashboard → Request production access) with the use case, how addresses are
-   collected and how bounces and complaints are handled. AWS answers within about a day;
-   after that recipients no longer need verifying.
+10. **Production access (later).** To mail real users, request it in the console (SES →
+    Account dashboard → Request production access) with the use case, how addresses are
+    collected and how bounces and complaints are handled. AWS answers within about a day;
+    after that recipients no longer need verifying. Once DMARC reports show DKIM and SPF
+    passing, the policy can move from `p=none` to `p=quarantine`.
 
 Check from the host after a deploy:
 `sudo docker logs fitsync-notification-service 2>&1 | grep -i ses`. `AccessDenied` means the
 sender in the `.env` differs from `notify_email_sender`; `MessageRejected` means an
-identity is not verified yet.
+identity is not verified yet (the domain, or a sandbox recipient).
 
 ## Presentation talking points
 

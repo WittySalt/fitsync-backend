@@ -378,6 +378,10 @@ services:
       # Email through SES. The sender is the From address and must be verified in SES.
       FITSYNC_NOTIFY_EMAIL_ENABLED: ${FITSYNC_NOTIFY_EMAIL_ENABLED:-false}
       FITSYNC_NOTIFY_EMAIL_SENDER: ${FITSYNC_NOTIFY_EMAIL_SENDER:-no-reply@fitsync.local}
+      # The From display name ("FitSync <address>") and a subject prefix; CD sets
+      # "FitSync Staging" and "[Staging]" on staging so its emails stand out, prod keeps none.
+      FITSYNC_NOTIFY_SENDER_NAME: ${FITSYNC_NOTIFY_SENDER_NAME:-FitSync}
+      FITSYNC_NOTIFY_SUBJECT_PREFIX: ${FITSYNC_NOTIFY_SUBJECT_PREFIX:-}
       # Where the links in an email point: this environment's SPA address.
       FITSYNC_APP_BASE_URL: ${FITSYNC_APP_BASE_URL:-http://localhost:4200}
       FITSYNC_NOTIFY_TICK: ${FITSYNC_NOTIFY_TICK:-PT5M}

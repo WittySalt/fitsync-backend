@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.fitsync.notification.config.NotificationProperties;
 import com.fitsync.notification.domain.EmailKind;
 import com.fitsync.notification.domain.EmailStatus;
 import com.fitsync.notification.email.EmailSender;
@@ -26,7 +27,8 @@ import com.fitsync.notification.repository.RecipientRepository;
  * Sends every email whose time has come. Each one is checked again against the settings as they
  * are now, because a switch can be turned off or a workout logged after the email was queued.
  * Quiet hours hold an email until they end. Each email runs in its own transaction, so one failure
- * leaves the rest untouched. Only ids and kinds are logged, never an address or a body.
+ * leaves the rest untouched. Only ids and kinds are logged, never an address or a body. The stored
+ * subject stays as composed; an environment's subject prefix is added only as the email leaves.
  */
 @Service
 public class EmailDispatcher {
@@ -44,14 +46,16 @@ public class EmailDispatcher {
     private final EmailSender sender;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final NotificationProperties.Email settings;
 
     public EmailDispatcher(EmailRepository emails, RecipientRepository recipients, EmailSender sender,
-                           TransactionTemplate transactions, Clock clock) {
+                           TransactionTemplate transactions, Clock clock, NotificationProperties properties) {
         this.emails = emails;
         this.recipients = recipients;
         this.sender = sender;
         this.transactions = transactions;
         this.clock = clock;
+        this.settings = properties.email();
     }
 
     /** Works through the due emails in batches; every email handled moves out of the due set. */
@@ -144,7 +148,7 @@ public class EmailDispatcher {
     private void send(EmailEntity email, RecipientEntity recipient, Instant now) {
         try {
             sender.send(new OutgoingEmail(email.getEmailId(), email.getKind(), recipient.getEmail(),
-                    email.getSubject(), email.getBodyText()));
+                    settings.subject(email.getSubject()), email.getBodyText()));
         } catch (RuntimeException ex) {
             int attempts = email.getAttempts() + 1;
             email.setAttempts(attempts);

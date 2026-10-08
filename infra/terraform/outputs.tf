@@ -57,6 +57,6 @@ output "app_secret_name" {
 }
 
 output "notify_email_identity_arn" {
-  description = "SES identity of the notification sender (null unless this workspace creates it)"
+  description = "SES address identity of the notification sender (null unless notify_email_create_identity; the domain identity is a bootstrap output)"
   value       = length(aws_sesv2_email_identity.notify_sender) > 0 ? aws_sesv2_email_identity.notify_sender[0].arn : null
 }

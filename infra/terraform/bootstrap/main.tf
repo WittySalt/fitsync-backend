@@ -11,7 +11,9 @@
 #   - fitsync-workload-boundary: the permissions boundary every role CD creates
 #     must carry, so CD can never mint a role stronger than itself
 #   - the shared ECR repositories (registry.tf), empty ones cost nothing
-# All of this is free.
+#   - the SES sending domain, its public hosted zone and DNS records (email.tf), only when
+#     notify_email_domain is set
+# All of this is free, except the hosted zone at $0.50 a month.
 # ─────────────────────────────────────────────────────────────────────────────
 
 terraform {
