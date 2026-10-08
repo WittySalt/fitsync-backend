@@ -12,7 +12,9 @@ public record GatewayCorsProperties(List<String> allowedOrigins) {
     private static final List<String> DEFAULT_ALLOWED_ORIGINS = List.of(
             "http://localhost:3000",
             "http://localhost:4200",
-            "https://d26vi6hikexzev.cloudfront.net");
+            "https://d26vi6hikexzev.cloudfront.net",
+            "https://fitsyncapp.click",
+            "https://www.fitsyncapp.click");
 
     public GatewayCorsProperties {
         allowedOrigins = allowedOrigins == null || allowedOrigins.isEmpty()

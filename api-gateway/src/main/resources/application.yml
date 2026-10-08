@@ -34,7 +34,7 @@ security:
 fitsync:
   gateway:
     cors:
-      allowed-origins: ${FITSYNC_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:4200,https://d26vi6hikexzev.cloudfront.net}
+      allowed-origins: ${FITSYNC_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:4200,https://d26vi6hikexzev.cloudfront.net,https://fitsyncapp.click,https://www.fitsyncapp.click}
     routes:
       auth-service-base-url: ${AUTH_SERVICE_BASE_URL:http://localhost:8080}
       user-service-base-url: ${USER_SERVICE_BASE_URL:http://localhost:8081}
