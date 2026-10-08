@@ -6,8 +6,12 @@ import java.util.UUID;
 
 import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.entity.WorkoutPlanEntity;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface WorkoutPlanRepository extends JpaRepository<WorkoutPlanEntity, UUID>, WorkoutPlanRepositoryCustom {
 
@@ -25,4 +29,8 @@ public interface WorkoutPlanRepository extends JpaRepository<WorkoutPlanEntity, 
     List<WorkoutPlanEntity> findByUserIdAndStatusOrderByDateTimeUpdatedDesc(UUID userId, WorkoutPlanStatus status);
 
     List<WorkoutPlanEntity> findByUserIdAndStatus(UUID userId, WorkoutPlanStatus status);
+
+    /** The users with a plan in this status, one page at a time, for the startup schedule catch-up. */
+    @Query("select distinct p.userId from WorkoutPlanEntity p where p.status = :status order by p.userId")
+    Slice<UUID> findUserIdsByStatus(@Param("status") WorkoutPlanStatus status, Pageable pageable);
 }
