@@ -298,14 +298,72 @@ set onboarding_completed = true
 from demo_config c
 where p.user_id = c.user_id and p.onboarding_completed = false;
 
--- The Me page shows "Member since" from the profile's creation time, and the footprint grid starts
--- there. An account with 60 days of history should not read as a day old. The fresh persona keeps its
--- real creation time.
+-- The Me page shows "Member since" from the profile's creation time (UserProfileView.createdAt), and the
+-- footprint grid starts there. For steady and drifting it is set to the first day of the seeded history,
+-- d_start at 06:00, before that day's first session (06:45) and weigh-in (07:00), so Me, the footprint
+-- and the 60 days of data begin on the same day; an earlier real creation date would leave weeks of
+-- empty grid before the history. It moves with the run day and is never after it. The fresh persona keeps
+-- its real creation time: it has just onboarded and has no history to line up with.
 update user_domain.user_profiles p
-set date_time_created = (c.d_start + time '08:00') at time zone c.tz
+set date_time_created = (c.d_start + time '06:00') at time zone c.tz
 from demo_config c
-where p.user_id = c.user_id and c.persona in ('steady', 'drifting')
-  and p.date_time_created > (c.d_start + time '08:00') at time zone c.tz;
+where p.user_id = c.user_id and c.persona in ('steady', 'drifting');
+
+-- Display names. Home greets by first name, and the demo accounts were registered with a persona word
+-- as their name ("Good evening, drifting."; the fresh account even carries "steady"). A name that is
+-- blank or any persona word (steady, drifting, fresh, in any case) is replaced by the persona's person:
+-- steady Jamie Lim, drifting Alex Tan, fresh Sam Lee. A real name, such as steady's own, is never
+-- overwritten. The same rule is applied to the auth account's name, which signed-in tokens carry, and to
+-- notification-service's copy of it.
+create temporary table demo_name on commit drop as
+select c.user_id, n.display_name, n.first_name, n.last_name
+from demo_config c
+join (values ('steady',   'Jamie Lim', 'Jamie', 'Lim'),
+             ('drifting', 'Alex Tan',  'Alex',  'Tan'),
+             ('fresh',    'Sam Lee',   'Sam',   'Lee')) n(persona, display_name, first_name, last_name)
+  on n.persona = c.persona;
+
+-- True when a stored name is a placeholder: blank, or one of the persona words.
+create or replace function pg_temp.demo_placeholder_name(v text) returns boolean
+language sql immutable as $f$
+    select coalesce(btrim(v), '') = '' or lower(btrim(v)) in ('steady', 'drifting', 'fresh')
+$f$;
+
+-- The profile: a placeholder display name takes the whole person (first and last name included where
+-- those are placeholders too); a real display name keeps everything, except a placeholder first name,
+-- which then takes the display name's first word.
+update user_domain.user_profiles p
+set display_name = n.display_name,
+    first_name   = case when pg_temp.demo_placeholder_name(p.first_name) then n.first_name else p.first_name end,
+    last_name    = case when pg_temp.demo_placeholder_name(p.last_name)  then n.last_name  else p.last_name  end
+from demo_name n
+where p.user_id = n.user_id
+  and pg_temp.demo_placeholder_name(p.display_name);
+
+update user_domain.user_profiles p
+set first_name = split_part(btrim(p.display_name), ' ', 1)
+from demo_name n
+where p.user_id = n.user_id
+  and pg_temp.demo_placeholder_name(p.first_name)
+  and not pg_temp.demo_placeholder_name(p.display_name);
+
+update auth.app_users u
+set display_name = n.display_name
+from demo_name n
+where u.id = n.user_id
+  and pg_temp.demo_placeholder_name(u.display_name);
+
+do $$
+begin
+    if exists (select 1 from information_schema.tables
+                where table_schema = 'notification' and table_name = 'notification_recipients') then
+        update notification.notification_recipients r
+        set display_name = n.display_name
+        from demo_name n
+        where r.user_id = n.user_id
+          and pg_temp.demo_placeholder_name(r.display_name);
+    end if;
+end $$;
 
 -- ----------------------------------------------------------------------------
 -- 2b. demo_days — one row per calendar day in [d_start, d_today], carrying
@@ -851,7 +909,13 @@ insert into user_domain.user_goals
      date_time_created, date_time_updated, created_by, updated_by, version)
 select
     md5(c.user_id::text || 'GOAL' || g.goal_type)::uuid,
-    c.user_id, g.goal_type, g.target_value::numeric, g.target_unit,
+    c.user_id, g.goal_type,
+    -- steady counts every session, the short mobility sessions of its rest days included: four plan days
+    -- and two or three rest days make six a week, so its goal is six and Home, the plan ring and Workout's
+    -- "4 of 6" agree on any weekday. drifting and fresh keep four, which drifting's slip falls short of.
+    case when g.goal_type = 'WORKOUT_FREQUENCY' and c.persona = 'steady' then 6.00
+         else g.target_value::numeric end,
+    g.target_unit,
     case
         -- Ten weeks ahead, which the steady persona's rate of loss reaches, so that the pace rule and
         -- the goal progress agree that the goal is on track.
@@ -860,7 +924,10 @@ select
         when g.goal_type = 'WEIGHT' and c.persona = 'drifting' then (c.d_today + 42)::date
         else (c.d_today + 60)::date
     end,
-    'ACTIVE', g.notes,
+    'ACTIVE',
+    case when g.goal_type = 'WORKOUT_FREQUENCY' and c.persona = 'steady'
+         then 'Train six days a week: the four plan days and mobility on two rest days.'
+         else g.notes end,
     (c.d_start + time '08:00') at time zone c.tz,
     c.now_ts,
     'demo-seed', 'demo-seed', 0
@@ -1745,9 +1812,10 @@ where p.height_cm is not null and p.birth_date is not null;
 --     profile and preferences filled in exactly like the others, just with no activity yet.
 -- ----------------------------------------------------------------------------
 
--- Training preferences. R2 compares active days against weekly_workout_days, so without this the
--- weekly-adherence rule cannot fire at all. Five days against the four the window actually
--- contains, so the rule has something true to say.
+-- Training preferences. R2 compares active days against weekly_workout_days when there is no
+-- WORKOUT_FREQUENCY goal, so without this the weekly-adherence rule could not fire for such an account.
+-- steady's matches its goal of six days, so About you and the coach say one number; drifting and fresh
+-- keep five.
 insert into user_domain.user_training_preferences
     (user_id, fitness_level_code, training_location_code, weekly_workout_days,
      preferred_duration_minutes, preferred_workout_time, intensity_preference_code,
@@ -1759,7 +1827,7 @@ select c.user_id,
          where cv.code_set_key = 'fitness_level' and cv.display_name = 'Intermediate'),
        (select cv.code from user_domain.code_values cv
          where cv.code_set_key = 'training_location' and cv.display_name = 'Gym'),
-       5, 45, time '19:00',
+       case when c.persona = 'steady' then 6 else 5 end, 45, time '19:00',
        (select cv.code from user_domain.code_values cv
          where cv.code_set_key = 'intensity_preference' and cv.display_name = 'Moderate'),
        now(), now(), 'demo-seed', 'demo-seed', 0

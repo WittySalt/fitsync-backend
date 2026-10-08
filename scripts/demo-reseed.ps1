@@ -108,13 +108,13 @@ Write-Host 'Reseed done. Coach eval for this seed:'
 Write-Host ("  python scripts\coach-eval\run_coach_eval.py --now {0} --token-file .local\demo.jwt --out .local\coach-eval.md" -f $now)
 Write-Host 'Eyeball, signed in as steady unless noted (scripts\README.md has the numbers per weekday):'
 @(
-    'Home: streak about two weeks, ending yesterday; today has breakfast only if the seed ran after 07:30',
+    'Home: streak about two weeks, ending yesterday; weekly goal of six sessions (Friday: two to go); today has breakfast only if the seed ran after 07:30',
     'Workout Today: the plan days before today are done, today''s plan day is still to start; rest days of the last two weeks carry a short mobility session',
     'Nutrition Diary: every day logged, last Sunday a fasted day, yesterday complete',
     'Recipes: three cooks in the history, Leftovers offers two (Salmon Avocado Salad 1, Spanish Chicken 2)',
     'Progress: the week rule line, weight trend down with yesterday''s weigh-in, energy view',
-    'Me: Member since about 60 days ago, footprint grid filled, badges earned',
-    'drifting: streak 0, plan days missed, last weigh-in 10 days ago, no meals for 4 days, goal pace behind',
-    'fresh: every page shows its empty state and the first tour starts',
+    'Me: Member since the first day of the history (59 days back), footprint grid filled, badges earned',
+    'drifting (Alex Tan): streak 0, plan days missed, last weigh-in 10 days ago, no meals for 4 days, goal pace behind',
+    'fresh (Sam Lee): every page shows its empty state and the first tour starts',
     'Admin console: sign in as the admin account'
 ) | ForEach-Object { Write-Host ("  [ ] " + $_) }

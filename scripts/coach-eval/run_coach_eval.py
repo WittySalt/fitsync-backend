@@ -58,6 +58,9 @@ PROTEIN_TARGET_G = 140
 PLACEHOLDER = re.compile(r"\{[A-Za-z]\w*\}")
 NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
 PLAN_DAYS = (1, 4, 5, 6)  # Monday and Friday strength, a Thursday run, Saturday badminton
+# steady's WORKOUT_FREQUENCY goal. Every session counts toward it, the rest-day mobility included, so the
+# seed sets six: four plan days and two or three rest days a week.
+WEEKLY_GOAL = 6
 
 
 def steady_sessions(today: dt.date) -> list[tuple[dt.date, int | None]]:
@@ -137,6 +140,7 @@ def day_facts(now: dt.datetime | dt.date) -> dict:
     n, p = len(this_week), planned_done
     valid = {n, p}
     words = [w for k in sorted(valid) for w in (NUMBER_WORDS[k], NUMBER_WORDS[k].capitalize())]
+    goal_left = max(0, WEEKLY_GOAL - n)
     kcal = BREAKFAST_KCAL if breakfast else 0
     protein = BREAKFAST_PROTEIN_G if breakfast else 0
     # No bare "0 kcal" or "0 g": they would match "2100 kcal" and "140 g".
@@ -160,7 +164,13 @@ def day_facts(now: dt.datetime | dt.date) -> dict:
         "thisWeekWord": words + (["none", "no days", "not yet"] if 0 in valid else []),
         "thisWeekWrongWords": [f"{NUMBER_WORDS[k]} day" + ("" if k == 1 else "s")
                                for k in sorted({n - 1, n + 1, p - 1, p + 1} - valid) if 0 <= k < len(NUMBER_WORDS)],
+        "weeklyGoal": WEEKLY_GOAL,
+        "goalLeft": goal_left,
+        # "two to go" on a Friday; once the goal is met, the answer says so.
+        "goalLeftSaid": (count_phrases(goal_left) if goal_left else ["met", "reached", "hit", "done"]),
         "lastWeekSessions": len(last_week),
+        # The recap's active days against the goal: 7 against 6, so last week reads as met.
+        "lastWeekGoalMet": 7 >= WEEKLY_GOAL,
         "lastWeekDates": [spoken(last_week_start), spoken(last_week_end),
                           f"{last_week_start.day} {last_week_start:%b}", f"{last_week_end.day} {last_week_end:%b}"],
         # The weekly recap counts a day with any workout or meal row as active, and steady logs every day.
@@ -205,19 +215,21 @@ def self_test() -> int:
     checks = {
         # Fri 9 Oct 02:00: before breakfast. This week Mon 5 strength, Tue 6 the moved Thursday run, Wed 7
         # and Thu 8 mobility; two plan days done; Friday strength still to do.
-        t(2026, 10, 9, 2, 0): {"streakDays": 15, "thisWeekDays": 4, "thisWeekPlanDaysDone": 2,
+        t(2026, 10, 9, 2, 0): {"streakDays": 15, "thisWeekDays": 4, "thisWeekPlanDaysDone": 2, "goalLeft": 2,
+                               "goalLeftSaid": "two", "lastWeekGoalMet": True,
                                "lastWeekSessions": 7, "rolling7Sessions": 6, "consumedCalories": 0,
                                "breakfastLogged": False, "lastWeekDates": "28 September",
                                "lastSessionSaid": "yesterday", "consumedSaid": "nothing"},
         t(2026, 10, 9, 10, 0): {"streakDays": 15, "consumedCalories": 506, "remainingCalories": 1594},
         # Sat 10 Oct 10:00: Friday strength done, badminton today.
-        t(2026, 10, 10, 10, 0): {"streakDays": 16, "thisWeekDays": 5, "thisWeekPlanDaysDone": 3,
+        t(2026, 10, 10, 10, 0): {"streakDays": 16, "thisWeekDays": 5, "thisWeekPlanDaysDone": 3, "goalLeft": 1,
                                  "lastWeekSessions": 7, "consumedCalories": 506},
-        t(2026, 10, 5, 10, 0): {"streakDays": 14, "thisWeekDays": 0, "thisWeekPlanDaysDone": 0,
+        t(2026, 10, 5, 10, 0): {"streakDays": 14, "thisWeekDays": 0, "thisWeekPlanDaysDone": 0, "goalLeft": 6,
                                 "lastWeekDates": "4 October"},
         t(2026, 10, 6, 10, 0): {"streakDays": 15, "thisWeekDays": 1, "thisWeekPlanDaysDone": 1},
         t(2026, 10, 8, 10, 0): {"streakDays": 14, "thisWeekDays": 3, "thisWeekPlanDaysDone": 2},
-        t(2026, 10, 11, 10, 0): {"streakDays": 17, "thisWeekDays": 6, "thisWeekPlanDaysDone": 4},
+        t(2026, 10, 11, 10, 0): {"streakDays": 17, "thisWeekDays": 6, "thisWeekPlanDaysDone": 4, "goalLeft": 0,
+                                 "goalLeftSaid": "met"},
     }
     failures = 0
     for day, expected in checks.items():
