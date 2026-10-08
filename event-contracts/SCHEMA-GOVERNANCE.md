@@ -72,6 +72,18 @@ The `nutrition-events` topic carries these event types. Each has a golden sample
 | `MealDeleted` | `MealDeletedPayload` | meal id | a meal is deleted | `KAFKA_MEAL_DELETED_LISTENER_ENABLED` |
 | `RecipeCooked` | `RecipeCookedPayload` (`cookId`, `recipeId`, `servings`, `finishedAt`) | cook id | a recipe cook is recorded for the first time | `KAFKA_RECIPE_COOKED_LISTENER_ENABLED` |
 
+## Notification Events
+
+notification-service sends the emails in `Documents/architecture/email-notifications-spec.md`.
+These four event types exist for it; each has a golden sample and its own listener flag there.
+
+| eventType | Topic | Payload | Key | Published when | Notification flag |
+|---|---|---|---|---|---|
+| `NotificationPreferencesUpdated` | `user-events` | `NotificationPreferencesUpdatedPayload` (whole current state) | user id | the notification toggles, quiet hours, timezone or preferred training time change | `KAFKA_NOTIFICATION_PREFERENCES_UPDATED_LISTENER_ENABLED` |
+| `AccountDeletionRequested` | `user-events` | `AccountDeletionRequestedPayload` (`requestedAt`, `scheduledFor`) | user id | auth-service accepts a deletion request | `KAFKA_ACCOUNT_DELETION_REQUESTED_LISTENER_ENABLED` |
+| `AccountDeletionCancelled` | `user-events` | `AccountDeletionCancelledPayload` (`cancelledAt`) | user id | a pending deletion is cancelled | `KAFKA_ACCOUNT_DELETION_CANCELLED_LISTENER_ENABLED` |
+| `WorkoutPlanScheduleChanged` | `workout-events` | `WorkoutPlanScheduleChangedPayload` (active plan's weekly days, empty when none) | user id | the active plan, or which plan is active, changes | `KAFKA_WORKOUT_PLAN_SCHEDULE_CHANGED_LISTENER_ENABLED` |
+
 ## Versioning
 
 Use the `version` field on `FitSyncDomainEvent` for event-type-level compatibility milestones.

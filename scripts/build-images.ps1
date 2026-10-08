@@ -6,9 +6,6 @@
 #   $env:IMAGE_TAG = (git rev-parse --short HEAD); backend\scripts\build-images.ps1
 #   $env:ECR_REGISTRY = "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com"
 #   $env:PUSH = "1"; backend\scripts\build-images.ps1
-#
-# notification-service is intentionally skipped: it is an empty placeholder module
-# (pom.xml only, no source) and is not runnable.
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')   # backend root (Docker build context)
 
@@ -25,6 +22,7 @@ $services = [ordered]@{
   'nutrition-service' = 8083
   'analytics-service' = 8085
   'recommendation-service' = 8086
+  'notification-service' = 8087
 }
 
 foreach ($svc in $services.Keys) {

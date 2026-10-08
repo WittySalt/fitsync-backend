@@ -157,3 +157,20 @@ variable "bedrock_models" {
     "amazon.nova-lite-v1:0",
   ]
 }
+
+variable "notify_email_sender" {
+  description = "From address of notification-service emails, verified in SES (empty = no identity, no send permission)"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.notify_email_sender == "" || can(regex("^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$", var.notify_email_sender))
+    error_message = "notify_email_sender must be empty or one email address."
+  }
+}
+
+variable "notify_email_create_identity" {
+  description = "Create the SES identity for notify_email_sender here (false when another workspace owns it)"
+  type        = bool
+  default     = true
+}

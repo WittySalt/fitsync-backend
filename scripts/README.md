@@ -6,7 +6,7 @@ The seed and backfill SQL files carry their own usage notes in their headers.
 ## Recording day
 
 Everything runs on the local stack: infra from `docker-compose.yml` (postgres, minio), the app
-stack from `docker-compose.prod.yml` with the `events` profile (redis, kafka and seven services),
+stack from `docker-compose.prod.yml` with the `events` profile (redis, kafka and eight services),
 project name `fitsync-app`, env file `.env`. Nothing is deployed remotely. Run the commands from
 the backend directory in PowerShell 5.1.
 
@@ -14,7 +14,16 @@ One time before the day: copy `scripts\demo-accounts.example.env` to `scripts\de
 (git-ignored) and put the three real addresses in it (steady, drifting, fresh). Every script also
 takes `-DryRun`, which prints the docker commands and runs nothing.
 
-1. Bring the stack up and wait for all 11 containers to be healthy.
+Also one time: notification-service connects as its own `notification_svc` role. Create it in the
+local postgres and put the same password in `.env` as `NOTIFICATION_DB_PASSWORD`:
+
+```powershell
+docker exec -i fitsync-postgres psql -U fitsync -d fitsync -c "CREATE ROLE notification_svc LOGIN PASSWORD '<password>'; CREATE SCHEMA IF NOT EXISTS notification; GRANT USAGE, CREATE ON SCHEMA notification TO notification_svc;"
+```
+
+Locally it only logs emails (`FITSYNC_NOTIFY_EMAIL_ENABLED` stays false).
+
+1. Bring the stack up and wait for all 12 containers to be healthy.
 
    ```powershell
    powershell -NoProfile -File scripts\demo-up.ps1

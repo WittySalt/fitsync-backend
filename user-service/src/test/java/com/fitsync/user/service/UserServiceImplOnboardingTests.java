@@ -62,7 +62,8 @@ class UserServiceImplOnboardingTests {
     private final UserServiceImpl service = new UserServiceImpl(
             mock(DomainEventPublisher.class), media, mock(AccountDataExportRequestRepository.class), profiles, app,
             training, nutrition, mock(UserHealthReadinessRepository.class), notifications, metrics, goals,
-            mock(UserGuideStateRepository.class), mock(EnergyProfileService.class), clock);
+            mock(UserGuideStateRepository.class), mock(EnergyProfileService.class),
+            mock(NotificationPreferencesEventService.class), clock);
 
     @Test
     void defaultTargetDateAndAgeAreReadInTheOnboardingTimezone() throws Exception {

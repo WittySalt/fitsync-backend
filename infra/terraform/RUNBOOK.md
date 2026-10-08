@@ -25,9 +25,10 @@ docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 | `storage.tf` | S3 media bucket, S3 frontend bucket, CloudFront* | ~free; CloudFront slow |
 | `auth.tf` | Cognito user pool + SPA client + hosted domain | free tier, instant |
 | `ci_iam.tf` | EC2 instance role/profile, CI deploy policy | free, instant |
+| `email.tf` | SES sender identity + `ses:SendEmail` for the EC2 role, only when `notify_email_sender` is set | free (SES bills per email) |
 | `data.tf` | RDS PostgreSQL* (RDS-managed master password; Multi-AZ when `db_multi_az`) | **costs money**, ~10 min (Multi-AZ doubles it) |
 | `compute.tf` | EC2 app host + EIP* + deploy key pair | **costs money** |
-| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary, the 7 shared ECR repos (own state, applied once) | free, instant |
+| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary, the 8 shared ECR repos (own state, applied by hand) | free, instant |
 
 `*` gated behind feature flags (`enable_rds`, `enable_ec2` default **false**; `enable_alb`
 defaults to true, `db_multi_az` to false and is on in `prod.tfvars`).
@@ -183,7 +184,7 @@ marked.
    ```
    The database starts empty. Set `PROD_EC2_HOST` (`ec2_public_ip` output) and push
    to `main`: `deploy-prod` copies `scripts/bootstrap-db.sql` to the host, and
-   `ec2-deploy.sh` reads `fitsync-prod/app` and the RDS master secret, creates the six
+   `ec2-deploy.sh` reads `fitsync-prod/app` and the RDS master secret, creates the seven
    service roles and schemas, renders the DB settings and JWT key into `.env`, and
    starts the stack; Flyway builds the tables and seeds on first boot. Finally point
    the prod CloudFront `/api` origin at `alb_dns_name`.
@@ -194,6 +195,63 @@ marked.
 5. **Tear down.** Staging: `terraform destroy -var-file=staging.tfvars`. Prod has
    deletion protection; turning it off is a deliberate edit, and destroy leaves the
    `fitsync-prod-db-final` snapshot behind.
+
+## Adding a service: the ECR repository (bootstrap, by hand)
+
+The ECR repositories live in `bootstrap/registry.tf`, which CD never applies. When a service
+is added to its `services` list (notification-service was the latest), apply it once with an
+admin profile before the first CD run that ships the service:
+
+```bash
+cd infra/terraform/bootstrap
+terraform init
+terraform plan     # expect: 1 aws_ecr_repository + 1 aws_ecr_lifecycle_policy to add
+terraform apply
+```
+
+If this is skipped, the `docker-image` job still creates the repository on first push, but
+without the lifecycle policy, and a later bootstrap apply then fails because the repository
+already exists. In that case import it first:
+`terraform import 'aws_ecr_repository.service["notification-service"]' fitsync-notification-service`.
+
+## Email notifications (SES)
+
+notification-service sends email through Amazon SES with the EC2 instance role. Until the
+steps below are done it only writes each email to its log, which is the default everywhere.
+
+1. **Pick the sender per environment** and put it in `notify_email_sender` in
+   `staging.tfvars` / `prod.tfvars`. An SES identity belongs to the account, not the
+   workspace, so either use two addresses (plus-addressing such as `name+staging@example.com`
+   is a separate identity) or let one workspace create it and set
+   `notify_email_create_identity = false` in the other. A personal mailbox works for the
+   demo; a domain you control (with DKIM) is what keeps mail out of spam later.
+2. **Apply Terraform.** It creates the SES identity and gives the EC2 role `ses:SendEmail` /
+   `ses:SendRawEmail` with the From address pinned to the sender (`email.tf`). The CD role
+   needs nothing new: `PowerUserAccess` covers SES and the workload boundary allows it.
+3. **Verify the sender.** SES mails a verification link to the sender address right after the
+   apply; someone must open that mailbox and click it. Check with
+   `aws sesv2 get-email-identity --email-identity <sender> --query VerifiedForSendingStatus`.
+4. **Sandbox: verify every recipient too.** A new account is in the SES sandbox: it can send
+   only to verified addresses, at most 200 emails a day and 1 per second. For each demo
+   account's email address run
+   `aws sesv2 create-email-identity --email-identity <recipient>`, and the owner of that
+   mailbox must click the link SES sends. Sends to anyone else fail with
+   `MessageRejected: Email address is not verified`.
+5. **Set the repository variables** (Settings → Secrets and variables → Actions, or on the
+   `staging` / `production` environments when the senders differ): `NOTIFY_EMAIL_SENDER` =
+   the same address as `notify_email_sender`, and `NOTIFY_EMAIL_ENABLED=true`. Optionally
+   `APP_BASE_URL`, where email links point (prod defaults to
+   `https://d26vi6hikexzev.cloudfront.net`; staging to the first https origin of
+   `STAGING_CORS_ALLOWED_ORIGINS`). Then run CD; the variables reach the host's `.env`.
+6. **Production access (later).** To mail real users, request it in the console (SES →
+   Account dashboard → Request production access) with the use case, how addresses are
+   collected and how bounces and complaints are handled. AWS answers within about a day;
+   after that recipients no longer need verifying.
+
+Check from the host after a deploy:
+`sudo docker logs fitsync-notification-service 2>&1 | grep -i ses`. `AccessDenied` means the
+sender in the `.env` differs from `notify_email_sender`; `MessageRejected` means an
+identity is not verified yet.
 
 ## Presentation talking points
 
@@ -218,7 +276,7 @@ then tear it down to stop the bill.
 
 **Order (jobs of the CD workflow on `main`, or local terraform):**
 1. `tf-plan` → **`deploy-staging`** (terraform apply: VPC, ALB, EC2, RDS, Cognito, Secrets Manager).
-2. **`deploy-staging-app`** (SSH-deploys the app; `ec2-deploy.sh` bootstraps the six service roles from `fitsync-staging/app` before starting the stack, then the job checks the gateway health on the host).
+2. **`deploy-staging-app`** (SSH-deploys the app; `ec2-deploy.sh` bootstraps the seven service roles from `fitsync-staging/app` before starting the stack, then the job checks the gateway health on the host).
 3. Set `STRESS_TARGET_URL` / `DAST_TARGET_URL` = `http://<alb_dns_name>` (+ `STRESS_USER_EMAIL/PASSWORD` of a seeded staging user), then run **`stress-test`** / **`owasp-zap`** (Actions → CD → **Run workflow** with the stress / DAST boxes ticked).
 4. Frontend: point the staging SPA at the new pool, client and ALB (frontend PR).
 5. **`terraform destroy -var-file=staging.tfvars`** when done.

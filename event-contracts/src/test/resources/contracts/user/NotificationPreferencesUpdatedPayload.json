@@ -1,0 +1,11 @@
+{
+  "emailEnabled": true,
+  "workoutReminderEnabled": true,
+  "goalProgressReminderEnabled": true,
+  "weeklyProgressReportEnabled": true,
+  "weeklyProgressReportChannel": "EMAIL",
+  "quietHoursStart": "22:00",
+  "quietHoursEnd": "07:00",
+  "timezone": "Asia/Singapore",
+  "preferredWorkoutTime": "19:00"
+}

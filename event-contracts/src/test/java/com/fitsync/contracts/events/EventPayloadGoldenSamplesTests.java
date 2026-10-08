@@ -10,6 +10,9 @@ import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
 import com.fitsync.contracts.events.nutrition.RecipeCookedPayload;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
+import com.fitsync.contracts.events.user.AccountDeletionCancelledPayload;
+import com.fitsync.contracts.events.user.AccountDeletionRequestedPayload;
+import com.fitsync.contracts.events.user.NotificationPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.EnergyProfileComputedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
@@ -18,6 +21,7 @@ import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import com.fitsync.contracts.events.workout.PersonalRecordAchievedPayload;
+import com.fitsync.contracts.events.workout.WorkoutPlanScheduleChangedPayload;
 import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
@@ -72,6 +76,7 @@ class EventPayloadGoldenSamplesTests {
                 sample("workout/WorkoutUpdatedPayload.json", WorkoutUpdatedPayload.class),
                 sample("workout/WorkoutDeletedPayload.json", WorkoutDeletedPayload.class),
                 sample("workout/PersonalRecordAchievedPayload.json", PersonalRecordAchievedPayload.class),
+                sample("workout/WorkoutPlanScheduleChangedPayload.json", WorkoutPlanScheduleChangedPayload.class),
                 sample("nutrition/MealLoggedPayload.json", MealLoggedPayload.class),
                 sample("nutrition/MealUpdatedPayload.json", MealUpdatedPayload.class),
                 sample("nutrition/MealDeletedPayload.json", MealDeletedPayload.class),
@@ -82,6 +87,9 @@ class EventPayloadGoldenSamplesTests {
                 sample("user/GoalUpdatedPayload.json", GoalUpdatedPayload.class),
                 sample("user/BodyMetricsRecordedPayload.json", BodyMetricsRecordedPayload.class),
                 sample("user/AccountDeletedPayload.json", AccountDeletedPayload.class),
+                sample("user/AccountDeletionRequestedPayload.json", AccountDeletionRequestedPayload.class),
+                sample("user/AccountDeletionCancelledPayload.json", AccountDeletionCancelledPayload.class),
+                sample("user/NotificationPreferencesUpdatedPayload.json", NotificationPreferencesUpdatedPayload.class),
                 sample("user/EnergyProfileComputedPayload.json", EnergyProfileComputedPayload.class),
                 sample("user/NutritionReferenceProfileUpdatedPayload.json", NutritionReferenceProfileUpdatedPayload.class),
                 sample("analytics/StreakMilestoneReachedPayload.json", StreakMilestoneReachedPayload.class),

@@ -61,6 +61,7 @@ import com.fitsync.user.repository.UserProfileRepository;
 import com.fitsync.user.repository.UserTrainingPreferencesRepository;
 import com.fitsync.user.security.CurrentUserPrincipal;
 import com.fitsync.user.service.EnergyProfileService;
+import com.fitsync.user.service.NotificationPreferencesEventService;
 import com.fitsync.user.service.UserServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -454,6 +455,8 @@ class UserServiceImplTests {
         private final UserGoalRepository userGoalRepository = mock(UserGoalRepository.class);
         private final UserGuideStateRepository userGuideStateRepository = mock(UserGuideStateRepository.class);
         private final EnergyProfileService energyProfileService = mock(EnergyProfileService.class);
+        private final NotificationPreferencesEventService notificationPreferencesEventService =
+                mock(NotificationPreferencesEventService.class);
 
         private Fixtures() {
             when(mediaStorageServiceProvider.getObject()).thenReturn(mediaStorageService);
@@ -472,6 +475,7 @@ class UserServiceImplTests {
                 bodyMetricEntryRepository,
                 userGoalRepository,
                 userGuideStateRepository,
-                energyProfileService);
+                energyProfileService,
+                notificationPreferencesEventService);
     }
 }

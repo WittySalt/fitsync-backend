@@ -4,7 +4,7 @@ Single-host (EC2 + docker-compose) deployment that lights up the **gated**
 `docker-image` and `deploy-prod` jobs in [`.github/workflows/cd.yml`](.github/workflows/cd.yml)
 (full variable/secret reference: [`.github/CICD-VARIABLES.md`](.github/CICD-VARIABLES.md)).
 Region: **ap-southeast-1 (Singapore)**. Everything below is one-time setup; after
-it, a manual CD run on `main` (once CI has passed) builds 7 images and deploys them to
+it, a manual CD run on `main` (once CI has passed) builds 8 images and deploys them to
 staging; ticking `deploy_prod` also promotes them to prod (see the promotion rule in `cd.yml`).
 
 > The pipeline stays gated (green, jobs skipped) until the **`AWS_ROLE_ARN`**
@@ -17,9 +17,9 @@ staging; ticking `deploy_prod` also promotes them to prod (see the promotion rul
 
 ## What runs where
 
-- **7 images** in ECR: `fitsync-{api-gateway,auth-service,user-service,workout-service,nutrition-service,analytics-service,recommendation-service}`
-- **EC2** (t3.medium, Amazon Linux 2023): runs all 7 + `redis` and `kafka` containers, via `/opt/fitsync/docker-compose.prod.yml`
-- **RDS PostgreSQL**: one DB `fitsync`, 6 schemas (`auth`, `user_domain`, `workout`, `nutrition`, `analytics`, `recommendation`) auto-created by Flyway
+- **8 images** in ECR: `fitsync-{api-gateway,auth-service,user-service,workout-service,nutrition-service,analytics-service,recommendation-service,notification-service}`
+- **EC2** (t3.medium, Amazon Linux 2023): runs all 8 + `redis` and `kafka` containers, via `/opt/fitsync/docker-compose.prod.yml`
+- **RDS PostgreSQL**: one DB `fitsync`, 7 schemas (`auth`, `user_domain`, `workout`, `nutrition`, `analytics`, `recommendation`, `notification`) auto-created by Flyway
 - CI authenticates to AWS via **GitHub OIDC → IAM role** (no static keys). The EC2 host pulls from ECR via its **instance role**.
 
 Set these shell vars first to paste the commands as-is:
@@ -35,7 +35,7 @@ export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 The `docker-image` job auto-creates each repo on first push, so this is optional —
 but you can pre-create them:
 ```bash
-for s in api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service; do
+for s in api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service notification-service; do
   aws ecr create-repository --repository-name "fitsync-$s" \
     --image-scanning-configuration scanOnPush=true --region "$AWS_REGION" || true
 done
@@ -162,11 +162,11 @@ aws rds describe-db-instances --db-instance-identifier fitsync-prod \
 ```
 - `DB_URL` = `jdbc:postgresql://<that-endpoint>:5432/fitsync`
 - **Per-service least-privilege users (not the master).** Each service connects as
-  its own DB user (`auth_svc`/`user_svc`/`workout_svc`/`nutrition_svc`/`analytics_svc`/`recommendation_svc`),
+  its own DB user (`auth_svc`/`user_svc`/`workout_svc`/`nutrition_svc`/`analytics_svc`/`recommendation_svc`/`notification_svc`),
   scoped to its schema, so a compromise of one service can't reach another's tables.
   One-time setup, run as the master once after the instance is up:
   ```sql
-  CREATE SCHEMA IF NOT EXISTS auth;        -- + user_domain, workout, nutrition, analytics, recommendation
+  CREATE SCHEMA IF NOT EXISTS auth;        -- + user_domain, workout, nutrition, analytics, recommendation, notification
   CREATE USER auth_svc WITH PASSWORD '<AUTH_DB_PASSWORD>';   -- one per service
   GRANT ALL ON SCHEMA auth TO auth_svc;    ALTER ROLE auth_svc SET search_path = auth;
   ```
@@ -248,6 +248,17 @@ Coach AI tier (optional; unset leaves it off and the coach uses its rule text):
 | `RECOMMENDATION_AI_BASE_URL` | e.g. `http://ollama:11434` | no | needed only for the `ollama` provider; the compose default `localhost` points at the container itself |
 | `ANTHROPIC_API_KEY` | Anthropic API key | yes | needed only for the `anthropic` provider |
 
+Email notifications (optional; unset leaves notification-service logging every email instead of
+sending it). Set them on the `staging` and `production` environments when the two send from
+different addresses. Setup steps: [`infra/terraform/RUNBOOK.md`](infra/terraform/RUNBOOK.md)
+"Email notifications (SES)".
+
+| Name | Value | Secret | Notes |
+|---|---|---|---|
+| `NOTIFY_EMAIL_ENABLED` | `true` | no | defaults to `false`; turn on only once the sender is verified in SES |
+| `NOTIFY_EMAIL_SENDER` | the From address | no | must equal `notify_email_sender` in that environment's tfvars |
+| `APP_BASE_URL` | e.g. `https://d26vi6hikexzev.cloudfront.net` | no | where email links point; defaults to the prod CloudFront URL for prod, and to the first https origin of `STAGING_CORS_ALLOWED_ORIGINS` for staging |
+
 > The workout-service image dir is fixed to `/opt/fitsync/free-exercise-db/exercises`
 > by `cd.yml` (see §8.5 d).
 >
@@ -261,7 +272,7 @@ and `SPRING_CACHE_TYPE` (`simple`) are fixed in the rendered `.env` — edit `cd
 ## 8. First deploy
 
 1. Set all variables/secrets above **except** `AWS_ROLE_ARN`. Confirm the `main` CD run is green (AWS jobs skipped).
-2. Set `AWS_ROLE_ARN`. Once CI is green on `main`, Actions → CD → **Run workflow** → `docker-image` builds + pushes all 7 images to ECR.
+2. Set `AWS_ROLE_ARN`. Once CI is green on `main`, Actions → CD → **Run workflow** → `docker-image` builds + pushes all 8 images to ECR.
 3. Run the workflow by hand with `deploy_prod` ticked (it needs `PROD_EC2_HOST` set);
    `deploy-prod` runs once staging succeeded in that run.
    - First run auto-installs Docker + compose + aws-cli on the host, renders `/opt/fitsync/.env` from the variables, pulls from ECR, `compose up --wait`, health-gates the gateway, writes the rollback tag.
@@ -381,7 +392,7 @@ asking for use case details means step 1 is not done (it can take 15 minutes to 
 
 ## 9. TLS / nginx (optional follow-up)
 
-`deploy-prod` brings up the 7 services + redis + kafka but **not nginx** (a fresh host has
+`deploy-prod` brings up the 8 services + redis + kafka but **not nginx** (a fresh host has
 no certs). To add HTTPS:
 ```bash
 ssh -i fitsync_ed25519 ec2-user@<EIP>

@@ -1,6 +1,7 @@
 package com.fitsync.auth.service;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.List;
 import java.util.Optional;
@@ -22,6 +23,8 @@ import com.fitsync.auth.messaging.DomainEventPublisher;
 import com.fitsync.auth.repository.AppUserRepository;
 import com.fitsync.auth.security.JwtService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.AccountDeletionCancelledPayload;
+import com.fitsync.contracts.events.user.AccountDeletionRequestedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.Authentication;
@@ -154,9 +157,12 @@ public class CurrentUserService {
             }
         }
 
+        // A repeated request while one is pending keeps the first time and publishes nothing, so the
+        // goodbye email notification-service sends for the event goes out once per request.
         if (user.getAccountDeletionRequestedAt() == null) {
-            user.setAccountDeletionRequestedAt(Instant.now());
+            user.setAccountDeletionRequestedAt(storableNow());
             user = appUserRepository.save(user);
+            publishAccountDeletionRequested(user);
         }
 
         return toAccountDeletionStatus(user);
@@ -178,12 +184,16 @@ public class CurrentUserService {
         if (user.getAccountDeletionRequestedAt() == null) {
             return toAccountDeletionStatus(user);
         }
-        if (accountDeletionPolicy.gracePeriodEnded(user, Instant.now())) {
+        Instant now = storableNow();
+        if (accountDeletionPolicy.gracePeriodEnded(user, now)) {
             throw accountDeletionPolicy.deletionFinal(user);
         }
 
         user.setAccountDeletionRequestedAt(null);
-        return toAccountDeletionStatus(appUserRepository.save(user));
+        AppUser saved = appUserRepository.save(user);
+        // Only a cancellation of a pending request gets here, so notification-service hears of each one once.
+        publishAccountDeletionCancelled(saved, now);
+        return toAccountDeletionStatus(saved);
     }
 
     /**
@@ -382,6 +392,39 @@ public class CurrentUserService {
                 user.getAccountDeletionRequestedAt(),
                 accountDeletionPolicy.scheduledFor(user.getAccountDeletionRequestedAt()),
                 user.getAuthProvider() == AuthProvider.LOCAL);
+    }
+
+    /**
+     * The current instant at the precision the database keeps (microseconds), so a time that is both stored and
+     * published in an event is the same instant in both places on every platform.
+     */
+    private static Instant storableNow() {
+        return Instant.now().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    private void publishAccountDeletionCancelled(AppUser user, Instant cancelledAt) {
+        FitSyncDomainEvent<AccountDeletionCancelledPayload> event = new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "AccountDeletionCancelled",
+                1,
+                cancelledAt,
+                "auth-service",
+                user.getId(),
+                new AccountDeletionCancelledPayload(cancelledAt));
+        domainEventPublisher.publish("user-events", "AppUser", user.getId().toString(), event);
+    }
+
+    private void publishAccountDeletionRequested(AppUser user) {
+        Instant requestedAt = user.getAccountDeletionRequestedAt();
+        FitSyncDomainEvent<AccountDeletionRequestedPayload> event = new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "AccountDeletionRequested",
+                1,
+                requestedAt,
+                "auth-service",
+                user.getId(),
+                new AccountDeletionRequestedPayload(requestedAt, accountDeletionPolicy.scheduledFor(requestedAt)));
+        domainEventPublisher.publish("user-events", "AppUser", user.getId().toString(), event);
     }
 
     private void publishUserRegistered(AppUser user) {
