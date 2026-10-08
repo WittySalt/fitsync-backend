@@ -94,10 +94,10 @@ Write-Host ''
 Write-Host 'Reseed done. Eyeball, signed in as steady unless noted:'
 @(
     'Home: the guide card has something to say for the morning (breakfast logged, one sip of water)',
-    'Workout Today: the plan week shows Monday done, today as planned',
+    'Workout Today: the planned days before today are done (from Wednesday on, the Thursday run was done on Tuesday), today as planned',
     'Nutrition Diary: last Sunday reads as a fasted day, yesterday is complete, today has breakfast only',
-    'Recipes: Cook for tonight lists recipes, three cooks are in the history',
-    'Progress: the week rule line, streak, energy and the weight trend',
+    'Recipes: Cook for tonight lists recipes, three cooks are in the history, Leftovers offers two',
+    'Progress: the week rule line, streak (0 on a Thursday or Friday, see scripts\README.md), energy and the weight trend',
     'Me: Member since about 60 days ago, footprint grid filled, badges earned',
     'Achievements: the paths show progress, the kitchen path counts three cooks',
     'drifting: Home and Progress read as slipping; fresh: every page shows its empty state',

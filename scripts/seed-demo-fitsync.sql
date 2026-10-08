@@ -176,6 +176,17 @@ delete from user_domain.user_nutrition_preferences where user_id      in (select
 delete from user_domain.user_notification_preferences where user_id   in (select user_id from demo_config);
 delete from user_domain.user_health_readiness      where user_id      in (select user_id from demo_config);  -- -> injury areas
 delete from user_domain.account_data_export_requests where user_id    in (select user_id from demo_config);
+-- The first-run guide's saved state (V9). Cleared for the fresh persona only, so its first tour starts by
+-- itself again on the next sign-in; steady and drifting keep theirs, so a tour does not open over a
+-- recording. Guarded on the table existing, since it arrived in a later user-service migration.
+do $$
+begin
+    if exists (select 1 from information_schema.tables
+                where table_schema = 'user_domain' and table_name = 'user_guide_state') then
+        delete from user_domain.user_guide_state
+         where user_id in (select user_id from demo_config where persona = 'fresh');
+    end if;
+end $$;
 
 -- 1d. Analytics read-models + processed-event log for this user
 delete from analytics.analytics_meal_contributions      where user_id in (select user_id from demo_config);
@@ -884,6 +895,24 @@ on conflict (event_id) do update set
     date_time_published = null,
     error_message = null;
 
+-- A requeued event also starts its retries over. Without this an event that had already failed its
+-- attempts would stay parked behind next_attempt_at, or be skipped as exhausted, and the goals would never
+-- reach analytics. The retry columns arrived in user-service V10, so the reset is guarded on them existing
+-- and the script still runs against a database migrated before that.
+do $$
+begin
+    if exists (select 1 from information_schema.columns
+                where table_schema = 'user_domain' and table_name = 'outbox_events'
+                  and column_name = 'attempt_count') then
+        update user_domain.outbox_events o
+           set attempt_count = 0,
+               next_attempt_at = null
+          from demo_config c
+          join user_domain.user_goals g on g.user_id = c.user_id and g.created_by = 'demo-seed'
+         where o.event_id = md5(c.user_id::text || ':demo-goal-updated:' || g.goal_id::text)::uuid;
+    end if;
+end $$;
+
 -- ============================================================================
 -- 5. WORKOUT — exercises, a plan, and one session per demo_days row where
 --    is_training_day is true and skip_session is false, for the 60-day
@@ -1048,7 +1077,9 @@ begin
     where pe.plan_id = v_plan
       and s.set_number <= pe.target_sets;
 
-    -- 5d. one completed session per scheduled, non-skipped training day.
+    -- 5d. one completed session per scheduled, non-skipped training day. Every entry carries logged_on,
+    --     the session's local date in the user's zone, as WorkoutServiceImpl sets it; the history of one
+    --     exercise is read by that date.
     for r in
         select * from demo_days
         where user_id = v_user and is_training_day and not skip_session and d < v_today
@@ -1077,8 +1108,8 @@ begin
             insert into workout.workout_session_entries
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
-                 average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_bench, 'Dumbbell Bench Press', 1, 1, 3, 30, 3 * 10 * r.bench_w, null, 360, 128, 145, null);
+                 average_heart_rate, max_heart_rate, notes, logged_on)
+            values (v_log, v_session, ex_bench, 'Dumbbell Bench Press', 1, 1, 3, 30, 3 * 10 * r.bench_w, null, 360, 128, 145, null, r.d);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1090,8 +1121,8 @@ begin
             insert into workout.workout_session_entries
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
-                 average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_squat, 'Goblet Squat', 2, 2, 3, 36, 3 * 12 * r.squat_w, null, 420, 132, 150, null);
+                 average_heart_rate, max_heart_rate, notes, logged_on)
+            values (v_log, v_session, ex_squat, 'Goblet Squat', 2, 2, 3, 36, 3 * 12 * r.squat_w, null, 420, 132, 150, null, r.d);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1103,8 +1134,8 @@ begin
             insert into workout.workout_session_entries
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
-                 average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_row, 'Bent-Over Row', 3, 3, 3, 30, 3 * 10 * r.row_w, null, 360, 130, 147, null);
+                 average_heart_rate, max_heart_rate, notes, logged_on)
+            values (v_log, v_session, ex_row, 'Bent-Over Row', 3, 3, 3, 30, 3 * 10 * r.row_w, null, 360, 130, 147, null, r.d);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1116,8 +1147,8 @@ begin
             insert into workout.workout_session_entries
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
-                 average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_plank, 'Plank Hold', 4, 4, 3, null, null, null, 135, 118, 128, 'Held all prescribed durations.');
+                 average_heart_rate, max_heart_rate, notes, logged_on)
+            values (v_log, v_session, ex_plank, 'Plank Hold', 4, 4, 3, null, null, null, 135, 118, 128, 'Held all prescribed durations.', r.d);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1154,8 +1185,8 @@ begin
             insert into workout.workout_session_entries
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
-                 average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_run, 'Treadmill Run', 1, 1, 1, null, null, r.run_km, 1800, 150, 168, null);
+                 average_heart_rate, max_heart_rate, notes, logged_on)
+            values (v_log, v_session, ex_run, 'Treadmill Run', 1, 1, 1, null, null, r.run_km, 1800, 150, 168, null, r.d);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1166,8 +1197,8 @@ begin
             insert into workout.workout_session_entries
                 (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
                  performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
-                 average_heart_rate, max_heart_rate, notes)
-            values (v_log, v_session, ex_plank, 'Plank Hold', 2, 2, 3, null, null, null, 135, 120, 130, null);
+                 average_heart_rate, max_heart_rate, notes, logged_on)
+            values (v_log, v_session, ex_plank, 'Plank Hold', 2, 2, 3, null, null, null, 135, 120, 130, null, r.d);
             insert into workout.workout_exercise_set_logs
                 (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
                  distance_km, rest_seconds, perceived_exertion, notes, logged, status)
@@ -1181,11 +1212,11 @@ begin
                  entry_type, kind, label, planned_seconds, actual_seconds, started_at, logged_on, status)
             values
                 (gen_random_uuid(), v_session, null, 'Warm-up',   1001, 1, 'SEGMENT', 'WARMUP',   'Warm-up',   300,  300,
-                 started, cast(started as date), 'DONE'),
+                 started, r.d, 'DONE'),
                 (gen_random_uuid(), v_session, null, 'Steady',    1002, 2, 'SEGMENT', 'STEADY',   'Steady',    1200, 1560,
-                 started + interval '5 minutes', cast(started as date), 'DONE'),
+                 started + interval '5 minutes', r.d, 'DONE'),
                 (gen_random_uuid(), v_session, null, 'Cool-down', 1003, 3, 'SEGMENT', 'COOLDOWN', 'Cool-down', 300,  300,
-                 started + interval '31 minutes', cast(started as date), 'DONE');
+                 started + interval '31 minutes', r.d, 'DONE');
         end if;
     end loop;
 end $$;
@@ -1420,7 +1451,16 @@ insert into analytics.analytics_user_dashboard_snapshot
      created_by, updated_by, version)
 select
     c.user_id, c.tz,
-    bd.weight_kg, bd.body_fat_rate, bd.bmi, bd.weight_delta_from_start,
+    bd.weight_kg, bd.body_fat_rate, bd.bmi,
+    -- BodyWeightChange.over30Days: the latest weight minus the weight on the newest body row dated 30 or
+    -- more days before it. Null when there is no such row or it has no weight, so a shorter span is never
+    -- shown as a 30-day change.
+    (select bd.weight_kg - old.weight_kg
+       from analytics.analytics_user_daily_body old
+      where old.user_id = c.user_id
+        and old.metric_date <= bd.metric_date - 30
+      order by old.metric_date desc
+      limit 1),
     (select w.waist_cm from analytics.analytics_user_daily_body w
       where w.user_id = c.user_id and w.waist_cm is not null
       order by w.metric_date desc limit 1),
@@ -1433,7 +1473,7 @@ select
               where w.user_id = c.user_id and w.activity_date between c.d_today - 6 and c.d_today), 0)::int,
     coalesce((select sum(total_workout_minutes) from analytics.analytics_user_daily_workout w
               where w.user_id = c.user_id and w.activity_date between c.d_today - 6 and c.d_today), 0)::int,
-    3,
+    streak.days,
     (select total_calories_consumed from analytics.analytics_user_daily_nutrition n
      where n.user_id = c.user_id and n.activity_date = c.d_today),
     2100,
@@ -1443,12 +1483,39 @@ select
     now(), now(), now(), 'demo-seed', 'demo-seed', 0
 from demo_config c
 join lateral (
-    select weight_kg, body_fat_rate, bmi, weight_delta_from_start
+    select metric_date, weight_kg, body_fat_rate, bmi
     from analytics.analytics_user_daily_body bd
     where bd.user_id = c.user_id
     order by bd.metric_date desc
     limit 1
-) bd on true;
+) bd on true
+cross join lateral (
+    -- ActiveStreak.days: consecutive days with a completed workout, walking back from today, or from
+    -- yesterday when today has no row yet; 0 once the latest active day is two or more days back. The
+    -- dashboard, getWorkoutSummary and the coach context all read this one number.
+    select count(*)::int as days
+      from (
+            select w.activity_date,
+                   w.activity_date + (row_number() over (order by w.activity_date desc))::int as anchor
+              from analytics.analytics_user_daily_workout w
+             where w.user_id = c.user_id
+               and w.completed_workout_count > 0
+               and w.activity_date between c.d_today - 400 and c.d_today
+           ) runs
+     where runs.anchor = (
+            -- Where the streak starts: today when today is active, else yesterday when yesterday is.
+            -- With neither, no date matches and the count is 0.
+            select case
+                       when exists (select 1 from analytics.analytics_user_daily_workout t
+                                     where t.user_id = c.user_id and t.activity_date = c.d_today
+                                       and t.completed_workout_count > 0)
+                           then c.d_today + 1
+                       when exists (select 1 from analytics.analytics_user_daily_workout y
+                                     where y.user_id = c.user_id and y.activity_date = c.d_today - 1
+                                       and y.completed_workout_count > 0)
+                           then c.d_today
+                   end)
+) streak;
 
 -- 6h. personal-record tally — the table the achievements endpoint reads
 --     (analytics.analytics_user_workout_records: one row per user, a running
@@ -1507,10 +1574,11 @@ end $$;
 -- ----------------------------------------------------------------------------
 -- 6i. Recipe cooks, the cook counter, the streak rollup and the energy profile.
 --
---     Cooks: three for steady (a Saturday, a Wednesday and the Sunday before), one older cook for
---     drifting, none for fresh. They point at published system recipes, picked by name, so no recipe
---     needs inserting. The analytics cook counter is rebuilt from the cook rows, the same total the
---     RecipeCooked events would have produced, and it feeds the kitchen badges.
+--     Cooks: three for steady (3, 6 and 9 days before today, the two newest with servings left over so
+--     the Leftovers list has something to offer), one older cook for drifting, none for fresh. They
+--     point at published system recipes, picked by name, so no recipe needs inserting. The analytics
+--     cook counter is rebuilt from the cook rows, the same total the RecipeCooked events would have
+--     produced, and it feeds the kitchen badges.
 --
 --     Streak rollup: the nightly job's output (best run of consecutive training days), computed here
 --     from the daily workout rows so the Progress page does not wait for the job.
@@ -1520,15 +1588,18 @@ end $$;
 --     when it does not.
 -- ----------------------------------------------------------------------------
 create temporary table demo_cook_plan on commit drop as
-select c.user_id, c.tz, v.n, v.recipe_name, v.servings,
+select c.user_id, c.tz, v.n, v.recipe_name, v.servings, v.servings_left,
        ((c.d_today - v.days_ago) + time '19:30') at time zone c.tz as finished_at
 from demo_config c
 join (values
-    (1, 'Salmon Avocado Salad'::text, 2.00::numeric,  3, 'steady'::text),
-    (2, 'Spanish Chicken',            4.00,           6, 'steady'),
-    (3, 'Sweet potato salad',         4.00,           9, 'steady'),
-    (1, 'Spanish Chicken',            4.00,          24, 'drifting')
-) as v(n, recipe_name, servings, days_ago, persona) on v.persona = c.persona;
+    -- servings_left: the whole servings still uneaten. The Leftovers list shows a cook finished in the
+    -- last 7 days with servings_left > 0 (RecipeCookService.leftovers), so steady's two cooks of 3 and 6
+    -- days ago keep some back; the older cooks were eaten up. Never above the servings cooked.
+    (1, 'Salmon Avocado Salad'::text, 2.00::numeric,  1,  3, 'steady'::text),
+    (2, 'Spanish Chicken',            4.00,           2,  6, 'steady'),
+    (3, 'Sweet potato salad',         4.00,           0,  9, 'steady'),
+    (1, 'Spanish Chicken',            4.00,           0, 24, 'drifting')
+) as v(n, recipe_name, servings, servings_left, days_ago, persona) on v.persona = c.persona;
 
 do $$
 begin
@@ -1541,7 +1612,7 @@ begin
 end $$;
 
 insert into nutrition.recipe_cooks
-    (cook_id, user_id, recipe_id, client_cook_id, servings, started_at, finished_at, created_at)
+    (cook_id, user_id, recipe_id, client_cook_id, servings, servings_left, started_at, finished_at, created_at)
 select md5(p.user_id::text || 'cook' || p.n::text)::uuid,
        p.user_id,
        (select r.recipe_id from nutrition.recipes r
@@ -1549,6 +1620,7 @@ select md5(p.user_id::text || 'cook' || p.n::text)::uuid,
          order by r.recipe_id limit 1),
        md5(p.user_id::text || 'client-cook' || p.n::text)::uuid,
        p.servings,
+       p.servings_left,
        p.finished_at - interval '50 minutes',
        p.finished_at,
        p.finished_at
@@ -1815,15 +1887,32 @@ begin
         -- analytics-service writes for the week before the current one, so the seed describes the
         -- same week. The current week would read as missed on any day before its last session.
         -- A fresh account has no last week, so its fields stay empty and the rule says nothing.
+        -- Active days are counted as AnalyticsWeeklyRecapService.emitWeeklyRecap counts them: every date
+        -- of the week with a daily workout row or a daily nutrition row, whatever the row holds.
         select (wk.week_start - 7)                                             as week_start,
-               coalesce(sum(w.completed_workout_count), 0)::int                as workout_count,
-               coalesce(sum(w.total_workout_minutes), 0)::int                  as workout_minutes,
-               count(*) filter (where w.completed_workout_count > 0)::int      as active_days
-          from analytics.analytics_user_daily_workout w
-         where w.user_id = c.user_id
-           and w.activity_date >= wk.week_start - 7
-           and w.activity_date < wk.week_start
-        having c.persona <> 'fresh'
+               coalesce((select sum(w.completed_workout_count)
+                           from analytics.analytics_user_daily_workout w
+                          where w.user_id = c.user_id
+                            and w.activity_date >= wk.week_start - 7
+                            and w.activity_date < wk.week_start), 0)::int      as workout_count,
+               coalesce((select sum(w.total_workout_minutes)
+                           from analytics.analytics_user_daily_workout w
+                          where w.user_id = c.user_id
+                            and w.activity_date >= wk.week_start - 7
+                            and w.activity_date < wk.week_start), 0)::int      as workout_minutes,
+               (select count(*)::int
+                  from (select w.activity_date
+                          from analytics.analytics_user_daily_workout w
+                         where w.user_id = c.user_id
+                           and w.activity_date >= wk.week_start - 7
+                           and w.activity_date < wk.week_start
+                        union
+                        select n.activity_date
+                          from analytics.analytics_user_daily_nutrition n
+                         where n.user_id = c.user_id
+                           and n.activity_date >= wk.week_start - 7
+                           and n.activity_date < wk.week_start) active)         as active_days
+         where c.persona <> 'fresh'
     ) recap on true
     left join lateral (
         -- Heaviest single set in the window, dated to the first session that lifted it, which is
@@ -1892,6 +1981,23 @@ begin
           from demo_config c
           join user_domain.user_goals g on g.user_id = c.user_id and g.goal_type = 'CALORIES'
          where rc.user_id = c.user_id;
+    end if;
+
+    -- current_goal_id (V15): the WEIGHT goal the current-goal slot holds, so that the GoalUpdated the seed
+    -- requeues above is read as the same goal and keeps the pace baseline instead of taking a new one.
+    -- Section 4b gives that goal the id md5(user_id || 'GOAL' || goal_type).
+    if exists (select 1 from pg_namespace where nspname = 'recommendation')
+       and exists (
+           select 1 from information_schema.columns
+            where table_schema = 'recommendation' and table_name = 'recommendation_context'
+              and column_name = 'current_goal_id'
+       ) then
+        update recommendation.recommendation_context rc
+           set current_goal_id = g.goal_id
+          from demo_config c
+          join user_domain.user_goals g on g.user_id = c.user_id and g.goal_type = 'WEIGHT'
+         where rc.user_id = c.user_id
+           and g.goal_id = md5(c.user_id::text || 'GOAL' || 'WEIGHT')::uuid;
     end if;
 end $$;
 
