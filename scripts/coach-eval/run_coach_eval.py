@@ -11,6 +11,15 @@ real model rather than a unit test with a scripted one.
 Usage:
     python run_coach_eval.py [--base http://localhost:8088] [--token-file ../../.local/demo2.jwt]
                              [--golden golden.json] [--out ../../.local/coach-eval.md] [--only grounded,refusal]
+                             [--today 2026-10-09]
+    python run_coach_eval.py --print-facts [--today 2026-10-09]   # the expectations for a day, no stack
+    python run_coach_eval.py --self-test                           # checks the day arithmetic, no stack
+
+The steady seed is rolling: it always ends on today in Singapore, so the streak, this week's and last
+week's training and the last session move with the weekday the seed runs on. Those expectations are
+not written into golden.json as numbers. A golden string holds a placeholder such as {streakSaid},
+and day_facts() fills it from the same day-relative plan seed-demo-fitsync.sql lays out, for the date
+given by --today or today in Singapore. Run the evaluation on the day the seed ran.
 
 Each question runs on its own thread so prior turns cannot leak into the next answer. Drafts run
 through the drafting endpoint and the metrics endpoint is read before and after, so the numbers
@@ -26,12 +35,173 @@ import argparse
 import datetime as dt
 import json
 import pathlib
+import re
 import sys
 import time
 import urllib.error
 import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
+SGT = dt.timezone(dt.timedelta(hours=8))
+
+# Today's breakfast in the steady seed. The seed scales each day's portions by meal_mult, chosen by the
+# day's index in the 60-day window, and today is always index 59 (multiplier 1.17), so the breakfast,
+# the only meal today carries, is the same on every day. Taken from a seeded database: three items
+# (oats, banana, Greek yoghurt) summed as the Diary and the coach sum them.
+BREAKFAST_KCAL = 506
+BREAKFAST_PROTEIN_G = 31
+CALORIE_TARGET = 2100
+PROTEIN_TARGET_G = 140
+
+PLACEHOLDER = re.compile(r"\{[A-Za-z]\w*\}")
+NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+
+
+def steady_session_days(today: dt.date) -> list[dt.date]:
+    """The steady persona's completed session days before today, as section 2b of the seed plans them."""
+    d_start = today - dt.timedelta(days=59)
+    monday_of_start = d_start - dt.timedelta(days=d_start.isoweekday() - 1)
+    w_last = (today - monday_of_start).days // 7 - 1
+    # The Thursday run moved to Tuesday: in the current week once Tuesday has passed, else last week.
+    moved_week = w_last + (1 if today.isoweekday() >= 3 else 0)
+    days = []
+    for i in range(59):  # d_start .. today - 1; nothing is trained today
+        d = d_start + dt.timedelta(days=i)
+        dow, w = d.isoweekday(), (d - monday_of_start).days // 7
+        training = dow in (1, 4, 5, 6)
+        skipped = (w == 0 and dow == 4) or (w == 1 and dow == 6)
+        if w == moved_week and dow in (2, 4):
+            training = dow == 2
+        if training and not skipped:
+            days.append(d)
+    return days
+
+
+def active_streak(days: list[dt.date], today: dt.date) -> int:
+    """ActiveStreak.days: consecutive active days back from today, or from yesterday when today is not."""
+    active = set(days)
+    start = today if today in active else today - dt.timedelta(days=1)
+    streak = 0
+    while start - dt.timedelta(days=streak) in active:
+        streak += 1
+    return streak
+
+
+def spoken(d: dt.date) -> str:
+    """A date as ReadFactsTool says it, "4 October"."""
+    return f"{d.day} {d:%B}"
+
+
+def count_phrases(n: int) -> list[str]:
+    """What an answer giving the count n may say."""
+    if n == 0:
+        # A bare "0" would match any number with a zero in it, such as the 2100 kcal target.
+        return ["0 days", "0 sessions", "zero", "none", "no days", "no sessions", "no training", "not yet",
+                "haven't", "have not"]
+    return [str(n), NUMBER_WORDS[n] if n < len(NUMBER_WORDS) else str(n)]
+
+
+def day_facts(today: dt.date) -> dict:
+    """The date-dependent expectations for the steady account seeded on `today` (Singapore)."""
+    days = steady_session_days(today)
+    week_start = today - dt.timedelta(days=today.isoweekday() - 1)
+    last_week_start = week_start - dt.timedelta(days=7)
+    last_week_end = last_week_start + dt.timedelta(days=6)
+    this_week = [d for d in days if d >= week_start]
+    last_week = [d for d in days if last_week_start <= d < week_start]
+    rolling7 = [d for d in days if d >= today - dt.timedelta(days=6)]
+    streak = active_streak(days, today)
+    last = days[-1]
+    last_said = [spoken(last), f"{last:%A}", f"{last:%b} {last.day}", f"{last.day} {last:%b}"]
+    if last == today - dt.timedelta(days=1):
+        last_said.insert(0, "yesterday")
+    n = len(this_week)
+    word = NUMBER_WORDS[n]
+    return {
+        "today": today.isoformat(),
+        "consumedCalories": BREAKFAST_KCAL,
+        "remainingCalories": CALORIE_TARGET - BREAKFAST_KCAL,
+        "proteinConsumedGrams": BREAKFAST_PROTEIN_G,
+        "proteinShortGrams": PROTEIN_TARGET_G - BREAKFAST_PROTEIN_G,
+        "streakDays": streak,
+        "streakSaid": count_phrases(streak) + (["no streak", "no active streak", "not on a streak", "broken",
+                                                 "ended", "reset"] if streak == 0 else []),
+        "thisWeekDays": n,
+        "thisWeekSaid": count_phrases(n),
+        "thisWeekWord": [word, word.capitalize()] + (["none", "no days", "not yet"] if n == 0 else []),
+        "thisWeekWrongWords": [f"{NUMBER_WORDS[k]} day" + ("" if k == 1 else "s")
+                               for k in (n - 1, n + 1) if 0 <= k < len(NUMBER_WORDS)],
+        "lastWeekSessions": len(last_week),
+        "lastWeekDates": [spoken(last_week_start), spoken(last_week_end),
+                          f"{last_week_start.day} {last_week_start:%b}", f"{last_week_end.day} {last_week_end:%b}"],
+        # The weekly recap counts a day with any workout or meal row as active, and steady logs every day.
+        "lastWeekActiveDays": 7,
+        "rolling7Sessions": len(rolling7),
+        "sessionCountsSaid": sorted({str(len(last_week)), str(len(rolling7))}),
+        "lastSessionSaid": last_said,
+    }
+
+
+def fill(value, facts: dict):
+    """Fills the {placeholders} of a golden string, or of every string in a list. A list item that is
+    exactly one placeholder naming a list fact is replaced by that list's items."""
+    if isinstance(value, str):
+        return value.format_map(facts)
+    if isinstance(value, list):
+        out: list = []
+        for item in value:
+            key = item[1:-1] if isinstance(item, str) and item.startswith("{") and item.endswith("}") else None
+            if key in facts and isinstance(facts[key], list):
+                out.extend(facts[key])
+            else:
+                out.append(fill(item, facts))
+        return out
+    return value
+
+
+def resolve_golden(golden: dict, today: dt.date) -> dict:
+    """The golden file with its date-dependent expectations filled in for `today`."""
+    facts = {**golden.get("facts", {}), **day_facts(today)}
+    fields = ("text", "setup", "expect_any", "forbid_any")
+    questions = [{k: (fill(v, facts) if k in fields else v) for k, v in q.items()} for q in golden["questions"]]
+    return {**golden, "facts": facts, "questions": questions}
+
+
+def self_test() -> int:
+    """Checks the day arithmetic against dates worked out by hand from the seed, and that every
+    placeholder in golden.json resolves on every weekday."""
+    checks = {
+        # Fri 9 Oct 2026: the run moved to Tue 6 Oct, so this week holds Mon 5 and Tue 6 and Thu 8 is empty.
+        dt.date(2026, 10, 9): {"streakDays": 0, "thisWeekDays": 2, "lastWeekSessions": 4, "rolling7Sessions": 3,
+                               "lastWeekDates": "28 September", "lastSessionSaid": "6 October"},
+        # Tue 6 Oct 2026: the moved run is last week's (Tue 29 Sep) and Mon 5 Oct was trained yesterday.
+        dt.date(2026, 10, 6): {"streakDays": 1, "thisWeekDays": 1, "lastWeekSessions": 4, "rolling7Sessions": 3,
+                               "lastWeekDates": "4 October", "lastSessionSaid": "yesterday"},
+        # Sun 11 Oct 2026: Fri 9 and Sat 10 were trained, the plan's last two days.
+        dt.date(2026, 10, 11): {"streakDays": 2, "thisWeekDays": 4, "lastWeekSessions": 4},
+        # Mon 12 Oct 2026: nothing yet this week, and Sunday was a rest day.
+        dt.date(2026, 10, 12): {"streakDays": 0, "thisWeekDays": 0, "lastWeekSessions": 4,
+                                "lastWeekDates": "5 October"},
+    }
+    failures = 0
+    for day, expected in checks.items():
+        facts = day_facts(day)
+        for key, want in expected.items():
+            got = facts[key]
+            ok = want in got if isinstance(got, list) else got == want
+            if not ok:
+                failures += 1
+                print(f"FAIL {day} {key}: expected {want!r}, got {got!r}")
+    golden = json.loads((HERE / "golden.json").read_text(encoding="utf-8"))
+    for day in (dt.date(2026, 10, 5) + dt.timedelta(days=i) for i in range(7)):
+        resolved = resolve_golden(golden, day)
+        unresolved = [q["id"] for q in resolved["questions"]
+                      if PLACEHOLDER.search(json.dumps([q.get(k) for k in ("text", "setup", "expect_any", "forbid_any")]))]
+        if unresolved:
+            failures += 1
+            print(f"FAIL {day}: unresolved placeholders in {unresolved}")
+    print("self-test passed" if failures == 0 else f"self-test: {failures} failure(s)")
+    return 0 if failures == 0 else 1
 
 
 class Client:
@@ -105,7 +275,11 @@ def contains_any(text: str, needles: list[str]) -> bool:
 
 
 def run(args: argparse.Namespace) -> int:
-    golden = json.loads(pathlib.Path(args.golden).read_text(encoding="utf-8"))
+    today = dt.date.fromisoformat(args.today) if args.today else dt.datetime.now(SGT).date()
+    golden = resolve_golden(json.loads(pathlib.Path(args.golden).read_text(encoding="utf-8")), today)
+    if args.print_facts:
+        print(json.dumps(golden["facts"], indent=2))
+        return 0
     token = pathlib.Path(args.token_file).read_text(encoding="utf-8").strip()
     client = Client(args.base, token)
     only = set(args.only.split(",")) if args.only else None
@@ -196,7 +370,7 @@ def render(golden, rows, draft_rows, before, after, tiers, started, args) -> str
     lines = []
     lines.append(f"# Coach evaluation · {started.strftime('%Y-%m-%d %H:%M UTC')}")
     lines.append("")
-    lines.append(f"Base `{args.base}` · golden `{pathlib.Path(args.golden).name}` · "
+    lines.append(f"Base `{args.base}` · golden `{pathlib.Path(args.golden).name}` for {golden['facts']['today']} · "
                  f"{len(rows)} chat questions, {len(draft_rows)} drafts.")
     lines.append("")
     lines.append("## The numbers")
@@ -275,7 +449,14 @@ def main() -> int:
     parser.add_argument("--out", default=str(HERE / ".." / ".." / ".local" /
                                              f"coach-eval-{dt.datetime.now():%Y%m%d-%H%M}.md"))
     parser.add_argument("--only", default=None, help="comma-separated categories to run")
-    return run(parser.parse_args())
+    parser.add_argument("--today", default=None,
+                        help="the date the seed ran on, YYYY-MM-DD (default: today in Singapore)")
+    parser.add_argument("--print-facts", action="store_true", help="print the expectations for the day and stop")
+    parser.add_argument("--self-test", action="store_true", help="check the day arithmetic and stop")
+    args = parser.parse_args()
+    if args.self_test:
+        return self_test()
+    return run(args)
 
 
 if __name__ == "__main__":
