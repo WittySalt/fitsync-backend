@@ -56,6 +56,14 @@ public class OutboxEventEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** Publish attempts made so far, successful or not. */
+    @Column(name = "attempt_count", nullable = false)
+    private int attemptCount;
+
+    /** Earliest time a FAILED event may be tried again; null while it has not failed. */
+    @Column(name = "next_attempt_at")
+    private Instant nextAttemptAt;
+
     public UUID getEventId() { return eventId; }
     public void setEventId(UUID eventId) { this.eventId = eventId; }
     public String getTopic() { return topic; }
@@ -82,4 +90,8 @@ public class OutboxEventEntity {
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public int getAttemptCount() { return attemptCount; }
+    public void setAttemptCount(int attemptCount) { this.attemptCount = attemptCount; }
+    public Instant getNextAttemptAt() { return nextAttemptAt; }
+    public void setNextAttemptAt(Instant nextAttemptAt) { this.nextAttemptAt = nextAttemptAt; }
 }

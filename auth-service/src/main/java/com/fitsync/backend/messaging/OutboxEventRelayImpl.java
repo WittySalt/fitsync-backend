@@ -3,14 +3,16 @@ package com.fitsync.backend.messaging;
 import java.time.Instant;
 import java.util.List;
 
+import com.fitsync.persistence.outbox.OutboxRetryPolicy;
 import com.fitsync.backend.messaging.entity.OutboxEventEntity;
 import com.fitsync.backend.messaging.repository.OutboxEventRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Sends the oldest pending outbox events in creation order and marks each one published or failed. A failed
- * event keeps its error and is not picked up again by later batches.
+ * Sends due outbox events to Kafka, oldest first, and marks each one published or failed. A failed event keeps
+ * its error and is tried again later with backoff until it runs out of attempts ({@link OutboxRetryPolicy}).
  */
 @Service
 public class OutboxEventRelayImpl implements OutboxEventRelay {
@@ -27,30 +29,26 @@ public class OutboxEventRelayImpl implements OutboxEventRelay {
     @Override
     @Transactional
     public int publishPendingBatch(int batchSize) {
-        List<OutboxEventEntity> pending = outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING);
-        int limit = Math.min(batchSize, pending.size());
+        Instant now = Instant.now();
+        List<OutboxEventEntity> due = outboxEventRepository.findDueForPublishing(
+                OutboxEventStatus.PENDING, OutboxEventStatus.FAILED, OutboxRetryPolicy.MAX_ATTEMPTS, now,
+                PageRequest.of(0, Math.max(1, batchSize)));
         int publishedCount = 0;
-        for (int i = 0; i < limit; i++) {
-            OutboxEventEntity event = pending.get(i);
+        for (OutboxEventEntity event : due) {
+            event.setAttemptCount(event.getAttemptCount() + 1);
             try {
                 kafkaEventProducer.send(event);
                 event.setStatus(OutboxEventStatus.PUBLISHED);
                 event.setPublishedAt(Instant.now());
                 event.setErrorMessage(null);
+                event.setNextAttemptAt(null);
                 publishedCount++;
             } catch (RuntimeException ex) {
                 event.setStatus(OutboxEventStatus.FAILED);
-                event.setErrorMessage(truncate(ex.getMessage()));
+                event.setErrorMessage(OutboxRetryPolicy.truncateError(ex.getMessage()));
+                event.setNextAttemptAt(OutboxRetryPolicy.nextAttemptAt(event.getAttemptCount(), now));
             }
         }
         return publishedCount;
-    }
-
-    /** The {@code error_message} column holds 500 characters. */
-    private String truncate(String message) {
-        if (message == null || message.length() <= 500) {
-            return message;
-        }
-        return message.substring(0, 500);
     }
 }

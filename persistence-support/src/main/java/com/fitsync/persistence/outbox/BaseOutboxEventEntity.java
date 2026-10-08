@@ -52,6 +52,14 @@ public abstract class BaseOutboxEventEntity {
     @Column(name = "date_time_created", nullable = false, updatable = false)
     private Instant dateTimeCreated;
 
+    /** Publish attempts made so far, successful or not. */
+    @Column(name = "attempt_count", nullable = false)
+    private int attemptCount;
+
+    /** Earliest time a FAILED event may be tried again; null while it has not failed. */
+    @Column(name = "next_attempt_at")
+    private Instant nextAttemptAt;
+
     @PrePersist
     void prePersist() {
         Instant now = Instant.now();
@@ -87,4 +95,8 @@ public abstract class BaseOutboxEventEntity {
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
     public Instant getDateTimeCreated() { return dateTimeCreated; }
     public void setDateTimeCreated(Instant dateTimeCreated) { this.dateTimeCreated = dateTimeCreated; }
+    public int getAttemptCount() { return attemptCount; }
+    public void setAttemptCount(int attemptCount) { this.attemptCount = attemptCount; }
+    public Instant getNextAttemptAt() { return nextAttemptAt; }
+    public void setNextAttemptAt(Instant nextAttemptAt) { this.nextAttemptAt = nextAttemptAt; }
 }
