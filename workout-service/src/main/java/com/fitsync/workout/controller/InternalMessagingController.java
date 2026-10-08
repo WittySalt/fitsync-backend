@@ -23,6 +23,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Operator endpoints under {@code /api/v1/internal}, open to the ADMIN role only (see {@code SecurityConfig}):
+ * draining and inspecting the outbox by hand, and seeding or summarising the shared exercise catalogue.
+ */
 @Validated
 @RestController
 @RequestMapping("/api/v1/internal")

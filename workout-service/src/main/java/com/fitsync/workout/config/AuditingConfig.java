@@ -14,6 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 @EnableJpaAuditing
 public class AuditingConfig {
 
+    /** The authenticated caller, or "system" for writes made outside a request, such as the sweep or a listener. */
     @Bean
     AuditorAware<String> auditorAware() {
         return () -> Optional.ofNullable(SecurityContextHolder.getContext().getAuthentication())

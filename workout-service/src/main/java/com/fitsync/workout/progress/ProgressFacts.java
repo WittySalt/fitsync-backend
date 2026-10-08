@@ -1,7 +1,6 @@
 package com.fitsync.workout.progress;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,8 +29,13 @@ import com.fitsync.workout.dto.progress.TrainingProgressView.Lift;
  */
 public final class ProgressFacts {
 
+    /** The main lifts: the most often trained exercises with at least MIN_LIFT_SESSIONS sessions, at most four. */
     static final int MAX_LIFTS = 4;
     static final int MIN_LIFT_SESSIONS = 3;
+    /**
+     * How much a figure must move before its summary line trends up or down rather than steady: an average
+     * lift change in percent, and relative changes for counts, sizes (distance, minutes) and pace.
+     */
     private static final double LIFT_TREND_PCT = 2.0;
     private static final double COUNT_TREND_RATIO = 0.10;
     private static final double SIZE_TREND_RATIO = 0.05;

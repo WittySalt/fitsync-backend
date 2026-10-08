@@ -8,6 +8,10 @@ import com.fitsync.workout.messaging.repository.OutboxEventRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Sends pending outbox rows to Kafka, oldest first, and marks each PUBLISHED or FAILED. A failed row is
+ * not picked up again by this relay; it keeps the (truncated) error for inspection.
+ */
 @Service
 public class OutboxEventRelayImpl implements OutboxEventRelay {
 
@@ -23,6 +27,7 @@ public class OutboxEventRelayImpl implements OutboxEventRelay {
     @Override
     @Transactional
     public int publishPendingBatch(int batchSize) {
+        // The query reads at most 100 rows, so a configured batch size above that is capped at 100.
         List<OutboxEventEntity> pending = outboxEventRepository.findTop100ByStatusOrderByDateTimeCreatedAsc(OutboxEventStatus.PENDING);
         int limit = Math.min(batchSize, pending.size());
         int publishedCount = 0;
@@ -42,6 +47,7 @@ public class OutboxEventRelayImpl implements OutboxEventRelay {
         return publishedCount;
     }
 
+    /** Fits the message into the 500-character error_message column. */
     private String truncate(String message) {
         if (message == null || message.length() <= 500) {
             return message;

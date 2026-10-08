@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -41,6 +42,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Builds the dashboard's weekly card for a reference date in the caller's timezone: this week against last
+ * week (in full and up to the same weekday), volume over three weeks, per-muscle-group signals over 28 days,
+ * the day-by-day view against the active plan, and the lift and activity lines shared with the Training page.
+ * Sessions are placed on the local date they were completed.
+ */
 @Service
 public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightService {
 
@@ -102,7 +109,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         WeeklyTotals previousWeekSameDays = new WeeklyTotals();
         // Last week up to the same weekday as the reference date: the same number of elapsed days.
         LocalDate previousWeekSameDaysEnd = previousWeekStart.plusDays(
-                java.time.temporal.ChronoUnit.DAYS.between(weekStart, referenceDate));
+                ChronoUnit.DAYS.between(weekStart, referenceDate));
         BigDecimal weekBeforePreviousKg = BigDecimal.ZERO;
 
         for (DatedSession dated : sessions) {
@@ -423,6 +430,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
             }
         }
 
+        // How many of the latest sessions in a row, newest first, trained this group.
         int consecutiveSessions = 0;
         for (DatedSession dated : lookbackSessions) {
             if (!trainsGroup(dated.session(), group)) {

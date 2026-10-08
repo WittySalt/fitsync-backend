@@ -42,6 +42,13 @@ import com.fitsync.workout.security.CurrentUserPrincipal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Builds the Training page's insight for one week: the current week once it has enough sessions, else the
+ * last full week. It covers totals against the 7 days before the period, a personal best in top-set weight,
+ * the most trained muscle group, top-set progress of the main lifts over 28 days, and the cardio, mobility
+ * and sport groups. Sessions come from one query for the widest window and are classified in Java; the
+ * record check adds one query for each exercise's best before the period.
+ */
 @Service
 public class TrainingPageInsightServiceImpl implements TrainingPageInsightService {
 

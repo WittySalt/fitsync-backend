@@ -40,7 +40,6 @@ import com.fitsync.workout.dto.ImportWorkoutSessionRowResult;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
 import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
 import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
-import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.LiftProgressView;
 import com.fitsync.workout.dto.MostTrainedView;

@@ -6,8 +6,6 @@ import java.util.UUID;
 
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutSetStatus;
-import com.fitsync.workout.dto.ExerciseHistoryEntryView;
-import com.fitsync.workout.dto.ExerciseRecordSetRow;
 import com.fitsync.workout.dto.ExerciseTopWeightRow;
 import com.fitsync.workout.dto.SessionExerciseTopWeightRow;
 import com.fitsync.workout.entity.SessionEntry;

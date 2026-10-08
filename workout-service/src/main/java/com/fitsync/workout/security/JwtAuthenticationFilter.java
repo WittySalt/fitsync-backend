@@ -13,6 +13,10 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/**
+ * Authenticates a request from its bearer token. A missing, invalid or expired token leaves the request
+ * anonymous rather than failing here, so the security rules decide between a public endpoint and a 401.
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -33,7 +37,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        String token = authorization.substring(7);
+        String token = authorization.substring(7); // after "Bearer "
         try {
             CurrentUserPrincipal principal = jwtService.extractCurrentUser(token);
             if (SecurityContextHolder.getContext().getAuthentication() == null) {

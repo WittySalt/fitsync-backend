@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -110,6 +111,14 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+/**
+ * Owns plans and sessions: plan editing (a flat list or a week of days), starting a session from a plan
+ * day, live logging of sets and time segments, completion, cancellation and imports. Every completion
+ * goes through one path that settles segments, derives totals, fills calorie and effort estimates and
+ * publishes the WorkoutLogged and PersonalRecordAchieved events. Only one session may be in progress
+ * per user; workouts left open are closed when the user next asks for the active session or starts
+ * one, and by the scheduled sweep.
+ */
 @Service
 public class WorkoutServiceImpl implements WorkoutService {
 
@@ -127,13 +136,16 @@ public class WorkoutServiceImpl implements WorkoutService {
     private static final int SWEEP_PAGE_SIZE = 100;
     /** Bounds one sweep run, so a very large backlog is worked through over several runs. */
     private static final int SWEEP_MAX_PAGES = 50;
+    /** A left workout whose last activity is its start is completed this long after it, never at the same instant. */
     private static final Duration AUTO_CLOSE_MINIMUM_DURATION = Duration.ofMinutes(1);
+    /** Record types sent in PersonalRecordAchieved events, so part of the event contract. */
     private static final String MAX_WEIGHT_KG = "MAX_WEIGHT_KG";
     private static final String MAX_REPS = "MAX_REPS";
     private static final String MAX_SINGLE_SET_VOLUME_KG = "MAX_SINGLE_SET_VOLUME_KG";
     private static final String ESTIMATED_ONE_REP_MAX_KG = "ESTIMATED_ONE_REP_MAX_KG";
     private static final String BEST_SESSION_VOLUME_KG = "BEST_SESSION_VOLUME_KG";
     private static final String COPY_SUFFIX = " (Copy)";
+    /** The length of the plan name column, so a copy's name with its suffix still fits. */
     private static final int PLAN_NAME_MAX_LENGTH = 120;
 
     private static final String DUPLICATE_DAY_MESSAGE = "A plan can have one entry for each day of the week.";
@@ -144,6 +156,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     private static final String PLAN_HAS_NOTHING_ON_THIS_DAY_MESSAGE = "The plan has nothing on this day.";
     private static final String SESSION_ENTRIES_ARE_SEGMENTS_MESSAGE =
             "A workout starts with time segments only; moves go in exercises.";
+    /** A segment settled at completion counts at most one day, however long the session was left open. */
     private static final int MAX_SEGMENT_SECONDS = 86400;
 
     private final String workoutEventsTopic;
@@ -290,7 +303,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     public WorkoutExportView exportWorkoutData(CurrentUserPrincipal currentUser) {
         UUID userId = currentUser.userId();
         return new WorkoutExportView(
-                1,
+                1, // schemaVersion of the export format
                 Instant.now(clock),
                 exerciseService.exportCustomExercises(currentUser),
                 workoutPlanRepository.findByUserIdOrderByDateTimeUpdatedDesc(userId).stream()
@@ -460,10 +473,10 @@ public class WorkoutServiceImpl implements WorkoutService {
      */
     private List<PlanEntryRules.SegmentSpec> startingSegments(UpsertWorkoutSessionRequest request) {
         if (!request.entries().isEmpty()) {
-            List<PlanEntryInput> ordered = new ArrayList<>(request.entries());
+            List<PlanEntryInput> inputs = new ArrayList<>(request.entries());
             List<PlanEntryRules.SegmentSpec> specs = new ArrayList<>();
-            for (int index = 0; index < ordered.size(); index++) {
-                PlanEntryInput input = ordered.get(index);
+            for (int index = 0; index < inputs.size(); index++) {
+                PlanEntryInput input = inputs.get(index);
                 if (input.type() != EntryType.SEGMENT) {
                     throw new IllegalArgumentException(SESSION_ENTRIES_ARE_SEGMENTS_MESSAGE);
                 }
@@ -471,13 +484,14 @@ public class WorkoutServiceImpl implements WorkoutService {
                     throw new IllegalArgumentException(PlanEntryRules.SEGMENT_NEEDS_KIND_MESSAGE);
                 }
             }
+            // Sorted by position; an input without one falls back to its index in the request.
             List<Integer> order = new ArrayList<>();
-            for (int index = 0; index < ordered.size(); index++) {
+            for (int index = 0; index < inputs.size(); index++) {
                 order.add(index);
             }
-            order.sort(Comparator.comparing(index -> PlanEntryRules.positionOf(ordered.get(index), index)));
+            order.sort(Comparator.comparing(index -> PlanEntryRules.positionOf(inputs.get(index), index)));
             for (int index : order) {
-                PlanEntryInput input = ordered.get(index);
+                PlanEntryInput input = inputs.get(index);
                 specs.add(new PlanEntryRules.SegmentSpec(input.kind(), input.label(), input.plannedSeconds(),
                         PlanEntryRules.roundsOf(input.rounds())));
             }
@@ -596,7 +610,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         Map<UUID, WorkoutSessionEntity> sessionsById = workoutSessionRepository
                 .findHistoryPageByIds(userId, sessionIds.getContent())
                 .stream()
-                .collect(java.util.stream.Collectors.toMap(
+                .collect(Collectors.toMap(
                         WorkoutSessionEntity::getSessionId,
                         session -> session));
         List<WorkoutSessionView> views = sessionIds.getContent().stream()
@@ -654,6 +668,8 @@ public class WorkoutServiceImpl implements WorkoutService {
         int completed = 0;
         int cancelled = 0;
         int failed = 0;
+        // Keyset paging on (startedAt, sessionId) rather than offsets: sessions closed during the run
+        // drop out of the candidate query, so an offset would skip the ones that move up.
         Instant afterStartedAt = Instant.EPOCH;
         UUID afterSessionId = new UUID(0L, 0L);
         for (int page = 0; page < SWEEP_MAX_PAGES; page++) {
@@ -1210,6 +1226,8 @@ public class WorkoutServiceImpl implements WorkoutService {
         try {
             return importRowTransactionTemplate.execute(status -> importSessionRow(userId, rowIndex, row));
         } catch (DataIntegrityViolationException ex) {
+            // A concurrent import of the same row won the unique index on (user, source, externalId)
+            // after the duplicate lookup passed.
             return new ImportWorkoutSessionRowResult(
                     rowIndex,
                     row == null ? null : row.externalId(),
@@ -1257,6 +1275,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         applySessionRequest(userId, entity, request);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         if (saved.getStatus() == WorkoutSessionStatus.COMPLETED) {
+            // Imported history counts in the totals but is not announced as a new personal record.
             publishWorkoutLoggedAndPersonalRecords(saved, true);
         }
         return new ImportWorkoutSessionRowResult(
@@ -1272,6 +1291,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (row == null) {
             throw new IllegalArgumentException("Import row must not be null");
         }
+        // The limits are the lengths of the external_id and source columns.
         if (row.externalId() == null || row.externalId().isBlank() || row.externalId().length() > 120) {
             throw new IllegalArgumentException("externalId is required and must not exceed 120 characters");
         }
@@ -1692,7 +1712,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (inputs == null) {
             return;
         }
-        for (WorkoutPlanExerciseInput input : inputs.stream().sorted(java.util.Comparator.comparing(WorkoutPlanExerciseInput::sequence)).toList()) {
+        for (WorkoutPlanExerciseInput input : inputs.stream().sorted(Comparator.comparing(WorkoutPlanExerciseInput::sequence)).toList()) {
             PlanEntry exercise = new PlanEntry();
             ExerciseEntity sourceExercise = findAccessibleExercise(userId, input.exerciseId());
             exercise.setPlanExerciseId(UUID.randomUUID());
@@ -1721,7 +1741,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             return;
         }
         for (WorkoutPlanExerciseSetTargetInput input : inputs.stream()
-                .sorted(java.util.Comparator.comparing(WorkoutPlanExerciseSetTargetInput::setNumber))
+                .sorted(Comparator.comparing(WorkoutPlanExerciseSetTargetInput::setNumber))
                 .toList()) {
             WorkoutPlanExerciseSetTargetEntity setTarget = new WorkoutPlanExerciseSetTargetEntity();
             setTarget.setSetTargetId(UUID.randomUUID());
@@ -1758,7 +1778,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (inputs == null) {
             return;
         }
-        for (WorkoutExerciseLogInput input : inputs.stream().sorted(java.util.Comparator.comparing(WorkoutExerciseLogInput::sequence)).toList()) {
+        for (WorkoutExerciseLogInput input : inputs.stream().sorted(Comparator.comparing(WorkoutExerciseLogInput::sequence)).toList()) {
             SessionEntry exercise = toSessionExerciseLog(userId, session, input, true);
             for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
                 set.setRestTakenSeconds(restTaken.get(input.exerciseId() + "#" + set.getSetNumber()));
@@ -1850,7 +1870,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             return;
         }
         for (WorkoutExerciseSetLogInput input : inputs.stream()
-                .sorted(java.util.Comparator.comparing(WorkoutExerciseSetLogInput::setNumber))
+                .sorted(Comparator.comparing(WorkoutExerciseSetLogInput::setNumber))
                 .toList()) {
             WorkoutExerciseSetLogEntity setLog = new WorkoutExerciseSetLogEntity();
             setLog.setSetLogId(UUID.randomUUID());
@@ -1965,6 +1985,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         throw new IllegalArgumentException("Set status must be DONE or SKIPPED");
     }
 
+    /** A set that counts towards totals and records: marked done, not just seeded from a plan target. */
     private boolean isDoneSet(WorkoutExerciseSetLogEntity setLog) {
         return setLog.getStatus() == WorkoutSetStatus.DONE && setLog.isLogged();
     }
@@ -2103,7 +2124,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void validateUniqueNumbers(List<Integer> numbers, String message) {
-        java.util.Set<Integer> seen = new java.util.HashSet<>();
+        Set<Integer> seen = new HashSet<>();
         for (Integer number : numbers) {
             if (!seen.add(number)) {
                 throw new IllegalArgumentException(message);
@@ -2362,7 +2383,7 @@ public class WorkoutServiceImpl implements WorkoutService {
      * The catalog image list is ordered by position and batch-fetched, so taking the first entry
      * here does not reintroduce a per-exercise query.
      */
-    private String primaryImageUrl(com.fitsync.workout.entity.ExerciseEntity exercise) {
+    private String primaryImageUrl(ExerciseEntity exercise) {
         if (exercise == null || exercise.getImages().isEmpty()) {
             return null;
         }
@@ -2620,6 +2641,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.isCaloriesEstimated(),
                 entity.isEffortEstimated(),
                 List.of(),
+                // Moves first, then time segments, each group by position.
                 entity.getEntries().stream()
                         .sorted(Comparator.comparing((SessionEntry entry) -> entry.isSet() ? 0 : 1)
                                 .thenComparing(SessionEntry::getPosition)
