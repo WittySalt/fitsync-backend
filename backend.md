@@ -1,5 +1,9 @@
 # FitSync Backend Architecture
 
+> **Status:** planning document written in June 2026, before most services were built. Its
+> "current state" and phase sections are historical; for what exists today see
+> [README.md](README.md) and the code.
+
 ## 1. Purpose
 
 This document is the top-level backend architecture document for FitSync.
@@ -15,8 +19,8 @@ It defines:
 
 Detailed communication design is split into two companion documents:
 
-- [backend-api-communication.md](E:/Code/NUS-ISS/Capstone/backend/backend-api-communication.md)
-- [backend-kafka-event-architecture.md](E:/Code/NUS-ISS/Capstone/backend/backend-kafka-event-architecture.md)
+- [backend-api-communication.md](backend-api-communication.md)
+- [backend-kafka-event-architecture.md](backend-kafka-event-architecture.md)
 
 ---
 
@@ -285,7 +289,7 @@ The backend should use a parent Maven project with child modules.
 
 ### 8.1 Parent Project Role
 
-The root `backend/pom.xml` should act as:
+The root `pom.xml` should act as:
 
 - packaging aggregator
 - shared dependency version owner
@@ -556,8 +560,8 @@ This separation is deliberate:
 
 See:
 
-- [backend-api-communication.md](E:/Code/NUS-ISS/Capstone/backend/backend-api-communication.md)
-- [backend-kafka-event-architecture.md](E:/Code/NUS-ISS/Capstone/backend/backend-kafka-event-architecture.md)
+- [backend-api-communication.md](backend-api-communication.md)
+- [backend-kafka-event-architecture.md](backend-kafka-event-architecture.md)
 
 ---
 
@@ -697,7 +701,7 @@ Recommended pattern:
 
 The safest implementation order is:
 
-1. convert the root `backend/pom.xml` into a parent aggregator
+1. convert the root `pom.xml` into a parent aggregator
 2. create `event-contracts`
 3. create `auth-service` and move current auth code there
 4. create `user-service`
@@ -723,8 +727,8 @@ The recommended evolution path is:
 
 1. stabilize domain boundaries in the current codebase
 2. define service ownership and shared contracts
-3. formalize synchronous API rules in [backend-api-communication.md](E:/Code/NUS-ISS/Capstone/backend/backend-api-communication.md)
-4. formalize Kafka event rules in [backend-kafka-event-architecture.md](E:/Code/NUS-ISS/Capstone/backend/backend-kafka-event-architecture.md)
+3. formalize synchronous API rules in [backend-api-communication.md](backend-api-communication.md)
+4. formalize Kafka event rules in [backend-kafka-event-architecture.md](backend-kafka-event-architecture.md)
 5. split services only along these defined ownership lines
 
 This keeps the target architecture clear without forcing every concern into one document.
