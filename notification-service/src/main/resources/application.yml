@@ -53,6 +53,12 @@ fitsync:
       # The From address. It must be an identity verified in SES.
       sender: ${FITSYNC_NOTIFY_EMAIL_SENDER:no-reply@fitsync.local}
       region: ${AWS_REGION:ap-southeast-1}
+      # The display name beside the From address ("FitSync <noreply@fitsyncapp.click>"). Empty sends
+      # the bare address. The IAM condition ses:FromAddress checks the address only.
+      sender-name: ${FITSYNC_NOTIFY_SENDER_NAME:FitSync}
+      # Put with one space before every subject. Staging sets "[Staging]" so its emails stand out;
+      # prod and local runs leave it empty.
+      subject-prefix: ${FITSYNC_NOTIFY_SUBJECT_PREFIX:}
     # Where the links in an email point: the SPA's address in this environment.
     app-base-url: ${FITSYNC_APP_BASE_URL:http://localhost:4200}
     # How often reminders are planned and due emails are sent.

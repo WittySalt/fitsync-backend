@@ -170,7 +170,7 @@ variable "notify_email_sender" {
 }
 
 variable "notify_email_create_identity" {
-  description = "Create the SES identity for notify_email_sender here (false when another workspace owns it)"
+  description = "Create an SES address identity for notify_email_sender in this workspace. False (default) when the sender's domain is verified in bootstrap/email.tf; true only for an address outside that domain"
   type        = bool
-  default     = true
+  default     = false
 }

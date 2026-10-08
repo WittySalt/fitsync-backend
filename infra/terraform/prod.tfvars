@@ -33,7 +33,8 @@ enable_cognito = false
 # Only the prod CloudFront distribution reaches the gateway, as before the teardown.
 api_from_cloudfront_only = true
 
-# From address of notification-service emails. Fill in the sender, then click the
-# verification link SES mails to it. Empty = no SES identity and no send permission
-# (emails are only logged). See staging.tfvars about sharing one address.
-notify_email_sender = ""
+# From address of notification-service emails. Empty = no send permission (emails
+# are only logged). The fitsyncapp.click domain identity lives in bootstrap/email.tf (see
+# staging.tfvars). Set the line below once the domain verifies, and keep it equal to
+# the production NOTIFY_EMAIL_SENDER variable in GitHub.
+notify_email_sender = "noreply@fitsyncapp.click"

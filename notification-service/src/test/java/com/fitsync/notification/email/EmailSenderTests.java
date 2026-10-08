@@ -54,6 +54,37 @@ class EmailSenderTests {
     }
 
     @Test
+    void sesSenderPutsTheDisplayNameBesideTheBareAddress() {
+        SesV2Client client = mock(SesV2Client.class);
+        when(client.sendEmail(any(SendEmailRequest.class))).thenReturn(SendEmailResponse.builder().build());
+
+        new SesEmailSender(client, "noreply-staging@fitsyncapp.click", "FitSync Staging").send(email);
+
+        ArgumentCaptor<SendEmailRequest> captor = ArgumentCaptor.forClass(SendEmailRequest.class);
+        verify(client).sendEmail(captor.capture());
+        assertThat(captor.getValue().fromEmailAddress()).isEqualTo("FitSync Staging <noreply-staging@fitsyncapp.click>");
+    }
+
+    @Test
+    void displayNameIsQuotedEscapedOrEncodedPerRfc5322() {
+        String address = "noreply@fitsyncapp.click";
+        assertThat(SesEmailSender.fromHeader(address, "FitSync")).isEqualTo("FitSync <noreply@fitsyncapp.click>");
+        assertThat(SesEmailSender.fromHeader(address, "  ")).isEqualTo(address);
+        assertThat(SesEmailSender.fromHeader(address, null)).isEqualTo(address);
+        // Specials such as the dot, comma and brackets need a quoted-string; quote and backslash are escaped.
+        assertThat(SesEmailSender.fromHeader(address, "FitSync, Inc. [Staging]"))
+                .isEqualTo("\"FitSync, Inc. [Staging]\" <noreply@fitsyncapp.click>");
+        assertThat(SesEmailSender.fromHeader(address, "Fit \"Sync\" \\ Team"))
+                .isEqualTo("\"Fit \\\"Sync\\\" \\\\ Team\" <noreply@fitsyncapp.click>");
+        // Non-ASCII goes out as an RFC 2047 encoded-word, which SES requires for the friendly name.
+        assertThat(SesEmailSender.fromHeader(address, "FitSync 健身"))
+                .isEqualTo("=?UTF-8?B?Rml0U3luYyDlgaXouqs=?= <noreply@fitsyncapp.click>");
+        // A line break cannot start a new header.
+        assertThat(SesEmailSender.fromHeader(address, "FitSync\r\nBcc: x@evil.test"))
+                .isEqualTo("\"FitSync Bcc: x@evil.test\" <noreply@fitsyncapp.click>");
+    }
+
+    @Test
     void sesFailuresReachTheCaller() {
         SesV2Client client = mock(SesV2Client.class);
         when(client.sendEmail(any(SendEmailRequest.class)))

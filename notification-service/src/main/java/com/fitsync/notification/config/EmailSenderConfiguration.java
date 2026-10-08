@@ -31,7 +31,7 @@ public class EmailSenderConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "fitsync.notification.email", name = "enabled", havingValue = "true")
     EmailSender sesEmailSender(SesV2Client client, NotificationProperties properties) {
-        return new SesEmailSender(client, properties.email().sender());
+        return new SesEmailSender(client, properties.email().sender(), properties.email().senderName());
     }
 
     @Bean
