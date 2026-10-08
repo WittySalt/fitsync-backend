@@ -33,5 +33,4 @@ cognito_logout_urls   = ["http://localhost:3000/logout/callback"]
 # this workspace creates none (notify_email_create_identity defaults to false). Set
 # the line below once bootstrap's notify_email_domain_dkim_status reads SUCCESS, and
 # keep it equal to the staging NOTIFY_EMAIL_SENDER variable in GitHub.
-notify_email_sender = ""
-# notify_email_sender = "noreply-staging@fitsyncapp.click"
+notify_email_sender = "noreply-staging@fitsyncapp.click"

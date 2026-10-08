@@ -37,5 +37,4 @@ api_from_cloudfront_only = true
 # are only logged). The fitsyncapp.click domain identity lives in bootstrap/email.tf (see
 # staging.tfvars). Set the line below once the domain verifies, and keep it equal to
 # the production NOTIFY_EMAIL_SENDER variable in GitHub.
-notify_email_sender = ""
-# notify_email_sender = "noreply@fitsyncapp.click"
+notify_email_sender = "noreply@fitsyncapp.click"
