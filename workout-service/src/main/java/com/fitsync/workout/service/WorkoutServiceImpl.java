@@ -1502,8 +1502,8 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     /**
-     * A new in-progress copy of a completed session. Its segments are dated on today's date in the
-     * caller's zone, as a plan start dates them, so a repeat just after local midnight is not filed
+     * A new in-progress copy of a completed session. Its exercises and segments are dated on today's date
+     * in the caller's zone, as a plan start dates them, so a repeat just after local midnight is not filed
      * under the server's day.
      */
     private WorkoutSessionEntity toRepeatedSession(UUID userId, WorkoutSessionEntity source, String timezone) {
@@ -1518,12 +1518,13 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setStartedAt(Instant.now(clock));
         repeated.setSportActivity(source.getSportActivity());
         repeated.setPlanDayId(source.getPlanDayId());
+        LocalDate loggedOn = LocalDate.now(clock.withZone(InsightDates.resolveZone(timezone)));
         for (SessionEntry sourceExercise : source.getSetEntries()) {
             List<WorkoutExerciseSetLogEntity> loggedSets = sourceExercise.getSets().stream()
                     .filter(this::isDoneSet)
                     .toList();
             if (!loggedSets.isEmpty()) {
-                repeated.getEntries().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets));
+                repeated.getEntries().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets, loggedOn));
             }
         }
         // The time segments repeat as planned, each pending again.
@@ -1532,14 +1533,15 @@ public class WorkoutServiceImpl implements WorkoutService {
                 .filter(segment -> segment.getPlannedSeconds() != null)
                 .map(segment -> new PlanEntryRules.SegmentSpec(segment.getKind(), segment.getLabel(),
                         segment.getPlannedSeconds(), 1))
-                .toList(), LocalDate.now(clock.withZone(InsightDates.resolveZone(timezone))));
+                .toList(), loggedOn);
         applySessionKind(repeated);
         return repeated;
     }
 
     private SessionEntry toRepeatedExerciseLog(WorkoutSessionEntity session,
                                                            SessionEntry source,
-                                                           List<WorkoutExerciseSetLogEntity> loggedSets) {
+                                                           List<WorkoutExerciseSetLogEntity> loggedSets,
+                                                           LocalDate loggedOn) {
         SessionEntry repeated = new SessionEntry();
         repeated.setExerciseLogId(UUID.randomUUID());
         repeated.setSession(session);
@@ -1548,6 +1550,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setSequence(source.getSequence());
         repeated.setTempoSeconds(source.getTempoSeconds());
         repeated.setNotes(source.getNotes());
+        repeated.setLoggedOn(loggedOn);
         for (WorkoutExerciseSetLogEntity sourceSet : loggedSets) {
             repeated.getSets().add(toRepeatedSetLog(repeated, sourceSet));
         }
