@@ -55,3 +55,8 @@ output "app_secret_name" {
   description = "Secrets Manager secret the app host reads at deploy time"
   value       = var.enable_rds ? aws_secretsmanager_secret.app[0].name : null
 }
+
+output "notify_email_identity_arn" {
+  description = "SES identity of the notification sender (null unless this workspace creates it)"
+  value       = length(aws_sesv2_email_identity.notify_sender) > 0 ? aws_sesv2_email_identity.notify_sender[0].arn : null
+}

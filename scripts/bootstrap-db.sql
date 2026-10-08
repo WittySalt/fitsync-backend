@@ -1,11 +1,11 @@
 -- Idempotent DB bootstrap for every environment: one least-privilege login role per
--- service plus the schema it builds into. On a fresh database it creates the six roles
+-- service plus the schema it builds into. On a fresh database it creates the seven roles
 -- and schemas; on later runs it only re-applies the passwords, and existing roles keep
 -- their tables and grants. Flyway then builds the tables as each service user.
 --
 -- scripts/ec2-deploy.sh runs it on every deploy, as the RDS master, with the passwords
 -- read from Secrets Manager and passed as psql variables (auth_pw, user_pw, workout_pw,
--- nutrition_pw, analytics_pw, recommendation_pw). Nothing is stored in this file.
+-- nutrition_pw, analytics_pw, recommendation_pw, notification_pw). Nothing is stored in this file.
 \set ON_ERROR_STOP on
 
 -- auth
@@ -48,3 +48,9 @@ SELECT format('CREATE ROLE %I LOGIN', 'recommendation_svc') WHERE NOT EXISTS (SE
 ALTER ROLE recommendation_svc LOGIN PASSWORD :'recommendation_pw';
 CREATE SCHEMA IF NOT EXISTS recommendation;
 GRANT USAGE, CREATE ON SCHEMA recommendation TO recommendation_svc;
+
+-- notification
+SELECT format('CREATE ROLE %I LOGIN', 'notification_svc') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'notification_svc')\gexec
+ALTER ROLE notification_svc LOGIN PASSWORD :'notification_pw';
+CREATE SCHEMA IF NOT EXISTS notification;
+GRANT USAGE, CREATE ON SCHEMA notification TO notification_svc;

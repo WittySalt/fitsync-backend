@@ -14,11 +14,13 @@ variable "services" {
     "nutrition-service",
     "analytics-service",
     "recommendation-service",
+    "notification-service",
   ]
 }
 
 # Six repositories were created by hand on 2026-06-20; adopt them instead of
-# recreating. recommendation-service is new and is simply created.
+# recreating. recommendation-service and notification-service were added later and are
+# simply created.
 import {
   for_each = toset([
     "api-gateway",

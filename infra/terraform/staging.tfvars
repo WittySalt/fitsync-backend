@@ -27,3 +27,10 @@ ec2_instance_type = "t3.large"
 
 cognito_callback_urls = ["http://localhost:3000/auth/callback"]
 cognito_logout_urls   = ["http://localhost:3000/logout/callback"]
+
+# From address of notification-service emails. Fill in the sender, e.g. a
+# plus-address such as name+staging@example.com, then click the verification link
+# SES mails to it. Empty = no SES identity and no send permission (emails are only
+# logged). The identity is account-wide: if prod uses the same address, let one
+# workspace create it and set notify_email_create_identity = false in the other.
+notify_email_sender = ""

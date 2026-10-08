@@ -1,6 +1,6 @@
 # Brings the whole local stack up for recording: infra first (docker-compose.yml: postgres, minio),
-# then the app stack (docker-compose.prod.yml, events profile: redis, kafka and the seven services),
-# then waits until all 11 containers report healthy and lists them.
+# then the app stack (docker-compose.prod.yml, events profile: redis, kafka and the eight services),
+# then waits until all 12 containers report healthy and lists them.
 #
 #   powershell -NoProfile -File scripts\demo-up.ps1
 #   powershell -NoProfile -File scripts\demo-up.ps1 -DryRun     # prints the commands, runs nothing
@@ -21,7 +21,7 @@ $expected = @(
     'fitsync-postgres', 'fitsync-minio', 'fitsync-redis', 'fitsync-kafka',
     'fitsync-auth-service', 'fitsync-user-service', 'fitsync-workout-service',
     'fitsync-nutrition-service', 'fitsync-analytics-service',
-    'fitsync-recommendation-service', 'fitsync-api-gateway'
+    'fitsync-recommendation-service', 'fitsync-notification-service', 'fitsync-api-gateway'
 )
 
 function Invoke-Step([string]$Label, [string[]]$Docker) {
@@ -37,7 +37,7 @@ if (-not $DryRun -and -not (Test-Path $EnvFile)) { throw "Env file '$EnvFile' no
 Write-Host '1/3 Infra: postgres, minio'
 Invoke-Step 'infra up' @('compose', '-f', 'docker-compose.yml', '-p', $InfraProject, 'up', '-d', 'postgres', 'minio', 'minio-init')
 
-Write-Host '2/3 App stack: redis, kafka, seven services (events profile)'
+Write-Host '2/3 App stack: redis, kafka, eight services (events profile)'
 Invoke-Step 'app up' @('compose', '-f', 'docker-compose.prod.yml', '-p', $AppProject, '--env-file', $EnvFile, '--profile', 'events', 'up', '-d')
 
 Write-Host "3/3 Waiting for $($expected.Count) containers to be healthy (up to $TimeoutSeconds s)"

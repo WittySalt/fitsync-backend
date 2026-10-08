@@ -17,7 +17,7 @@ concurrency:
 
 env:
   MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress"
-  RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service"
+  RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service notification-service"
 
 jobs:
   # ── precheck: secret scanning ───────────────────────────────────────────────
