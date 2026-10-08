@@ -8,6 +8,10 @@ import com.fitsync.user.messaging.entity.OutboxEventEntity;
 import com.fitsync.user.messaging.repository.OutboxEventRepository;
 import org.springframework.stereotype.Component;
 
+/**
+ * Records a domain event in the outbox table instead of sending it, so it commits or rolls back with the
+ * change that raised it; {@link OutboxEventRelay} sends it to Kafka later.
+ */
 @Component
 public class OutboxDomainEventPublisher implements DomainEventPublisher {
 

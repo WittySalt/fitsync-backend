@@ -11,6 +11,11 @@ import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Service;
 
+/**
+ * Verifies the access tokens auth-service issues and reads the caller out of them. This service only
+ * verifies: it shares the signing secret and never mints a token. The secret is used Base64-decoded
+ * when it decodes, otherwise as its raw UTF-8 bytes.
+ */
 @Service
 public class JwtService {
 

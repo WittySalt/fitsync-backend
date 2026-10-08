@@ -27,9 +27,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * OpenFoodFacts barcode fallback. Maps a product's per-100g nutriments to a non-persisted
- * {@link FoodDetailView} (foodId null, source IMPORTED) the caller can show or log as a manual item.
- * No-ops (returns empty) when disabled or on any error, so a miss degrades to "not found".
+ * OpenFoodFacts fallback for barcode lookups and text searches the local catalogue cannot answer. Maps a
+ * product's per-100g nutriments to a non-persisted {@link FoodDetailView} (foodId null, source IMPORTED) the
+ * caller can show, log as a manual item or import into the catalogue.
+ * No-ops (returns empty) when disabled or on any error, so a miss degrades to "not found". Calls are spaced
+ * at least {@code minRequestInterval} apart to stay within the OpenFoodFacts rate limits.
  */
 @Component
 public class OpenFoodFactsFoodSource implements ExternalFoodSource {
@@ -207,6 +209,10 @@ public class OpenFoodFactsFoodSource implements ExternalFoodSource {
         return requestFactory;
     }
 
+    /**
+     * Reserves the next free request slot under the lock and sleeps outside it, so concurrent callers queue up
+     * one interval apart instead of all waking at once.
+     */
     private void throttle() throws InterruptedException {
         Duration minInterval = properties.minRequestInterval();
         if (minInterval.isZero()) {

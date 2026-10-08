@@ -14,7 +14,6 @@ import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.SessionKind;
 import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutDifficulty;
-import com.fitsync.workout.domain.WorkoutPlanStatus;
 import com.fitsync.workout.domain.WorkoutSessionStatus;
 import com.fitsync.workout.domain.WorkoutType;
 import com.fitsync.workout.dto.CreateWorkoutPlanRequest;

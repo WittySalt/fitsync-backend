@@ -123,6 +123,11 @@ public class PlanEntry {
         return entryType != EntryType.SEGMENT;
     }
 
+    /** The id of the plan day this entry belongs to, or null when the plan is flat. */
+    public UUID planDayId() {
+        return planDay == null ? null : planDay.getPlanDayId();
+    }
+
     public UUID getPlanExerciseId() { return planExerciseId; }
     public void setPlanExerciseId(UUID planExerciseId) { this.planExerciseId = planExerciseId; }
     public WorkoutPlanEntity getPlan() { return plan; }

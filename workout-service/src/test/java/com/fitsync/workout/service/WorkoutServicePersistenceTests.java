@@ -2585,6 +2585,8 @@ class WorkoutServicePersistenceTests {
         assertNull(repeated.caloriesBurned());
         assertNull(repeated.perceivedExertion());
         assertEquals(1, repeated.exerciseCount());
+        // Set history is indexed on the entry's date, so a repeated exercise must carry one.
+        assertTrue(repeated.entries().stream().allMatch(entry -> entry.loggedOn() != null));
         assertNull(repeated.exercises().get(0).performedSets());
         assertNull(repeated.exercises().get(0).performedReps());
         assertNull(repeated.exercises().get(0).totalVolumeKg());

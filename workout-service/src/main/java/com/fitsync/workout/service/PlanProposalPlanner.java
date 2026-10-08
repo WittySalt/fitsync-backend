@@ -51,6 +51,7 @@ public final class PlanProposalPlanner {
     static final int OTHER_REST_SECONDS = 60;
     static final int HOLD_SECONDS = 45;
 
+    /** ISO weekdays in the order strength days are tried: Monday, Thursday, Saturday, then the rest. */
     private static final List<Integer> STRENGTH_PREFERENCE = List.of(1, 4, 6, 3, 5, 2, 7);
     private static final int SUNDAY = 7;
     private static final Set<String> STRENGTH_FOCUS = Set.of("FULL_BODY", "UPPER", "LOWER", "CORE", "STRENGTH");
@@ -199,6 +200,7 @@ public final class PlanProposalPlanner {
             "single arm", "sprint", "seated", "cable", "upright", "reverse", "alternating", "smith", "kneeling",
             "standing");
 
+    /** How well a catalogue name matches a curated one; a lower rank is a better match. */
     private static final int EXACT = 0;
     private static final int PLAIN = 1;
     private static final int QUALIFIED = 2;
@@ -448,6 +450,7 @@ public final class PlanProposalPlanner {
 
     private static List<PlanEntryInput> strengthEntries(List<Slot> template, int minutes, Profile profile,
                                                         MovePicker picker, Set<UUID> used) {
+        // About one move per eight minutes of the day, kept between four and seven.
         int moves = Math.max(MIN_MOVES, Math.min(MAX_MOVES, minutes / MINUTES_PER_MOVE));
         List<PlanEntryInput> entries = new ArrayList<>();
         for (Slot slot : template) {

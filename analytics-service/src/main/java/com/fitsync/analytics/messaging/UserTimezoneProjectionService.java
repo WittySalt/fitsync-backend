@@ -5,7 +5,6 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZoneId;
 
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
@@ -14,6 +13,10 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Stores the user's timezone on the dashboard snapshot. Every "today" and "this week" in analytics is
+ * resolved in that zone. A missing or invalid zone is ignored, so the last valid one is kept.
+ */
 @Service
 public class UserTimezoneProjectionService {
 
@@ -52,7 +55,7 @@ public class UserTimezoneProjectionService {
             dashboardSnapshotRepository.save(snapshot);
             cacheInvalidationService.evictForUser(event.userId());
         }
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
     }
 
     private String normalizeTimezone(String timezone) {
@@ -65,14 +68,5 @@ public class UserTimezoneProjectionService {
         } catch (DateTimeException ex) {
             return null;
         }
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() == null ? Instant.now(clock) : event.occurredAt());
-        processedEventRepository.save(processedEvent);
     }
 }

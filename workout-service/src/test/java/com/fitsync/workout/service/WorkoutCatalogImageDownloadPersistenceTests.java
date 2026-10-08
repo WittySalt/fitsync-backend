@@ -107,6 +107,24 @@ class WorkoutCatalogImageDownloadPersistenceTests {
         assertEquals("http://media.test/fitsync-media/exercises/Fixture_Bench_Press/1.jpg", bench.images().get(0).url());
     }
 
+    @Test
+    void shouldNameStoredImagesAfterTheirContentType() {
+        when(upstreamHttpImageSource.load("Fixture_Bench_Press/0.data"))
+                .thenReturn(Optional.of(new CatalogImage("zero".getBytes(StandardCharsets.UTF_8), "image/png")));
+        when(upstreamHttpImageSource.load("Fixture_Bench_Press/1.data"))
+                .thenReturn(Optional.of(new CatalogImage("one".getBytes(StandardCharsets.UTF_8), "image/webp")));
+        when(mediaStorageService.put(eq("exercises/Fixture_Bench_Press/0.png"), any(byte[].class), eq("image/png")))
+                .thenReturn("http://media.test/fitsync-media/exercises/Fixture_Bench_Press/0.png");
+        when(mediaStorageService.put(eq("exercises/Fixture_Bench_Press/1.webp"), any(byte[].class), eq("image/webp")))
+                .thenReturn("http://media.test/fitsync-media/exercises/Fixture_Bench_Press/1.webp");
+
+        exerciseCatalogImportService.importFreeExerciseDbCatalog();
+
+        ExerciseView bench = importedBenchPress();
+        assertEquals("http://media.test/fitsync-media/exercises/Fixture_Bench_Press/0.png", bench.images().get(0).url());
+        assertEquals("http://media.test/fitsync-media/exercises/Fixture_Bench_Press/1.webp", bench.images().get(1).url());
+    }
+
     private ExerciseView importedBenchPress() {
         ExerciseEntity bench = exerciseRepository
                 .findByExternalSourceAndExternalRef("free-exercise-db", "Fixture_Bench_Press")

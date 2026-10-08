@@ -3,11 +3,9 @@ package com.fitsync.analytics.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -328,13 +326,6 @@ public class AchievementsService {
         String timezone = snapshotRepository.findById(userId)
                 .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
                 .orElse(null);
-        if (timezone == null || timezone.isBlank()) {
-            return ZoneOffset.UTC;
-        }
-        try {
-            return ZoneId.of(timezone.trim());
-        } catch (DateTimeException ex) {
-            return ZoneOffset.UTC;
-        }
+        return UserZone.of(timezone);
     }
 }

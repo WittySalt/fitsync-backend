@@ -40,7 +40,6 @@ import com.fitsync.workout.dto.ImportWorkoutSessionRowResult;
 import com.fitsync.workout.dto.ImportWorkoutSessionRowStatus;
 import com.fitsync.workout.dto.ImportWorkoutSessionsRequest;
 import com.fitsync.workout.dto.ImportWorkoutSessionsResponse;
-import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpdateExerciseRequest;
 import com.fitsync.workout.dto.LiftProgressView;
 import com.fitsync.workout.dto.MostTrainedView;
@@ -1596,16 +1595,17 @@ class WorkoutControllerTests {
         CurrentUserPrincipal principal = principal();
         WorkoutSessionView response = sessionView(repeatedSessionId, WorkoutSessionStatus.IN_PROGRESS);
 
-        when(workoutService.repeatSession(any(), eq(sessionId))).thenReturn(response);
+        when(workoutService.repeatSession(any(), eq(sessionId), any())).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/workouts/sessions/{sessionId}/repeat", sessionId)
                         .with(authentication(authToken(principal)))
-                        .with(csrf()))
+                        .with(csrf())
+                        .header("X-Timezone", "Asia/Singapore"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sessionId").value(repeatedSessionId.toString()))
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
 
-        verify(workoutService).repeatSession(eq(principal), eq(sessionId));
+        verify(workoutService).repeatSession(eq(principal), eq(sessionId), eq("Asia/Singapore"));
     }
 
     @Test
@@ -1614,7 +1614,7 @@ class WorkoutControllerTests {
         CurrentUserPrincipal principal = principal();
         WorkoutSessionView response = sessionView(repeatedSessionId, WorkoutSessionStatus.IN_PROGRESS);
 
-        when(workoutService.repeatLatestSession(any())).thenReturn(response);
+        when(workoutService.repeatLatestSession(any(), any())).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/workouts/sessions/repeat-latest")
                         .with(authentication(authToken(principal)))
@@ -1623,7 +1623,7 @@ class WorkoutControllerTests {
                 .andExpect(jsonPath("$.sessionId").value(repeatedSessionId.toString()))
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
 
-        verify(workoutService).repeatLatestSession(eq(principal));
+        verify(workoutService).repeatLatestSession(eq(principal), eq("UTC"));
     }
 
     @Test

@@ -33,13 +33,16 @@ import com.fitsync.web.error.ForbiddenException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * The exercise library: the shared catalogue (no owner) plus each user's own custom exercises. A user sees the
+ * catalogue and their own exercises; only their own can be edited, archived or given uploaded media.
+ */
 @Service
 public class ExerciseServiceImpl implements ExerciseService {
 
@@ -187,7 +190,7 @@ public class ExerciseServiceImpl implements ExerciseService {
                                                     WorkoutDifficulty difficulty,
                                                     int page,
                                                     int size) {
-        return toPageResponse(exerciseRepository.searchAccessible(
+        return PageResponses.of(exerciseRepository.searchAccessible(
                         currentUser.userId(),
                         ExerciseStatus.ACTIVE,
                         normalizeQuery(query),
@@ -208,6 +211,10 @@ public class ExerciseServiceImpl implements ExerciseService {
                 .orElseThrow(() -> new ResourceNotFoundException("Exercise not found"));
     }
 
+    /**
+     * A catalogue exercise is refused with 403. Another user's exercise answers 404, so its existence is not
+     * revealed.
+     */
     private ExerciseEntity findEditableCustomExercise(UUID userId, UUID exerciseId) {
         ExerciseEntity entity = findAccessibleExercise(userId, exerciseId);
         if (entity.getOwnerUserId() == null) {
@@ -219,6 +226,10 @@ public class ExerciseServiceImpl implements ExerciseService {
         return entity;
     }
 
+    /**
+     * Looked up by id rather than by the caller's access, because an admin may add media to any user's custom
+     * exercise. Catalogue exercises take their images from the importer only.
+     */
     private ExerciseEntity findMediaEditableExercise(CurrentUserPrincipal currentUser, UUID exerciseId) {
         ExerciseEntity entity = exerciseRepository.findById(exerciseId)
                 .filter(exercise -> exercise.getStatus() == ExerciseStatus.ACTIVE)
@@ -287,17 +298,6 @@ public class ExerciseServiceImpl implements ExerciseService {
             return null;
         }
         return query.trim();
-    }
-
-    private <T> PageResponse<T> toPageResponse(Page<T> page) {
-        return PageResponse.of(
-                page.getContent(),
-                page.getNumber(),
-                page.getSize(),
-                page.getTotalElements(),
-                page.getTotalPages(),
-                page.isFirst(),
-                page.isLast());
     }
 
     private ExerciseView toSummaryView(ExerciseEntity entity) {

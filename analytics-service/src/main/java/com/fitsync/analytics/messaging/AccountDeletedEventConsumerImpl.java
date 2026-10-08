@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import org.springframework.stereotype.Component;
 
+/** Handles AccountDeleted by purging every analytics read model row of the user. */
 @Component
 public class AccountDeletedEventConsumerImpl implements DomainEventConsumer<AccountDeletedPayload> {
 

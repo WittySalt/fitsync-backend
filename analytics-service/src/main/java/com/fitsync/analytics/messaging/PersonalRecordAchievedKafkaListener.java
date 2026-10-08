@@ -10,6 +10,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
+/** Reads PersonalRecordAchieved from the workout-events topic and hands it to the personal-record consumer. */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka.listeners.personal-record-achieved", name = "enabled", havingValue = "true")
 public class PersonalRecordAchievedKafkaListener extends AbstractDomainEventKafkaListener<PersonalRecordAchievedPayload> {

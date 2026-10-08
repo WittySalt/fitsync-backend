@@ -10,6 +10,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
+/** Reads EnergyProfileComputed from the user-events topic and hands it to the energy-profile consumer. */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka.listeners.energy-profile-computed", name = "enabled", havingValue = "true")
 public class EnergyProfileComputedKafkaListener extends AbstractDomainEventKafkaListener<EnergyProfileComputedPayload> {

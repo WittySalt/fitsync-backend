@@ -34,6 +34,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class AnswerValidator {
 
+    /**
+     * Two or three sentences fit well inside this. The correction {@link CoachOrchestrator} sends back
+     * quotes the same figure, so the two change together.
+     */
     private static final int MAX_ANSWER_LENGTH = 700;
 
     /** A citation marker such as {@code [2]}, removed from the answer before the number check. */

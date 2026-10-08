@@ -2,7 +2,6 @@ package com.fitsync.workout.service;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,6 +36,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+/**
+ * Seeds the shared exercise catalogue from the bundled free-exercise-db JSON. Each row is upserted in its own
+ * transaction by its external id, so a bad row is counted as rejected without undoing the rest, and a re-run
+ * updates rows in place. Source terms without a mapping fall back to a default value and are reported back
+ * with their counts. Images are copied into media storage from the first available {@link CatalogImageSource}.
+ */
 @Service
 public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportService {
 
@@ -165,6 +170,7 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         replaceSecondaryMuscles(entity, source.primaryMuscles(), source.secondaryMuscles(), fallbackCounts);
     }
 
+    /** The first instruction step doubles as the description, cut to the 1000-character column. */
     private String firstInstruction(List<String> instructions) {
         if (instructions == null || instructions.isEmpty()) {
             return null;
@@ -176,6 +182,10 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         return instruction.length() > 1000 ? instruction.substring(0, 1000) : instruction;
     }
 
+    /**
+     * Updates instruction steps in place by step number (index + 1) and removes steps no longer present.
+     * Blank lines are skipped without renumbering the steps after them.
+     */
     private void replaceInstructions(ExerciseEntity entity, List<String> instructions) {
         if (instructions == null) {
             entity.getInstructions().clear();
@@ -212,8 +222,11 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         }
         Optional<CatalogImageSource> selectedImageSource = selectImageSource();
         if (selectedImageSource.isEmpty()) {
+            // Empty means both sources are out: the local directory is unset, missing or empty, and the
+            // upstream download is switched off. The message names both so neither is chased alone.
             if (!entity.getImages().isEmpty()) {
-                LOGGER.debug("Skipping free-exercise-db image refresh for {} because no image source directory is configured",
+                LOGGER.debug("Skipping free-exercise-db image refresh for {} because no local image directory is "
+                                + "available and the upstream download is disabled",
                         sanitizeForLog(externalRef));
             }
             return;
@@ -238,7 +251,8 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
                 continue;
             }
             String imageUrl = mediaStorageServiceProvider.getObject()
-                    .put(imageStorageKey(externalRef, position), catalogImage.get().bytes(), catalogImage.get().contentType());
+                    .put(imageStorageKey(externalRef, position, catalogImage.get()), catalogImage.get().bytes(),
+                            catalogImage.get().contentType());
             ExerciseImageEntity imageEntity = entity.getImages().stream()
                     .filter(existing -> position == existing.getPosition())
                     .findFirst()
@@ -255,6 +269,7 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         entity.getImages().removeIf(image -> !expectedPositions.contains(image.getPosition()));
     }
 
+    /** A local copy wins over the upstream download; with neither, existing images are left as they are. */
     private Optional<CatalogImageSource> selectImageSource() {
         if (localDirectoryImageSource.isAvailable()) {
             return Optional.of(localDirectoryImageSource);
@@ -277,10 +292,19 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         }
     }
 
-    private String imageStorageKey(String externalRef, int position) {
-        return CATALOG_IMAGE_KEY_PREFIX + externalRef + "/" + position + ".jpg";
+    /**
+     * The media key of a catalogue image, named after its content type so a PNG or WebP is not stored
+     * as .jpg. The key is only written to, never compared, so each run uploads again and points the
+     * row at the returned URL; a JPEG keeps its old key.
+     */
+    private String imageStorageKey(String externalRef, int position, CatalogImage image) {
+        return CATALOG_IMAGE_KEY_PREFIX + externalRef + "/" + position + "." + image.fileExtension();
     }
 
+    /**
+     * The secondary groups are every primary muscle after the first plus the listed secondary muscles, mapped
+     * to groups, without the exercise's own primary group.
+     */
     private void replaceSecondaryMuscles(ExerciseEntity entity,
                                          List<String> primaryMuscles,
                                          List<String> secondaryMuscles,

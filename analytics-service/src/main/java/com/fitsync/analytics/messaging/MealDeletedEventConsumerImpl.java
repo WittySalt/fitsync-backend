@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles MealDeleted by removing the meal's contribution from its day's nutrition totals. */
 @Service
 public class MealDeletedEventConsumerImpl implements DomainEventConsumer<MealDeletedPayload> {
 

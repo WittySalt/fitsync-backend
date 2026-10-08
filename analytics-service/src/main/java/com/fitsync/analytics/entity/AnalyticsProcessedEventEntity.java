@@ -8,6 +8,10 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * One row per consumed event id, so a redelivered event is skipped. Also holds the deleted-meal markers of
+ * {@code MealNutritionProjectionService}, keyed by meal id.
+ */
 @Entity
 @Table(name = "analytics_processed_events")
 public class AnalyticsProcessedEventEntity {

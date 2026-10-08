@@ -30,6 +30,7 @@ import com.fitsync.user.messaging.OutboxEventStatus;
 import com.fitsync.user.messaging.repository.OutboxEventRepository;
 import com.fitsync.user.domain.GoalStatus;
 import com.fitsync.user.repository.UserGoalRepository;
+import com.fitsync.user.repository.UserHealthReadinessRepository;
 import com.fitsync.user.repository.UserProfileRepository;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -58,6 +59,9 @@ class UserProfileTests {
 
     @Autowired
     private UserGoalRepository userGoalRepository;
+
+    @Autowired
+    private UserHealthReadinessRepository userHealthReadinessRepository;
 
     @BeforeEach
     void clearOutbox() {
@@ -230,6 +234,21 @@ class UserProfileTests {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.healthReadiness").doesNotExist());
+    }
+
+    @Test
+    void firstHealthReadinessReadStoresTheDefaultRow() throws Exception {
+        UUID userId = UUID.randomUUID();
+        String token = tokenFor(userId, "health-first-read@example.com", "Health First Read");
+
+        mockMvc.perform(get("/api/v1/users/me/health-readiness")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.heartCondition").value(false))
+                .andExpect(jsonPath("$.injuryAreas", hasSize(0)));
+
+        assertTrue(userHealthReadinessRepository.existsById(userId),
+                "the default row created on first read must be stored, like the other get-or-create reads");
     }
 
     @Test
@@ -523,6 +542,97 @@ class UserProfileTests {
         assertNotNull(workoutFrequencyGoal,
                 "the workout frequency goal set by the first onboarding must still be present");
         assertEquals(4.0, workoutFrequencyGoal.get("targetValue").asDouble());
+    }
+
+    private static String onboardingWithTargets(String targets) {
+        return """
+                {
+                  "displayName": "Plan Keeper",
+                  "birthDate": "1998-06-15",
+                  "gender": "PREFER_NOT_TO_SAY",
+                  "heightCm": 175.0,
+                  "activityLevel": "MODERATELY_ACTIVE",
+                  "timezone": "Asia/Singapore",
+                  "preferredUnits": "100001",
+                  "currentWeightKg": 72.0,
+                  "targetWeightKg": 66.0,
+                  "targetDate": "2026-12-31",
+                  "fitnessLevel": "200002",
+                  "trainingLocation": "210002",
+                  "weeklyWorkoutDays": 3,
+                  "preferredDurationMinutes": 45,
+                  "intensityPreference": "220003",
+                  "dietaryPattern": "300002",
+                  "mealFrequency": 3,
+                  "calorieTrackingMode": "310003",
+                  "macroPreference": "320002",
+                  %s
+                  "workoutReminderEnabled": false,
+                  "mealReminderEnabled": false,
+                  "weighInReminderEnabled": false
+                }
+                """.formatted(targets);
+    }
+
+    private Map<String, Double> activeGoalTargets(String token) throws Exception {
+        MvcResult goalsResult = mockMvc.perform(get("/api/v1/users/me/goals")
+                        .header("Authorization", "Bearer " + token)
+                        .param("status", "ACTIVE"))
+                .andExpect(status().isOk())
+                .andReturn();
+        Map<String, Double> targets = new java.util.HashMap<>();
+        for (JsonNode goal : objectMapper.readTree(goalsResult.getResponse().getContentAsString())) {
+            targets.put(goal.get("goalType").asText(), goal.get("targetValue").asDouble());
+        }
+        return targets;
+    }
+
+    @Test
+    void onboardingKeepsTheDailyTargetsShownOnThePlanStep() throws Exception {
+        String token = tokenFor("plan-keeper@example.com", "Plan Keeper");
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(onboardingWithTargets("""
+                                "targetCalories": 1747,
+                                  "targetProteinGrams": 130,
+                                  "targetCarbsGrams": 197,
+                                  "targetFatGrams": 49,""")))
+                .andExpect(status().isOk());
+
+        Map<String, Double> targets = activeGoalTargets(token);
+        assertEquals(1747.0, targets.get("CALORIES"));
+        assertEquals(130.0, targets.get("PROTEIN"));
+        assertEquals(197.0, targets.get("CARBS"));
+        assertEquals(49.0, targets.get("FAT"));
+    }
+
+    @Test
+    void onboardingStillEstimatesTargetsWhenTheRequestCarriesNone() throws Exception {
+        String token = tokenFor("plan-estimate@example.com", "Plan Estimate");
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(onboardingWithTargets("")))
+                .andExpect(status().isOk());
+
+        Map<String, Double> targets = activeGoalTargets(token);
+        assertNotNull(targets.get("CALORIES"));
+        assertNotNull(targets.get("CARBS"));
+    }
+
+    @Test
+    void onboardingRejectsDailyTargetsOutsideTheAllowedRange() throws Exception {
+        String token = tokenFor("plan-range@example.com", "Plan Range");
+
+        mockMvc.perform(post("/api/v1/users/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(onboardingWithTargets("""
+                                "targetCalories": 300,""")))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

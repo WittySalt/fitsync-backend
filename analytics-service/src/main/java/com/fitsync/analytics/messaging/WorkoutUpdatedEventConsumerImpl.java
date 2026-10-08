@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.workout.WorkoutUpdatedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles WorkoutUpdated by replacing the session's contribution, which may move it to another day. */
 @Service
 public class WorkoutUpdatedEventConsumerImpl implements DomainEventConsumer<WorkoutUpdatedPayload> {
 

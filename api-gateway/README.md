@@ -6,11 +6,12 @@ This document defines the recommended API gateway design for the current FitSync
 
 It is intentionally aligned with the current repository reality:
 
-- `auth-service`, `user-service`, `workout-service`, and `nutrition-service` are meaningful runnable domain services today
-- `analytics-service`, `recommendation-service`, and `notification-service` are still scaffolds
-- production ingress currently uses `nginx`
+- `auth-service`, `user-service`, `workout-service`, `nutrition-service`, `analytics-service`, and `recommendation-service` (the AI coach) are runnable domain services today
+- `notification-service` is still an empty placeholder
+- production ingress uses `nginx` for TLS, in front of the `api-gateway`
+- the `api-gateway` exists and routes to all six domain services, including `recommendation-service` on port 8086
 
-The gateway should therefore be introduced as a thin edge service, not as a second orchestration layer with business logic.
+The gateway is therefore a thin edge service, not a second orchestration layer with business logic.
 
 ---
 
@@ -39,11 +40,12 @@ The gateway should not provide:
 
 ### 3.1 Current state
 
-Today the public traffic path is:
+Before the gateway, the public traffic path was:
 
 `client -> nginx -> auth-service`
 
-Even when `user-service` is enabled, traffic is still effectively routed through the `auth-service` entry layer.
+Even when `user-service` was enabled, traffic was still effectively routed through the `auth-service` entry layer.
+The target state below is now in place.
 
 ### 3.2 Target state
 
@@ -110,7 +112,8 @@ Recommended initial route ownership:
 
 ### 5.3 Future route map
 
-Add these when services become real:
+Add these when services become real (analytics and recommendations, plus the coach's `/api/v1/coach/**`, are
+already routed; only notifications is still pending):
 
 | External path | Downstream service |
 |---|---|

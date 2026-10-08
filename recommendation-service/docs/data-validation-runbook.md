@@ -1,6 +1,6 @@
 # Food Data — Clonability & Validation Runbook
 
-> **Status:** Operational runbook. Branch-only (`claude/recommendation-interface-review-*`), **not for `main`**.
+> **Status:** Operational runbook, written while recommendation-service was developed on its own branch.
 > Answers: *can the open food datasets be cloned locally, and is the data good enough to build on?*
 > Companion to `nutrition-data-plan.md`.
 

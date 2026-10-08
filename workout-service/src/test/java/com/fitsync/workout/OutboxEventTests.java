@@ -1,8 +1,10 @@
 package com.fitsync.workout;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
+import com.fitsync.persistence.outbox.OutboxRetryPolicy;
 import com.fitsync.workout.messaging.OutboxEventStatus;
 import com.fitsync.workout.messaging.entity.OutboxEventEntity;
 import com.fitsync.workout.messaging.repository.OutboxEventRepository;
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -83,6 +86,39 @@ class OutboxEventTests {
                 });
     }
 
+
+    @Test
+    void relayPicksPendingAndDueFailedEventsButNotOnesWaitingOrOutOfAttempts() {
+        Instant now = Instant.parse("2026-10-08T12:00:00Z");
+        OutboxEventEntity pending = savedEvent(OutboxEventStatus.PENDING, 0, null);
+        OutboxEventEntity dueRetry = savedEvent(OutboxEventStatus.FAILED, 2, now.minusSeconds(1));
+        savedEvent(OutboxEventStatus.FAILED, 2, now.plusSeconds(60));
+        savedEvent(OutboxEventStatus.FAILED, OutboxRetryPolicy.MAX_ATTEMPTS, now.minusSeconds(60));
+        savedEvent(OutboxEventStatus.PUBLISHED, 1, null);
+
+        List<OutboxEventEntity> due = outboxEventRepository.findDueForPublishing(OutboxEventStatus.PENDING,
+                OutboxEventStatus.FAILED, OutboxRetryPolicy.MAX_ATTEMPTS, now, PageRequest.of(0, 50));
+
+        assertThat(due).extracting(OutboxEventEntity::getEventId)
+                .containsExactlyInAnyOrder(pending.getEventId(), dueRetry.getEventId());
+        assertThat(outboxEventRepository.findDueForPublishing(OutboxEventStatus.PENDING, OutboxEventStatus.FAILED,
+                OutboxRetryPolicy.MAX_ATTEMPTS, now, PageRequest.of(0, 1))).hasSize(1);
+    }
+
+    private OutboxEventEntity savedEvent(OutboxEventStatus status, int attempts, Instant nextAttemptAt) {
+        OutboxEventEntity event = new OutboxEventEntity();
+        event.setEventId(UUID.randomUUID());
+        event.setTopic("workout-events");
+        event.setEventType("WorkoutLogged");
+        event.setAggregateType("WorkoutSession");
+        event.setAggregateId(UUID.randomUUID().toString());
+        event.setEventVersion(1);
+        event.setPayload("{}");
+        event.setStatus(status);
+        event.setAttemptCount(attempts);
+        event.setNextAttemptAt(nextAttemptAt);
+        return outboxEventRepository.save(event);
+    }
 
     private void postCompletedCardio(String caloriesField) throws Exception {
         mockMvc.perform(post("/api/v1/workouts/sessions")

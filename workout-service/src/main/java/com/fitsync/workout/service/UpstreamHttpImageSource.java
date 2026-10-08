@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
@@ -16,18 +17,34 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriUtils;
 
+/**
+ * Downloads catalogue images from the free-exercise-db repository over HTTP. A 404 is skipped at once;
+ * other statuses and I/O errors are retried up to {@link #MAX_ATTEMPTS} times, after which the image is
+ * skipped rather than failing the import. Each retry waits a little longer than the one before
+ * ({@link #DEFAULT_RETRY_BACKOFF} times the retry number), so a brief upstream hiccup or rate limit has
+ * time to clear instead of being hit three times in a row; the wait stays short because the import runs
+ * synchronously over some 1700 images.
+ */
 @Component
 public final class UpstreamHttpImageSource implements CatalogImageSource {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(UpstreamHttpImageSource.class);
-    private static final String DEFAULT_CONTENT_TYPE = "image/jpeg";
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(15);
     private static final int MAX_ATTEMPTS = 3;
+    private static final Duration DEFAULT_RETRY_BACKOFF = Duration.ofMillis(250);
 
     private final boolean downloadWhenMissing;
     private final URI imageBaseUri;
     private final HttpClient httpClient;
+    private final Duration retryBackoff;
+    private final RetryPause retryPause;
+
+    /** Waits between attempts; tests pass one that records the wait instead of sleeping. */
+    @FunctionalInterface
+    interface RetryPause {
+        void pause(Duration duration) throws InterruptedException;
+    }
 
     @Autowired
     public UpstreamHttpImageSource(
@@ -39,9 +56,20 @@ public final class UpstreamHttpImageSource implements CatalogImageSource {
     }
 
     UpstreamHttpImageSource(boolean downloadWhenMissing, String imageBaseUrl, HttpClient httpClient) {
+        this(downloadWhenMissing, imageBaseUrl, httpClient, DEFAULT_RETRY_BACKOFF,
+                duration -> Thread.sleep(duration.toMillis()));
+    }
+
+    UpstreamHttpImageSource(boolean downloadWhenMissing,
+                            String imageBaseUrl,
+                            HttpClient httpClient,
+                            Duration retryBackoff,
+                            RetryPause retryPause) {
         this.downloadWhenMissing = downloadWhenMissing;
         this.imageBaseUri = normalizeBaseUri(imageBaseUrl);
         this.httpClient = httpClient;
+        this.retryBackoff = retryBackoff;
+        this.retryPause = retryPause;
     }
 
     @Override
@@ -54,6 +82,9 @@ public final class UpstreamHttpImageSource implements CatalogImageSource {
         URI imageUri = imageUri(relativeImagePath);
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
+                if (attempt > 1) {
+                    retryPause.pause(retryBackoff.multipliedBy(attempt - 1L));
+                }
                 HttpResponse<byte[]> response = httpClient.send(
                         HttpRequest.newBuilder(imageUri).timeout(READ_TIMEOUT).GET().build(),
                         HttpResponse.BodyHandlers.ofByteArray());
@@ -97,6 +128,7 @@ public final class UpstreamHttpImageSource implements CatalogImageSource {
         return baseUri;
     }
 
+    /** Lower-cases ASCII letters only, since URI schemes compare case-insensitively. */
     private String normalizeAsciiScheme(String scheme) {
         if (scheme == null) {
             return "";
@@ -116,7 +148,7 @@ public final class UpstreamHttpImageSource implements CatalogImageSource {
     private URI imageUri(String relativeImagePath) {
         URI relativeUri = URI.create(UriUtils.encodePath(
                 relativeImagePath.replace('\\', '/'),
-                java.nio.charset.StandardCharsets.UTF_8));
+                StandardCharsets.UTF_8));
         if (relativeUri.isAbsolute() || relativeImagePath.startsWith("/") || relativeImagePath.contains("..")) {
             throw new IllegalArgumentException("free-exercise-db image path must be relative");
         }
@@ -127,18 +159,7 @@ public final class UpstreamHttpImageSource implements CatalogImageSource {
         return response.headers()
                 .firstValue("Content-Type")
                 .filter(value -> value.toLowerCase(Locale.ROOT).startsWith("image/"))
-                .orElseGet(() -> inferredContentType(relativeImagePath));
-    }
-
-    private String inferredContentType(String relativeImagePath) {
-        String normalized = relativeImagePath == null ? "" : relativeImagePath.trim().toLowerCase(Locale.ROOT);
-        if (normalized.endsWith(".png")) {
-            return "image/png";
-        }
-        if (normalized.endsWith(".webp")) {
-            return "image/webp";
-        }
-        return DEFAULT_CONTENT_TYPE;
+                .orElseGet(() -> CatalogImage.contentTypeOf(relativeImagePath));
     }
 
     private String sanitizeForLog(String value) {

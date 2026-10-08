@@ -359,8 +359,9 @@ public class WorkoutController {
     @Operation(summary = "Repeat the latest completed workout session")
     @PostMapping("/sessions/repeat-latest")
     @ResponseStatus(HttpStatus.CREATED)
-    public WorkoutSessionView repeatLatestSession(Authentication authentication) {
-        return workoutService.repeatLatestSession(currentPrincipal(authentication));
+    public WorkoutSessionView repeatLatestSession(Authentication authentication,
+                                                  @RequestTimezone Optional<ZoneId> zone) {
+        return workoutService.repeatLatestSession(currentPrincipal(authentication), zoneId(zone));
     }
 
     @GetMapping("/sessions/{sessionId}")
@@ -380,8 +381,9 @@ public class WorkoutController {
     @PostMapping("/sessions/{sessionId}/repeat")
     @ResponseStatus(HttpStatus.CREATED)
     public WorkoutSessionView repeatSession(Authentication authentication,
-                                            @PathVariable UUID sessionId) {
-        return workoutService.repeatSession(currentPrincipal(authentication), sessionId);
+                                            @PathVariable UUID sessionId,
+                                            @RequestTimezone Optional<ZoneId> zone) {
+        return workoutService.repeatSession(currentPrincipal(authentication), sessionId, zoneId(zone));
     }
 
     @PutMapping("/sessions/{sessionId}")

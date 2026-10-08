@@ -4,6 +4,10 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 
+/**
+ * Shared rules for goal status: a goal expires the day after its target date, and the days-remaining
+ * countdown never goes below zero. Callers pass "today" in the user's zone where they know it.
+ */
 public final class GoalExpiryPolicy {
 
     public static final String ACTIVE_STATUS = "ACTIVE";
@@ -16,15 +20,15 @@ public final class GoalExpiryPolicy {
         return ACTIVE_STATUS.equals(normalizeStatus(status));
     }
 
-    public static boolean isExpired(LocalDate targetDate, LocalDate todayUtc) {
-        return targetDate != null && targetDate.isBefore(todayUtc);
+    public static boolean isExpired(LocalDate targetDate, LocalDate today) {
+        return targetDate != null && targetDate.isBefore(today);
     }
 
-    public static Integer daysRemaining(LocalDate targetDate, LocalDate todayUtc) {
+    public static Integer daysRemaining(LocalDate targetDate, LocalDate today) {
         if (targetDate == null) {
             return null;
         }
-        return Math.toIntExact(Math.max(ChronoUnit.DAYS.between(todayUtc, targetDate), 0));
+        return Math.toIntExact(Math.max(ChronoUnit.DAYS.between(today, targetDate), 0));
     }
 
     public static String normalizeStatus(String status) {

@@ -6,6 +6,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+/**
+ * Stands in for Kafka when {@code fitsync.kafka.enabled} is off: it only logs the event, so the outbox
+ * relay still marks rows published in local runs and tests.
+ */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class FallbackKafkaEventProducer implements KafkaEventProducer {
@@ -20,6 +24,7 @@ public class FallbackKafkaEventProducer implements KafkaEventProducer {
                 sanitizeForLog(event.getEventId()));
     }
 
+    /** Strips line breaks so a value cannot forge extra log lines. */
     private String sanitizeForLog(Object value) {
         return String.valueOf(value)
                 .replace("\r", "_")

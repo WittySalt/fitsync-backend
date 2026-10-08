@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles UserProfileUpdated by storing the user's timezone on the dashboard snapshot. */
 @Service
 public class UserProfileUpdatedEventConsumerImpl implements DomainEventConsumer<UserProfileUpdatedPayload> {
 

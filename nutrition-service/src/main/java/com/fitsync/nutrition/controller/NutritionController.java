@@ -77,6 +77,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * The public nutrition API for the signed-in caller. Endpoints that place a meal on a day read the
+ * X-Timezone header, so a meal belongs to the local day it was eaten on; without it the day is the UTC one.
+ */
 @RestController
 @RequestMapping("/api/v1/nutrition")
 public class NutritionController {

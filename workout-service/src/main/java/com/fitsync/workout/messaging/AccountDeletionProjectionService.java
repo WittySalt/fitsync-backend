@@ -8,6 +8,10 @@ import com.fitsync.workout.repository.WorkoutSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Removes everything this service holds for a user when their account is deleted: sessions (including
+ * soft-deleted ones), plans and the user's own custom exercises. Catalogue exercises are kept.
+ */
 @Service
 public class AccountDeletionProjectionService {
 

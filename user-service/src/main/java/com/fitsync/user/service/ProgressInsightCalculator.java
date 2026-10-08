@@ -21,9 +21,12 @@ import com.fitsync.user.dto.ProgressInsightResponse;
  */
 final class ProgressInsightCalculator {
 
+    /** The chart shows the last eight weeks of daily weights. */
     static final int SERIES_DAYS = 56;
     static final int RATE_WINDOW_DAYS = 28;
+    /** Weigh-ins closer together than a week say too little about a trend to give a rate. */
     static final int MIN_RATE_SPAN_DAYS = 7;
+    /** A projection more than two years out is not shown. */
     static final int MAX_PROJECTION_DAYS = 730;
 
     private static final BigDecimal DAYS_PER_WEEK = BigDecimal.valueOf(7);

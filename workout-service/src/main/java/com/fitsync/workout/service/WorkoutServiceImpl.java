@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,6 +97,7 @@ import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -110,6 +112,14 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+/**
+ * Owns plans and sessions: plan editing (a flat list or a week of days), starting a session from a plan
+ * day, live logging of sets and time segments, completion, cancellation and imports. Every completion
+ * goes through one path that settles segments, derives totals, fills calorie and effort estimates and
+ * publishes the WorkoutLogged and PersonalRecordAchieved events. Only one session may be in progress
+ * per user; workouts left open are closed when the user next asks for the active session or starts
+ * one, and by the scheduled sweep.
+ */
 @Service
 public class WorkoutServiceImpl implements WorkoutService {
 
@@ -118,6 +128,8 @@ public class WorkoutServiceImpl implements WorkoutService {
     private static final String SOURCE = "workout-service";
     private static final String ACTIVE_SESSION_EXISTS_CODE = "ACTIVE_SESSION_EXISTS";
     private static final String ACTIVE_SESSION_EXISTS_MESSAGE = "You have a workout in progress.";
+    /** The partial unique index from V18 that allows one in-progress session per person. */
+    private static final String ONE_IN_PROGRESS_INDEX = "uq_workout_sessions_one_in_progress_per_user";
     private static final String NOTHING_LOGGED_CODE = "NOTHING_LOGGED";
     private static final String NOTHING_LOGGED_MESSAGE = "No set was logged in this workout.";
     private static final String IMPORT_IN_PROGRESS_MESSAGE =
@@ -127,13 +139,16 @@ public class WorkoutServiceImpl implements WorkoutService {
     private static final int SWEEP_PAGE_SIZE = 100;
     /** Bounds one sweep run, so a very large backlog is worked through over several runs. */
     private static final int SWEEP_MAX_PAGES = 50;
+    /** A left workout whose last activity is its start is completed this long after it, never at the same instant. */
     private static final Duration AUTO_CLOSE_MINIMUM_DURATION = Duration.ofMinutes(1);
+    /** Record types sent in PersonalRecordAchieved events, so part of the event contract. */
     private static final String MAX_WEIGHT_KG = "MAX_WEIGHT_KG";
     private static final String MAX_REPS = "MAX_REPS";
     private static final String MAX_SINGLE_SET_VOLUME_KG = "MAX_SINGLE_SET_VOLUME_KG";
     private static final String ESTIMATED_ONE_REP_MAX_KG = "ESTIMATED_ONE_REP_MAX_KG";
     private static final String BEST_SESSION_VOLUME_KG = "BEST_SESSION_VOLUME_KG";
     private static final String COPY_SUFFIX = " (Copy)";
+    /** The length of the plan name column, so a copy's name with its suffix still fits. */
     private static final int PLAN_NAME_MAX_LENGTH = 120;
 
     private static final String DUPLICATE_DAY_MESSAGE = "A plan can have one entry for each day of the week.";
@@ -144,6 +159,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     private static final String PLAN_HAS_NOTHING_ON_THIS_DAY_MESSAGE = "The plan has nothing on this day.";
     private static final String SESSION_ENTRIES_ARE_SEGMENTS_MESSAGE =
             "A workout starts with time segments only; moves go in exercises.";
+    /** A segment settled at completion counts at most one day, however long the session was left open. */
     private static final int MAX_SEGMENT_SECONDS = 86400;
 
     private final String workoutEventsTopic;
@@ -226,7 +242,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                                                    WorkoutPlanStatus status,
                                                    int page,
                                                    int size) {
-        return toPageResponse(workoutPlanRepository.findByUserIdAndOptionalStatus(
+        return PageResponses.of(workoutPlanRepository.findByUserIdAndOptionalStatus(
                         currentUser.userId(),
                         status,
                         PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "dateTimeUpdated")))
@@ -269,7 +285,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                                                                      int size) {
         ExerciseEntity exercise = findAccessibleExercise(currentUser.userId(), exerciseId);
         validateHistoryRange(from, to);
-        return toPageResponse(workoutExerciseLogRepository.findExerciseHistory(
+        return PageResponses.of(workoutExerciseLogRepository.findExerciseHistory(
                 currentUser.userId(),
                 exercise.getExerciseId(),
                 from,
@@ -293,7 +309,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     public WorkoutExportView exportWorkoutData(CurrentUserPrincipal currentUser) {
         UUID userId = currentUser.userId();
         return new WorkoutExportView(
-                1,
+                1, // schemaVersion of the export format
                 Instant.now(clock),
                 exerciseService.exportCustomExercises(currentUser),
                 workoutPlanRepository.findByUserIdOrderByDateTimeUpdatedDesc(userId).stream()
@@ -399,12 +415,12 @@ public class WorkoutServiceImpl implements WorkoutService {
             session.setWorkoutType(toWorkoutType(day.getKind()));
             session.setSportActivity(day.getSportActivity());
             seedEntries(session, plan.getEntries().stream()
-                    .filter(entry -> day.getPlanDayId().equals(planDayIdOf(entry)))
+                    .filter(entry -> day.getPlanDayId().equals(entry.planDayId()))
                     .toList(), loggedOn);
         }
         applySessionKind(session);
 
-        return toSessionView(workoutSessionRepository.save(session));
+        return toSessionView(saveActiveSession(session));
     }
 
     /**
@@ -479,10 +495,10 @@ public class WorkoutServiceImpl implements WorkoutService {
      */
     private List<PlanEntryRules.SegmentSpec> startingSegments(UpsertWorkoutSessionRequest request) {
         if (!request.entries().isEmpty()) {
-            List<PlanEntryInput> ordered = new ArrayList<>(request.entries());
+            List<PlanEntryInput> inputs = new ArrayList<>(request.entries());
             List<PlanEntryRules.SegmentSpec> specs = new ArrayList<>();
-            for (int index = 0; index < ordered.size(); index++) {
-                PlanEntryInput input = ordered.get(index);
+            for (int index = 0; index < inputs.size(); index++) {
+                PlanEntryInput input = inputs.get(index);
                 if (input.type() != EntryType.SEGMENT) {
                     throw new IllegalArgumentException(SESSION_ENTRIES_ARE_SEGMENTS_MESSAGE);
                 }
@@ -490,13 +506,14 @@ public class WorkoutServiceImpl implements WorkoutService {
                     throw new IllegalArgumentException(PlanEntryRules.SEGMENT_NEEDS_KIND_MESSAGE);
                 }
             }
+            // Sorted by position; an input without one falls back to its index in the request.
             List<Integer> order = new ArrayList<>();
-            for (int index = 0; index < ordered.size(); index++) {
+            for (int index = 0; index < inputs.size(); index++) {
                 order.add(index);
             }
-            order.sort(Comparator.comparing(index -> PlanEntryRules.positionOf(ordered.get(index), index)));
+            order.sort(Comparator.comparing(index -> PlanEntryRules.positionOf(inputs.get(index), index)));
             for (int index : order) {
-                PlanEntryInput input = ordered.get(index);
+                PlanEntryInput input = inputs.get(index);
                 specs.add(new PlanEntryRules.SegmentSpec(input.kind(), input.label(), input.plannedSeconds(),
                         PlanEntryRules.roundsOf(input.rounds())));
             }
@@ -513,10 +530,6 @@ public class WorkoutServiceImpl implements WorkoutService {
             return PlanEntryRules.defaultIntervals();
         }
         return List.of();
-    }
-
-    private UUID planDayIdOf(PlanEntry planExercise) {
-        return planExercise.getPlanDay() == null ? null : planExercise.getPlanDay().getPlanDayId();
     }
 
     private WorkoutType toWorkoutType(SessionKind kind) {
@@ -550,7 +563,9 @@ public class WorkoutServiceImpl implements WorkoutService {
         LocalDate loggedOn = request.startedAt().atZone(InsightDates.resolveZone(timezone)).toLocalDate();
         entity.getEntries().forEach(entry -> entry.setLoggedOn(loggedOn));
         addSegments(entity, PlanEntryRules.expand(segments), loggedOn);
-        WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
+        WorkoutSessionEntity saved = entity.getStatus() == WorkoutSessionStatus.IN_PROGRESS
+                ? saveActiveSession(entity)
+                : workoutSessionRepository.save(entity);
         if (saved.getStatus() == WorkoutSessionStatus.COMPLETED) {
             publishWorkoutLoggedAndPersonalRecords(saved);
         }
@@ -609,20 +624,20 @@ public class WorkoutServiceImpl implements WorkoutService {
                         q,
                         pageable);
         if (sessionIds.isEmpty()) {
-            return toPageResponse(new PageImpl<>(List.of(), pageable, sessionIds.getTotalElements()));
+            return PageResponses.of(new PageImpl<>(List.of(), pageable, sessionIds.getTotalElements()));
         }
 
         Map<UUID, WorkoutSessionEntity> sessionsById = workoutSessionRepository
                 .findHistoryPageByIds(userId, sessionIds.getContent())
                 .stream()
-                .collect(java.util.stream.Collectors.toMap(
+                .collect(Collectors.toMap(
                         WorkoutSessionEntity::getSessionId,
                         session -> session));
         List<WorkoutSessionView> views = sessionIds.getContent().stream()
                 .map(sessionsById::get)
                 .map(this::toSessionView)
                 .toList();
-        return toPageResponse(new PageImpl<>(views, pageable, sessionIds.getTotalElements()));
+        return PageResponses.of(new PageImpl<>(views, pageable, sessionIds.getTotalElements()));
     }
 
     private void validateDurationRange(Integer minDurationMinutes, Integer maxDurationMinutes) {
@@ -635,17 +650,6 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (isAfterWhenBothPresent(from, to)) {
             throw new IllegalArgumentException("to must not be before from");
         }
-    }
-
-    private <T> PageResponse<T> toPageResponse(Page<T> page) {
-        return PageResponse.of(
-                page.getContent(),
-                page.getNumber(),
-                page.getSize(),
-                page.getTotalElements(),
-                page.getTotalPages(),
-                page.isFirst(),
-                page.isLast());
     }
 
     @Override
@@ -673,6 +677,8 @@ public class WorkoutServiceImpl implements WorkoutService {
         int completed = 0;
         int cancelled = 0;
         int failed = 0;
+        // Keyset paging on (startedAt, sessionId) rather than offsets: sessions closed during the run
+        // drop out of the candidate query, so an offset would skip the ones that move up.
         Instant afterStartedAt = Instant.EPOCH;
         UUID afterSessionId = new UUID(0L, 0L);
         for (int page = 0; page < SWEEP_MAX_PAGES; page++) {
@@ -802,7 +808,8 @@ public class WorkoutServiceImpl implements WorkoutService {
     /**
      * Refuses to put a second session in progress. Left workouts are closed first, so one that was
      * forgotten never blocks a new start. The check and the insert that follows share the caller's
-     * transaction; without a database constraint two simultaneous requests can still both pass.
+     * transaction, so two simultaneous requests can both pass it; on PostgreSQL the index from V18
+     * then refuses the second insert, which {@link #saveActiveSession} turns into the same conflict.
      */
     private void requireNoActiveSession(UUID userId, UUID exceptSessionId) {
         settleOpenSessions(userId)
@@ -815,6 +822,45 @@ public class WorkoutServiceImpl implements WorkoutService {
                                     "name", active.getName(),
                                     "startedAt", active.getStartedAt().toString()));
                 });
+    }
+
+    /**
+     * Saves a session that has just been put in progress and flushes it at once, so the database
+     * index that allows one in-progress session per person (V18, PostgreSQL) is checked here rather
+     * than at commit. A start that loses the race to a simultaneous one then gets the same 409 as the
+     * check in {@link #requireNoActiveSession}; the winner is not readable from this failed
+     * transaction, so the details are left out.
+     */
+    private WorkoutSessionEntity saveActiveSession(WorkoutSessionEntity session) {
+        try {
+            return workoutSessionRepository.saveAndFlush(session);
+        } catch (DataIntegrityViolationException ex) {
+            if (!isOneInProgressViolation(ex)) {
+                throw ex;
+            }
+            throw new ConflictException(ACTIVE_SESSION_EXISTS_CODE, ACTIVE_SESSION_EXISTS_MESSAGE, Map.of());
+        }
+    }
+
+    /**
+     * True when the failure is the one-in-progress index, named in the cause chain either as the
+     * constraint Hibernate extracted or in the driver's message (PostgreSQL keeps the lower-case name).
+     */
+    static boolean isOneInProgressViolation(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation
+                    && ONE_IN_PROGRESS_INDEX.equals(violation.getConstraintName())) {
+                return true;
+            }
+            String message = cause.getMessage();
+            if (message != null && message.contains(ONE_IN_PROGRESS_INDEX)) {
+                return true;
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        return false;
     }
 
     private enum AutoCloseOutcome { COMPLETED, CANCELLED, KEPT }
@@ -835,26 +881,38 @@ public class WorkoutServiceImpl implements WorkoutService {
     @Override
     @Transactional
     public WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId) {
+        return repeatSession(currentUser, sessionId, "UTC");
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId, String timezone) {
         WorkoutSessionEntity source = findSession(currentUser.userId(), sessionId);
         requireNoActiveSession(currentUser.userId(), null);
         if (source.getStatus() != WorkoutSessionStatus.COMPLETED) {
             // Only the sets that were done are repeated, so anything else would start an empty workout.
             throw new IllegalArgumentException("Only a completed workout session can be repeated");
         }
-        WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source);
-        return toSessionView(workoutSessionRepository.save(repeated));
+        WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source, timezone);
+        return toSessionView(saveActiveSession(repeated));
     }
 
     @Override
     @Transactional
     public WorkoutSessionView repeatLatestSession(CurrentUserPrincipal currentUser) {
+        return repeatLatestSession(currentUser, "UTC");
+    }
+
+    @Override
+    @Transactional
+    public WorkoutSessionView repeatLatestSession(CurrentUserPrincipal currentUser, String timezone) {
         WorkoutSessionEntity latest = workoutSessionRepository
                 .findTopByUserIdAndStatusOrderByCompletedAtDesc(currentUser.userId(), WorkoutSessionStatus.COMPLETED)
                 .orElseThrow(() -> new ResourceNotFoundException("Completed workout session not found"));
         WorkoutSessionEntity source = findSession(currentUser.userId(), latest.getSessionId());
         requireNoActiveSession(currentUser.userId(), null);
-        WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source);
-        return toSessionView(workoutSessionRepository.save(repeated));
+        WorkoutSessionEntity repeated = toRepeatedSession(currentUser.userId(), source, timezone);
+        return toSessionView(saveActiveSession(repeated));
     }
 
     @Override
@@ -870,7 +928,10 @@ public class WorkoutServiceImpl implements WorkoutService {
             requireNoActiveSession(currentUser.userId(), sessionId);
         }
         applySessionRequest(currentUser.userId(), entity, request);
-        WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
+        WorkoutSessionEntity saved = entity.getStatus() == WorkoutSessionStatus.IN_PROGRESS
+                && previousStatus != WorkoutSessionStatus.IN_PROGRESS
+                ? saveActiveSession(entity)
+                : workoutSessionRepository.save(entity);
         if (previousStatus == WorkoutSessionStatus.COMPLETED && saved.getStatus() != WorkoutSessionStatus.COMPLETED) {
             // Reopened or cancelled by an edit: the totals drop it, as they do for a delete, and take
             // it back with a WorkoutLogged when it is completed again.
@@ -1229,6 +1290,8 @@ public class WorkoutServiceImpl implements WorkoutService {
         try {
             return importRowTransactionTemplate.execute(status -> importSessionRow(userId, rowIndex, row));
         } catch (DataIntegrityViolationException ex) {
+            // A concurrent import of the same row won the unique index on (user, source, externalId)
+            // after the duplicate lookup passed.
             return new ImportWorkoutSessionRowResult(
                     rowIndex,
                     row == null ? null : row.externalId(),
@@ -1276,6 +1339,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         applySessionRequest(userId, entity, request);
         WorkoutSessionEntity saved = workoutSessionRepository.save(entity);
         if (saved.getStatus() == WorkoutSessionStatus.COMPLETED) {
+            // Imported history counts in the totals but is not announced as a new personal record.
             publishWorkoutLoggedAndPersonalRecords(saved, true);
         }
         return new ImportWorkoutSessionRowResult(
@@ -1291,6 +1355,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (row == null) {
             throw new IllegalArgumentException("Import row must not be null");
         }
+        // The limits are the lengths of the external_id and source columns.
         if (row.externalId() == null || row.externalId().isBlank() || row.externalId().length() > 120) {
             throw new IllegalArgumentException("externalId is required and must not exceed 120 characters");
         }
@@ -1455,7 +1520,12 @@ public class WorkoutServiceImpl implements WorkoutService {
         return copy;
     }
 
-    private WorkoutSessionEntity toRepeatedSession(UUID userId, WorkoutSessionEntity source) {
+    /**
+     * A new in-progress copy of a completed session. Its exercises and segments are dated on today's date
+     * in the caller's zone, as a plan start dates them, so a repeat just after local midnight is not filed
+     * under the server's day.
+     */
+    private WorkoutSessionEntity toRepeatedSession(UUID userId, WorkoutSessionEntity source, String timezone) {
         WorkoutSessionEntity repeated = new WorkoutSessionEntity();
         repeated.setSessionId(UUID.randomUUID());
         repeated.setUserId(userId);
@@ -1467,12 +1537,13 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setStartedAt(Instant.now(clock));
         repeated.setSportActivity(source.getSportActivity());
         repeated.setPlanDayId(source.getPlanDayId());
+        LocalDate loggedOn = LocalDate.now(clock.withZone(InsightDates.resolveZone(timezone)));
         for (SessionEntry sourceExercise : source.getSetEntries()) {
             List<WorkoutExerciseSetLogEntity> loggedSets = sourceExercise.getSets().stream()
                     .filter(this::isDoneSet)
                     .toList();
             if (!loggedSets.isEmpty()) {
-                repeated.getEntries().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets));
+                repeated.getEntries().add(toRepeatedExerciseLog(repeated, sourceExercise, loggedSets, loggedOn));
             }
         }
         // The time segments repeat as planned, each pending again.
@@ -1481,14 +1552,15 @@ public class WorkoutServiceImpl implements WorkoutService {
                 .filter(segment -> segment.getPlannedSeconds() != null)
                 .map(segment -> new PlanEntryRules.SegmentSpec(segment.getKind(), segment.getLabel(),
                         segment.getPlannedSeconds(), 1))
-                .toList(), LocalDate.now(clock));
+                .toList(), loggedOn);
         applySessionKind(repeated);
         return repeated;
     }
 
     private SessionEntry toRepeatedExerciseLog(WorkoutSessionEntity session,
                                                            SessionEntry source,
-                                                           List<WorkoutExerciseSetLogEntity> loggedSets) {
+                                                           List<WorkoutExerciseSetLogEntity> loggedSets,
+                                                           LocalDate loggedOn) {
         SessionEntry repeated = new SessionEntry();
         repeated.setExerciseLogId(UUID.randomUUID());
         repeated.setSession(session);
@@ -1497,6 +1569,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         repeated.setSequence(source.getSequence());
         repeated.setTempoSeconds(source.getTempoSeconds());
         repeated.setNotes(source.getNotes());
+        repeated.setLoggedOn(loggedOn);
         for (WorkoutExerciseSetLogEntity sourceSet : loggedSets) {
             repeated.getSets().add(toRepeatedSetLog(repeated, sourceSet));
         }
@@ -1711,7 +1784,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (inputs == null) {
             return;
         }
-        for (WorkoutPlanExerciseInput input : inputs.stream().sorted(java.util.Comparator.comparing(WorkoutPlanExerciseInput::sequence)).toList()) {
+        for (WorkoutPlanExerciseInput input : inputs.stream().sorted(Comparator.comparing(WorkoutPlanExerciseInput::sequence)).toList()) {
             PlanEntry exercise = new PlanEntry();
             ExerciseEntity sourceExercise = findAccessibleExercise(userId, input.exerciseId());
             exercise.setPlanExerciseId(UUID.randomUUID());
@@ -1740,7 +1813,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             return;
         }
         for (WorkoutPlanExerciseSetTargetInput input : inputs.stream()
-                .sorted(java.util.Comparator.comparing(WorkoutPlanExerciseSetTargetInput::setNumber))
+                .sorted(Comparator.comparing(WorkoutPlanExerciseSetTargetInput::setNumber))
                 .toList()) {
             WorkoutPlanExerciseSetTargetEntity setTarget = new WorkoutPlanExerciseSetTargetEntity();
             setTarget.setSetTargetId(UUID.randomUUID());
@@ -1777,7 +1850,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         if (inputs == null) {
             return;
         }
-        for (WorkoutExerciseLogInput input : inputs.stream().sorted(java.util.Comparator.comparing(WorkoutExerciseLogInput::sequence)).toList()) {
+        for (WorkoutExerciseLogInput input : inputs.stream().sorted(Comparator.comparing(WorkoutExerciseLogInput::sequence)).toList()) {
             SessionEntry exercise = toSessionExerciseLog(userId, session, input, true);
             for (WorkoutExerciseSetLogEntity set : exercise.getSets()) {
                 set.setRestTakenSeconds(restTaken.get(input.exerciseId() + "#" + set.getSetNumber()));
@@ -1869,7 +1942,7 @@ public class WorkoutServiceImpl implements WorkoutService {
             return;
         }
         for (WorkoutExerciseSetLogInput input : inputs.stream()
-                .sorted(java.util.Comparator.comparing(WorkoutExerciseSetLogInput::setNumber))
+                .sorted(Comparator.comparing(WorkoutExerciseSetLogInput::setNumber))
                 .toList()) {
             WorkoutExerciseSetLogEntity setLog = new WorkoutExerciseSetLogEntity();
             setLog.setSetLogId(UUID.randomUUID());
@@ -1984,6 +2057,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         throw new IllegalArgumentException("Set status must be DONE or SKIPPED");
     }
 
+    /** A set that counts towards totals and records: marked done, not just seeded from a plan target. */
     private boolean isDoneSet(WorkoutExerciseSetLogEntity setLog) {
         return setLog.getStatus() == WorkoutSetStatus.DONE && setLog.isLogged();
     }
@@ -2122,7 +2196,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     }
 
     private void validateUniqueNumbers(List<Integer> numbers, String message) {
-        java.util.Set<Integer> seen = new java.util.HashSet<>();
+        Set<Integer> seen = new HashSet<>();
         for (Integer number : numbers) {
             if (!seen.add(number)) {
                 throw new IllegalArgumentException(message);
@@ -2381,7 +2455,7 @@ public class WorkoutServiceImpl implements WorkoutService {
      * The catalog image list is ordered by position and batch-fetched, so taking the first entry
      * here does not reintroduce a per-exercise query.
      */
-    private String primaryImageUrl(com.fitsync.workout.entity.ExerciseEntity exercise) {
+    private String primaryImageUrl(ExerciseEntity exercise) {
         if (exercise == null || exercise.getImages().isEmpty()) {
             return null;
         }
@@ -2639,6 +2713,7 @@ public class WorkoutServiceImpl implements WorkoutService {
                 entity.isCaloriesEstimated(),
                 entity.isEffortEstimated(),
                 List.of(),
+                // Moves first, then time segments, each group by position.
                 entity.getEntries().stream()
                         .sorted(Comparator.comparing((SessionEntry entry) -> entry.isSet() ? 0 : 1)
                                 .thenComparing(SessionEntry::getPosition)

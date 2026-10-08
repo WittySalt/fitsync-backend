@@ -22,10 +22,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * The one consumer of the nutrition topic. MealLogged, MealUpdated, MealDeleted and RecipeCooked share one
- * consumer group,
- * so the events of a key arrive in the order they were published and a delete can no longer overtake the log
- * it removes (progress review fixes, section 2). Each type keeps its own flag: the listener runs when any of
- * them is on and hands an event on only when its own flag is on.
+ * consumer group, so the events of a key arrive in the order they were published and a delete can no longer
+ * overtake the log it removes (progress review fixes, section 2). Each type keeps its own flag: the listener
+ * runs when any of them is on and hands an event on only when its own flag is on.
  */
 @Component
 @ConditionalOnExpression("${fitsync.kafka.listeners.meal-logged.enabled:false}"

@@ -188,7 +188,8 @@ services:
       # profile: application-cognito.yml is gitignored, so it is absent from the
       # CI-built jar and the profile would be a no-op (every bootstrap returns 401).
       # Pool id + app client id are public (the SPA app client has no secret). The
-      # gateway must NOT enable Cognito — it crashes when Cognito is on there.
+      # gateway leaves Cognito off: it only forwards /bootstrap, and every other
+      # request carries the local FitSync JWT that bootstrap returns.
       #
       # Issuer/audience are parameterised so each environment points at its own
       # Cognito user pool (prod = myVyuOmPD; staging = its own pool, injected by

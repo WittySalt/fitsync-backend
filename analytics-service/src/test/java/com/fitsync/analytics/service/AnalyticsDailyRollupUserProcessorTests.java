@@ -43,7 +43,7 @@ class AnalyticsDailyRollupUserProcessorTests {
                 new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService, goalProgressEvaluator,
                         streakRollupService);
 
-        processor.rollupUser(userId, LocalDate.parse("2026-06-18"), evaluatedAt);
+        processor.rollupUser(userId, evaluatedAt);
 
         ArgumentCaptor<AnalyticsUserGoalProgressEntity> captor =
                 ArgumentCaptor.forClass(AnalyticsUserGoalProgressEntity.class);
@@ -78,7 +78,7 @@ class AnalyticsDailyRollupUserProcessorTests {
                 new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService, goalProgressEvaluator,
                         streakRollupService);
 
-        processor.rollupUser(userId, LocalDate.parse("2026-06-18"), evaluatedAt);
+        processor.rollupUser(userId, evaluatedAt);
 
         ArgumentCaptor<AnalyticsUserGoalProgressEntity> captor =
                 ArgumentCaptor.forClass(AnalyticsUserGoalProgressEntity.class);
@@ -109,7 +109,7 @@ class AnalyticsDailyRollupUserProcessorTests {
                 new AnalyticsDailyRollupUserProcessor(goalRepository, rebuildService, goalProgressEvaluator,
                         streakRollupService);
 
-        processor.rollupUser(userId, LocalDate.parse("2026-06-18"), Instant.parse("2026-06-18T00:05:00Z"));
+        processor.rollupUser(userId, Instant.parse("2026-06-18T00:05:00Z"));
 
         verify(goalRepository, never()).save(any());
         verify(goalProgressEvaluator).recompute(userId, GoalProgressEvaluator.ALL_GOAL_TYPES, LocalDate.parse("2026-06-18"));

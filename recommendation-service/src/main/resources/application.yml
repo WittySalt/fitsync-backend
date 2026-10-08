@@ -75,7 +75,6 @@ fitsync:
       # to the rule engine while looking like a parsing bug. Raising a ceiling costs nothing on its
       # own, because both providers bill for what is generated rather than what is allowed.
       max-tokens: ${RECOMMENDATION_AI_MAX_TOKENS:1500}
-      narrative-ttl: ${RECOMMENDATION_AI_NARRATIVE_TTL:P7D}
       coach-questions-per-hour: ${RECOMMENDATION_AI_COACH_QUESTIONS_PER_HOUR:5}
   coach:
     # The coach reads every other service through the API gateway's public paths with the

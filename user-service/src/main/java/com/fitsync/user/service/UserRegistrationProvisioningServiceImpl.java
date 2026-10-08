@@ -5,23 +5,6 @@ import java.util.UUID;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.NotificationPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
-import com.fitsync.user.domain.CalorieTrackingMode;
-import com.fitsync.user.domain.DietaryPreference;
-import com.fitsync.user.domain.FitnessLevel;
-import com.fitsync.user.domain.IntensityPreference;
-import com.fitsync.user.domain.LanguagePreference;
-import com.fitsync.user.domain.MacroPreference;
-import com.fitsync.user.domain.MembershipStatus;
-import com.fitsync.user.domain.MembershipTier;
-import com.fitsync.user.domain.NotificationChannel;
-import com.fitsync.user.domain.PrivacyLevel;
-import com.fitsync.user.domain.TrainingLocation;
-import com.fitsync.user.domain.UnitSystem;
-import com.fitsync.user.entity.UserAppPreferencesEntity;
-import com.fitsync.user.entity.UserNotificationPreferencesEntity;
-import com.fitsync.user.entity.UserNutritionPreferencesEntity;
-import com.fitsync.user.entity.UserProfileEntity;
-import com.fitsync.user.entity.UserTrainingPreferencesEntity;
 import com.fitsync.user.repository.UserAppPreferencesRepository;
 import com.fitsync.user.repository.UserNotificationPreferencesRepository;
 import com.fitsync.user.repository.UserNutritionPreferencesRepository;
@@ -29,6 +12,11 @@ import com.fitsync.user.repository.UserProfileRepository;
 import com.fitsync.user.repository.UserTrainingPreferencesRepository;
 import org.springframework.stereotype.Service;
 
+/**
+ * Creates the default profile and preference rows for a newly registered user. Each row is only created when
+ * missing, so a redelivered event, or a user whose rows were already created on first read, is left as is. The
+ * defaults come from {@link UserDefaults}, the same ones the first read uses.
+ */
 @Service
 public class UserRegistrationProvisioningServiceImpl implements UserRegistrationProvisioningService {
 
@@ -61,56 +49,19 @@ public class UserRegistrationProvisioningServiceImpl implements UserRegistration
         NotificationPreferencesUpdatedPayload notificationsBefore = notificationPreferencesEventService.snapshot(userId);
 
         if (!userProfileRepository.existsById(userId)) {
-            UserProfileEntity entity = new UserProfileEntity();
-            entity.setUserId(userId);
-            entity.setDisplayName(event.payload().displayName());
-            entity.setMembershipTier(MembershipTier.MEMBER);
-            entity.setMembershipStatus(MembershipStatus.ACTIVE);
-            entity.setOnboardingCompleted(false);
-            userProfileRepository.save(entity);
+            userProfileRepository.save(UserDefaults.profile(userId, event.payload().displayName()));
         }
-
         if (!userAppPreferencesRepository.existsById(userId)) {
-            UserAppPreferencesEntity entity = new UserAppPreferencesEntity();
-            entity.setUserId(userId);
-            entity.setPreferredUnits(UnitSystem.METRIC);
-            entity.setLanguage(LanguagePreference.EN);
-            entity.setPrivacyLevel(PrivacyLevel.PRIVATE);
-            entity.setDataSharingConsent(false);
-            userAppPreferencesRepository.save(entity);
+            userAppPreferencesRepository.save(UserDefaults.appPreferences(userId));
         }
-
         if (!userTrainingPreferencesRepository.existsById(userId)) {
-            UserTrainingPreferencesEntity entity = new UserTrainingPreferencesEntity();
-            entity.setUserId(userId);
-            entity.setFitnessLevel(FitnessLevel.BEGINNER);
-            entity.setTrainingLocation(TrainingLocation.MIXED);
-            entity.setIntensityPreference(IntensityPreference.MODERATE);
-            userTrainingPreferencesRepository.save(entity);
+            userTrainingPreferencesRepository.save(UserDefaults.trainingPreferences(userId));
         }
-
         if (!userNutritionPreferencesRepository.existsById(userId)) {
-            UserNutritionPreferencesEntity entity = new UserNutritionPreferencesEntity();
-            entity.setUserId(userId);
-            entity.setDietaryPattern(DietaryPreference.NONE);
-            entity.setCalorieTrackingMode(CalorieTrackingMode.FLEXIBLE);
-            entity.setMacroPreference(MacroPreference.BALANCED);
-            userNutritionPreferencesRepository.save(entity);
+            userNutritionPreferencesRepository.save(UserDefaults.nutritionPreferences(userId));
         }
-
         if (!userNotificationPreferencesRepository.existsById(userId)) {
-            UserNotificationPreferencesEntity entity = new UserNotificationPreferencesEntity();
-            entity.setUserId(userId);
-            entity.setPushEnabled(true);
-            entity.setEmailEnabled(false);
-            entity.setWorkoutReminderEnabled(true);
-            entity.setMealReminderEnabled(false);
-            entity.setWeighInReminderEnabled(false);
-            entity.setGoalProgressReminderEnabled(true);
-            entity.setWeeklyProgressReportEnabled(false);
-            entity.setWeeklyProgressReportChannel(NotificationChannel.EMAIL);
-            entity.setMarketingEmailsEnabled(false);
-            userNotificationPreferencesRepository.save(entity);
+            userNotificationPreferencesRepository.save(UserDefaults.notificationPreferences(userId));
         }
 
         // A replayed UserRegistered finds every row in place and so publishes nothing.

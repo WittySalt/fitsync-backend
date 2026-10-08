@@ -56,6 +56,9 @@ class AnalyticsRebuildServiceImplTests {
         waistRow.setWaistCm(new BigDecimal("84.00"));
         when(fixture.dailyBodyRepository().findTopByUserIdAndWaistCmIsNotNullOrderByMetricDateDesc(USER_ID))
                 .thenReturn(Optional.of(waistRow));
+        when(fixture.dailyBodyRepository().findTopByUserIdAndMetricDateLessThanEqualOrderByMetricDateDesc(
+                USER_ID, TODAY.minusDays(30)))
+                .thenReturn(Optional.of(bodyRow(TODAY.minusDays(31), "80.00")));
         when(fixture.dailyNutritionRepository().findByUserIdAndActivityDate(USER_ID, TODAY))
                 .thenReturn(Optional.of(nutritionRow(700, "48.50")));
         when(fixture.dailyWorkoutRepository()
@@ -95,6 +98,90 @@ class AnalyticsRebuildServiceImplTests {
         assertThat(saved.getActiveStreakDays()).isEqualTo(7);
         verify(fixture.analyticsEventPublisher()).publishStreakMilestone(USER_ID, 7, 7, TODAY);
         verify(fixture.cacheInvalidationService()).evictForUser(USER_ID);
+    }
+
+    @Test
+    void rebuildDashboardWritesTheThirtyDayWeightChangeNotTheChangeSinceTheFirstWeighIn() {
+        Fixture fixture = newFixture();
+        stubDashboardRebuild(fixture);
+        AnalyticsUserDailyBodyEntity latest = bodyMetrics();
+        // Down 6 kg since the first weigh-in, but only 0.6 kg over the last 30 days.
+        latest.setWeightDeltaFromStart(new BigDecimal("-6.00"));
+        when(fixture.dailyBodyRepository().findTopByUserIdOrderByMetricDateDesc(USER_ID))
+                .thenReturn(Optional.of(latest));
+        when(fixture.dailyBodyRepository().findTopByUserIdAndMetricDateLessThanEqualOrderByMetricDateDesc(
+                USER_ID, TODAY.minusDays(30)))
+                .thenReturn(Optional.of(bodyRow(TODAY.minusDays(32), "79.00")));
+
+        fixture.service().rebuildDashboard(USER_ID);
+
+        ArgumentCaptor<AnalyticsUserDashboardSnapshotEntity> captor =
+                ArgumentCaptor.forClass(AnalyticsUserDashboardSnapshotEntity.class);
+        verify(fixture.dashboardSnapshotRepository()).save(captor.capture());
+        assertThat(captor.getValue().getWeightChange30d())
+                .withFailMessage("the rebuild must write what BodyMetricsRecorded writes: the 30-day change")
+                .isEqualByComparingTo("-0.60");
+    }
+
+    @Test
+    void rebuildDashboardLeavesNoThirtyDayChangeWithoutAWeighInThirtyDaysBack() {
+        Fixture fixture = newFixture();
+        stubDashboardRebuild(fixture);
+        when(fixture.dailyBodyRepository().findTopByUserIdOrderByMetricDateDesc(USER_ID))
+                .thenReturn(Optional.of(bodyMetrics()));
+        when(fixture.dailyBodyRepository().findTopByUserIdAndMetricDateLessThanEqualOrderByMetricDateDesc(
+                USER_ID, TODAY.minusDays(30)))
+                .thenReturn(Optional.empty());
+
+        fixture.service().rebuildDashboard(USER_ID);
+
+        ArgumentCaptor<AnalyticsUserDashboardSnapshotEntity> captor =
+                ArgumentCaptor.forClass(AnalyticsUserDashboardSnapshotEntity.class);
+        verify(fixture.dashboardSnapshotRepository()).save(captor.capture());
+        assertThat(captor.getValue().getWeightChange30d()).isNull();
+    }
+
+    @Test
+    void rebuildDashboardClearsYesterdaysNutritionWhenTodayHasNoRow() {
+        Fixture fixture = newFixture();
+        stubDashboardRebuild(fixture);
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshot(0);
+        // Left over from yesterday's last meal event.
+        snapshot.setTodayCaloriesConsumed(1860);
+        snapshot.setTodayProteinGrams(new BigDecimal("132.50"));
+        when(fixture.dashboardSnapshotRepository().findById(USER_ID)).thenReturn(Optional.of(snapshot));
+
+        fixture.service().rebuildDashboard(USER_ID);
+
+        ArgumentCaptor<AnalyticsUserDashboardSnapshotEntity> captor =
+                ArgumentCaptor.forClass(AnalyticsUserDashboardSnapshotEntity.class);
+        verify(fixture.dashboardSnapshotRepository()).save(captor.capture());
+        assertThat(captor.getValue().getGeneratedAt()).isEqualTo(NOW);
+        assertThat(captor.getValue().getTodayCaloriesConsumed())
+                .withFailMessage("generatedAt now says today, so yesterday's total must not stay")
+                .isZero();
+        assertThat(captor.getValue().getTodayProteinGrams()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void rebuildDashboardClearsYesterdaysWorkoutCountsWhenTheWindowHasNoRows() {
+        Fixture fixture = newFixture();
+        stubDashboardRebuild(fixture);
+        AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshot(0);
+        // Left over from the last workout event, more than a week ago.
+        snapshot.setTodayWorkoutCount(1);
+        snapshot.setWeekWorkoutCount(5);
+        snapshot.setWeekWorkoutMinutes(178);
+        when(fixture.dashboardSnapshotRepository().findById(USER_ID)).thenReturn(Optional.of(snapshot));
+
+        fixture.service().rebuildDashboard(USER_ID);
+
+        ArgumentCaptor<AnalyticsUserDashboardSnapshotEntity> captor =
+                ArgumentCaptor.forClass(AnalyticsUserDashboardSnapshotEntity.class);
+        verify(fixture.dashboardSnapshotRepository()).save(captor.capture());
+        assertThat(captor.getValue().getTodayWorkoutCount()).isZero();
+        assertThat(captor.getValue().getWeekWorkoutCount()).isZero();
+        assertThat(captor.getValue().getWeekWorkoutMinutes()).isZero();
     }
 
     @Test
@@ -286,6 +373,14 @@ class AnalyticsRebuildServiceImplTests {
         body.setBmi(new BigDecimal("24.70"));
         body.setWeightDeltaFromStart(new BigDecimal("-1.60"));
         body.setProjectionUpdatedAt(NOW.minusSeconds(120));
+        return body;
+    }
+
+    private AnalyticsUserDailyBodyEntity bodyRow(LocalDate date, String weightKg) {
+        AnalyticsUserDailyBodyEntity body = new AnalyticsUserDailyBodyEntity();
+        body.setUserId(USER_ID);
+        body.setMetricDate(date);
+        body.setWeightKg(new BigDecimal(weightKg));
         return body;
     }
 

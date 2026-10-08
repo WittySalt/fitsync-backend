@@ -1,10 +1,8 @@
 package com.fitsync.analytics.messaging;
 
 import java.time.Clock;
-import java.time.Instant;
 import java.util.UUID;
 
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.repository.AnalyticsMealContributionRepository;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserAchievementRepository;
@@ -24,6 +22,17 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Deletes everything analytics-service holds about a user when their account is deleted: contributions,
+ * daily rows, goals, the dashboard snapshot, rollups, achievements, cook and record tallies and recap marks.
+ *
+ * <p>The user's processed-event rows are kept, with the user id cleared, rather than deleted. They hold only
+ * event ids, event types and timestamps, and they are what makes a redelivery a no-op: deleting them let a
+ * late redelivery of an event that had already been applied, say a WorkoutLogged still in a retry topic,
+ * be projected again and recreate rows for the deleted account. Clearing the user id matches the
+ * KEPT_ANONYMISED decision for that table. The AccountDeleted event itself is recorded after the purge, so
+ * a redelivery of it is still ignored.
+ */
 @Service
 public class AccountDeletionProjectionService {
 
@@ -98,17 +107,8 @@ public class AccountDeletionProjectionService {
         achievementRepository.deleteByUserId(userId);
         cooksRepository.deleteById(userId);
         recapMarkRepository.deleteByUserId(userId);
-        processedEventRepository.deleteByUserId(userId);
-        recordProcessedEvent(event);
+        processedEventRepository.anonymiseByUserId(userId);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(userId);
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() == null ? Instant.now(clock) : event.occurredAt());
-        processedEventRepository.save(processedEvent);
     }
 }

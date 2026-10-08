@@ -10,6 +10,7 @@ import com.fitsync.nutrition.repository.NutritionPreferenceProjectionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** Keeps the local projection of the user's preferences (units, diet, water goal) up to date. */
 @Service
 public class UserPreferencesUpdatedEventConsumerImpl implements DomainEventConsumer<UserPreferencesUpdatedPayload> {
 

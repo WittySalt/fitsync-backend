@@ -16,6 +16,7 @@ import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
@@ -55,6 +56,9 @@ class WorkoutEventConsumerTests {
 
     @Autowired
     private AnalyticsUserGoalProgressRepository goalProgressRepository;
+
+    @Autowired
+    private DomainEventConsumer<AccountDeletedPayload> accountDeletedEventConsumer;
 
     @Test
     void workoutLoggedEventBuildsContributionDailyAggregateAndDashboardWorkoutSummary() {
@@ -108,6 +112,47 @@ class WorkoutEventConsumerTests {
                     assertThat(snapshot.getWeekWorkoutMinutes()).isEqualTo(45);
                     assertThat(snapshot.getActiveStreakDays()).isEqualTo(1);
                 });
+    }
+
+    @Test
+    void lateRedeliveryAfterAccountDeletionDoesNotRecreateTheUsersRows() {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant startedAt = today.atStartOfDay().plusHours(6).toInstant(ZoneOffset.UTC);
+        FitSyncDomainEvent<WorkoutLoggedPayload> logged = new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "WorkoutLogged",
+                1,
+                startedAt.plusSeconds(60),
+                "workout-service",
+                userId,
+                new WorkoutLoggedPayload(
+                        sessionId, null, "STRENGTH", "COMPLETED", startedAt, startedAt.plusSeconds(2700),
+                        45, 350, 6, "PLAN"));
+        workoutLoggedEventConsumer.consume(logged);
+        accountDeletedEventConsumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "AccountDeleted",
+                1,
+                startedAt.plusSeconds(3600),
+                "user-service",
+                userId,
+                new AccountDeletedPayload(startedAt.plusSeconds(3600), "USER_REQUESTED")));
+
+        // The same WorkoutLogged, redelivered from a retry topic after the account is gone.
+        workoutLoggedEventConsumer.consume(logged);
+
+        assertThat(workoutContributionRepository.findById(sessionId)).isEmpty();
+        assertThat(dailyWorkoutRepository.findByUserIdAndActivityDate(userId, today)).isEmpty();
+        assertThat(dashboardSnapshotRepository.findById(userId)).isEmpty();
+        assertThat(processedEventRepository.findById(logged.eventId()))
+                .withFailMessage("the event id must survive the deletion so the redelivery stays a no-op")
+                .isPresent()
+                .get()
+                .extracting(processed -> processed.getUserId())
+                .withFailMessage("the kept row must no longer point at the deleted user")
+                .isNull();
     }
 
     @Test

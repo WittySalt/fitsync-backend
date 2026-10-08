@@ -20,7 +20,7 @@ public interface TrainingPageInsightService {
     /**
      * As above, and with {@code thisWeekOnly} the period is always the current week so far (Monday to the
      * reference day), or NONE when it holds no session, instead of falling back to the last full week. The
-     * coach page readings use it (me-achievements-spec.md, section 4c).
+     * coach page readings use it.
      */
     TrainingPageInsightView getTrainingPageInsight(CurrentUserPrincipal currentUser, String timezone, LocalDate date,
                                                    boolean thisWeekOnly);

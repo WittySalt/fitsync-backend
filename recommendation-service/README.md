@@ -2,8 +2,8 @@
 
 > **Status.** This service is on `main` as of 2026-09-26. It was developed on an isolated branch
 > while its shape was still being worked out; that constraint is retired. Contract and planning
-> documents live in `docs/`. The coach platform design that extends this service is in
-> `Documents/architecture/coach-platform-design.md`.
+> documents live in `docs/`. The coach platform design that extends this service
+> (`coach-platform-design.md`) is kept with the project documents, outside this repository.
 
 > This document defines what the service does, grounded in the data
 > signals FitSync actually emits, and splits the work between **locally-computed (rule-engine)**

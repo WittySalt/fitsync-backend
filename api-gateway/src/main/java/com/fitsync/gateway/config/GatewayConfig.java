@@ -25,6 +25,7 @@ public class GatewayConfig {
         this.corsProperties = corsProperties;
     }
 
+    /** Every non-coach route answers in milliseconds, so a downstream that is slower than this is treated as down. */
     @Bean
     RestTemplate gatewayRestTemplate(RestTemplateBuilder builder) {
         return builder

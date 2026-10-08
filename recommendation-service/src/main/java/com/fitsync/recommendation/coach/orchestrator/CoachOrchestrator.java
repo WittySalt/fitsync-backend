@@ -56,6 +56,7 @@ public class CoachOrchestrator {
     public static final int TIER_RULE = 0;
     /** Tier 2 is the local model. Recorded on the turn so the trace can show what answered. */
     public static final int TIER_LOCAL_MODEL = 2;
+    /** No tier answered: the model is switched off or could not be reached. */
     public static final int TIER_UNAVAILABLE = -1;
 
     /**

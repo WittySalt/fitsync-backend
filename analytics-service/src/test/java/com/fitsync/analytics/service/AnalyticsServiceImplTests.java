@@ -124,6 +124,25 @@ class AnalyticsServiceImplTests {
         when(dashboardRepository.findById(userId)).thenReturn(Optional.of(snapshot));
         when(goalRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, "ACTIVE"))
                 .thenReturn(List.of(goal));
+        AnalyticsUserDailyNutritionEntity todayNutrition = new AnalyticsUserDailyNutritionEntity();
+        todayNutrition.setUserId(userId);
+        todayNutrition.setActivityDate(LocalDate.parse("2026-06-14"));
+        todayNutrition.setTotalCaloriesConsumed(1860);
+        todayNutrition.setTotalProteinGrams(new BigDecimal("132.50"));
+        when(nutritionRepository.findByUserIdAndActivityDate(userId, LocalDate.parse("2026-06-14")))
+                .thenReturn(Optional.of(todayNutrition));
+        List<AnalyticsUserDailyWorkoutEntity> lastSevenDays = new java.util.ArrayList<>();
+        for (int day = 0; day < 4; day++) {
+            AnalyticsUserDailyWorkoutEntity row = new AnalyticsUserDailyWorkoutEntity();
+            row.setUserId(userId);
+            row.setActivityDate(LocalDate.parse("2026-06-14").minusDays(day));
+            row.setCompletedWorkoutCount(1);
+            row.setTotalWorkoutMinutes(50);
+            lastSevenDays.add(row);
+        }
+        when(workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                userId, LocalDate.parse("2026-06-08"), LocalDate.parse("2026-06-14")))
+                .thenReturn(lastSevenDays);
 
         AnalyticsServiceImpl service = new AnalyticsServiceImpl(
                 dashboardRepository, goalRepository, bodyRepository, workoutRepository, nutritionRepository,

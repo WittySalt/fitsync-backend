@@ -21,10 +21,17 @@ import com.fitsync.analytics.repository.AnalyticsUserDailyNutritionRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
 import com.fitsync.analytics.service.GoalProgressEvaluator;
+import com.fitsync.analytics.service.NutritionAdherence;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Projects meals into the per-day nutrition rows and the dashboard snapshot's "today" fields. Each meal is
+ * kept as a contribution row, so an update subtracts the old contribution from its day and adds the new one,
+ * and a delete subtracts it. Events are applied once through the processed-event table, and a delete that
+ * arrives before its meal leaves a marker so the late log is ignored.
+ */
 @Service
 public class MealNutritionProjectionService {
 
@@ -78,7 +85,7 @@ public class MealNutritionProjectionService {
             return;
         }
         if (mealId == null || consumedAt == null || isDeletedMeal(mealId)) {
-            recordProcessedEvent(event);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             return;
         }
 
@@ -108,7 +115,7 @@ public class MealNutritionProjectionService {
 
         applyContributionDelta(event.userId(), newDate, null, newContribution, event.occurredAt());
         recomputeNutritionGoalsForToday(event.userId(), existingDate, newDate);
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(event.userId());
     }
 
@@ -118,7 +125,7 @@ public class MealNutritionProjectionService {
             return;
         }
         if (mealId == null) {
-            recordProcessedEvent(event);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             return;
         }
 
@@ -130,7 +137,7 @@ public class MealNutritionProjectionService {
         } else if (!processedEventRepository.existsById(mealId)) {
             rememberDeletedMeal(event, mealId);
         }
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(event.userId());
     }
 
@@ -165,7 +172,7 @@ public class MealNutritionProjectionService {
         daily.setTotalFatGrams(nextFat.max(BigDecimal.ZERO));
         daily.setProjectionUpdatedAt(resolveOccurredAt(occurredAt, null));
         applyFoodGroupDelta(daily, oldContribution, newContribution);
-        recalculateAdherence(daily);
+        NutritionAdherence.recalculate(daily);
         dailyNutritionRepository.save(daily);
 
         syncDashboardSnapshot(userId, activityDate, daily, occurredAt);
@@ -249,7 +256,7 @@ public class MealNutritionProjectionService {
             entity.setProteinTargetGrams(snapshot.getTodayProteinTargetGrams());
         }
         entity.setProjectionUpdatedAt(Instant.now(clock));
-        recalculateAdherence(entity);
+        NutritionAdherence.recalculate(entity);
         return entity;
     }
 
@@ -279,19 +286,6 @@ public class MealNutritionProjectionService {
         dashboardSnapshotInitializer.insertIfMissing(userId, resolveOccurredAt(occurredAt, null));
         return dashboardSnapshotRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException("Dashboard snapshot was not created"));
-    }
-
-    private void recalculateAdherence(AnalyticsUserDailyNutritionEntity daily) {
-        if (daily.getCalorieTarget() != null && daily.getCalorieTarget() > 0) {
-            daily.setCalorieAdherenceRatio(
-                    BigDecimal.valueOf(defaultInt(daily.getTotalCaloriesConsumed()))
-                            .divide(BigDecimal.valueOf(daily.getCalorieTarget()), 4, java.math.RoundingMode.HALF_UP));
-        }
-        if (daily.getProteinTargetGrams() != null && daily.getProteinTargetGrams().compareTo(BigDecimal.ZERO) > 0) {
-            daily.setMacroAdherenceScore(
-                    defaultDecimal(daily.getTotalProteinGrams())
-                            .divide(daily.getProteinTargetGrams(), 4, java.math.RoundingMode.HALF_UP));
-        }
     }
 
     private int contributionCount(AnalyticsMealContributionEntity contribution) {
@@ -345,14 +339,5 @@ public class MealNutritionProjectionService {
         marker.setUserId(event.userId());
         marker.setProcessedAt(resolveOccurredAt(event.occurredAt(), null));
         processedEventRepository.save(marker);
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(resolveOccurredAt(event.occurredAt(), null));
-        processedEventRepository.save(processedEvent);
     }
 }

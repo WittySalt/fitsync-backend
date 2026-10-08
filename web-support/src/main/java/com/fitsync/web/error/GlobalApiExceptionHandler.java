@@ -22,6 +22,11 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Turns every exception a controller lets out into the shared {@link ApiError} body with a stable {@code code},
+ * so all services answer errors in one shape. Client mistakes map to 4xx; anything unrecognised is logged and
+ * answered 500 without leaking its message.
+ */
 @RestControllerAdvice
 public class GlobalApiExceptionHandler {
 

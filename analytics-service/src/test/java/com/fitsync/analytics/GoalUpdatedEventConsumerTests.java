@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
+import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
@@ -217,6 +218,52 @@ class GoalUpdatedEventConsumerTests {
                     assertThat(goal.getDaysRemaining()).isNull();
                     assertThat(goal.isOnTrack()).isFalse();
                 });
+    }
+
+    @Test
+    void goalExpiryUsesTheUsersZoneNotTheUtcDateOfTheEvent() {
+        UUID userId = UUID.randomUUID();
+        UUID goalId = UUID.randomUUID();
+        AnalyticsUserDashboardSnapshotEntity snapshot = new AnalyticsUserDashboardSnapshotEntity();
+        snapshot.setUserId(userId);
+        snapshot.setTimezone("Asia/Singapore");
+        snapshot.setTodayWorkoutCount(0);
+        snapshot.setWeekWorkoutCount(0);
+        snapshot.setWeekWorkoutMinutes(0);
+        snapshot.setActiveStreakDays(0);
+        snapshot.setGeneratedAt(Instant.parse("2026-06-13T12:00:00Z"));
+        dashboardSnapshotRepository.save(snapshot);
+
+        // 17:00 UTC on 13 June is 01:00 on 14 June in Singapore: the goal dated 13 June has run out
+        // for this user, although the event's UTC date is still the target date.
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-13T17:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        goalId,
+                        "CALORIES",
+                        new BigDecimal("2100"),
+                        "kcal",
+                        LocalDate.parse("2026-06-13"),
+                        "ACTIVE")));
+
+        assertThat(goalProgressRepository.findById(goalId))
+                .isPresent()
+                .get()
+                .satisfies(goal -> {
+                    assertThat(goal.getGoalStatus()).isEqualTo("EXPIRED");
+                    assertThat(goal.getDaysRemaining()).isNull();
+                });
+        assertThat(dashboardSnapshotRepository.findById(userId))
+                .isPresent()
+                .get()
+                .extracting(AnalyticsUserDashboardSnapshotEntity::getTodayCaloriesTarget)
+                .withFailMessage("an expired goal must not set the dashboard's calorie target")
+                .isNull();
     }
 
     @Test

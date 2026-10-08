@@ -435,6 +435,22 @@ class RecipeLibraryApiTests extends DiaryApiTestBase {
     }
 
     @Test
+    void aMillilitreIngredientWithNoDensityIsWeighedAsWaterForBothNutritionAndGrams() throws Exception {
+        String token = tokenFor("no-density@example.com");
+        // Without a density, 200 g of milk is taken as 200 ml: twice the 61 kcal per 100 ml, and 200 g on the plate.
+        jdbcTemplate.update("update food_catalog_items set density_grams_per_ml = null where food_id = ?", milk.foodId);
+
+        mockMvc.perform(post(BASE + "/meals/from-recipe/" + milkPorridge)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(fromRecipeJson("1")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.items[0].foodName").value("Whole milk"))
+                .andExpect(jsonPath("$.items[0].calories").value(122))
+                .andExpect(jsonPath("$.items[0].gramsConsumed").value(200.0));
+    }
+
+    @Test
     void loggingARecipeMakesOneMealOfSnapshottedIngredients() throws Exception {
         String token = tokenFor("logger@example.com");
 
