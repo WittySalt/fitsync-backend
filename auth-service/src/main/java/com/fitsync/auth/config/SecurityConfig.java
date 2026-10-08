@@ -1,7 +1,7 @@
-package com.fitsync.backend.config;
+package com.fitsync.auth.config;
 
-import com.fitsync.backend.security.JwtAuthenticationFilter;
-import com.fitsync.backend.security.RestAuthenticationEntryPoint;
+import com.fitsync.auth.security.JwtAuthenticationFilter;
+import com.fitsync.auth.security.RestAuthenticationEntryPoint;
 import org.springframework.core.annotation.Order;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;

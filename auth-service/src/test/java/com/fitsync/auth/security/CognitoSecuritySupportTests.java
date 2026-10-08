@@ -1,4 +1,4 @@
-package com.fitsync.backend.security;
+package com.fitsync.auth.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

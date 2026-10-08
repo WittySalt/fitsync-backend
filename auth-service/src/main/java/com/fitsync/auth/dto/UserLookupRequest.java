@@ -1,4 +1,4 @@
-package com.fitsync.backend.dto;
+package com.fitsync.auth.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

@@ -30,6 +30,7 @@ import com.fitsync.user.messaging.OutboxEventStatus;
 import com.fitsync.user.messaging.repository.OutboxEventRepository;
 import com.fitsync.user.domain.GoalStatus;
 import com.fitsync.user.repository.UserGoalRepository;
+import com.fitsync.user.repository.UserHealthReadinessRepository;
 import com.fitsync.user.repository.UserProfileRepository;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -58,6 +59,9 @@ class UserProfileTests {
 
     @Autowired
     private UserGoalRepository userGoalRepository;
+
+    @Autowired
+    private UserHealthReadinessRepository userHealthReadinessRepository;
 
     @BeforeEach
     void clearOutbox() {
@@ -230,6 +234,21 @@ class UserProfileTests {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.healthReadiness").doesNotExist());
+    }
+
+    @Test
+    void firstHealthReadinessReadStoresTheDefaultRow() throws Exception {
+        UUID userId = UUID.randomUUID();
+        String token = tokenFor(userId, "health-first-read@example.com", "Health First Read");
+
+        mockMvc.perform(get("/api/v1/users/me/health-readiness")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.heartCondition").value(false))
+                .andExpect(jsonPath("$.injuryAreas", hasSize(0)));
+
+        assertTrue(userHealthReadinessRepository.existsById(userId),
+                "the default row created on first read must be stored, like the other get-or-create reads");
     }
 
     @Test

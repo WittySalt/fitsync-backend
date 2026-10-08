@@ -1,4 +1,4 @@
-package com.fitsync.backend.entity;
+package com.fitsync.auth.entity;
 
 import java.time.Instant;
 import java.util.UUID;

@@ -1,9 +1,9 @@
-package com.fitsync.backend.messaging;
+package com.fitsync.auth.messaging;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutionException;
 
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

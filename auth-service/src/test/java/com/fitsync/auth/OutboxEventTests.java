@@ -1,4 +1,4 @@
-package com.fitsync.backend;
+package com.fitsync.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -7,9 +7,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 
-import com.fitsync.backend.messaging.OutboxEventStatus;
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
-import com.fitsync.backend.messaging.repository.OutboxEventRepository;
+import com.fitsync.auth.messaging.OutboxEventStatus;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.repository.OutboxEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

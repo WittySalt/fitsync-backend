@@ -1,4 +1,4 @@
-package com.fitsync.backend.config;
+package com.fitsync.auth.config;
 
 import java.util.Optional;
 

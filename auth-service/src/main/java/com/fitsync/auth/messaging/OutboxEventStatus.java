@@ -1,4 +1,4 @@
-package com.fitsync.backend.messaging;
+package com.fitsync.auth.messaging;
 
 public enum OutboxEventStatus {
     PENDING,

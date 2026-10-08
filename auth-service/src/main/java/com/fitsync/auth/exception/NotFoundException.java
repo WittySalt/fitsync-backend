@@ -1,4 +1,4 @@
-package com.fitsync.backend.exception;
+package com.fitsync.auth.exception;
 
 public class NotFoundException extends RuntimeException {
 

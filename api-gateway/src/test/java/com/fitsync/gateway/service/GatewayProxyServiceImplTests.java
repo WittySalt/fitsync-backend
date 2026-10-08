@@ -3,6 +3,7 @@ package com.fitsync.gateway.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -46,6 +47,37 @@ class GatewayProxyServiceImplTests {
         request.setQueryString("source=e2e");
 
         service.forwardToAuthService(request, "{}".getBytes(StandardCharsets.UTF_8));
+
+        server.verify();
+    }
+
+    @Test
+    void appendsTheCallersAddressToForwardedForSoAClientCannotSpoofIt() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, coachRequestFactory(), new GatewayRoutesProperties(
+                "http://auth-service:8080",
+                "http://user-service:8081",
+                "http://workout-service:8082",
+                "http://nutrition-service:8083",
+                "http://analytics-service:8085",
+                "http://recommendation-service:8086"));
+
+        server.expect(once(), requestTo("http://auth-service:8080/api/v1/auth/me"))
+                .andExpect(header("X-Forwarded-For", "6.6.6.6, 203.0.113.7"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://auth-service:8080/api/v1/auth/me"))
+                .andExpect(header("X-Forwarded-For", "203.0.113.7"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        MockHttpServletRequest spoofed = new MockHttpServletRequest("GET", "/api/v1/auth/me");
+        spoofed.addHeader("X-Forwarded-For", "6.6.6.6");
+        spoofed.setRemoteAddr("203.0.113.7");
+        service.forwardToAuthService(spoofed, null);
+
+        MockHttpServletRequest direct = new MockHttpServletRequest("GET", "/api/v1/auth/me");
+        direct.setRemoteAddr("203.0.113.7");
+        service.forwardToAuthService(direct, null);
 
         server.verify();
     }

@@ -1,4 +1,4 @@
-package com.fitsync.backend.dto;
+package com.fitsync.auth.dto;
 
 public record OutboxRelayResponse(
         int requestedBatchSize,

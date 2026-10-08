@@ -1,8 +1,8 @@
-package com.fitsync.backend.controller;
+package com.fitsync.auth.controller;
 
-import com.fitsync.backend.dto.AccountDeletionRequestStatusResponse;
-import com.fitsync.backend.dto.RequestAccountDeletionRequest;
-import com.fitsync.backend.service.CurrentUserService;
+import com.fitsync.auth.dto.AccountDeletionRequestStatusResponse;
+import com.fitsync.auth.dto.RequestAccountDeletionRequest;
+import com.fitsync.auth.service.CurrentUserService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;

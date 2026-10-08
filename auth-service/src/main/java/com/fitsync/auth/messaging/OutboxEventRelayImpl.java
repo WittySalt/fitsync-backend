@@ -1,11 +1,11 @@
-package com.fitsync.backend.messaging;
+package com.fitsync.auth.messaging;
 
 import java.time.Instant;
 import java.util.List;
 
 import com.fitsync.persistence.outbox.OutboxRetryPolicy;
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
-import com.fitsync.backend.messaging.repository.OutboxEventRepository;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.repository.OutboxEventRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

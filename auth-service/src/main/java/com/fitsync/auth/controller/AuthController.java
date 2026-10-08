@@ -1,14 +1,14 @@
-package com.fitsync.backend.controller;
+package com.fitsync.auth.controller;
 
-import com.fitsync.backend.config.LocalAuthProperties;
-import com.fitsync.backend.dto.AuthResponse;
-import com.fitsync.backend.dto.CurrentUserResponse;
-import com.fitsync.backend.dto.LoginRequest;
-import com.fitsync.backend.dto.RegisterRequest;
-import com.fitsync.backend.entity.AppUser;
-import com.fitsync.backend.exception.NotFoundException;
-import com.fitsync.backend.service.AuthService;
-import com.fitsync.backend.service.CurrentUserService;
+import com.fitsync.auth.config.LocalAuthProperties;
+import com.fitsync.auth.dto.AuthResponse;
+import com.fitsync.auth.dto.CurrentUserResponse;
+import com.fitsync.auth.dto.LoginRequest;
+import com.fitsync.auth.dto.RegisterRequest;
+import com.fitsync.auth.entity.AppUser;
+import com.fitsync.auth.exception.NotFoundException;
+import com.fitsync.auth.service.AuthService;
+import com.fitsync.auth.service.CurrentUserService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
 import org.springframework.http.HttpStatus;

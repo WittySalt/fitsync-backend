@@ -82,7 +82,9 @@ public class EnergyProfileService {
             return false;
         }
         UserProfileEntity profile = maybeProfile.get();
-        BigDecimal weightKg = bodyMetricEntryRepository.findTopByUserIdOrderByMeasuredAtDesc(userId)
+        // The latest weigh-in, not the latest entry: an entry with only a waist or body-fat reading must not
+        // hide the weight measured before it.
+        BigDecimal weightKg = bodyMetricEntryRepository.findTopByUserIdAndWeightKgIsNotNullOrderByMeasuredAtDesc(userId)
                 .map(BodyMetricEntryEntity::getWeightKg)
                 .orElse(null);
         if (weightKg == null) {
@@ -90,12 +92,10 @@ public class EnergyProfileService {
         }
 
         Instant now = Instant.now(clock);
-        double bmr = 10.0 * weightKg.doubleValue()
-                + 6.25 * profile.getHeightCm().doubleValue()
-                - 5.0 * ageYears(profile.getBirthDate(), now)
-                + sexConstant(profile.getGender());
+        LocalDate today = LocalDate.ofInstant(now, clock.getZone());
+        double bmr = bmr(weightKg, profile.getHeightCm(), profile.getBirthDate(), profile.getGender(), today);
         double tdee = bmr * activityFactor(profile.getActivityLevel());
-        boolean estimated = !hasRealAge(profile.getBirthDate(), now) || !hasDisclosedSex(profile.getGender());
+        boolean estimated = !hasRealAge(profile.getBirthDate(), today) || !hasDisclosedSex(profile.getGender());
 
         domainEventPublisher.publish(USER_EVENTS_TOPIC, "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "EnergyProfileComputed", 1, now, SOURCE, userId,
@@ -108,20 +108,33 @@ public class EnergyProfileService {
         return true;
     }
 
-    private boolean hasRealAge(LocalDate birthDate, Instant now) {
-        return birthDate != null
-                && Period.between(birthDate, LocalDate.ofInstant(now, clock.getZone())).getYears() > 0;
+    /**
+     * Mifflin–St Jeor BMR in kcal/day. This is the one implementation of the formula in user-service, also used
+     * for the onboarding calorie estimate, so the target a user starts with agrees with the energy profile the
+     * other services receive. The age is the exact age on {@code today}, which the caller reads in the zone that
+     * matters to it.
+     */
+    static double bmr(BigDecimal weightKg, BigDecimal heightCm, LocalDate birthDate, Gender gender, LocalDate today) {
+        return 10.0 * weightKg.doubleValue()
+                + 6.25 * heightCm.doubleValue()
+                - 5.0 * ageYears(birthDate, today)
+                + sexConstant(gender);
+    }
+
+    private static boolean hasRealAge(LocalDate birthDate, LocalDate today) {
+        return birthDate != null && Period.between(birthDate, today).getYears() > 0;
     }
 
     private static boolean hasDisclosedSex(Gender gender) {
         return gender == Gender.MALE || gender == Gender.FEMALE;
     }
 
-    private int ageYears(LocalDate birthDate, Instant now) {
+    /** The completed years on {@code today}; the default age when unknown or not yet a year (a bad birth date). */
+    static int ageYears(LocalDate birthDate, LocalDate today) {
         if (birthDate == null) {
             return DEFAULT_AGE_YEARS;
         }
-        int age = Period.between(birthDate, LocalDate.ofInstant(now, clock.getZone())).getYears();
+        int age = Period.between(birthDate, today).getYears();
         return age > 0 ? age : DEFAULT_AGE_YEARS;
     }
 
@@ -135,7 +148,7 @@ public class EnergyProfileService {
         return SEX_CONSTANT_NEUTRAL;
     }
 
-    private static double activityFactor(ActivityLevel activityLevel) {
+    static double activityFactor(ActivityLevel activityLevel) {
         Double factor = activityLevel == null ? null : ACTIVITY_FACTORS.get(activityLevel);
         return factor != null ? factor.doubleValue() : DEFAULT_ACTIVITY_FACTOR;
     }

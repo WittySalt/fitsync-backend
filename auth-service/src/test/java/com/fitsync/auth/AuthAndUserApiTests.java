@@ -1,4 +1,4 @@
-package com.fitsync.backend;
+package com.fitsync.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -15,8 +15,8 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fitsync.backend.entity.AppUser;
-import com.fitsync.backend.repository.AppUserRepository;
+import com.fitsync.auth.entity.AppUser;
+import com.fitsync.auth.repository.AppUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -242,7 +242,10 @@ class AuthAndUserApiTests {
         mockMvc.perform(get("/api/v1/auth/security/sessions")
                         .header("Authorization", "Bearer " + token)
                         .header("User-Agent", "Mozilla/5.0 Chrome/125.0")
-                        .header("X-Forwarded-For", "203.0.113.10"))
+                        .with(request -> {
+                            request.setRemoteAddr("203.0.113.10");
+                            return request;
+                        }))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].sessionId").value("current-session"))
                 .andExpect(jsonPath("$[0].deviceLabel").value("This browser (Chrome)"))
@@ -251,6 +254,36 @@ class AuthAndUserApiTests {
                 .andExpect(jsonPath("$[0].revocable").value(false))
                 .andExpect(jsonPath("$[0].issuedAt").isNotEmpty())
                 .andExpect(jsonPath("$[0].expiresAt").isNotEmpty());
+    }
+
+    @Test
+    void sessionIpIgnoresAClientSuppliedForwardedForHeader() throws Exception {
+        registerUser("session-spoof@example.com", "Session Spoof", "supersecret");
+        String token = loginAndGetAccessToken("session-spoof@example.com", "supersecret");
+
+        // MockMvc has no RemoteIpValve, so this is what a header sent by the client itself looks like: it must
+        // not replace the address the connection came from.
+        mockMvc.perform(get("/api/v1/auth/security/sessions")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Forwarded-For", "198.51.100.66")
+                        .with(request -> {
+                            request.setRemoteAddr("203.0.113.10");
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].ipAddress").value("203.0.113.10"));
+    }
+
+    @Test
+    void tokenOfAnAccountThatNoLongerExistsIsUnauthorized() throws Exception {
+        registerUser("gone-user@example.com", "Gone User", "supersecret");
+        String token = loginAndGetAccessToken("gone-user@example.com", "supersecret");
+        appUserRepository.delete(appUserRepository.findByEmailIgnoreCase("gone-user@example.com").orElseThrow());
+
+        mockMvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Authentication is required to access this resource"));
     }
 
     @Test

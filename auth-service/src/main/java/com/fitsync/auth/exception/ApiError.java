@@ -1,4 +1,4 @@
-package com.fitsync.backend.exception;
+package com.fitsync.auth.exception;
 
 import java.time.Instant;
 import java.util.List;

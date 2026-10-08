@@ -1,4 +1,4 @@
-package com.fitsync.backend.security;
+package com.fitsync.auth.security;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -6,7 +6,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fitsync.backend.exception.ApiError;
+import com.fitsync.auth.exception.ApiError;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

@@ -1,12 +1,12 @@
-package com.fitsync.backend.messaging.repository;
+package com.fitsync.auth.messaging.repository;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.fitsync.backend.messaging.OutboxEventStatus;
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.OutboxEventStatus;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;

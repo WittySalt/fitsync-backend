@@ -25,22 +25,15 @@ import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
 import com.fitsync.media.MediaStorageService;
 import com.fitsync.user.domain.AccountDataExportStatus;
-import com.fitsync.user.domain.CalorieTrackingMode;
-import com.fitsync.user.domain.DietaryPreference;
-import com.fitsync.user.domain.FitnessLevel;
 import com.fitsync.user.domain.GoalStatus;
 import com.fitsync.user.domain.GoalType;
-import com.fitsync.user.domain.IntensityPreference;
 import com.fitsync.user.domain.LanguagePreference;
 import com.fitsync.user.domain.MacroPreference;
 import com.fitsync.user.domain.NutrientReferenceRange;
-import com.fitsync.user.domain.MembershipStatus;
-import com.fitsync.user.domain.MembershipTier;
 import com.fitsync.user.domain.NotificationChannel;
 import com.fitsync.user.domain.PrivacyLevel;
 import com.fitsync.user.domain.TrainingEquipment;
 import com.fitsync.user.domain.TrainingFocusArea;
-import com.fitsync.user.domain.TrainingLocation;
 import com.fitsync.user.domain.UnitSystem;
 import com.fitsync.user.dto.AppPreferencesView;
 import com.fitsync.user.dto.AccountDataExportPayload;
@@ -93,6 +86,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -113,6 +107,7 @@ public class UserServiceImpl implements UserService {
     private static final String ACCOUNT_DELETION_REASON_USER_REQUESTED = "USER_REQUESTED";
     private static final String NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE = "NOT_YET_ACTIVE";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
+    private static final String DEFAULT_ONBOARDING_TIMEZONE = "Asia/Singapore";
     private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
     private static final Map<String, String> AVATAR_EXTENSIONS = Map.of(
             "image/png", "png",
@@ -132,7 +127,9 @@ public class UserServiceImpl implements UserService {
     private final BodyMetricEntryRepository bodyMetricEntryRepository;
     private final UserGoalRepository userGoalRepository;
     private final UserGuideStateRepository userGuideStateRepository;
+    private final Clock clock;
 
+    @Autowired
     public UserServiceImpl(DomainEventPublisher domainEventPublisher,
                            ObjectProvider<MediaStorageService> mediaStorageServiceProvider,
                            AccountDataExportRequestRepository accountDataExportRequestRepository,
@@ -146,6 +143,28 @@ public class UserServiceImpl implements UserService {
                            UserGoalRepository userGoalRepository,
                            UserGuideStateRepository userGuideStateRepository,
                            EnergyProfileService energyProfileService) {
+        this(domainEventPublisher, mediaStorageServiceProvider, accountDataExportRequestRepository,
+                userProfileRepository, userAppPreferencesRepository, userTrainingPreferencesRepository,
+                userNutritionPreferencesRepository, userHealthReadinessRepository,
+                userNotificationPreferencesRepository, bodyMetricEntryRepository, userGoalRepository,
+                userGuideStateRepository, energyProfileService, Clock.systemUTC());
+    }
+
+    UserServiceImpl(DomainEventPublisher domainEventPublisher,
+                    ObjectProvider<MediaStorageService> mediaStorageServiceProvider,
+                    AccountDataExportRequestRepository accountDataExportRequestRepository,
+                    UserProfileRepository userProfileRepository,
+                    UserAppPreferencesRepository userAppPreferencesRepository,
+                    UserTrainingPreferencesRepository userTrainingPreferencesRepository,
+                    UserNutritionPreferencesRepository userNutritionPreferencesRepository,
+                    UserHealthReadinessRepository userHealthReadinessRepository,
+                    UserNotificationPreferencesRepository userNotificationPreferencesRepository,
+                    BodyMetricEntryRepository bodyMetricEntryRepository,
+                    UserGoalRepository userGoalRepository,
+                    UserGuideStateRepository userGuideStateRepository,
+                    EnergyProfileService energyProfileService,
+                    Clock clock) {
+        this.clock = clock;
         this.energyProfileService = energyProfileService;
         this.domainEventPublisher = domainEventPublisher;
         this.mediaStorageServiceProvider = mediaStorageServiceProvider;
@@ -189,16 +208,19 @@ public class UserServiceImpl implements UserService {
                 : request.firstName().trim();
         String lastName = request.lastName() == null ? "" : request.lastName().trim();
         String timezone = request.timezone() == null || request.timezone().isBlank()
-                ? "Asia/Singapore"
+                ? DEFAULT_ONBOARDING_TIMEZONE
                 : request.timezone().trim();
+        // "Today" is the person's today, not the server's: it decides the default target date and the age used
+        // for the calorie estimate, which would otherwise be a day off around midnight or a birthday.
+        LocalDate today = LocalDate.now(clock.withZone(onboardingZone(timezone)));
         LocalDate targetDate = request.targetDate() == null
-                ? LocalDate.now(ZoneId.systemDefault()).plusMonths(3)
+                ? today.plusMonths(3)
                 : request.targetDate();
         // The plan step shows these targets and lets the user edit them, so the ones sent
         // are kept as they are; only a missing one is estimated here.
         int calorieTarget = request.targetCalories() != null
                 ? request.targetCalories()
-                : estimateDailyCalories(request);
+                : estimateDailyCalories(request, today);
         BigDecimal proteinTarget = request.targetProteinGrams() != null
                 ? BigDecimal.valueOf(request.targetProteinGrams())
                 : estimateProteinTarget(request);
@@ -444,8 +466,12 @@ public class UserServiceImpl implements UserService {
         return toPreferencesView(savedApp, savedTraining, savedNutrition, savedNotifications);
     }
 
+    /**
+     * Like the other get-or-create reads in this class this runs in a writable transaction: a read-only one
+     * never flushes, so the default row created for a first-time reader was silently dropped.
+     */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public HealthReadinessView getHealthReadiness(CurrentUserPrincipal principal) {
         return toHealthReadinessView(getOrCreateHealthReadinessEntity(principal.userId()));
     }
@@ -667,30 +693,26 @@ public class UserServiceImpl implements UserService {
         }
 
         UserProfileEntity profile = getOrCreateProfileEntity(principal);
+        List<UserGoalView> goals = listGoals(principal, null);
+        // The export is the person's copy of everything stored about them, so it carries the whole
+        // body-metric history, newest first, rather than the first page the history endpoint returns.
+        List<BodyMetricView> bodyMetrics = bodyMetricEntryRepository.findByUserIdOrderByMeasuredAtDesc(principal.userId())
+                .stream()
+                .map(entry -> toBodyMetricView(entry, profile))
+                .toList();
         CurrentUserResponse account = new CurrentUserResponse(
                 principal.userId(),
                 principal.email(),
                 principal.role(),
                 toProfileView(profile),
                 getOrCreatePreferencesView(principal.userId()),
-                listGoals(principal, null),
-                bodyMetricEntryRepository.findTopByUserIdOrderByMeasuredAtDesc(principal.userId())
-                        .map(entry -> toBodyMetricView(entry, profile))
-                        .orElse(null));
-
-        List<BodyMetricView> bodyMetrics = bodyMetricEntryRepository.findHistory(
-                        principal.userId(),
-                        null,
-                        null,
-                        PageRequest.of(0, 200))
-                .stream()
-                .map(entry -> toBodyMetricView(entry, profile))
-                .toList();
+                goals,
+                bodyMetrics.isEmpty() ? null : bodyMetrics.get(0));
 
         return new AccountDataExportPayload(
                 exportRequest.getCompletedAt(),
                 account,
-                listGoals(principal, null),
+                goals,
                 bodyMetrics);
     }
 
@@ -793,15 +815,8 @@ public class UserServiceImpl implements UserService {
     }
 
     private UserProfileEntity getOrCreateProfileEntity(CurrentUserPrincipal principal) {
-        return userProfileRepository.findById(principal.userId()).orElseGet(() -> {
-            UserProfileEntity entity = new UserProfileEntity();
-            entity.setUserId(principal.userId());
-            entity.setDisplayName(principal.displayName());
-            entity.setMembershipTier(MembershipTier.MEMBER);
-            entity.setMembershipStatus(MembershipStatus.ACTIVE);
-            entity.setOnboardingCompleted(false);
-            return userProfileRepository.save(entity);
-        });
+        return userProfileRepository.findById(principal.userId()).orElseGet(() ->
+                userProfileRepository.save(UserDefaults.profile(principal.userId(), principal.displayName())));
     }
 
     private UserPreferencesView getOrCreatePreferencesView(UUID userId) {
@@ -813,62 +828,28 @@ public class UserServiceImpl implements UserService {
     }
 
     private UserAppPreferencesEntity getOrCreateAppPreferencesEntity(UUID userId) {
-        return userAppPreferencesRepository.findById(userId).orElseGet(() -> {
-            UserAppPreferencesEntity entity = new UserAppPreferencesEntity();
-            entity.setUserId(userId);
-            entity.setPreferredUnits(UnitSystem.METRIC);
-            entity.setLanguage(LanguagePreference.EN);
-            entity.setPrivacyLevel(PrivacyLevel.PRIVATE);
-            entity.setDataSharingConsent(false);
-            return userAppPreferencesRepository.save(entity);
-        });
+        return userAppPreferencesRepository.findById(userId).orElseGet(() ->
+                userAppPreferencesRepository.save(UserDefaults.appPreferences(userId)));
     }
 
     private UserTrainingPreferencesEntity getOrCreateTrainingPreferencesEntity(UUID userId) {
-        return userTrainingPreferencesRepository.findById(userId).orElseGet(() -> {
-            UserTrainingPreferencesEntity entity = new UserTrainingPreferencesEntity();
-            entity.setUserId(userId);
-            entity.setFitnessLevel(FitnessLevel.BEGINNER);
-            entity.setTrainingLocation(TrainingLocation.MIXED);
-            entity.setIntensityPreference(IntensityPreference.MODERATE);
-            return userTrainingPreferencesRepository.save(entity);
-        });
+        return userTrainingPreferencesRepository.findById(userId).orElseGet(() ->
+                userTrainingPreferencesRepository.save(UserDefaults.trainingPreferences(userId)));
     }
 
     private UserHealthReadinessEntity getOrCreateHealthReadinessEntity(UUID userId) {
-        return userHealthReadinessRepository.findById(userId).orElseGet(() -> {
-            UserHealthReadinessEntity entity = new UserHealthReadinessEntity();
-            entity.setUserId(userId);
-            return userHealthReadinessRepository.save(entity);
-        });
+        return userHealthReadinessRepository.findById(userId).orElseGet(() ->
+                userHealthReadinessRepository.save(UserDefaults.healthReadiness(userId)));
     }
 
     private UserNutritionPreferencesEntity getOrCreateNutritionPreferencesEntity(UUID userId) {
-        return userNutritionPreferencesRepository.findById(userId).orElseGet(() -> {
-            UserNutritionPreferencesEntity entity = new UserNutritionPreferencesEntity();
-            entity.setUserId(userId);
-            entity.setDietaryPattern(DietaryPreference.NONE);
-            entity.setCalorieTrackingMode(CalorieTrackingMode.FLEXIBLE);
-            entity.setMacroPreference(MacroPreference.BALANCED);
-            return userNutritionPreferencesRepository.save(entity);
-        });
+        return userNutritionPreferencesRepository.findById(userId).orElseGet(() ->
+                userNutritionPreferencesRepository.save(UserDefaults.nutritionPreferences(userId)));
     }
 
     private UserNotificationPreferencesEntity getOrCreateNotificationPreferencesEntity(UUID userId) {
-        return userNotificationPreferencesRepository.findById(userId).orElseGet(() -> {
-            UserNotificationPreferencesEntity entity = new UserNotificationPreferencesEntity();
-            entity.setUserId(userId);
-            entity.setPushEnabled(true);
-            entity.setEmailEnabled(false);
-            entity.setWorkoutReminderEnabled(true);
-            entity.setMealReminderEnabled(false);
-            entity.setWeighInReminderEnabled(false);
-            entity.setGoalProgressReminderEnabled(true);
-            entity.setWeeklyProgressReportEnabled(false);
-            entity.setWeeklyProgressReportChannel(NotificationChannel.EMAIL);
-            entity.setMarketingEmailsEnabled(false);
-            return userNotificationPreferencesRepository.save(entity);
-        });
+        return userNotificationPreferencesRepository.findById(userId).orElseGet(() ->
+                userNotificationPreferencesRepository.save(UserDefaults.notificationPreferences(userId)));
     }
 
     private BodyMetricEntryEntity getOwnedBodyMetric(UUID userId, UUID metricId) {
@@ -1088,25 +1069,29 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * A starting calorie target: Mifflin-St Jeor BMR times the activity multiplier, then a 400 kcal deficit to
-     * lose weight or a 250 kcal surplus to gain it, never below 1200 kcal. The age counts calendar years only,
-     * defaults to 30 and is at least 16.
+     * The zone onboarding was completed in. The timezone is stored as sent, so one Java cannot read falls back
+     * to the onboarding default rather than failing the whole request.
      */
-    private int estimateDailyCalories(CompleteOnboardingRequest request) {
-        int age = request.birthDate() == null
-                ? 30
-                : Math.max(16, LocalDate.now(ZoneId.systemDefault()).getYear() - request.birthDate().getYear());
-        BigDecimal bmr = BigDecimal.valueOf(10).multiply(request.currentWeightKg())
-                .add(BigDecimal.valueOf(6.25).multiply(request.heightCm()))
-                .subtract(BigDecimal.valueOf(5L * age))
-                .add(genderAdjustment(request.gender()));
-        BigDecimal tdee = bmr.multiply(activityMultiplier(request.activityLevel()));
-        BigDecimal goalAdjustment = request.targetWeightKg().compareTo(request.currentWeightKg()) < 0
-                ? BigDecimal.valueOf(-400)
-                : request.targetWeightKg().compareTo(request.currentWeightKg()) > 0
-                        ? BigDecimal.valueOf(250)
-                        : BigDecimal.ZERO;
-        return Math.max(1200, tdee.add(goalAdjustment).setScale(0, RoundingMode.HALF_UP).intValue());
+    private static ZoneId onboardingZone(String timezone) {
+        try {
+            return ZoneId.of(timezone);
+        } catch (java.time.DateTimeException ex) {
+            return ZoneId.of(DEFAULT_ONBOARDING_TIMEZONE);
+        }
+    }
+
+    /**
+     * A starting calorie target: the energy profile's Mifflin-St Jeor BMR and activity factor (see
+     * {@link EnergyProfileService#bmr}), then a 400 kcal deficit to lose weight or a 250 kcal surplus to gain it,
+     * never below 1200 kcal.
+     */
+    private int estimateDailyCalories(CompleteOnboardingRequest request, LocalDate today) {
+        double tdee = EnergyProfileService.bmr(request.currentWeightKg(), request.heightCm(), request.birthDate(),
+                request.gender(), today) * EnergyProfileService.activityFactor(request.activityLevel());
+        int goalAdjustment = request.targetWeightKg().compareTo(request.currentWeightKg()) < 0
+                ? -400
+                : request.targetWeightKg().compareTo(request.currentWeightKg()) > 0 ? 250 : 0;
+        return Math.max(1200, (int) Math.round(tdee + goalAdjustment));
     }
 
     /** 1.8 g per kg of body weight when cutting or asking for high protein, otherwise 1.6 g per kg. */
@@ -1134,27 +1119,6 @@ public class UserServiceImpl implements UserService {
             return BigDecimal.ZERO;
         }
         return remainingCalories.divide(BigDecimal.valueOf(4), 0, RoundingMode.HALF_UP);
-    }
-
-    /** The Mifflin-St Jeor sex constant; any other or no answer takes the midpoint of the two. */
-    private BigDecimal genderAdjustment(com.fitsync.user.domain.Gender gender) {
-        if (gender == com.fitsync.user.domain.Gender.MALE) {
-            return BigDecimal.valueOf(5);
-        }
-        if (gender == com.fitsync.user.domain.Gender.FEMALE) {
-            return BigDecimal.valueOf(-161);
-        }
-        return BigDecimal.valueOf(-78);
-    }
-
-    private BigDecimal activityMultiplier(com.fitsync.user.domain.ActivityLevel activityLevel) {
-        return switch (activityLevel) {
-            case SEDENTARY -> BigDecimal.valueOf(1.2);
-            case LIGHTLY_ACTIVE -> BigDecimal.valueOf(1.375);
-            case MODERATELY_ACTIVE -> BigDecimal.valueOf(1.55);
-            case VERY_ACTIVE -> BigDecimal.valueOf(1.725);
-            case ATHLETE -> BigDecimal.valueOf(1.9);
-        };
     }
 
     /** The first and latest non-null value of one measurement; the entries arrive oldest first. */
@@ -1208,10 +1172,17 @@ public class UserServiceImpl implements UserService {
         return distinctPreservingOrder(focusAreas);
     }
 
+    /**
+     * Trims and upper-cases each area before removing duplicates, so spellings that only differ in case or
+     * surrounding spaces ("knee", " KNEE") are stored once, at the place the first of them was given.
+     */
     private List<String> normalizeInjuryAreas(List<String> injuryAreas) {
-        return distinctPreservingOrder(injuryAreas).stream()
+        if (injuryAreas == null) {
+            return List.of();
+        }
+        return distinctPreservingOrder(injuryAreas.stream()
                 .map(value -> value.trim().toUpperCase(Locale.ROOT))
-                .toList();
+                .toList());
     }
 
     private <T> List<T> distinctPreservingOrder(List<T> values) {

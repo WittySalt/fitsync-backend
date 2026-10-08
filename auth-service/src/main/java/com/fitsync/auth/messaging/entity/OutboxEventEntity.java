@@ -1,9 +1,9 @@
-package com.fitsync.backend.messaging.entity;
+package com.fitsync.auth.messaging.entity;
 
 import java.time.Instant;
 import java.util.UUID;
 
-import com.fitsync.backend.messaging.OutboxEventStatus;
+import com.fitsync.auth.messaging.OutboxEventStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

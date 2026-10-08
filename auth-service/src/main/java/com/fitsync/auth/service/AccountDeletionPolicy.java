@@ -1,12 +1,12 @@
-package com.fitsync.backend.service;
+package com.fitsync.auth.service;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 
-import com.fitsync.backend.config.AccountDeletionProperties;
-import com.fitsync.backend.entity.AppUser;
-import com.fitsync.backend.exception.CodedApiException;
+import com.fitsync.auth.config.AccountDeletionProperties;
+import com.fitsync.auth.entity.AppUser;
+import com.fitsync.auth.exception.CodedApiException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 

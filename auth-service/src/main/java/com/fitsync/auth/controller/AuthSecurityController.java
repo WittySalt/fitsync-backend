@@ -1,11 +1,11 @@
-package com.fitsync.backend.controller;
+package com.fitsync.auth.controller;
 
 import java.util.List;
 
-import com.fitsync.backend.dto.ActiveSessionView;
-import com.fitsync.backend.dto.SecurityOverviewResponse;
-import com.fitsync.backend.dto.UpdateRecoveryEmailRequest;
-import com.fitsync.backend.service.CurrentUserService;
+import com.fitsync.auth.dto.ActiveSessionView;
+import com.fitsync.auth.dto.SecurityOverviewResponse;
+import com.fitsync.auth.dto.UpdateRecoveryEmailRequest;
+import com.fitsync.auth.service.CurrentUserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;

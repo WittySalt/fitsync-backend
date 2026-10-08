@@ -1,4 +1,4 @@
-package com.fitsync.backend.service;
+package com.fitsync.auth.service;
 
 import java.time.Instant;
 import java.util.Locale;
@@ -7,20 +7,20 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-import com.fitsync.backend.dto.ActiveSessionView;
-import com.fitsync.backend.dto.AccountDeletionRequestStatusResponse;
-import com.fitsync.backend.dto.CurrentUserResponse;
-import com.fitsync.backend.dto.RequestAccountDeletionRequest;
-import com.fitsync.backend.dto.SecurityOverviewResponse;
-import com.fitsync.backend.dto.UpdateRecoveryEmailRequest;
-import com.fitsync.backend.entity.AppUser;
-import com.fitsync.backend.entity.AuthProvider;
-import com.fitsync.backend.exception.ConflictException;
-import com.fitsync.backend.exception.NotFoundException;
-import com.fitsync.backend.exception.UnauthorizedException;
-import com.fitsync.backend.messaging.DomainEventPublisher;
-import com.fitsync.backend.repository.AppUserRepository;
-import com.fitsync.backend.security.JwtService;
+import com.fitsync.auth.dto.ActiveSessionView;
+import com.fitsync.auth.dto.AccountDeletionRequestStatusResponse;
+import com.fitsync.auth.dto.CurrentUserResponse;
+import com.fitsync.auth.dto.RequestAccountDeletionRequest;
+import com.fitsync.auth.dto.SecurityOverviewResponse;
+import com.fitsync.auth.dto.UpdateRecoveryEmailRequest;
+import com.fitsync.auth.entity.AppUser;
+import com.fitsync.auth.entity.AuthProvider;
+import com.fitsync.auth.exception.ConflictException;
+import com.fitsync.auth.exception.NotFoundException;
+import com.fitsync.auth.exception.UnauthorizedException;
+import com.fitsync.auth.messaging.DomainEventPublisher;
+import com.fitsync.auth.repository.AppUserRepository;
+import com.fitsync.auth.security.JwtService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import jakarta.servlet.http.HttpServletRequest;
@@ -370,13 +370,9 @@ public class CurrentUserService {
         if (request == null) {
             return null;
         }
-        // The left-most X-Forwarded-For entry is the original client. It is client-supplied and only shown
-        // back to the account owner, so it is not trusted for anything else.
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(forwarded)) {
-            int commaIndex = forwarded.indexOf(',');
-            return commaIndex > 0 ? forwarded.substring(0, commaIndex).trim() : forwarded.trim();
-        }
+        // Not X-Forwarded-For directly: any client can send that header with any address. With
+        // server.forward-headers-strategy=native, Tomcat's RemoteIpValve sets the remote address from it only
+        // when the connection comes from a trusted (private-range) proxy such as nginx or the load balancer.
         return request.getRemoteAddr();
     }
 

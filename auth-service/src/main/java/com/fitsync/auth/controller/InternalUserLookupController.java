@@ -1,10 +1,10 @@
-package com.fitsync.backend.controller;
+package com.fitsync.auth.controller;
 
-import com.fitsync.backend.dto.CurrentUserResponse;
-import com.fitsync.backend.dto.UserLookupRequest;
-import com.fitsync.backend.entity.AppUser;
-import com.fitsync.backend.exception.NotFoundException;
-import com.fitsync.backend.repository.AppUserRepository;
+import com.fitsync.auth.dto.CurrentUserResponse;
+import com.fitsync.auth.dto.UserLookupRequest;
+import com.fitsync.auth.entity.AppUser;
+import com.fitsync.auth.exception.NotFoundException;
+import com.fitsync.auth.repository.AppUserRepository;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

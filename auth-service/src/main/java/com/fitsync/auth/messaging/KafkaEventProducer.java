@@ -1,6 +1,6 @@
-package com.fitsync.backend.messaging;
+package com.fitsync.auth.messaging;
 
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
 
 public interface KafkaEventProducer {
 

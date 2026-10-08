@@ -1,4 +1,4 @@
-package com.fitsync.backend.security;
+package com.fitsync.auth.security;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -7,7 +7,7 @@ import java.util.Map;
 
 import javax.crypto.SecretKey;
 
-import com.fitsync.backend.config.JwtProperties;
+import com.fitsync.auth.config.JwtProperties;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;

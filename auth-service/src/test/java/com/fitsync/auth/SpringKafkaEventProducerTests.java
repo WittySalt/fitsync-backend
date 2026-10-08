@@ -1,4 +1,4 @@
-package com.fitsync.backend;
+package com.fitsync.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -11,8 +11,8 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-import com.fitsync.backend.messaging.SpringKafkaEventProducer;
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.SpringKafkaEventProducer;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

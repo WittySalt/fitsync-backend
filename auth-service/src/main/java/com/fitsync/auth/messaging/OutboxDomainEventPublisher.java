@@ -1,12 +1,12 @@
-package com.fitsync.backend.messaging;
+package com.fitsync.auth.messaging;
 
 import java.time.Instant;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
-import com.fitsync.backend.messaging.repository.OutboxEventRepository;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.repository.OutboxEventRepository;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Component;
 

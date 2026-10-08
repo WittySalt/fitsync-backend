@@ -79,7 +79,8 @@ class EnergyProfileServiceTests {
         service.publishEnergyProfile(userId);
 
         givenProfile(profile(Gender.FEMALE, LocalDate.parse("1990-01-01"), "165.0", ActivityLevel.SEDENTARY));
-        when(metricRepository.findTopByUserIdOrderByMeasuredAtDesc(userId)).thenReturn(Optional.empty());
+        when(metricRepository.findTopByUserIdAndWeightKgIsNotNullOrderByMeasuredAtDesc(userId))
+                .thenReturn(Optional.empty());
         service.publishEnergyProfile(userId);
 
         verify(publisher, never()).publish(anyString(), anyString(), anyString(), any());
@@ -103,6 +104,34 @@ class EnergyProfileServiceTests {
         assertThat(service.publishEnergyProfile(userId)).isFalse();
     }
 
+    @Test
+    void usesTheLatestWeighInWhenTheNewestEntryHasNoWeight() {
+        givenProfile(profile(Gender.MALE, LocalDate.parse("1996-07-01"), "181.5", ActivityLevel.MODERATELY_ACTIVE));
+        givenLatestWeight("82.50");
+        BodyMetricEntryEntity waistOnly = new BodyMetricEntryEntity();
+        waistOnly.setUserId(userId);
+        waistOnly.setWaistCm(new BigDecimal("84.0"));
+        waistOnly.setMeasuredAt(Instant.parse("2026-07-06T09:00:00Z"));
+        when(metricRepository.findTopByUserIdOrderByMeasuredAtDesc(userId)).thenReturn(Optional.of(waistOnly));
+
+        assertThat(service.publishEnergyProfile(userId)).isTrue();
+
+        // Same numbers as with the 82.5 kg weigh-in alone: the waist-only entry does not hide it.
+        assertThat(publishedPayload().bmrCalories()).isEqualTo(1814);
+    }
+
+    @Test
+    void ageCountsCompletedYearsOnlyAndFallsBackForUnusableBirthDates() {
+        LocalDate today = LocalDate.parse("2026-07-01");
+
+        assertThat(EnergyProfileService.ageYears(LocalDate.parse("1996-07-01"), today)).isEqualTo(30);
+        assertThat(EnergyProfileService.ageYears(LocalDate.parse("1996-07-02"), today)).isEqualTo(29);
+        assertThat(EnergyProfileService.ageYears(LocalDate.parse("1996-12-31"), today)).isEqualTo(29);
+        assertThat(EnergyProfileService.ageYears(null, today)).isEqualTo(EnergyProfileService.DEFAULT_AGE_YEARS);
+        assertThat(EnergyProfileService.ageYears(LocalDate.parse("2026-08-01"), today))
+                .isEqualTo(EnergyProfileService.DEFAULT_AGE_YEARS);
+    }
+
     private void givenProfile(UserProfileEntity profile) {
         when(profileRepository.findById(userId)).thenReturn(Optional.of(profile));
     }
@@ -112,7 +141,8 @@ class EnergyProfileServiceTests {
         metric.setUserId(userId);
         metric.setWeightKg(new BigDecimal(weightKg));
         metric.setMeasuredAt(Instant.parse("2026-07-06T07:00:00Z"));
-        when(metricRepository.findTopByUserIdOrderByMeasuredAtDesc(userId)).thenReturn(Optional.of(metric));
+        when(metricRepository.findTopByUserIdAndWeightKgIsNotNullOrderByMeasuredAtDesc(userId))
+                .thenReturn(Optional.of(metric));
     }
 
     private UserProfileEntity profile(Gender gender, LocalDate birthDate, String heightCm, ActivityLevel activity) {

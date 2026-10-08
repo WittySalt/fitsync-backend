@@ -1,13 +1,13 @@
-package com.fitsync.backend.controller;
+package com.fitsync.auth.controller;
 
 import java.time.Instant;
 
-import com.fitsync.backend.dto.OutboxPendingResponse;
-import com.fitsync.backend.dto.OutboxRelayResponse;
-import com.fitsync.backend.messaging.OutboxEventStatus;
-import com.fitsync.backend.messaging.OutboxEventRelay;
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
-import com.fitsync.backend.messaging.repository.OutboxEventRepository;
+import com.fitsync.auth.dto.OutboxPendingResponse;
+import com.fitsync.auth.dto.OutboxRelayResponse;
+import com.fitsync.auth.messaging.OutboxEventStatus;
+import com.fitsync.auth.messaging.OutboxEventRelay;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.repository.OutboxEventRepository;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.http.ResponseEntity;

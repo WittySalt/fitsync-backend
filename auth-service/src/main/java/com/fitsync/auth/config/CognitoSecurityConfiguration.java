@@ -1,7 +1,7 @@
-package com.fitsync.backend.config;
+package com.fitsync.auth.config;
 
-import com.fitsync.backend.security.AudienceValidator;
-import com.fitsync.backend.security.CognitoAuthoritiesConverter;
+import com.fitsync.auth.security.AudienceValidator;
+import com.fitsync.auth.security.CognitoAuthoritiesConverter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;

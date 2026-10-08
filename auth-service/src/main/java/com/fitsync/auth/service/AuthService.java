@@ -1,20 +1,20 @@
-package com.fitsync.backend.service;
+package com.fitsync.auth.service;
 
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-import com.fitsync.backend.messaging.DomainEventPublisher;
-import com.fitsync.backend.dto.AuthResponse;
-import com.fitsync.backend.dto.LoginRequest;
-import com.fitsync.backend.dto.RegisterRequest;
-import com.fitsync.backend.entity.AppUser;
-import com.fitsync.backend.entity.AuthProvider;
-import com.fitsync.backend.exception.ConflictException;
-import com.fitsync.backend.exception.UnauthorizedException;
-import com.fitsync.backend.repository.AppUserRepository;
-import com.fitsync.backend.security.JwtService;
+import com.fitsync.auth.messaging.DomainEventPublisher;
+import com.fitsync.auth.dto.AuthResponse;
+import com.fitsync.auth.dto.LoginRequest;
+import com.fitsync.auth.dto.RegisterRequest;
+import com.fitsync.auth.entity.AppUser;
+import com.fitsync.auth.entity.AuthProvider;
+import com.fitsync.auth.exception.ConflictException;
+import com.fitsync.auth.exception.UnauthorizedException;
+import com.fitsync.auth.repository.AppUserRepository;
+import com.fitsync.auth.security.JwtService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import org.springframework.security.crypto.password.PasswordEncoder;

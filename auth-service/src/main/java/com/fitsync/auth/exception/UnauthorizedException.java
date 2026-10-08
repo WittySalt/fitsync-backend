@@ -1,4 +1,4 @@
-package com.fitsync.backend.exception;
+package com.fitsync.auth.exception;
 
 public class UnauthorizedException extends RuntimeException {
 

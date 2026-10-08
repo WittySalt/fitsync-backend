@@ -1,8 +1,8 @@
-package com.fitsync.backend.security;
+package com.fitsync.auth.security;
 
 import java.util.List;
 
-import com.fitsync.backend.repository.AppUserRepository;
+import com.fitsync.auth.repository.AppUserRepository;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;

@@ -1,4 +1,4 @@
-package com.fitsync.backend;
+package com.fitsync.auth;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;

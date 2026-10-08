@@ -1,4 +1,4 @@
-package com.fitsync.backend;
+package com.fitsync.auth;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -10,9 +10,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @ConfigurationPropertiesScan
 @SpringBootApplication
-public class FitSyncBackendApplication {
+public class AuthServiceApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(FitSyncBackendApplication.class, args);
+        SpringApplication.run(AuthServiceApplication.class, args);
     }
 }

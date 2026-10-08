@@ -1,6 +1,6 @@
-package com.fitsync.backend.messaging;
+package com.fitsync.auth.messaging;
 
-import com.fitsync.backend.messaging.entity.OutboxEventEntity;
+import com.fitsync.auth.messaging.entity.OutboxEventEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
