@@ -32,6 +32,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+/**
+ * Everything the signed-in caller can read or change about their own account: the profile, the security
+ * overview and session view, the recovery email, account deletion, and first-time provisioning of a Cognito
+ * identity. The caller is either an application token holder (resolved by email) or a Cognito token holder
+ * (resolved by the token's subject).
+ */
 @Service
 public class CurrentUserService {
 
@@ -67,17 +73,7 @@ public class CurrentUserService {
     public SecurityOverviewResponse getSecurityOverview(Authentication authentication) {
         AppUser user = resolveUser(authentication)
                 .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
-        boolean cognitoManaged = user.getAuthProvider() == AuthProvider.COGNITO;
-        return new SecurityOverviewResponse(
-                user.getAuthProvider().name(),
-                cognitoManaged,
-                false,
-                cognitoManaged,
-                user.getEmail(),
-                !cognitoManaged,
-                1,
-                true,
-                cognitoManaged ? "COGNITO_PROTECTED" : "LOCAL_ACCOUNT");
+        return toSecurityOverview(user);
     }
 
     @Transactional(readOnly = true)
@@ -138,7 +134,7 @@ public class CurrentUserService {
 
         user.setEmail(normalizedEmail);
         AppUser saved = appUserRepository.save(user);
-        return getSecurityOverviewForUser(saved);
+        return toSecurityOverview(saved);
     }
 
     @Transactional
@@ -190,6 +186,11 @@ public class CurrentUserService {
         return toAccountDeletionStatus(appUserRepository.save(user));
     }
 
+    /**
+     * Returns the account for a verified Cognito identity, creating it (and announcing it with
+     * {@code UserRegistered}) on first sign-in. An email already held by a local account is refused rather
+     * than linked, so a Cognito sign-up cannot take over an existing password account.
+     */
     @Transactional
     public AppUser bootstrapCognitoUser(Authentication authentication) {
         Jwt jwt = extractJwt(authentication);
@@ -298,6 +299,10 @@ public class CurrentUserService {
         return StringUtils.hasText(email) ? email.trim().toLowerCase(Locale.ROOT) : email;
     }
 
+    /**
+     * Fills the required password column for a Cognito account. It is not a BCrypt hash, so no password can
+     * ever match it, and local login refuses non-LOCAL accounts before checking anyway.
+     */
     private String externalPasswordMarker() {
         return "{EXTERNAL}:" + UUID.randomUUID();
     }
@@ -311,7 +316,7 @@ public class CurrentUserService {
                 user.getAuthProvider().name());
     }
 
-    private SecurityOverviewResponse getSecurityOverviewForUser(AppUser user) {
+    private SecurityOverviewResponse toSecurityOverview(AppUser user) {
         boolean cognitoManaged = user.getAuthProvider() == AuthProvider.COGNITO;
         return new SecurityOverviewResponse(
                 user.getAuthProvider().name(),
@@ -333,7 +338,7 @@ public class CurrentUserService {
         if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
             return null;
         }
-        return authorization.substring(7);
+        return authorization.substring("Bearer ".length());
     }
 
     private String resolveDeviceLabel(HttpServletRequest request) {
@@ -345,6 +350,7 @@ public class CurrentUserService {
             return "Current session";
         }
         String normalized = userAgent.toLowerCase(Locale.ROOT);
+        // Order matters: Edge's user agent also names Chrome and Safari, and Chrome's also names Safari.
         if (normalized.contains("edg")) {
             return "This browser (Edge)";
         }
@@ -364,6 +370,8 @@ public class CurrentUserService {
         if (request == null) {
             return null;
         }
+        // The left-most X-Forwarded-For entry is the original client. It is client-supplied and only shown
+        // back to the account owner, so it is not trusted for anything else.
         String forwarded = request.getHeader("X-Forwarded-For");
         if (StringUtils.hasText(forwarded)) {
             int commaIndex = forwarded.indexOf(',');

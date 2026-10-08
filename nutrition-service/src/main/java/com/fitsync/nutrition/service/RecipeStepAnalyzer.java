@@ -25,7 +25,9 @@ public final class RecipeStepAnalyzer {
     }
 
     private static final int TITLE_MAX = 60;
+    /** Where a title with no clause boundary is cut by words, leaving room for the ellipsis. */
     private static final int TITLE_CUT = 57;
+    /** Durations outside 30 seconds to 3 hours are not offered as timers (a quick stir, an overnight rest). */
     private static final int MIN_TIMER_SECONDS = 30;
     private static final int MAX_TIMER_SECONDS = 3 * 3600;
     private static final int MAX_FOOD_NAME_WORDS = 3;

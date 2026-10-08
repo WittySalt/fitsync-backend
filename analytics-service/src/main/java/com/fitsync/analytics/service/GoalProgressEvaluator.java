@@ -26,6 +26,13 @@ import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Recomputes current value, progress ratio and on-track flag of a user's active goals from the read models.
+ * Daily nutrition goals look at today's row in the user's zone (calories, carbs and fat are ceilings, protein
+ * is a floor), workout frequency counts Monday to today, and weight goals compare the latest weigh-in with
+ * the baseline captured when the goal was first seen. Also owns the user-zone resolution of "today" and of
+ * an event's activity date that the projections share.
+ */
 @Service
 public class GoalProgressEvaluator {
 
@@ -42,6 +49,7 @@ public class GoalProgressEvaluator {
 
     private static final ZoneId DEFAULT_ZONE = ZoneOffset.UTC;
     private static final BigDecimal SEVEN_DAYS = BigDecimal.valueOf(7);
+    /** A maintain-weight goal (target equals baseline) is on track while within this distance of the baseline. */
     private static final BigDecimal MAINTAIN_WEIGHT_BAND_KG = new BigDecimal("0.50");
 
     private final AnalyticsUserGoalProgressRepository goalProgressRepository;
@@ -223,6 +231,7 @@ public class GoalProgressEvaluator {
         return ratio;
     }
 
+    /** 1 inside the band, then falling linearly to 0 at twice the band. */
     private BigDecimal maintainWeightRatio(BigDecimal deviation) {
         if (deviation.compareTo(MAINTAIN_WEIGHT_BAND_KG) <= 0) {
             return BigDecimal.ONE.setScale(4, RoundingMode.HALF_UP);
@@ -231,6 +240,11 @@ public class GoalProgressEvaluator {
         return clampedRatio(MAINTAIN_WEIGHT_BAND_KG.subtract(excess), MAINTAIN_WEIGHT_BAND_KG);
     }
 
+    /**
+     * On pace when the current weight is at or past the straight line from the baseline on the goal's start
+     * date to the target on its target date. Without a target date, any move in the right direction counts;
+     * with a target date on or before the start date, only reaching the target does.
+     */
     private boolean isWeightOnPace(AnalyticsUserGoalProgressEntity goal,
                                    BigDecimal start,
                                    BigDecimal current,
@@ -251,6 +265,7 @@ public class GoalProgressEvaluator {
         return target.compareTo(start) < 0 ? current.compareTo(expected) <= 0 : current.compareTo(expected) >= 0;
     }
 
+    /** The day the goal row was created, falling back to its last evaluation and then to today. */
     private LocalDate weightGoalStartDate(AnalyticsUserGoalProgressEntity goal) {
         Instant start = goal.getDateTimeCreated() == null ? goal.getLastEvaluatedAt() : goal.getDateTimeCreated();
         if (start == null) {
@@ -259,6 +274,7 @@ public class GoalProgressEvaluator {
         return start.atZone(resolveZone(goal.getUserId())).toLocalDate();
     }
 
+    /** The weekly target prorated to the days elapsed since Monday (Monday = 1/7), rounded down. */
     private BigDecimal requiredWorkoutPace(BigDecimal targetValue, LocalDate today) {
         int daysElapsedThisWeek = today.getDayOfWeek().getValue();
         return targetValue.multiply(BigDecimal.valueOf(daysElapsedThisWeek))

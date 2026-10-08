@@ -1,7 +1,7 @@
 # FitSync Food Database — Build Plan (open-data sourced)
 
-> **Status:** Design / operational plan. Lives on the `claude/recommendation-interface-review-*`
-> branch; **not for `main`**. Goal: give analytics the most comprehensive, well-structured food data
+> **Status:** Design / operational plan, written while recommendation-service was developed on its
+> own branch. Goal: give analytics the most comprehensive, well-structured food data
 > achievable from open data sources, with maximum room for future work — at capstone-feasible effort.
 >
 > Companion to `recommendation-service/README.md` and `analytics-collaboration.md`.

@@ -28,6 +28,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class ReadingValidator {
 
+    /**
+     * The limits {@link ReadingPrompt} states to the model and {@code CoachReadingService.explain}
+     * repeats in a repair prompt, so all three change together.
+     */
     private static final int MAX_HEADLINE_LENGTH = 80;
     private static final int MAX_BODY_LENGTH = 320;
 

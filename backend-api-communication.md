@@ -1,5 +1,9 @@
 # FitSync Backend API Communication Design
 
+> **Status:** planning document written in June 2026, before most services were built. Its
+> "current state" and phase sections are historical; for what exists today see
+> [README.md](README.md) and the code.
+
 ## 1. Purpose
 
 This document defines how synchronous API communication should work inside the FitSync backend architecture.
@@ -13,8 +17,8 @@ It covers:
 
 This document complements:
 
-- [backend.md](E:/Code/NUS-ISS/Capstone/backend/backend.md)
-- [backend-kafka-event-architecture.md](E:/Code/NUS-ISS/Capstone/backend/backend-kafka-event-architecture.md)
+- [backend.md](backend.md)
+- [backend-kafka-event-architecture.md](backend-kafka-event-architecture.md)
 
 ---
 

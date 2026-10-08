@@ -8,6 +8,10 @@ import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.util.StringUtils;
 
+/**
+ * Requires the configured audience in a Cognito token's {@code aud} claim. With no audience configured every
+ * token passes, leaving the issuer and signature checks as the only ones.
+ */
 public class AudienceValidator implements OAuth2TokenValidator<Jwt> {
 
     private static final OAuth2Error ERROR = new OAuth2Error("invalid_token", "The required audience is missing", null);

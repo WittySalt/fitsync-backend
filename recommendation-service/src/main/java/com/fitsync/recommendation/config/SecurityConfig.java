@@ -14,6 +14,10 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+/**
+ * Stateless JWT security: every endpoint needs an authenticated caller except health and the API docs,
+ * and the internal endpoints need an admin.
+ */
 @Configuration
 public class SecurityConfig {
 

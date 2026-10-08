@@ -7,6 +7,7 @@ import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 
+/** Builds {@link ApiError} bodies, echoing the request path and the gateway's correlation id. */
 public class ApiErrorFactory {
 
     private static final String CORRELATION_ID_HEADER = "X-Correlation-Id";

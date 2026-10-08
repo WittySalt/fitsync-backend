@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.workout.WorkoutLoggedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles WorkoutLogged by adding the session's contribution to its day's workout totals. */
 @Service
 public class WorkoutLoggedEventConsumerImpl implements DomainEventConsumer<WorkoutLoggedPayload> {
 

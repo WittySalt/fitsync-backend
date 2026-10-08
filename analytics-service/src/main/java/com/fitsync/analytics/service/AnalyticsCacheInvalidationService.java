@@ -20,6 +20,12 @@ import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+/**
+ * Evicts every cached read of one user after a projection changed their data. Cache keys start with the
+ * user id, so Redis entries are found by a key-prefix SCAN and unlinked, and in-memory caches are filtered
+ * by key. A Redis failure is logged rather than thrown, so a cache outage does not fail the event being
+ * projected; the entry then lives until its TTL runs out.
+ */
 @Service
 public class AnalyticsCacheInvalidationService {
 

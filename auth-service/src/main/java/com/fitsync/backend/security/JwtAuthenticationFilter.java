@@ -15,6 +15,11 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/**
+ * Authenticates a request carrying an application bearer token by loading the account named in its subject.
+ * A token that does not parse or verify is ignored, leaving the request unauthenticated for the
+ * authorization rules to answer.
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -37,7 +42,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        String token = authorization.substring(7);
+        String token = authorization.substring("Bearer ".length());
         String username;
         try {
             username = jwtService.extractUsername(token);

@@ -28,6 +28,10 @@ import com.fitsync.user.repository.UserProfileRepository;
 import com.fitsync.user.repository.UserTrainingPreferencesRepository;
 import org.springframework.stereotype.Service;
 
+/**
+ * Creates the default profile and preference rows for a newly registered user. Each row is only created when
+ * missing, so a redelivered event, or a user whose rows were already created on first read, is left as is.
+ */
 @Service
 public class UserRegistrationProvisioningServiceImpl implements UserRegistrationProvisioningService {
 

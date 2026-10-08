@@ -40,6 +40,7 @@ public class ReadingFactsBuilder {
     /** Placeholder while a fact is being built; {@link #build} numbers the chosen facts afterwards. */
     private static final int UNNUMBERED = 0;
 
+    /** The most facts one workout reading is built from; lower-priority facts past it are dropped. */
     private static final int MAX_FACTS = 4;
 
     public List<ReadingFact> build(TrainingInsight insight) {

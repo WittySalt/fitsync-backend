@@ -10,6 +10,11 @@ import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+/**
+ * Reads catalogue images from a local checkout of free-exercise-db, configured with
+ * {@code fitsync.workout.catalog.free-exercise-db.image-source-directory}. Paths that would resolve outside
+ * that directory are refused.
+ */
 @Component
 public class LocalDirectoryImageSource implements CatalogImageSource {
 

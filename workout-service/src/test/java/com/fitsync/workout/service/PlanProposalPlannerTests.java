@@ -15,7 +15,6 @@ import java.util.UUID;
 import com.fitsync.workout.domain.DayTargetKind;
 import com.fitsync.workout.domain.EntryType;
 import com.fitsync.workout.domain.ExerciseEquipment;
-import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.SessionKind;
 import com.fitsync.workout.domain.SportActivity;
 import com.fitsync.workout.domain.WorkoutDifficulty;

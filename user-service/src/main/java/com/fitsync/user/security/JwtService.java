@@ -12,6 +12,7 @@ import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Service;
 
+/** Reads the application JWTs issued by auth-service, which share this service's HMAC secret. */
 @Service
 public class JwtService {
 
@@ -43,6 +44,7 @@ public class JwtService {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
+    /** Accepts the secret Base64-encoded or, when it does not decode, as plain UTF-8 text. */
     private byte[] resolveKeyBytes() {
         String secret = jwtProperties.secret();
         try {

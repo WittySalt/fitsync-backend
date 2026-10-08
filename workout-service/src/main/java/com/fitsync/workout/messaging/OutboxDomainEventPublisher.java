@@ -8,6 +8,10 @@ import com.fitsync.workout.messaging.entity.OutboxEventEntity;
 import com.fitsync.workout.messaging.repository.OutboxEventRepository;
 import org.springframework.stereotype.Component;
 
+/**
+ * Publishes a domain event by writing it to the outbox table in the caller's transaction, so the event
+ * exists exactly when the change that raised it is committed. {@link OutboxEventRelayImpl} sends it on.
+ */
 @Component
 public class OutboxDomainEventPublisher implements DomainEventPublisher {
 

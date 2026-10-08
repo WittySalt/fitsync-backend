@@ -12,6 +12,11 @@ import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.util.List;
 
+/**
+ * The web pieces every service shares: the exception handler, the JSON 401/403 writers for the security
+ * chain, and the {@code @RequestTimezone} argument resolver. Services pull it in with {@code @Import} or by
+ * scanning {@code com.fitsync.web}.
+ */
 @Configuration
 public class CommonWebErrorConfiguration implements WebMvcConfigurer {
 

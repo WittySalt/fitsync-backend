@@ -6,6 +6,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+/**
+ * Stands in for the Kafka producer when Kafka is disabled: logs the outbox event instead of sending it, so
+ * the relay still marks it published.
+ */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class FallbackKafkaEventProducer implements KafkaEventProducer {

@@ -12,6 +12,10 @@ import org.springframework.data.annotation.LastModifiedBy;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+/**
+ * Audit columns filled by Spring Data auditing (the service supplies the auditor) and a {@code @Version} column
+ * for optimistic locking.
+ */
 @MappedSuperclass
 @EntityListeners(AuditingEntityListener.class)
 public abstract class BaseAuditableEntity {

@@ -8,6 +8,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.MappedSuperclass;
 import jakarta.persistence.PrePersist;
 
+/**
+ * One row of a service's transactional outbox: a serialized domain event written in the same transaction as the
+ * change that raised it, and later sent to Kafka by that service's relay.
+ */
 @MappedSuperclass
 public abstract class BaseOutboxEventEntity {
 

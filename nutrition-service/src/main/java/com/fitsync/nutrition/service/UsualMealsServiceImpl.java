@@ -29,11 +29,18 @@ import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Finds the person's habitual meals over the last two weeks: for each meal type, the usual time of day and the
+ * combination of foods eaten together most often, shown with the nutrition of the latest meal that had it so the
+ * card can offer to log it again.
+ */
 @Service
 public class UsualMealsServiceImpl implements UsualMealsService {
 
     private static final int WINDOW_DAYS = 14;
+    /** A combination has to recur this often in the window to count as a habit. */
     private static final int MIN_OCCURRENCES = 3;
+    /** The card lists at most this many foods, though the totals cover the whole meal. */
     private static final int MAX_ITEMS = 12;
     private static final int TIME_STEP_MINUTES = 5;
     private static final int MINUTES_PER_DAY = 24 * 60;

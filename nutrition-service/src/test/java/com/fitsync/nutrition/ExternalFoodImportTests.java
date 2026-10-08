@@ -20,7 +20,6 @@ import com.fitsync.nutrition.domain.FoodCreationMode;
 import com.fitsync.nutrition.dto.FoodDetailView;
 import com.fitsync.nutrition.dto.FoodSearchResultView;
 import com.fitsync.nutrition.entity.FoodBarcodeEntity;
-import com.fitsync.nutrition.entity.FoodBrandEntity;
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
 import com.fitsync.nutrition.entity.FoodNutrientProfileEntity;
 import com.fitsync.nutrition.entity.FoodServingEntity;

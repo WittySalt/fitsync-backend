@@ -15,6 +15,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
+/** Reads GoalUpdated from the progress-events topic and hands it to the goal consumer. */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka.listeners.goal-updated", name = "enabled", havingValue = "true")
 public class GoalUpdatedKafkaListener {

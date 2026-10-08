@@ -11,6 +11,10 @@ import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Service;
 
+/**
+ * Verifies the HMAC-signed access tokens issued by auth-service and reads the caller from their claims. The
+ * shared secret may be Base64-encoded or plain text.
+ */
 @Service
 public class JwtService {
 

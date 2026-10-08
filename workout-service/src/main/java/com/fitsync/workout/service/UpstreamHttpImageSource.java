@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
@@ -16,6 +17,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriUtils;
 
+/**
+ * Downloads catalogue images from the free-exercise-db repository over HTTP. A 404 is skipped at once;
+ * other statuses and I/O errors are retried immediately up to {@link #MAX_ATTEMPTS} times, after which the
+ * image is skipped rather than failing the import.
+ */
 @Component
 public final class UpstreamHttpImageSource implements CatalogImageSource {
 
@@ -97,6 +103,7 @@ public final class UpstreamHttpImageSource implements CatalogImageSource {
         return baseUri;
     }
 
+    /** Lower-cases ASCII letters only, since URI schemes compare case-insensitively. */
     private String normalizeAsciiScheme(String scheme) {
         if (scheme == null) {
             return "";
@@ -116,7 +123,7 @@ public final class UpstreamHttpImageSource implements CatalogImageSource {
     private URI imageUri(String relativeImagePath) {
         URI relativeUri = URI.create(UriUtils.encodePath(
                 relativeImagePath.replace('\\', '/'),
-                java.nio.charset.StandardCharsets.UTF_8));
+                StandardCharsets.UTF_8));
         if (relativeUri.isAbsolute() || relativeImagePath.startsWith("/") || relativeImagePath.contains("..")) {
             throw new IllegalArgumentException("free-exercise-db image path must be relative");
         }

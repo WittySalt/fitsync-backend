@@ -13,6 +13,11 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/**
+ * Authenticates a request carrying an application (HMAC-signed) bearer token. A token that does not
+ * verify leaves the request unauthenticated rather than failing it here: when Cognito is enabled the
+ * resource server may still accept it, and otherwise the authorization rules answer 401.
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -33,7 +38,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        String token = authorization.substring(7);
+        String token = authorization.substring("Bearer ".length());
         try {
             GatewayUserPrincipal principal = jwtService.extractCurrentUser(token);
             if (SecurityContextHolder.getContext().getAuthentication() == null) {

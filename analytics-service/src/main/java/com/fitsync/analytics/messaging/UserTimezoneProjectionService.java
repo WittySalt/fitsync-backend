@@ -14,6 +14,10 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Stores the user's timezone on the dashboard snapshot. Every "today" and "this week" in analytics is
+ * resolved in that zone. A missing or invalid zone is ignored, so the last valid one is kept.
+ */
 @Service
 public class UserTimezoneProjectionService {
 

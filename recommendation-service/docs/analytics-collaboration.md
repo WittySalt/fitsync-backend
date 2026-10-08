@@ -1,10 +1,11 @@
 # analytics ↔ recommendation — Division of Labor & Source-Event Evolution
 
-> **Status:** Design note (theory + proposals). Lives on the
-> `claude/recommendation-interface-review-*` branch; **not for `main`**. It describes how
+> **Status:** Design note (theory + proposals), written while recommendation-service was developed
+> on its own branch; it has been on `main` since 2026-09-26. It describes how
 > analytics-service should evolve to carry more of the derived-computation load, and what the three
 > base services (nutrition / workout / user) should additionally emit so analytics can compute deeper
-> insights. No code yet.
+> insights. Parts of it have since been built, e.g. the food provenance and classification columns
+> of nutrition-service migrations V13–V15.
 
 Companion to `recommendation-service/README.md`.
 

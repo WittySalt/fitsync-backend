@@ -40,6 +40,10 @@ public class SecurityConfig {
         this.cognitoJwtAuthenticationConverterProvider = cognitoJwtAuthenticationConverterProvider;
     }
 
+    /**
+     * Bootstrap and deletion-cancel are called with a Cognito token before (or instead of) an application
+     * token exists, so they get their own chain that only accepts Cognito tokens.
+     */
     @Bean
     @Order(1)
     SecurityFilterChain cognitoBootstrapSecurityFilterChain(HttpSecurity http) throws Exception {

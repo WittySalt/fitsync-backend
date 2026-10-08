@@ -40,11 +40,20 @@ import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.web.util.UriUtils;
 
+/**
+ * Forwards each public route to its owning service unchanged in path and query, stripping hop-by-hop
+ * and identity headers from the client and replacing the identity headers with the ones derived from the
+ * token this gateway has already verified.
+ */
 @Service
 public class GatewayProxyServiceImpl implements GatewayProxyService {
 
     private static final Logger LOG = LoggerFactory.getLogger(GatewayProxyServiceImpl.class);
 
+    /**
+     * Never copied in either direction. Besides the standard hop-by-hop headers this includes the identity
+     * and correlation headers, so a client cannot spoof them: the gateway sets them itself after authenticating.
+     */
     private static final List<String> HOP_BY_HOP_HEADERS = List.of(
             HttpHeaders.HOST.toLowerCase(Locale.ROOT),
             HttpHeaders.CONNECTION.toLowerCase(Locale.ROOT),

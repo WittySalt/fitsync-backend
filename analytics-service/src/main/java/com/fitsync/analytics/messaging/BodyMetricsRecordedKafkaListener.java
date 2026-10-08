@@ -15,6 +15,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
+/** Reads BodyMetricsRecorded from the progress-events topic and hands it to the body-metrics consumer. */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka.listeners.body-metrics-recorded", name = "enabled", havingValue = "true")
 public class BodyMetricsRecordedKafkaListener {

@@ -75,6 +75,7 @@ public class CandidateSelector {
      * filter and then fails the gate, which is the confusing direction for it to fail in.
      */
     private boolean breaksARule(CatalogueExercise row, DraftContext context) {
+        // Sets, reps and rest well inside the structural limits, so only the exercise itself can fail.
         DraftExercise probe = new DraftExercise(row.exerciseId(), row.name(), 3, 10, null, 60, "probe");
         // Target minutes zeroed: a single exercise is not a session, and judging its length here
         // would reject every candidate.
