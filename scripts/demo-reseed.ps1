@@ -6,13 +6,15 @@
 #
 # The addresses come from scripts\demo-accounts.env (git-ignored), or the example file when that
 # does not exist. Parameters override both. The seed deletes and rebuilds the data of those
-# accounts only. Run it after 08:00 Singapore time, so today's breakfast is not in the future.
+# accounts only. It runs at any hour: all three accounts share one run time, and nothing is written
+# after it (before 07:30 today has no breakfast yet). -EnvFile defaults to .env in this checkout, or
+# in the main checkout (..\..\backend) when this is a worktree without one.
 param(
     [string]$SteadyEmail,
     [string]$DriftingEmail,
     [string]$FreshEmail,
     [string]$BackendDir = (Split-Path -Parent $PSScriptRoot),
-    [string]$EnvFile = '.env',
+    [string]$EnvFile,
     [string]$AppProject = 'fitsync-app',
     [string]$PostgresContainer = 'fitsync-postgres',
     [int]$TimeoutSeconds = 180,
@@ -50,6 +52,17 @@ function Invoke-Step([string]$Label, [string[]]$Docker) {
 }
 
 Set-Location $BackendDir
+if (-not $EnvFile) {
+    $EnvFile = Join-Path $BackendDir '.env'
+    $main = Join-Path (Split-Path -Parent $BackendDir) 'backend\.env'
+    if (-not (Test-Path $EnvFile) -and (Test-Path $main)) { $EnvFile = $main }
+}
+if (-not $DryRun -and -not (Test-Path $EnvFile)) { throw "Env file not found: $EnvFile (pass -EnvFile)" }
+Write-Host "Env file: $EnvFile"
+# One run time for all three accounts, Singapore wall clock.
+$sgt = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'Singapore Standard Time')
+$now = $sgt.ToString('yyyy-MM-ddTHH:mm')
+Write-Host "Seed run time (SGT): $now"
 $seed = Join-Path $PSScriptRoot 'seed-demo-fitsync.sql'
 if (-not (Test-Path $seed)) { throw "Seed not found: $seed" }
 $remote = '/tmp/seed-demo-fitsync.sql'
@@ -65,7 +78,7 @@ $runs = @(
 foreach ($r in $runs) {
     Write-Host ("Seeding {0} ({1})" -f $r.Persona, $r.Email)
     Invoke-Step "seed $($r.Persona)" @('exec', '-i', $PostgresContainer, 'psql', '-U', 'fitsync', '-d', 'fitsync',
-        '-v', 'ON_ERROR_STOP=1', '-v', "email=$($r.Email)", '-v', "persona=$($r.Persona)", '-q', '-f', $remote)
+        '-v', 'ON_ERROR_STOP=1', '-v', "email=$($r.Email)", '-v', "persona=$($r.Persona)", '-v', "now=$now", '-q', '-f', $remote)
 }
 Invoke-Step 'remove seed copy' @('exec', $PostgresContainer, 'rm', '-f', $remote)
 
@@ -91,15 +104,17 @@ if ($DryRun) {
 }
 
 Write-Host ''
-Write-Host 'Reseed done. Eyeball, signed in as steady unless noted:'
+Write-Host 'Reseed done. Coach eval for this seed:'
+Write-Host ("  python scripts\coach-eval\run_coach_eval.py --now {0} --token-file .local\demo.jwt --out .local\coach-eval.md" -f $now)
+Write-Host 'Eyeball, signed in as steady unless noted (scripts\README.md has the numbers per weekday):'
 @(
-    'Home: the guide card has something to say for the morning (breakfast logged, one sip of water)',
-    'Workout Today: the planned days before today are done (from Wednesday on, the Thursday run was done on Tuesday), today as planned',
-    'Nutrition Diary: last Sunday reads as a fasted day, yesterday is complete, today has breakfast only',
-    'Recipes: Cook for tonight lists recipes, three cooks are in the history, Leftovers offers two',
-    'Progress: the week rule line, streak (0 on a Thursday or Friday, see scripts\README.md), energy and the weight trend',
-    'Me: Member since about 60 days ago, footprint grid filled, badges earned',
-    'Achievements: the paths show progress, the kitchen path counts three cooks',
-    'drifting: Home and Progress read as slipping; fresh: every page shows its empty state',
+    'Home: streak about two weeks, ending yesterday; weekly goal of six sessions (Friday: two to go); today has breakfast only if the seed ran after 07:30',
+    'Workout Today: the plan days before today are done, today''s plan day is still to start; rest days of the last two weeks carry a short mobility session',
+    'Nutrition Diary: every day logged, last Sunday a fasted day, yesterday complete',
+    'Recipes: three cooks in the history, Leftovers offers two (Salmon Avocado Salad 1, Spanish Chicken 2)',
+    'Progress: the week rule line, weight trend down with yesterday''s weigh-in, energy view',
+    'Me: Member since the first day of the history (59 days back), footprint grid filled, badges earned (Four full weeks among them); month panel: last month 3 of 3 full weeks on goal',
+    'drifting (Alex Tan): streak 0, plan days missed, last weigh-in 10 days ago, no meals for 4 days, goal pace behind',
+    'fresh (Sam Lee): every page shows its empty state and the first tour starts',
     'Admin console: sign in as the admin account'
 ) | ForEach-Object { Write-Host ("  [ ] " + $_) }
