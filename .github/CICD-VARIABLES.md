@@ -24,7 +24,7 @@ commands below.
 | `FITSYNC_MEDIA_ENDPOINT` `FITSYNC_MEDIA_REGION` `FITSYNC_MEDIA_BUCKET` `FITSYNC_MEDIA_PUBLIC_BASE_URL` | deploy | S3 media config |
 | `RECOMMENDATION_AI_ENABLED` `RECOMMENDATION_AI_PROVIDER` `RECOMMENDATION_AI_MODEL` `RECOMMENDATION_AI_BASE_URL` | deploy | coach AI tier (optional). Unset = off, the coach falls back to rule text |
 | `NOTIFY_EMAIL_ENABLED` | deploy-staging-app, deploy-prod | **Environment-level** (`staging` / `production`). `true` makes notification-service send through SES; unset or anything else = emails are only logged. Turn on only after the domain identity verifies and `notify_email_sender` is applied in that workspace |
-| `NOTIFY_EMAIL_SENDER` | deploy-staging-app, deploy-prod | **Environment-level.** The bare From address: `noreply-staging@fitsync.link` on `staging`, `noreply@fitsync.link` on `production`. Must equal `notify_email_sender` in that workspace's tfvars, because the EC2 role may send only from that address (`ses:FromAddress`). CD adds the display name (`FitSync Staging` / `FitSync`) and staging's `[Staging]` subject prefix itself |
+| `NOTIFY_EMAIL_SENDER` | deploy-staging-app, deploy-prod | **Environment-level.** The bare From address: `noreply-staging@fitsyncapp.click` on `staging`, `noreply@fitsyncapp.click` on `production`. Must equal `notify_email_sender` in that workspace's tfvars, because the EC2 role may send only from that address (`ses:FromAddress`). CD adds the display name (`FitSync Staging` / `FitSync`) and staging's `[Staging]` subject prefix itself |
 | `APP_BASE_URL` | deploy-staging-app, deploy-prod | **Environment-level**, optional. Where links in emails point. Unset: staging uses the first `https://` origin of `STAGING_CORS_ALLOWED_ORIGINS`, else `https://d1z92tpb353lfi.cloudfront.net`; prod uses `https://d26vi6hikexzev.cloudfront.net` |
 | `STAGING_EC2_PUBLIC_KEY` | tf-plan, deploy-staging | public half of the staging deploy key (the private half is `STAGING_EC2_SSH_KEY`) |
 | `STAGING_CORS_ALLOWED_ORIGINS` | deploy-staging-app | the staging SPA origin, e.g. `https://<staging-cloudfront>.cloudfront.net` |
@@ -62,8 +62,8 @@ never deploys prod, a person has to start a manual run. See the promotion rule a
 gh variable set AWS_REGION    --repo WittySalt/fitsync-backend --body "ap-southeast-1"
 gh variable set AWS_ROLE_ARN  --repo WittySalt/fitsync-backend --body "arn:aws:iam::<acct>:role/<role>"
 # environment-level variables (email notifications differ per environment)
-gh variable set NOTIFY_EMAIL_SENDER --repo WittySalt/fitsync-backend --env staging    --body "noreply-staging@fitsync.link"
-gh variable set NOTIFY_EMAIL_SENDER --repo WittySalt/fitsync-backend --env production --body "noreply@fitsync.link"
+gh variable set NOTIFY_EMAIL_SENDER --repo WittySalt/fitsync-backend --env staging    --body "noreply-staging@fitsyncapp.click"
+gh variable set NOTIFY_EMAIL_SENDER --repo WittySalt/fitsync-backend --env production --body "noreply@fitsyncapp.click"
 # secrets (prompts / reads file)
 gh secret   set PROD_EC2_SSH_KEY --repo WittySalt/fitsync-backend < path/to/id_ed25519
 ```

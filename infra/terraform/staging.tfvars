@@ -29,9 +29,9 @@ cognito_callback_urls = ["http://localhost:3000/auth/callback"]
 cognito_logout_urls   = ["http://localhost:3000/logout/callback"]
 
 # From address of notification-service emails. Empty = no send permission (emails
-# are only logged). The fitsync.link domain identity lives in bootstrap/email.tf, so
+# are only logged). The fitsyncapp.click domain identity lives in bootstrap/email.tf, so
 # this workspace creates none (notify_email_create_identity defaults to false). Set
 # the line below once bootstrap's notify_email_domain_dkim_status reads SUCCESS, and
 # keep it equal to the staging NOTIFY_EMAIL_SENDER variable in GitHub.
 notify_email_sender = ""
-# notify_email_sender = "noreply-staging@fitsync.link"
+# notify_email_sender = "noreply-staging@fitsyncapp.click"

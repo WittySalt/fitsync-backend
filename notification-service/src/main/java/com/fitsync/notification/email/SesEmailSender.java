@@ -17,7 +17,7 @@ import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
  * which is the EC2 instance role in the cloud, so no key is configured anywhere. Any SDK failure
  * is left to propagate, and the dispatcher counts it as a failed attempt.
  *
- * <p>The From header carries a display name ({@code FitSync <noreply@fitsync.link>}). The IAM
+ * <p>The From header carries a display name ({@code FitSync <noreply@fitsyncapp.click>}). The IAM
  * condition {@code ses:FromAddress} is evaluated against the bare address, and the display name has
  * its own key, {@code ses:FromDisplayName}, so the name does not affect the send permission.
  */

@@ -3,8 +3,8 @@
 # so no key lives on the host. Nothing here exists while var.notify_email_sender is empty:
 # no permission, and the service keeps logging emails instead of sending.
 #
-# The usual sender is an address on the FitSync domain (noreply@fitsync.link for prod,
-# noreply-staging@fitsync.link for staging). That domain is one account-wide SES identity
+# The usual sender is an address on the FitSync domain (noreply@fitsyncapp.click for prod,
+# noreply-staging@fitsyncapp.click for staging). That domain is one account-wide SES identity
 # with DKIM, managed in bootstrap/email.tf, so this workspace creates no identity
 # (notify_email_create_identity = false, the default) and only grants the send permission.
 #

@@ -6,11 +6,11 @@
 #
 # Nothing here exists while var.notify_email_domain is empty.
 #
-# The public hosted zone is created HERE, not looked up. The domain was registered in another
-# account (438465161112), whose auto-created zone does not move when the registration is
-# transferred into this one. After the first apply, point the registration's name servers at
-# notify_email_domain_name_servers; DKIM only verifies once they answer for the domain
-# (RUNBOOK.md "Email notifications (SES)").
+# The public hosted zone is ADOPTED, not created. Route 53 created it in this account
+# (437659978621) when fitsyncapp.click was registered here, and the registration already
+# points at its name servers, so nothing changes at the registrar. The import block below
+# brings that zone under Terraform on the first apply; prevent_destroy keeps a later apply
+# from deleting it (RUNBOOK.md "Email notifications (SES)").
 #
 # Records written into the zone:
 #   - three DKIM CNAMEs (Easy DKIM, RSA 2048); SES verifies the domain once they resolve
@@ -20,13 +20,13 @@
 variable "notify_email_domain" {
   description = "Domain notification emails are sent from, verified in SES with Easy DKIM (empty = nothing created)"
   type        = string
-  # The registered domain is the default, so an apply that forgets -var keeps the zone and the
-  # identity instead of destroying them.
-  default = "fitsync.link"
+  # The domain registered in this account is the default, so a plain apply adopts its zone and
+  # creates the identity, and an apply that forgets -var does not try to remove them.
+  default = "fitsyncapp.click"
 
   validation {
     condition     = var.notify_email_domain == "" || can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?[.])+[a-z]{2,}$", var.notify_email_domain))
-    error_message = "notify_email_domain must be empty or a lower-case domain name such as fitsync.link."
+    error_message = "notify_email_domain must be empty or a lower-case domain name such as fitsyncapp.click."
   }
 }
 
@@ -47,11 +47,26 @@ locals {
   notify_dmarc          = var.notify_email_dmarc_rua == "" ? "v=DMARC1; p=none;" : "v=DMARC1; p=none; rua=mailto:${var.notify_email_dmarc_rua}"
 }
 
+# The zone Route 53 Registrar created for fitsyncapp.click. Its comment is kept as the
+# registrar wrote it so the import plans no change. If notify_email_domain is ever pointed at
+# another domain, remove this import block first.
+import {
+  to = aws_route53_zone.notify[0]
+  id = "Z03373831R8G5N1TEF6LB"
+}
+
 resource "aws_route53_zone" "notify" {
   count = local.notify_domain_enabled ? 1 : 0
 
   name    = var.notify_email_domain
-  comment = "FitSync sending domain (SES DKIM, MAIL FROM, DMARC); managed by bootstrap/email.tf"
+  comment = "HostedZone created by Route53 Registrar"
+
+  # The zone is left as the registrar made it: without default tags, and with force_destroy
+  # unset in state (false), so the import changes nothing on it.
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [force_destroy, tags_all]
+  }
 }
 
 resource "aws_sesv2_email_identity" "notify_domain" {
@@ -118,7 +133,7 @@ resource "aws_route53_record" "notify_dmarc" {
 }
 
 output "notify_email_domain_name_servers" {
-  description = "The four name servers of the new hosted zone; set them on the domain registration (update-domain-nameservers)"
+  description = "The four name servers of the adopted hosted zone (the registration already uses them)"
   value       = local.notify_domain_enabled ? aws_route53_zone.notify[0].name_servers : null
 }
 

@@ -34,8 +34,8 @@ enable_cognito = false
 api_from_cloudfront_only = true
 
 # From address of notification-service emails. Empty = no send permission (emails
-# are only logged). The fitsync.link domain identity lives in bootstrap/email.tf (see
+# are only logged). The fitsyncapp.click domain identity lives in bootstrap/email.tf (see
 # staging.tfvars). Set the line below once the domain verifies, and keep it equal to
 # the production NOTIFY_EMAIL_SENDER variable in GitHub.
 notify_email_sender = ""
-# notify_email_sender = "noreply@fitsync.link"
+# notify_email_sender = "noreply@fitsyncapp.click"
