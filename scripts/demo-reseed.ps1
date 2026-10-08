@@ -113,7 +113,7 @@ Write-Host 'Eyeball, signed in as steady unless noted (scripts\README.md has the
     'Nutrition Diary: every day logged, last Sunday a fasted day, yesterday complete',
     'Recipes: three cooks in the history, Leftovers offers two (Salmon Avocado Salad 1, Spanish Chicken 2)',
     'Progress: the week rule line, weight trend down with yesterday''s weigh-in, energy view',
-    'Me: Member since the first day of the history (59 days back), footprint grid filled, badges earned',
+    'Me: Member since the first day of the history (59 days back), footprint grid filled, badges earned (Four full weeks among them); month panel: last month 3 of 3 full weeks on goal',
     'drifting (Alex Tan): streak 0, plan days missed, last weigh-in 10 days ago, no meals for 4 days, goal pace behind',
     'fresh (Sam Lee): every page shows its empty state and the first tour starts',
     'Admin console: sign in as the admin account'

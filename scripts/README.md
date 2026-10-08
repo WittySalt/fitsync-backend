@@ -65,7 +65,10 @@ Locally it only logs emails (`FITSYNC_NOTIFY_EMAIL_ENABLED` stays false).
      Chicken (2).
    - Progress: the week rule line, the weight trend with yesterday's weigh-in, the energy view.
    - Me and Achievements: Member since the first day of the seeded history (59 days before the run
-     day, 11 Aug for a Friday 9 Oct run), footprint filled from that day, badges earned.
+     day, 11 Aug for a Friday 9 Oct run), footprint filled from that day, badges earned, among them
+     Full week and Four full weeks.
+   - Home month panel: the last full month (September for an October run) reads 3 of 3 full weeks on
+     goal; the current month has no full week until its first Sunday has passed.
    - Drifting account (Alex Tan): Home and Progress read as slipping. Fresh account (Sam Lee): empty
      states, first tour.
    - Admin console: sign in with the admin account.
@@ -89,7 +92,11 @@ steady trains the plan's week (Monday and Friday strength, a Thursday run, Satur
 the Thursday run done on Tuesday in the current week once Tuesday has passed. Every rest day of the
 last 14 days carries a 20 or 25 minute mobility session outside the plan, so the streak runs back
 from yesterday for two weeks or more. Its weekly goal is six sessions (four plan days and two or three
-rest days a week, every session counting), and its training preference says six days too. Meals are logged every day (the most recent past Sunday is a
+rest days a week, every session counting), and its training preference says six days too. Every
+completed week before that holds six sessions or more: a week with only the plan's days gets a
+15-minute evening mobility session at 19:45 after the plan session of one or more of its plan days, so
+the badges and the month panel count those weeks on goal while the active days and the streak stay as
+they are. The first week of the history is partial and stays short. Meals are logged every day (the most recent past Sunday is a
 fasted day), weigh-ins fall every two or three days with the latest yesterday, and three recipe
 cooks (3, 6 and 9 days ago) leave two dishes in Leftovers. Today has breakfast (506 kcal, 31 g
 protein) once 07:30 has passed, and the first glass of water once 08:00 has. The seed needs the
@@ -124,7 +131,10 @@ Friday and 5 of 6 on Saturday, in step with the goal. Early in the week it count
 still ahead (0 of 4 on Monday), because rest-day mobility is not planned in advance; Home then reads
 "your goal is six sessions".
 
-On every row steady's last full week had 7 sessions on 7 active days, its latest weigh-in is from
+On every row steady's last full week had 7 sessions on 7 active days, every earlier full week 6 or more, and
+the badges Full week and Four full weeks are earned (checked with BadgeCalculator on Friday 02:00 and
+Saturday 10:00, together with First workout, 10 and 50 workouts, First and Five records, a 7-day
+streak, 7 and 30 days logged, First meal, First weigh-in and First cook); its latest weigh-in is from
 yesterday, its 30-day weight change is -1.6 kg and Leftovers holds two dishes; today has no meal at
 02:00 and its breakfast at 10:00. drifting's streak is 0, its latest weigh-in is 10 days old, its
 last meal 4 days old, its 30-day weight change +0.4 kg, and today has no meals.

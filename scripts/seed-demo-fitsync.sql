@@ -1338,6 +1338,63 @@ begin
                  started + interval '31 minutes', r.d, 'DONE');
         end if;
     end loop;
+
+    -- 5e. steady's goal is six sessions a week, and the full-week badges and the month panel's weeks on
+    --     goal count sessions, not days. The older weeks hold only the plan's four days (three in the week
+    --     with the dropped Saturday), so each completed week short of six gets a short evening mobility
+    --     session at 19:45 after the plan session of one of its plan days (Monday, then Friday, Thursday,
+    --     Saturday), until it reaches six. They fall on days that already have a session, so the active
+    --     days, the streak and the weekly recap stay as they are. The last full week always has seven
+    --     (mobility fills its rest days) and the current week is not touched; only weeks that ended before
+    --     today get one, so nothing is written after the run. The first, partial week of the history
+    --     cannot reach six and stays short.
+    if v_persona = 'steady' then
+        for r in
+            with sessions as (
+                select dd.*, (dd.d - (dd.dow - 1)) as week_start
+                  from demo_days dd
+                 where dd.user_id = v_user and dd.is_training_day and not dd.skip_session and dd.d < v_today
+            ),
+            per_week as (
+                select week_start, count(*) as n from sessions group by week_start
+            ),
+            ranked as (
+                select s.*, w.n,
+                       row_number() over (partition by s.week_start
+                                          order by case s.dow when 1 then 1 when 5 then 2 when 4 then 3 when 6 then 4 else 5 end, s.d) as rk
+                  from sessions s
+                  join per_week w using (week_start)
+                 where s.week_start + 6 < v_today
+                   and s.workout_kind <> 'MOBILITY'
+            )
+            select * from ranked where rk <= 6 - n order by d
+        loop
+            started   := (r.d + time '19:45') at time zone v_tz;
+            v_session := gen_random_uuid();
+            insert into workout.workout_sessions
+                (session_id, user_id, plan_id, plan_day_id, name, workout_type, kind, status, source,
+                 started_at, completed_at, duration_minutes, calories_burned,
+                 perceived_exertion, notes, date_time_created, date_time_updated,
+                 created_by, updated_by, version)
+            values
+                (v_session, v_user, null, null, 'Evening mobility', 'MOBILITY', 'MOBILITY', 'COMPLETED', 'MANUAL',
+                 started, started + interval '15 minutes', 15, 60, 2,
+                 'Short stretch after the plan session.',
+                 started, started + interval '15 minutes', 'demo-seed', 'demo-seed', 0);
+
+            v_log := gen_random_uuid();
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
+                 performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
+                 average_heart_rate, max_heart_rate, notes, logged_on)
+            values (v_log, v_session, ex_plank, 'Plank Hold', 1, 1, 2, null, null, null, 90, 100, 110, null, r.d);
+            insert into workout.workout_exercise_set_logs
+                (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
+                 distance_km, rest_seconds, perceived_exertion, notes, logged, status)
+            select gen_random_uuid(), v_log, s.n, null, null, 45, null, 45, 2, null, true, 'DONE'
+            from (values (1),(2)) as s(n);
+        end loop;
+    end if;
 end $$;
 
 -- ============================================================================
