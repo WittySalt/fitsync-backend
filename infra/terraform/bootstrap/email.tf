@@ -20,7 +20,9 @@
 variable "notify_email_domain" {
   description = "Domain notification emails are sent from, verified in SES with Easy DKIM (empty = nothing created)"
   type        = string
-  default     = ""
+  # The registered domain is the default, so an apply that forgets -var keeps the zone and the
+  # identity instead of destroying them.
+  default = "fitsync.link"
 
   validation {
     condition     = var.notify_email_domain == "" || can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?[.])+[a-z]{2,}$", var.notify_email_domain))
