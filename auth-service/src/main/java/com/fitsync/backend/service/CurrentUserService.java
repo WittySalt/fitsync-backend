@@ -22,6 +22,8 @@ import com.fitsync.backend.messaging.DomainEventPublisher;
 import com.fitsync.backend.repository.AppUserRepository;
 import com.fitsync.backend.security.JwtService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.AccountDeletionCancelledPayload;
+import com.fitsync.contracts.events.user.AccountDeletionRequestedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.Authentication;
@@ -158,9 +160,12 @@ public class CurrentUserService {
             }
         }
 
+        // A repeated request while one is pending keeps the first time and publishes nothing, so the
+        // goodbye email notification-service sends for the event goes out once per request.
         if (user.getAccountDeletionRequestedAt() == null) {
             user.setAccountDeletionRequestedAt(Instant.now());
             user = appUserRepository.save(user);
+            publishAccountDeletionRequested(user);
         }
 
         return toAccountDeletionStatus(user);
@@ -187,7 +192,10 @@ public class CurrentUserService {
         }
 
         user.setAccountDeletionRequestedAt(null);
-        return toAccountDeletionStatus(appUserRepository.save(user));
+        AppUser saved = appUserRepository.save(user);
+        // Only a cancellation of a pending request gets here, so notification-service hears of each one once.
+        publishAccountDeletionCancelled(saved);
+        return toAccountDeletionStatus(saved);
     }
 
     @Transactional
@@ -378,6 +386,32 @@ public class CurrentUserService {
                 user.getAccountDeletionRequestedAt(),
                 accountDeletionPolicy.scheduledFor(user.getAccountDeletionRequestedAt()),
                 user.getAuthProvider() == AuthProvider.LOCAL);
+    }
+
+    private void publishAccountDeletionCancelled(AppUser user) {
+        Instant cancelledAt = Instant.now();
+        FitSyncDomainEvent<AccountDeletionCancelledPayload> event = new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "AccountDeletionCancelled",
+                1,
+                cancelledAt,
+                "auth-service",
+                user.getId(),
+                new AccountDeletionCancelledPayload(cancelledAt));
+        domainEventPublisher.publish("user-events", "AppUser", user.getId().toString(), event);
+    }
+
+    private void publishAccountDeletionRequested(AppUser user) {
+        Instant requestedAt = user.getAccountDeletionRequestedAt();
+        FitSyncDomainEvent<AccountDeletionRequestedPayload> event = new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "AccountDeletionRequested",
+                1,
+                requestedAt,
+                "auth-service",
+                user.getId(),
+                new AccountDeletionRequestedPayload(requestedAt, accountDeletionPolicy.scheduledFor(requestedAt)));
+        domainEventPublisher.publish("user-events", "AppUser", user.getId().toString(), event);
     }
 
     private void publishUserRegistered(AppUser user) {

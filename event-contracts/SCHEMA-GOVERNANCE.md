@@ -81,6 +81,7 @@ These three event types exist for it; each has a golden sample and its own liste
 |---|---|---|---|---|---|
 | `NotificationPreferencesUpdated` | `user-events` | `NotificationPreferencesUpdatedPayload` (whole current state) | user id | the notification toggles, quiet hours, timezone or preferred training time change | `KAFKA_NOTIFICATION_PREFERENCES_UPDATED_LISTENER_ENABLED` |
 | `AccountDeletionRequested` | `user-events` | `AccountDeletionRequestedPayload` (`requestedAt`, `scheduledFor`) | user id | auth-service accepts a deletion request | `KAFKA_ACCOUNT_DELETION_REQUESTED_LISTENER_ENABLED` |
+| `AccountDeletionCancelled` | `user-events` | `AccountDeletionCancelledPayload` (`cancelledAt`) | user id | a pending deletion is cancelled | `KAFKA_ACCOUNT_DELETION_CANCELLED_LISTENER_ENABLED` |
 | `WorkoutPlanScheduleChanged` | `workout-events` | `WorkoutPlanScheduleChangedPayload` (active plan's weekly days, empty when none) | user id | the active plan, or which plan is active, changes | `KAFKA_WORKOUT_PLAN_SCHEDULE_CHANGED_LISTENER_ENABLED` |
 
 ## Versioning

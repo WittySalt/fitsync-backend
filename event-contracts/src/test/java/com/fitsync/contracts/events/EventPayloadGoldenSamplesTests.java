@@ -10,6 +10,7 @@ import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
 import com.fitsync.contracts.events.nutrition.RecipeCookedPayload;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
+import com.fitsync.contracts.events.user.AccountDeletionCancelledPayload;
 import com.fitsync.contracts.events.user.AccountDeletionRequestedPayload;
 import com.fitsync.contracts.events.user.NotificationPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
@@ -87,6 +88,7 @@ class EventPayloadGoldenSamplesTests {
                 sample("user/BodyMetricsRecordedPayload.json", BodyMetricsRecordedPayload.class),
                 sample("user/AccountDeletedPayload.json", AccountDeletedPayload.class),
                 sample("user/AccountDeletionRequestedPayload.json", AccountDeletionRequestedPayload.class),
+                sample("user/AccountDeletionCancelledPayload.json", AccountDeletionCancelledPayload.class),
                 sample("user/NotificationPreferencesUpdatedPayload.json", NotificationPreferencesUpdatedPayload.class),
                 sample("user/EnergyProfileComputedPayload.json", EnergyProfileComputedPayload.class),
                 sample("user/NutritionReferenceProfileUpdatedPayload.json", NutritionReferenceProfileUpdatedPayload.class),
