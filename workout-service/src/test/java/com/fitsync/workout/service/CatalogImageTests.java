@@ -61,4 +61,21 @@ class CatalogImageTests {
 
         assertThat(image).hasToString("CatalogImage[bytes=[1, 2], contentType=image/png]");
     }
+
+    @Test
+    void contentTypeIsJudgedByTheFileSuffixWithJpegAsTheDefault() {
+        assertThat(CatalogImage.contentTypeOf("Bench_Press/0.PNG ")).isEqualTo("image/png");
+        assertThat(CatalogImage.contentTypeOf("Bench_Press/0.webp")).isEqualTo("image/webp");
+        assertThat(CatalogImage.contentTypeOf("Bench_Press/0.jpg")).isEqualTo("image/jpeg");
+        assertThat(CatalogImage.contentTypeOf(null)).isEqualTo("image/jpeg");
+    }
+
+    @Test
+    void fileExtensionFollowsTheContentTypeAndKeepsJpgForJpegAndUnknownTypes() {
+        assertThat(new CatalogImage(new byte[0], "image/png").fileExtension()).isEqualTo("png");
+        assertThat(new CatalogImage(new byte[0], "image/WebP; q=1").fileExtension()).isEqualTo("webp");
+        assertThat(new CatalogImage(new byte[0], "image/jpeg").fileExtension()).isEqualTo("jpg");
+        assertThat(new CatalogImage(new byte[0], "image/gif").fileExtension()).isEqualTo("jpg");
+        assertThat(new CatalogImage(new byte[0], null).fileExtension()).isEqualTo("jpg");
+    }
 }

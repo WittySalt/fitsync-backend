@@ -207,6 +207,23 @@ class PlanEntriesServiceTests {
     }
 
     @Test
+    void repeatingACardioSessionDatesItsSegmentsOnTheCallersLocalDate() {
+        WorkoutPlanView plan = workoutService.createPlan(user, week(List.of(
+                new WorkoutPlanDayInput(null, 4, SessionKind.CARDIO, "Intervals", null, 22, List.of(),
+                        null, null, null, null, intervals()))));
+        WorkoutSessionView started = workoutService.startPlan(user, plan.planId(), plan.days().get(0).planDayId(),
+                "Asia/Singapore");
+        workoutService.completeSession(user, started.sessionId(), null);
+
+        WorkoutSessionView repeated = workoutService.repeatSession(user, started.sessionId(), "Asia/Singapore");
+
+        assertEquals(18, repeated.entries().size());
+        // 01:00 on 11 June in Singapore is still 10 June on the server's UTC clock.
+        assertTrue(repeated.entries().stream()
+                .allMatch(entry -> LocalDate.parse("2026-06-11").equals(entry.loggedOn())));
+    }
+
+    @Test
     void startingAStrengthDayCopiesItsMovesAsSetEntries() {
         WorkoutPlanView plan = workoutService.createPlan(user, week(List.of(strengthDay(3))));
 

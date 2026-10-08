@@ -298,7 +298,7 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
         for (WorkoutPlanDayEntity day : activePlan.getDays()) {
             int moves = 0;
             for (PlanEntry planExercise : activePlan.getSetEntries()) {
-                if (day.getPlanDayId().equals(planDayIdOf(planExercise))) {
+                if (day.getPlanDayId().equals(planExercise.planDayId())) {
                     moves++;
                 }
             }
@@ -312,10 +312,6 @@ public class WeeklyTrainingInsightServiceImpl implements WeeklyTrainingInsightSe
                     moves));
         }
         return planDays;
-    }
-
-    private UUID planDayIdOf(PlanEntry planExercise) {
-        return planExercise.getPlanDay() == null ? null : planExercise.getPlanDay().getPlanDayId();
     }
 
     /** The most recently updated ACTIVE plan for this user, or null when there is none. Several

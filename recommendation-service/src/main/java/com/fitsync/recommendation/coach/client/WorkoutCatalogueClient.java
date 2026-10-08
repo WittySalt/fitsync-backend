@@ -168,8 +168,8 @@ public class WorkoutCatalogueClient extends CatalogueClient {
      */
     public TrainingInsight trainingInsight(String bearerToken, String timezone) {
         Map<String, Object> params = params();
-        // The workout reading reads the current week so far, never the last full week
-        // (me-achievements-spec.md, section 4c).
+        // The workout reading covers the current week so far (Monday to today in the caller's
+        // zone), never the last full week, so the coach talks about the week the person is in.
         params.put("thisWeek", true);
         String body = get(TRAINING_INSIGHT, params, bearerToken, timezone);
         if (body == null) {

@@ -21,7 +21,7 @@ public record RecommendationProperties(
 
     public RecommendationProperties {
         ruleResultTtl = ruleResultTtl == null ? DEFAULT_RULE_RESULT_TTL : ruleResultTtl;
-        ai = ai == null ? new Ai(false, null, null, null, null, null, null) : ai;
+        ai = ai == null ? new Ai(false, null, null, null, null, null) : ai;
     }
 
     /**
@@ -39,8 +39,6 @@ public record RecommendationProperties(
      *                     global.anthropic.claude-haiku-4-5-20251001-v1:0)
      * @param baseUrl      the ollama server URL; ignored by the other providers
      * @param maxTokens    completion budget for one narrative
-     * @param narrativeTtl how long a generated narrative stays fresh (README §5.2:
-     *                     cached one week)
      * @param coachQuestionsPerHour per-user budget for the synchronous A4 coach Q&A —
      *                     the one AI surface the user waits on
      */
@@ -50,7 +48,6 @@ public record RecommendationProperties(
             String model,
             String baseUrl,
             Integer maxTokens,
-            Duration narrativeTtl,
             Integer coachQuestionsPerHour) {
 
         public static final String PROVIDER_ANTHROPIC = "anthropic";
@@ -60,7 +57,6 @@ public record RecommendationProperties(
         private static final String DEFAULT_MODEL = "claude-sonnet-4-6";
         private static final String DEFAULT_BASE_URL = "http://localhost:11434";
         private static final Integer DEFAULT_MAX_TOKENS = 300;
-        private static final Duration DEFAULT_NARRATIVE_TTL = Duration.ofDays(7);
         private static final Integer DEFAULT_COACH_QUESTIONS_PER_HOUR = 5;
 
         public Ai {
@@ -68,7 +64,6 @@ public record RecommendationProperties(
             model = model == null || model.isBlank() ? DEFAULT_MODEL : model;
             baseUrl = baseUrl == null || baseUrl.isBlank() ? DEFAULT_BASE_URL : baseUrl;
             maxTokens = maxTokens == null ? DEFAULT_MAX_TOKENS : maxTokens;
-            narrativeTtl = narrativeTtl == null ? DEFAULT_NARRATIVE_TTL : narrativeTtl;
             coachQuestionsPerHour = coachQuestionsPerHour == null
                     ? DEFAULT_COACH_QUESTIONS_PER_HOUR
                     : coachQuestionsPerHour;

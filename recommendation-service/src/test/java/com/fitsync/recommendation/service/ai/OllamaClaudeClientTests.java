@@ -27,7 +27,7 @@ class OllamaClaudeClientTests {
         server = MockRestServiceServer.bindTo(builder).build();
         RecommendationProperties properties = new RecommendationProperties(null,
                 new RecommendationProperties.Ai(true, "ollama", "llama3.2:3b", "http://localhost:11434",
-                        300, null, null));
+                        300, null));
         client = new OllamaClaudeClient(builder, properties);
     }
 

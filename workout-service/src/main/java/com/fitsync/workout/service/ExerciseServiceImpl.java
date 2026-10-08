@@ -33,7 +33,6 @@ import com.fitsync.web.error.ForbiddenException;
 import com.fitsync.web.error.ResourceNotFoundException;
 import com.fitsync.web.response.PageResponse;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -191,7 +190,7 @@ public class ExerciseServiceImpl implements ExerciseService {
                                                     WorkoutDifficulty difficulty,
                                                     int page,
                                                     int size) {
-        return toPageResponse(exerciseRepository.searchAccessible(
+        return PageResponses.of(exerciseRepository.searchAccessible(
                         currentUser.userId(),
                         ExerciseStatus.ACTIVE,
                         normalizeQuery(query),
@@ -299,17 +298,6 @@ public class ExerciseServiceImpl implements ExerciseService {
             return null;
         }
         return query.trim();
-    }
-
-    private <T> PageResponse<T> toPageResponse(Page<T> page) {
-        return PageResponse.of(
-                page.getContent(),
-                page.getNumber(),
-                page.getSize(),
-                page.getTotalElements(),
-                page.getTotalPages(),
-                page.isFirst(),
-                page.isLast());
     }
 
     private ExerciseView toSummaryView(ExerciseEntity entity) {

@@ -34,6 +34,7 @@ import com.fitsync.recommendation.coach.repository.GeneratedArtifactRepository;
 import com.fitsync.web.error.ResourceNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -253,7 +254,7 @@ public class SessionDraftService {
      * read, is reported as a plain failure to start instead.
      */
     private boolean isActiveSessionConflict(DownstreamWriteException ex) {
-        if (ex.status() != 409 || ex.responseBody() == null) {
+        if (ex.status() != HttpStatus.CONFLICT.value() || ex.responseBody() == null) {
             return false;
         }
         try {
