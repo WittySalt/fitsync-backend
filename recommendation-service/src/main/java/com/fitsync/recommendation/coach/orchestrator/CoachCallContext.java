@@ -27,6 +27,11 @@ public record CoachCallContext(UUID userId, String bearerToken, UUID turnId, Str
         return new CoachCallContext(userId, bearerToken, newTurnId, timezone);
     }
 
+    /** The same call with the zone a tool resolved, so the services it reads slice days in that zone. */
+    public CoachCallContext withTimezone(String resolvedTimezone) {
+        return new CoachCallContext(userId, bearerToken, turnId, resolvedTimezone);
+    }
+
     /** Guards against the token reaching a log line or an error message by accident. */
     @Override
     public String toString() {

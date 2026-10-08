@@ -5,17 +5,23 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
 import com.fitsync.recommendation.coach.guardrail.CoachVoice;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
+import com.fitsync.recommendation.entity.RecommendationContextEntity;
+import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -96,13 +102,71 @@ class PlanAndSegmentToolsTests {
         when(client.completedSessions(anyString(), any(), anyInt())).thenReturn(SESSIONS);
         Clock clock = Clock.fixed(Instant.parse("2026-10-03T10:00:00Z"), ZoneOffset.UTC);
 
-        ToolResult result = new ReadRecentTrainingTool(client, objectMapper, clock)
+        ToolResult result = new ReadRecentTrainingTool(client, objectMapper,
+                new UserCalendar(mock(RecommendationContextRepository.class), clock))
                 .invoke(CALL, objectMapper.createObjectNode());
 
         assertThat(result.observation())
-                .contains("2026-10-02 | Easy run | CARDIO | 36 min | warm-up ran 5 minutes against 5 planned; "
+                .contains("Friday 2026-10-02 | Easy run | CARDIO | 36 min | warm-up ran 5 minutes against 5 planned; "
                         + "steady ran 26 minutes against 20 planned; cool-down skipped")
-                .contains("2026-10-01 | Intervals | HIIT | 22 min | work intervals: 1 of 2 done")
-                .endsWith("2026-09-30 | Push | STRENGTH | 50 min");
+                .contains("Thursday 2026-10-01 | Intervals | HIIT | 22 min | work intervals: 1 of 2 done")
+                .endsWith("Wednesday 2026-09-30 | Push | STRENGTH | 50 min");
+    }
+
+    @Test
+    @DisplayName("a 06:45 Singapore session is dated the Singapore day, not the UTC day before")
+    void morningSessionInSingaporeIsDatedLocally() {
+        // Mobility flow started 06:45 and ended 07:05 on Thursday 8 October in Singapore, which is
+        // 22:45 and 23:05 UTC on Wednesday 7 October. Asked at 02:19 on Friday 9 October in Singapore.
+        RecommendationContextRepository repository = mock(RecommendationContextRepository.class);
+        RecommendationContextEntity stored = new RecommendationContextEntity();
+        stored.setTimezone("Asia/Singapore");
+        UUID user = UUID.randomUUID();
+        when(repository.findById(user)).thenReturn(Optional.of(stored));
+        when(client.completedSessions(anyString(), any(), anyInt())).thenReturn("""
+                {"content":[{"startedAt":"2026-10-07T22:45:00Z","completedAt":"2026-10-07T23:05:00Z",
+                  "name":"Mobility flow","workoutType":"MOBILITY","durationMinutes":20,"entries":[]}]}
+                """);
+        Clock clock = Clock.fixed(Instant.parse("2026-10-08T18:19:00Z"), ZoneOffset.UTC);
+
+        // No zone from the client, as with the evaluation harness, so the stored profile zone applies.
+        ToolResult result = new ReadRecentTrainingTool(client, objectMapper, new UserCalendar(repository, clock))
+                .invoke(new CoachCallContext(user, "caller-credential", UUID.randomUUID()),
+                        objectMapper.createObjectNode());
+
+        assertThat(result.observation())
+                .isEqualTo("Thursday 2026-10-08 | Mobility flow | MOBILITY | 20 min");
+        // The seven days are 3 to 9 October in Singapore, so the window opens at 16:00 UTC on 2 October.
+        verify(client).completedSessions("caller-credential", Instant.parse("2026-10-02T16:00:00Z"), 20);
+    }
+
+    @Test
+    @DisplayName("the zone the client sent dates the session when nothing is stored")
+    void clientZoneDatesTheSession() {
+        when(client.completedSessions(anyString(), any(), anyInt())).thenReturn("""
+                {"content":[{"completedAt":"2026-10-07T23:05:00Z","name":"Mobility flow",
+                  "workoutType":"MOBILITY","durationMinutes":20,"entries":[]}]}
+                """);
+        Clock clock = Clock.fixed(Instant.parse("2026-10-08T18:19:00Z"), ZoneOffset.UTC);
+        CoachCallContext singapore = new CoachCallContext(UUID.randomUUID(), "caller-credential",
+                UUID.randomUUID(), "Asia/Singapore");
+
+        ToolResult result = new ReadRecentTrainingTool(client, objectMapper,
+                new UserCalendar(mock(RecommendationContextRepository.class), clock))
+                .invoke(singapore, objectMapper.createObjectNode());
+
+        assertThat(result.observation()).startsWith("Thursday 2026-10-08 | Mobility flow");
+    }
+
+    @Test
+    @DisplayName("an instant is turned into the local day, and text that is not an instant into nothing")
+    void localDateOfAnInstant() {
+        ZoneId singapore = ZoneId.of("Asia/Singapore");
+
+        assertThat(UserCalendar.localDate("2026-10-07T22:45:00Z", singapore)).contains(LocalDate.of(2026, 10, 8));
+        assertThat(UserCalendar.localDate("2026-10-08T06:45:00+08:00", ZoneOffset.UTC))
+                .contains(LocalDate.of(2026, 10, 7));
+        assertThat(UserCalendar.localDate("2026-10-08", singapore)).isEmpty();
+        assertThat(UserCalendar.localDate(null, singapore)).isEmpty();
     }
 }

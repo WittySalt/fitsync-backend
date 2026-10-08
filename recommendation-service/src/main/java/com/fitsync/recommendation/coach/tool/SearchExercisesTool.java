@@ -51,6 +51,7 @@ public class SearchExercisesTool implements CoachTool {
                   muscleGroup: CHEST BACK SHOULDERS ARMS LEGS GLUTES CORE FULL_BODY CARDIO
                   equipment:   BARBELL DUMBBELL CABLE MACHINE BODYWEIGHT KETTLEBELL BANDS OTHER
                   difficulty:  BEGINNER INTERMEDIATE ADVANCED
+                  query:       words of the name; for the user's own lift, the exact name their records give
                   returns up to 20 lines of "id | name | muscle | equipment\"""";
     }
 

@@ -313,10 +313,10 @@ public class CoachOrchestrator {
         // using them. So the last call removes the tools altogether. Shown no tool catalogue and
         // told to answer, a small model answers from what it has.
         try {
-            CoachAction last = actionParser.parse(client.complete(
-                    ANSWER_ONLY_PROMPT, userPrompt(question, transcript)));
+            String answerOnly = ANSWER_ONLY_PROMPT + todayLine(context);
+            CoachAction last = actionParser.parse(client.complete(answerOnly, userPrompt(question, transcript)));
             if (last.kind() == CoachAction.Kind.ANSWER) {
-                return finalizeAnswer(client, ANSWER_ONLY_PROMPT, question, transcript, turnContext,
+                return finalizeAnswer(client, answerOnly, question, transcript, turnContext,
                         toolsUsed, startedAt, last.answer(), listener);
             }
         } catch (RuntimeException ex) {
@@ -530,21 +530,42 @@ public class CoachOrchestrator {
 
     /**
      * Today's date in the user's own timezone, so that "yesterday" or "on Monday" can be turned into
-     * a date for a tool. It is the only line of the prompt that depends on the user, and it holds a
-     * date and a weekday, never anything the user typed.
+     * a date for a tool. It is the only part of the prompt that depends on the user, and it holds
+     * dates and weekdays, never anything the user typed.
+     *
+     * <p>The three Monday-to-Sunday weeks up to today follow, each day with its weekday. The
+     * evaluation showed a model asked about "Tuesday two weeks ago" on Friday 9 October reading
+     * 24 September, a Thursday, and calling it a Tuesday: told only today's date, a small model
+     * counts back by itself and gets it wrong. Looking a date up in a list it does reliably.
      */
     private String todayLine(CoachCallContext context) {
-        java.time.ZoneId zone = userCalendar.zone(context.userId());
-        if (context.timezone() != null && !context.timezone().isBlank()) {
-            try {
-                zone = java.time.ZoneId.of(context.timezone());
-            } catch (java.time.DateTimeException ex) {
-                // An unknown zone name keeps the stored one.
+        return todayLine(userCalendar.today(userCalendar.zone(context)));
+    }
+
+    static String todayLine(java.time.LocalDate today) {
+        java.time.LocalDate monday = today.minusDays(today.getDayOfWeek().getValue() - 1L);
+        StringBuilder line = new StringBuilder("\nToday is ").append(dayName(today)).append(' ').append(today)
+                .append(" in the user's timezone.\n")
+                .append("The calendar of the last three weeks, Monday to Sunday. Take a date for \"yesterday\", ")
+                .append("\"on Tuesday\" or \"two weeks ago\" from it; never count back by yourself:\n");
+        String[] labels = {"This week", "Last week", "Two weeks ago"};
+        for (int week = 0; week < labels.length; week++) {
+            java.time.LocalDate start = monday.minusWeeks(week);
+            List<String> days = new ArrayList<>();
+            for (int i = 0; i < 7; i++) {
+                java.time.LocalDate day = start.plusDays(i);
+                if (day.isAfter(today)) {
+                    break;
+                }
+                days.add(dayName(day) + " " + day + (day.equals(today) ? " (today)" : ""));
             }
+            line.append(labels[week]).append(": ").append(String.join(", ", days)).append(".\n");
         }
-        java.time.LocalDate today = userCalendar.today(zone);
-        return "\nToday is " + today.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, Locale.ENGLISH)
-                + " " + today + " in the user's timezone.\n";
+        return line.toString();
+    }
+
+    private static String dayName(java.time.LocalDate day) {
+        return day.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, Locale.ENGLISH);
     }
 
     private String userPrompt(String question, List<String> transcript) {

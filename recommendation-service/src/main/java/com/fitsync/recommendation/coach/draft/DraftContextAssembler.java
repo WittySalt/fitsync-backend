@@ -2,6 +2,7 @@ package com.fitsync.recommendation.coach.draft;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -20,6 +21,7 @@ import com.fitsync.recommendation.coach.client.UserProfileClient;
 import com.fitsync.recommendation.coach.client.WorkoutCatalogueClient;
 import com.fitsync.recommendation.coach.draft.DraftContext.CatalogueExercise;
 import com.fitsync.recommendation.coach.orchestrator.CoachCallContext;
+import com.fitsync.recommendation.coach.tool.UserCalendar;
 import com.fitsync.recommendation.repository.RecommendationContextRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -160,10 +162,13 @@ public class DraftContextAssembler {
      * pathological session should cost a rule rather than the draft.
      */
     private Set<String> recentMuscleGroups(CoachCallContext call) {
-        LocalDate today = LocalDate.now(clock);
+        // Yesterday is the user's yesterday: a session at 06:45 in Singapore is 22:45 UTC the day before.
+        UserCalendar calendar = new UserCalendar(contextRepository, clock);
+        ZoneId zone = calendar.zone(call);
+        LocalDate today = calendar.today(zone);
         LocalDate yesterday = today.minusDays(1);
-        String body = workoutClient.completedSessions(
-                call.bearerToken(), today.minusDays(RECENT_SESSION_DAYS - 1L), RECENT_SESSION_PAGE);
+        String body = workoutClient.completedSessions(call.bearerToken(),
+                today.minusDays(RECENT_SESSION_DAYS - 1L).atStartOfDay(zone).toInstant(), RECENT_SESSION_PAGE);
         if (body == null) {
             return Set.of();
         }
@@ -171,8 +176,8 @@ public class DraftContextAssembler {
         Set<UUID> exerciseIds = new LinkedHashSet<>();
         try {
             for (JsonNode session : objectMapper.readTree(body).path("content")) {
-                String completedAt = session.path("completedAt").asText("");
-                if (!completedAt.startsWith(yesterday.toString())) {
+                if (!UserCalendar.localDate(session.path("completedAt").asText(null), zone)
+                        .filter(yesterday::equals).isPresent()) {
                     continue;
                 }
                 for (JsonNode logged : session.path("exercises")) {

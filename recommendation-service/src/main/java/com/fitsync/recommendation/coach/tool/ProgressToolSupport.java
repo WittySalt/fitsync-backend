@@ -5,7 +5,6 @@ import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -62,7 +61,7 @@ final class ProgressToolSupport {
         String fromText = args.path("from").asText("");
         String toText = args.path("to").asText("");
         if (fromText.isBlank() && toText.isBlank()) {
-            LocalDate today = calendar.today(zoneOf(context, calendar));
+            LocalDate today = calendar.today(calendar.zone(context));
             return new Period(today.minusDays(DEFAULT_DAYS - 1L), today);
         }
         if (fromText.isBlank() || toText.isBlank()) {
@@ -83,17 +82,6 @@ final class ProgressToolSupport {
             throw new IllegalArgumentException("the period may span at most 370 days");
         }
         return new Period(from, to);
-    }
-
-    private static ZoneId zoneOf(CoachCallContext context, UserCalendar calendar) {
-        if (context.timezone() != null && !context.timezone().isBlank()) {
-            try {
-                return ZoneId.of(context.timezone());
-            } catch (java.time.DateTimeException ex) {
-                // An unknown zone name keeps the stored one.
-            }
-        }
-        return calendar.zone(context.userId());
     }
 
     /**

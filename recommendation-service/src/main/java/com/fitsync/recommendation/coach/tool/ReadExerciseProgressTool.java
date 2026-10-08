@@ -43,7 +43,10 @@ public class ReadExerciseProgressTool extends ProgressReadTool {
                   exerciseId: the exercise's id, a UUID; from, to: dates, at most 370 days apart, default the
                   last 28 days
                   returns that exercise's page: estimated one-rep max and its change, heaviest set, best
-                  volume, records, latest sessions""";
+                  volume, records, latest sessions
+                  For the user's own lift, use the exercise their records name (a record in readFacts or
+                  readTrainingProgress), found with searchExercises by that exact name. A similar exercise
+                  from the catalogue, such as a barbell press for a dumbbell one, holds none of their sessions.""";
     }
 
     @Override

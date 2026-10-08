@@ -56,6 +56,12 @@ CALORIE_TARGET = 2100
 PROTEIN_TARGET_G = 140
 
 PLACEHOLDER = re.compile(r"\{[A-Za-z]\w*\}")
+# A needle that starts with "re:" is a regular expression, matched without regard to case.
+REGEX_PREFIX = "re:"
+# A zero intake as a figure: "0 calories", "0 kcal", "0 g", "0 grams". Not preceded by a digit, a point or
+# a comma, so "2100 kcal", "140 g" and "20 g" do not match.
+ZERO_FIGURE = r"re:(?<![\d.,])0 ?(calories|kcal|grams|g)\b"
+WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
 PLAN_DAYS = (1, 4, 5, 6)  # Monday and Friday strength, a Thursday run, Saturday badminton
 # steady's WORKOUT_FREQUENCY goal. Every session counts toward it, the rest-day mobility included, so the
@@ -143,8 +149,16 @@ def day_facts(now: dt.datetime | dt.date) -> dict:
     goal_left = max(0, WEEKLY_GOAL - n)
     kcal = BREAKFAST_KCAL if breakfast else 0
     protein = BREAKFAST_PROTEIN_G if breakfast else 0
-    # No bare "0 kcal" or "0 g": they would match "2100 kcal" and "140 g".
-    nothing_yet = ["nothing", "no meals", "not logged", "haven't logged", "have not logged", "zero", "none", "yet to"]
+    # A zero figure is a right answer before breakfast ("You have eaten 0 calories today"). It is a pattern,
+    # not a plain "0 kcal" or "0 g", because those would match inside "2100 kcal", "140 g" and "20 g".
+    nothing_yet = ["nothing", "no meals", "not logged", "haven't logged", "have not logged", "zero", "none", "yet to",
+                   ZERO_FIGURE]
+    # "Tuesday two weeks ago": the Tuesday of the Monday-to-Sunday week two weeks before this one.
+    tuesday = week_start - dt.timedelta(days=14) + dt.timedelta(days=1)
+    near = [tuesday + dt.timedelta(days=k) for k in range(-7, 8) if k != 0]
+    # Three months from today, for the weight question: the date must not slip back a year.
+    month = today.month + 3
+    in_three_months = dt.date(today.year + (month - 1) // 12, (month - 1) % 12 + 1, 1)
     return {
         "today": today.isoformat(),
         "seedTime": now.strftime("%Y-%m-%d %H:%M"),
@@ -178,6 +192,15 @@ def day_facts(now: dt.datetime | dt.date) -> dict:
         "rolling7Sessions": len(rolling7),
         "sessionCountsSaid": sorted({str(len(last_week)), str(len(rolling7))}),
         "lastSessionSaid": last_said,
+        "twoWeeksAgoTuesday": tuesday.isoformat(),
+        "twoWeeksAgoTuesdaySaid": [spoken(tuesday), f"{tuesday.day} {tuesday:%b}", f"{tuesday:%B} {tuesday.day}",
+                                   f"{tuesday:%b} {tuesday.day}", tuesday.isoformat()],
+        # Another day of those weeks called Tuesday, such as "Tuesday 24 September" for a Thursday, or the
+        # right date given another weekday's name.
+        "twoWeeksAgoTuesdayWrong": sorted({f"Tuesday {d.day} " for d in near} | {f"Tuesday, {d.day} " for d in near}
+                                          | {f"{name} {tuesday.day} " for name in WEEKDAYS if name != "Tuesday"}),
+        "threeMonthsWrongYear": [f"{in_three_months.year - 1}-{in_three_months.month:02d}",
+                                 f"{in_three_months:%B} {in_three_months.year - 1}"],
     }
 
 
@@ -244,6 +267,36 @@ def self_test() -> int:
         if any(w.startswith(NUMBER_WORDS[k] + " ") for w in facts["thisWeekWrongWords"] for k in right):
             failures += 1
             print(f"FAIL {day}: a right count is listed as a wrong word")
+    # Answers from the run of 9 Oct 02:19, before breakfast, and what each must and must not match.
+    before_breakfast = day_facts(t(2026, 10, 9, 2, 19))
+    answer_checks = [
+        ("You have eaten 0 calories today. Your target is 2100 calories.", before_breakfast["consumedSaid"], True),
+        ("You have had 0 g of protein today. Your target is 140 g.", before_breakfast["proteinSaid"], True),
+        ("You have had 0g of protein so far.", before_breakfast["proteinSaid"], True),
+        ("You have had 20 g of protein against 140 g.", before_breakfast["proteinSaid"], False),
+        ("You have eaten 2100 kcal and 1.0 kcal.", before_breakfast["consumedSaid"], False),
+        ("On Tuesday 22 September you had 2449 calories.", before_breakfast["twoWeeksAgoTuesdaySaid"], True),
+        ("On Tuesday 24 September you had 2449 calories.", before_breakfast["twoWeeksAgoTuesdayWrong"], True),
+        ("On Tuesday 22 September you had 2449 calories.", before_breakfast["twoWeeksAgoTuesdayWrong"], False),
+        ("In three months, around 2026-01-09, you would be lighter.", before_breakfast["threeMonthsWrongYear"], True),
+        ("In three months, around 2027-01-09, you would be lighter.", before_breakfast["threeMonthsWrongYear"], False),
+    ]
+    for answer, needles, want in answer_checks:
+        if contains_any(answer, needles) != want:
+            failures += 1
+            print(f"FAIL answer check: {answer!r} should {'' if want else 'not '}match {needles!r}")
+    lift_total = next(q for q in json.loads((HERE / "golden.json").read_text(encoding="utf-8"))["questions"]
+                      if q["id"] == "e03")["forbid_any"]
+    for answer, want in [("You lifted a total of 12,400 kg last month.", True),
+                         ("Your total volume was 8,350.5 kg.", True),
+                         ("You completed 8 strength sessions totalling 400 minutes. Your heaviest set was 22.5 kg "
+                          "for 10 reps on the bench press.", False)]:
+        if contains_any(answer, lift_total) != want:
+            failures += 1
+            print(f"FAIL e03 forbid: {answer!r} should {'' if want else 'not '}be forbidden")
+    if before_breakfast["twoWeeksAgoTuesday"] != "2026-09-22":
+        failures += 1
+        print(f"FAIL Tuesday two weeks ago: {before_breakfast['twoWeeksAgoTuesday']}")
     golden = json.loads((HERE / "golden.json").read_text(encoding="utf-8"))
     for day in [t(2026, 10, 5 + i, h, 0) for i in range(7) for h in (2, 10)]:
         resolved = resolve_golden(golden, day)
@@ -323,7 +376,8 @@ def with_card_period(context: dict) -> dict:
 
 def contains_any(text: str, needles: list[str]) -> bool:
     lowered = text.lower()
-    return any(n.lower() in lowered for n in needles)
+    return any(re.search(n[len(REGEX_PREFIX):], text, re.IGNORECASE) if n.startswith(REGEX_PREFIX)
+               else n.lower() in lowered for n in needles)
 
 
 def run(args: argparse.Namespace) -> int:
