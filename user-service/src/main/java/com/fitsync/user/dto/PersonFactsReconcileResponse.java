@@ -5,6 +5,7 @@ public record PersonFactsReconcileResponse(
         int referenceProfilesPublished,
         int preferencesPublished,
         int bodyMetricsPublished,
-        int energyProfilesPublished
+        int energyProfilesPublished,
+        int notificationPreferencesPublished
 ) {
 }

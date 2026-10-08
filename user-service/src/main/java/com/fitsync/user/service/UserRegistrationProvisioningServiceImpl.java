@@ -3,6 +3,7 @@ package com.fitsync.user.service;
 import java.util.UUID;
 
 import com.fitsync.contracts.events.FitSyncDomainEvent;
+import com.fitsync.contracts.events.user.NotificationPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import com.fitsync.user.domain.CalorieTrackingMode;
 import com.fitsync.user.domain.DietaryPreference;
@@ -36,17 +37,20 @@ public class UserRegistrationProvisioningServiceImpl implements UserRegistration
     private final UserTrainingPreferencesRepository userTrainingPreferencesRepository;
     private final UserNutritionPreferencesRepository userNutritionPreferencesRepository;
     private final UserNotificationPreferencesRepository userNotificationPreferencesRepository;
+    private final NotificationPreferencesEventService notificationPreferencesEventService;
 
     public UserRegistrationProvisioningServiceImpl(UserProfileRepository userProfileRepository,
                                                    UserAppPreferencesRepository userAppPreferencesRepository,
                                                    UserTrainingPreferencesRepository userTrainingPreferencesRepository,
                                                    UserNutritionPreferencesRepository userNutritionPreferencesRepository,
-                                                   UserNotificationPreferencesRepository userNotificationPreferencesRepository) {
+                                                   UserNotificationPreferencesRepository userNotificationPreferencesRepository,
+                                                   NotificationPreferencesEventService notificationPreferencesEventService) {
         this.userProfileRepository = userProfileRepository;
         this.userAppPreferencesRepository = userAppPreferencesRepository;
         this.userTrainingPreferencesRepository = userTrainingPreferencesRepository;
         this.userNutritionPreferencesRepository = userNutritionPreferencesRepository;
         this.userNotificationPreferencesRepository = userNotificationPreferencesRepository;
+        this.notificationPreferencesEventService = notificationPreferencesEventService;
     }
 
     @Override
@@ -54,6 +58,7 @@ public class UserRegistrationProvisioningServiceImpl implements UserRegistration
         validateEvent(event);
 
         UUID userId = event.userId();
+        NotificationPreferencesUpdatedPayload notificationsBefore = notificationPreferencesEventService.snapshot(userId);
 
         if (!userProfileRepository.existsById(userId)) {
             UserProfileEntity entity = new UserProfileEntity();
@@ -107,6 +112,9 @@ public class UserRegistrationProvisioningServiceImpl implements UserRegistration
             entity.setMarketingEmailsEnabled(false);
             userNotificationPreferencesRepository.save(entity);
         }
+
+        // A replayed UserRegistered finds every row in place and so publishes nothing.
+        notificationPreferencesEventService.publishIfChanged(userId, notificationsBefore);
     }
 
     private void validateEvent(FitSyncDomainEvent<UserRegisteredPayload> event) {

@@ -20,6 +20,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.AccountDeletedPayload;
 import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import com.fitsync.contracts.events.user.GoalUpdatedPayload;
+import com.fitsync.contracts.events.user.NotificationPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.NutritionReferenceProfileUpdatedPayload;
 import com.fitsync.contracts.events.user.UserPreferencesUpdatedPayload;
 import com.fitsync.contracts.events.user.UserProfileUpdatedPayload;
@@ -113,6 +114,7 @@ public class UserServiceImpl implements UserService {
             "image/webp", "webp");
 
     private final EnergyProfileService energyProfileService;
+    private final NotificationPreferencesEventService notificationPreferencesEventService;
     private final DomainEventPublisher domainEventPublisher;
     private final ObjectProvider<MediaStorageService> mediaStorageServiceProvider;
     private final AccountDataExportRequestRepository accountDataExportRequestRepository;
@@ -138,8 +140,10 @@ public class UserServiceImpl implements UserService {
                            BodyMetricEntryRepository bodyMetricEntryRepository,
                            UserGoalRepository userGoalRepository,
                            UserGuideStateRepository userGuideStateRepository,
-                           EnergyProfileService energyProfileService) {
+                           EnergyProfileService energyProfileService,
+                           NotificationPreferencesEventService notificationPreferencesEventService) {
         this.energyProfileService = energyProfileService;
+        this.notificationPreferencesEventService = notificationPreferencesEventService;
         this.domainEventPublisher = domainEventPublisher;
         this.mediaStorageServiceProvider = mediaStorageServiceProvider;
         this.accountDataExportRequestRepository = accountDataExportRequestRepository;
@@ -316,6 +320,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public UserProfileView upsertProfile(CurrentUserPrincipal principal, UpsertUserProfileRequest request) {
+        NotificationPreferencesUpdatedPayload notificationsBefore =
+                notificationPreferencesEventService.snapshot(principal.userId());
         UserProfileEntity entity = getOrCreateProfileEntity(principal);
         NutrientReferenceRange storedRange = userNutritionPreferencesRepository.findById(principal.userId())
                 .map(UserNutritionPreferencesEntity::getNutrientReferenceRange)
@@ -337,6 +343,8 @@ public class UserServiceImpl implements UserService {
                 "birthDate", "gender", "heightCm", "activityLevel", "timezone", "bio", "onboardingCompleted"));
         energyProfileService.publishEnergyProfile(principal.userId());
         publishReferenceProfileIfChanged(principal.userId(), referenceBefore, deriveReference(saved, storedRange));
+        // The profile timezone is one of the notification facts, so a timezone change is published.
+        notificationPreferencesEventService.publishIfChanged(principal.userId(), notificationsBefore);
         return toProfileView(saved);
     }
 
@@ -369,6 +377,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public UserPreferencesView upsertPreferences(CurrentUserPrincipal principal, UpsertUserPreferencesRequest request) {
+        NotificationPreferencesUpdatedPayload notificationsBefore =
+                notificationPreferencesEventService.snapshot(principal.userId());
         UserAppPreferencesEntity app = getOrCreateAppPreferencesEntity(principal.userId());
         app.setPreferredUnits(request.app().preferredUnits());
         app.setLanguage(request.app().language());
@@ -424,6 +434,7 @@ public class UserServiceImpl implements UserService {
         publishPreferencesUpdated(principal.userId(), savedApp, savedTraining, savedNutrition, savedNotifications);
         publishReferenceProfileIfChanged(principal.userId(), referenceBefore,
                 deriveReference(referenceProfile, savedNutrition.getNutrientReferenceRange()));
+        notificationPreferencesEventService.publishIfChanged(principal.userId(), notificationsBefore);
         return toPreferencesView(savedApp, savedTraining, savedNutrition, savedNotifications);
     }
 
@@ -682,7 +693,8 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * Publishes the nutrition reference profile, the preferences, the latest weight and the energy profile of every user once, so that a service that
+     * Publishes the nutrition reference profile, the preferences, the latest weight, the energy profile and the
+     * notification preferences of every user once, so that a service that
      * started keeping a projection of them after those users last changed anything gets its rows filled. A user
      * without a stored row or a weight is skipped for that event.
      */
@@ -693,6 +705,7 @@ public class UserServiceImpl implements UserService {
         int preferences = 0;
         int bodyMetrics = 0;
         int energyProfiles = 0;
+        int notificationPreferences = 0;
         Page<UserProfileEntity> page;
         int pageNumber = 0;
         do {
@@ -722,9 +735,13 @@ public class UserServiceImpl implements UserService {
                 if (energyProfileService.publishEnergyProfile(userId)) {
                     energyProfiles++;
                 }
+                if (notificationPreferencesEventService.publishCurrent(userId)) {
+                    notificationPreferences++;
+                }
             }
         } while (page.hasNext());
-        return new PersonFactsReconcileResponse(referenceProfiles, preferences, bodyMetrics, energyProfiles);
+        return new PersonFactsReconcileResponse(referenceProfiles, preferences, bodyMetrics, energyProfiles,
+                notificationPreferences);
     }
 
     /**
@@ -784,11 +801,16 @@ public class UserServiceImpl implements UserService {
     }
 
     private UserPreferencesView getOrCreatePreferencesView(UUID userId) {
-        return toPreferencesView(
+        // Reading the preferences may create the notification row, and a created row is published
+        // so notification-service learns about users who never saved their preferences.
+        NotificationPreferencesUpdatedPayload notificationsBefore = notificationPreferencesEventService.snapshot(userId);
+        UserPreferencesView view = toPreferencesView(
                 getOrCreateAppPreferencesEntity(userId),
                 getOrCreateTrainingPreferencesEntity(userId),
                 getOrCreateNutritionPreferencesEntity(userId),
                 getOrCreateNotificationPreferencesEntity(userId));
+        notificationPreferencesEventService.publishIfChanged(userId, notificationsBefore);
+        return view;
     }
 
     private UserAppPreferencesEntity getOrCreateAppPreferencesEntity(UUID userId) {
