@@ -10,12 +10,18 @@ import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Keeps the local projection of the user's nutrition targets in step with GoalUpdated events from
+ * user-service. Only calorie and macro goals are tracked; any other goal type is ignored. A goal that
+ * is no longer ACTIVE clears its target and date but keeps the goal id.
+ */
 @Service
 public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpdatedPayload> {
 
     private static final String ACTIVE = "ACTIVE";
     private static final String CALORIES = "CALORIES";
     private static final String PROTEIN = "PROTEIN";
+    /** Carbohydrate goals arrive under either name. */
     private static final String CARBS = "CARBS";
     private static final String CARBOHYDRATES = "CARBOHYDRATES";
     private static final String FAT = "FAT";

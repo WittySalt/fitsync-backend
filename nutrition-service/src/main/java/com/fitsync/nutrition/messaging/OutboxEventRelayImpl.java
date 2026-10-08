@@ -8,6 +8,10 @@ import com.fitsync.nutrition.messaging.repository.OutboxEventRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Sends pending outbox rows to Kafka, oldest first, and marks each PUBLISHED or FAILED. A failed row is
+ * not picked up again by this relay; it keeps the (truncated) error for inspection.
+ */
 @Service
 public class OutboxEventRelayImpl implements OutboxEventRelay {
 
@@ -42,6 +46,7 @@ public class OutboxEventRelayImpl implements OutboxEventRelay {
         return publishedCount;
     }
 
+    /** The {@code error_message} column holds 500 characters. */
     private String truncate(String message) {
         if (message == null || message.length() <= 500) {
             return message;

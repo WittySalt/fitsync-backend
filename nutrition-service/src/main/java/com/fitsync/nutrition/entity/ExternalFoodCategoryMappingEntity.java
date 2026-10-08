@@ -12,7 +12,8 @@ import jakarta.persistence.Table;
  * Maps an external open-data category string (e.g. a USDA FoodData Central food category or an Open Food
  * Facts category tag) onto an internal {@code food_categories.code}. This is the layer that open data does
  * NOT provide — neither dataset exposes FitSync's curated dietary taxonomy — so analytics food-group
- * analysis ("meat-heavy / veg-light") depends on it. See recommendation-service/nutrition-data-plan.md §5.
+ * analysis ("meat-heavy / veg-light") depends on it. See
+ * recommendation-service/docs/nutrition-data-plan.md §5.
  */
 @Entity
 @Table(name = "external_food_category_map")

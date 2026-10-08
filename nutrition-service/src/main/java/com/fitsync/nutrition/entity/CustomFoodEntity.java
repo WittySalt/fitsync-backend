@@ -34,7 +34,8 @@ public class CustomFoodEntity extends BaseAuditableEntity implements NutritionFa
     private String servingUnit;
 
     // Internal food_categories code for this custom food (nullable). Lets the line-item snapshot
-    // classify custom foods, which otherwise have no category. See nutrition-data-plan.md §4.1.
+    // classify custom foods, which otherwise have no category. See
+    // recommendation-service/docs/nutrition-data-plan.md §4.1.
     @Column(name = "category_code", length = 40)
     private String categoryCode;
 

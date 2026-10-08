@@ -13,6 +13,10 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/**
+ * Authenticates a request from its bearer token, with the token's role as the only authority. A missing or
+ * invalid token leaves the request anonymous, so the security rules answer 401 rather than this filter.
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 

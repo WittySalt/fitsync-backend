@@ -67,7 +67,7 @@ public class FoodCatalogItemEntity extends BaseEffectiveEntity {
     // --- Open-data provenance & diet-quality signals (additive; nullable) ---------------------------
     // Populated by external-data importers (USDA FoodData Central, Open Food Facts). Kept nullable so
     // existing/seeded rows and manually-created foods remain valid. See
-    // recommendation-service/nutrition-data-plan.md.
+    // recommendation-service/docs/nutrition-data-plan.md.
 
     @Column(name = "source_dataset", length = 30)
     private String sourceDataset;

@@ -49,8 +49,8 @@ public abstract class AbstractFoodLineItemEntity extends BaseAuditableEntity imp
 
     // --- Food-classification snapshot (additive; nullable). Captured at line-item creation so analysis
     // (e.g. food-group balance, ultra-processed share) is immune to later catalog recategorization and
-    // works for custom/external foods. Populated at log time by a later step (SNAP-3). See
-    // recommendation-service/analytics-collaboration.md and nutrition-data-plan.md. ---
+    // works for custom/external foods. Meal items get it at log time in NutritionServiceImpl (SNAP-3). See
+    // recommendation-service/docs/analytics-collaboration.md and docs/nutrition-data-plan.md. ---
     @Column(name = "category_code", length = 40)
     private String categoryCode;
 

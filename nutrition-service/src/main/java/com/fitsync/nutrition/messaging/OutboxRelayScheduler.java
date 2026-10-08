@@ -6,6 +6,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/** Drains the outbox on a fixed delay when {@code fitsync.outbox.relay.enabled} is on. */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.outbox.relay", name = "enabled", havingValue = "true")
 public class OutboxRelayScheduler {
