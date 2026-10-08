@@ -10,12 +10,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitsync.backend.entity.AppUser;
+import com.fitsync.backend.messaging.entity.OutboxEventEntity;
+import com.fitsync.backend.messaging.repository.OutboxEventRepository;
 import com.fitsync.backend.repository.AppUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +43,9 @@ class AuthAndUserApiTests {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
 
     @Test
     void registerReturnsJwtToken() throws Exception {
@@ -398,6 +404,75 @@ class AuthAndUserApiTests {
     }
 
     @Test
+    void anAcceptedDeletionRequestPublishesAccountDeletionRequestedOnce() throws Exception {
+        bootstrapOk("deletion-event-sub", "deletion-event@example.com");
+        AppUser user = appUserRepository.findByExternalSubject("deletion-event-sub").orElseThrow();
+        assertThat(deletionEvents(user)).isEmpty();
+
+        requestDeletion("deletion-event-sub", "deletion-event@example.com");
+        // A second request while the first is pending is not a new acceptance.
+        requestDeletion("deletion-event-sub", "deletion-event@example.com");
+
+        List<OutboxEventEntity> events = deletionEvents(user);
+        assertThat(events).hasSize(1);
+        OutboxEventEntity event = events.get(0);
+        assertThat(event.getTopic()).isEqualTo("user-events");
+        assertThat(event.getAggregateId()).isEqualTo(user.getId().toString());
+        Instant requestedAt = appUserRepository.findById(user.getId()).orElseThrow().getAccountDeletionRequestedAt();
+        JsonNode payload = objectMapper.readTree(event.getPayload()).get("payload");
+        // The column keeps microseconds while the event carries the instant as it was taken.
+        Instant published = Instant.parse(payload.get("requestedAt").asText());
+        assertThat(published.truncatedTo(ChronoUnit.MICROS)).isEqualTo(requestedAt.truncatedTo(ChronoUnit.MICROS));
+        assertThat(Instant.parse(payload.get("scheduledFor").asText())).isEqualTo(published.plus(Duration.ofDays(7)));
+    }
+
+    @Test
+    void aDeletionRequestedAgainAfterCancellingPublishesAgain() throws Exception {
+        bootstrapOk("deletion-again-sub", "deletion-again@example.com");
+        AppUser user = appUserRepository.findByExternalSubject("deletion-again-sub").orElseThrow();
+        requestDeletion("deletion-again-sub", "deletion-again@example.com");
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .with(cognitoJwt("deletion-again-sub", "deletion-again@example.com")))
+                .andExpect(status().isOk());
+
+        requestDeletion("deletion-again-sub", "deletion-again@example.com");
+
+        assertThat(deletionEvents(user)).hasSize(2);
+    }
+
+    @Test
+    void cancellingAPendingDeletionPublishesAccountDeletionCancelled() throws Exception {
+        bootstrapOk("cancel-event-sub", "cancel-event@example.com");
+        AppUser user = appUserRepository.findByExternalSubject("cancel-event-sub").orElseThrow();
+        requestDeletion("cancel-event-sub", "cancel-event@example.com");
+        Instant before = Instant.now();
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .with(cognitoJwt("cancel-event-sub", "cancel-event@example.com")))
+                .andExpect(status().isOk());
+
+        List<OutboxEventEntity> events = eventsOf(user, "AccountDeletionCancelled");
+        assertThat(events).hasSize(1);
+        OutboxEventEntity event = events.get(0);
+        assertThat(event.getTopic()).isEqualTo("user-events");
+        assertThat(event.getAggregateId()).isEqualTo(user.getId().toString());
+        JsonNode payload = objectMapper.readTree(event.getPayload()).get("payload");
+        assertThat(Instant.parse(payload.get("cancelledAt").asText())).isAfterOrEqualTo(before);
+    }
+
+    @Test
+    void cancellingWithoutAPendingDeletionPublishesNothing() throws Exception {
+        bootstrapOk("cancel-none-sub", "cancel-none@example.com");
+        AppUser user = appUserRepository.findByExternalSubject("cancel-none-sub").orElseThrow();
+
+        mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
+                        .with(cognitoJwt("cancel-none-sub", "cancel-none@example.com")))
+                .andExpect(status().isOk());
+
+        assertThat(eventsOf(user, "AccountDeletionCancelled")).isEmpty();
+    }
+
+    @Test
     void theDeletionStatusCarriesTheEndOfTheGracePeriod() throws Exception {
         bootstrapOk("status-sub", "status-user@example.com");
 
@@ -551,6 +626,17 @@ class AuthAndUserApiTests {
                                 """))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").doesNotExist());
+    }
+
+    private List<OutboxEventEntity> deletionEvents(AppUser user) {
+        return eventsOf(user, "AccountDeletionRequested");
+    }
+
+    private List<OutboxEventEntity> eventsOf(AppUser user, String eventType) {
+        return outboxEventRepository.findAll().stream()
+                .filter(event -> eventType.equals(event.getEventType()))
+                .filter(event -> user.getId().equals(event.getUserId()))
+                .toList();
     }
 
     private JwtRequestPostProcessor cognitoJwt(String subject, String email) {

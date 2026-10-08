@@ -162,6 +162,7 @@ public class WorkoutServiceImpl implements WorkoutService {
     private final AutoCloseProperties autoCloseProperties;
     private final PlanCoverageService planCoverageService;
     private final PlanProposalService planProposalService;
+    private final WorkoutPlanScheduleEventService workoutPlanScheduleEventService;
 
     public WorkoutServiceImpl(@Value("${fitsync.kafka.topics.workout-events:workout-events}") String workoutEventsTopic,
                               @Value("${fitsync.workout.exercise-history.max-range-days:370}") int exerciseHistoryMaxRangeDays,
@@ -177,7 +178,8 @@ public class WorkoutServiceImpl implements WorkoutService {
                               PlatformTransactionManager transactionManager,
                               AutoCloseProperties autoCloseProperties,
                               PlanCoverageService planCoverageService,
-                              PlanProposalService planProposalService) {
+                              PlanProposalService planProposalService,
+                              WorkoutPlanScheduleEventService workoutPlanScheduleEventService) {
         this.workoutEventsTopic = workoutEventsTopic;
         this.exerciseHistoryMaxRangeDays = exerciseHistoryMaxRangeDays;
         this.clock = clock;
@@ -196,6 +198,7 @@ public class WorkoutServiceImpl implements WorkoutService {
         this.autoCloseProperties = autoCloseProperties;
         this.planCoverageService = planCoverageService;
         this.planProposalService = planProposalService;
+        this.workoutPlanScheduleEventService = workoutPlanScheduleEventService;
     }
 
     @Override
@@ -317,15 +320,24 @@ public class WorkoutServiceImpl implements WorkoutService {
         entity.setDifficulty(request.difficulty());
         entity.setEstimatedDurationMinutes(request.estimatedDurationMinutes());
         replacePlanExercisesAndDays(currentUser.userId(), entity, request.exercises(), request.days());
-        return toPlanViewWithCoverage(workoutPlanRepository.save(entity));
+        WorkoutPlanEntity saved = workoutPlanRepository.save(entity);
+        // Only the active plan's week drives reminders, so editing any other plan publishes nothing.
+        if (saved.getStatus() == WorkoutPlanStatus.ACTIVE) {
+            workoutPlanScheduleEventService.publishActiveSchedule(currentUser.userId());
+        }
+        return toPlanViewWithCoverage(saved);
     }
 
     @Override
     @Transactional
     public void archivePlan(CurrentUserPrincipal currentUser, UUID planId) {
         WorkoutPlanEntity entity = findPlan(currentUser.userId(), planId);
+        boolean wasActive = entity.getStatus() == WorkoutPlanStatus.ACTIVE;
         entity.setStatus(WorkoutPlanStatus.ARCHIVED);
         workoutPlanRepository.save(entity);
+        if (wasActive) {
+            workoutPlanScheduleEventService.publishActiveSchedule(currentUser.userId());
+        }
     }
 
     @Override
@@ -333,13 +345,20 @@ public class WorkoutServiceImpl implements WorkoutService {
     public WorkoutPlanView activatePlan(CurrentUserPrincipal currentUser, UUID planId) {
         UUID userId = currentUser.userId();
         WorkoutPlanEntity plan = findPlan(userId, planId);
+        boolean scheduleChanged = plan.getStatus() != WorkoutPlanStatus.ACTIVE;
         for (WorkoutPlanEntity activePlan : workoutPlanRepository.findByUserIdAndStatus(userId, WorkoutPlanStatus.ACTIVE)) {
             if (!activePlan.getPlanId().equals(plan.getPlanId())) {
                 activePlan.setStatus(WorkoutPlanStatus.DRAFT);
+                scheduleChanged = true;
             }
         }
         plan.setStatus(WorkoutPlanStatus.ACTIVE);
-        return toPlanView(workoutPlanRepository.save(plan));
+        WorkoutPlanEntity saved = workoutPlanRepository.save(plan);
+        // Activating the plan that is already the only active one leaves the week as it was.
+        if (scheduleChanged) {
+            workoutPlanScheduleEventService.publishActiveSchedule(userId);
+        }
+        return toPlanView(saved);
     }
 
     @Override
