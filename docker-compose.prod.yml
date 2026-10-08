@@ -2,7 +2,7 @@
 # FitSync production stack — single-host (EC2) deployment.
 #
 #   Managed externally : PostgreSQL  -> Amazon RDS  (DB_URL / DB_USERNAME / DB_PASSWORD)
-#   On this host       : Redis (cache/session), Kafka, the 7 services, nginx (TLS).
+#   On this host       : Redis (cache/session), Kafka, the 8 services, nginx (TLS).
 #
 # Images are built + pushed by scripts/build-images.sh as fitsync-<service>.
 # Provide the env values via a .env file next to this compose file
@@ -40,7 +40,7 @@ x-app-env: &app-env
   JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
 
 # Consumer-side listener switches (default off — granular rollout). Merged into the
-# consuming services (user/workout/nutrition/analytics/recommendation). A service ignores the flags for
+# consuming services (user/workout/nutrition/analytics/recommendation/notification). A service ignores the flags for
 # listeners it does not declare, so one shared block is safe.
 x-kafka-consumer-env: &kafka-consumer-env
   KAFKA_USER_REGISTERED_LISTENER_ENABLED: ${KAFKA_USER_REGISTERED_LISTENER_ENABLED:-false}
@@ -341,6 +341,53 @@ services:
       start_period: 180s
     depends_on:
       redis: {condition: service_healthy}
+
+  # notification-service sends the product's emails (welcome, goal reached, reminders, weekly
+  # recap, account deletion notices) through Amazon SES with the EC2 instance role, so no key
+  # lives on the host. It owns the `notification` schema, has no public API (the gateway does
+  # not route to it, and no host port is published) and only serves /actuator/health.
+  #
+  # Email is OFF by default: with FITSYNC_NOTIFY_EMAIL_ENABLED=false every message is written to
+  # the log instead of being sent. The sender must be an identity verified in SES (see
+  # infra/terraform/RUNBOOK.md "Email notifications (SES)").
+  #
+  # Its listeners are OFF by default like every other consumer. Four have no entry in the shared
+  # anchor because only this service consumes them. The weekly-recap flag is declared on
+  # recommendation-service rather than in the anchor, so it is repeated here as well.
+  #
+  # Kafka is not a depends_on: the broker sits in the `events` profile, and a hard dependency
+  # would break a plain `up` without it (the other consumers follow the same rule).
+  notification-service:
+    <<: *service-defaults
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}fitsync-notification-service:${IMAGE_TAG:-latest}
+    container_name: fitsync-notification-service
+    # A small worker (no web traffic, a few listeners and a scheduler), so it gets less than the
+    # 768m default to keep the t3.large budget under 8 GB.
+    mem_limit: ${NOTIFICATION_MEM_LIMIT:-512m}
+    environment:
+      <<: [*app-env, *kafka-consumer-env]
+      DB_USERNAME: notification_svc
+      DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
+      SERVER_PORT: 8087
+      # Consumed only by this service, so absent from the shared anchor.
+      KAFKA_NOTIFICATION_PREFERENCES_UPDATED_LISTENER_ENABLED: ${KAFKA_NOTIFICATION_PREFERENCES_UPDATED_LISTENER_ENABLED:-false}
+      KAFKA_ACCOUNT_DELETION_REQUESTED_LISTENER_ENABLED: ${KAFKA_ACCOUNT_DELETION_REQUESTED_LISTENER_ENABLED:-false}
+      KAFKA_ACCOUNT_DELETION_CANCELLED_LISTENER_ENABLED: ${KAFKA_ACCOUNT_DELETION_CANCELLED_LISTENER_ENABLED:-false}
+      KAFKA_WORKOUT_PLAN_SCHEDULE_CHANGED_LISTENER_ENABLED: ${KAFKA_WORKOUT_PLAN_SCHEDULE_CHANGED_LISTENER_ENABLED:-false}
+      KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED: ${KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED:-false}
+      # Email through SES. The sender is the From address and must be verified in SES.
+      FITSYNC_NOTIFY_EMAIL_ENABLED: ${FITSYNC_NOTIFY_EMAIL_ENABLED:-false}
+      FITSYNC_NOTIFY_EMAIL_SENDER: ${FITSYNC_NOTIFY_EMAIL_SENDER:-no-reply@fitsync.local}
+      # Where the links in an email point: this environment's SPA address.
+      FITSYNC_APP_BASE_URL: ${FITSYNC_APP_BASE_URL:-http://localhost:4200}
+      FITSYNC_NOTIFY_TICK: ${FITSYNC_NOTIFY_TICK:-PT5M}
+      AWS_REGION: ${AWS_REGION:-ap-southeast-1}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
 
   nginx:
     image: nginx:1.27-alpine

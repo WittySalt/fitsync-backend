@@ -1,12 +1,12 @@
 # ── Secrets Manager: everything the app host needs to know ──────────────────
 # One secret per environment, fitsync-<env>/app, holding the database endpoint, the
-# six service passwords and the JWT signing key. Terraform generates the values; the
+# seven service passwords and the JWT signing key. Terraform generates the values; the
 # EC2 instance role reads them at deploy time (scripts/ec2-deploy.sh), so none of them
 # lives in GitHub. The RDS master password is a separate secret that RDS manages and
 # rotates itself (manage_master_user_password in data.tf).
 
 locals {
-  db_services = ["auth", "user", "workout", "nutrition", "analytics", "recommendation"]
+  db_services = ["auth", "user", "workout", "nutrition", "analytics", "recommendation", "notification"]
 }
 
 resource "random_password" "db" {

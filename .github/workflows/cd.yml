@@ -63,7 +63,7 @@ permissions:
 env:
   # The commit this run builds and deploys (the head of main when the run started).
   RELEASE_SHA: ${{ github.sha }}
-  RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service"
+  RUNNABLE_SERVICES: "api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service notification-service"
   TF_VERSION: "1.15.7"
   AWS_REGION: ${{ vars.AWS_REGION }}
 
@@ -114,7 +114,7 @@ jobs:
           terraform workspace select staging || terraform workspace new staging
           terraform plan -input=false -var-file=staging.tfvars
 
-  # ── docker: build jars, build + Trivy-scan + push the 7 service images ───────
+  # ── docker: build jars, build + Trivy-scan + push the 8 service images ───────
   docker-image:
     if: ${{ vars.AWS_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
@@ -148,7 +148,7 @@ jobs:
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           # The Dockerfile copies pre-built jars, so package first.
           mvn --batch-mode --no-transfer-progress -DskipTests package
-          # Build + tag all 7 services (no push yet).
+          # Build + tag all 8 services (no push yet).
           ECR_REGISTRY="$ECR_REGISTRY" IMAGE_TAG="$SHORT_SHA" PUSH=0 bash scripts/build-images.sh
           for svc in $RUNNABLE_SERVICES; do
             repo="fitsync-$svc"; img="$ECR_REGISTRY/$repo"
@@ -232,6 +232,11 @@ jobs:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           STAGING_EC2_SSH_KEY: ${{ secrets.STAGING_EC2_SSH_KEY }}
           STAGING_CORS_ALLOWED_ORIGINS: ${{ vars.STAGING_CORS_ALLOWED_ORIGINS }}
+          # Email notifications. Set them per environment (Settings -> Environments) when staging
+          # and prod send from different addresses; unset = emails are only logged.
+          NOTIFY_EMAIL_ENABLED: ${{ vars.NOTIFY_EMAIL_ENABLED }}
+          NOTIFY_EMAIL_SENDER: ${{ vars.NOTIFY_EMAIL_SENDER }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
           RECOMMENDATION_AI_PROVIDER: ${{ vars.RECOMMENDATION_AI_PROVIDER }}
           RECOMMENDATION_AI_MODEL: ${{ vars.RECOMMENDATION_AI_MODEL }}
@@ -251,6 +256,14 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           IMAGE_TAG="${RELEASE_SHA:0:8}"
+          # Links in emails point at staging's SPA: APP_BASE_URL if set, else the first https
+          # origin in the staging CORS list, else the staging CloudFront address.
+          if [ -z "${APP_BASE_URL:-}" ]; then
+            for origin in ${STAGING_CORS_ALLOWED_ORIGINS//,/ }; do
+              case "$origin" in https://*) APP_BASE_URL="$origin"; break ;; esac
+            done
+          fi
+          APP_BASE_URL="${APP_BASE_URL:-https://d1z92tpb353lfi.cloudfront.net}"
           mkdir -p ~/.ssh
           # GitHub drops a secret's trailing newline; OpenSSH refuses a key without one.
           printf '%s\n' "$STAGING_EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
@@ -287,11 +300,19 @@ jobs:
           KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED=true
           KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED=true
           KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED=true
+          KAFKA_NOTIFICATION_PREFERENCES_UPDATED_LISTENER_ENABLED=true
+          KAFKA_ACCOUNT_DELETION_REQUESTED_LISTENER_ENABLED=true
+          KAFKA_ACCOUNT_DELETION_CANCELLED_LISTENER_ENABLED=true
+          KAFKA_WORKOUT_PLAN_SCHEDULE_CHANGED_LISTENER_ENABLED=true
           RECOMMENDATION_AI_ENABLED=${RECOMMENDATION_AI_ENABLED:-false}
           RECOMMENDATION_AI_PROVIDER=${RECOMMENDATION_AI_PROVIDER}
           RECOMMENDATION_AI_MODEL=${RECOMMENDATION_AI_MODEL}
           RECOMMENDATION_AI_BASE_URL=${RECOMMENDATION_AI_BASE_URL}
           ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+          FITSYNC_NOTIFY_EMAIL_ENABLED=${NOTIFY_EMAIL_ENABLED:-false}
+          FITSYNC_NOTIFY_EMAIL_SENDER=${NOTIFY_EMAIL_SENDER}
+          FITSYNC_APP_BASE_URL=${APP_BASE_URL}
+          AWS_REGION=${AWS_REGION}
           COGNITO_ENABLED=false
           AUTH_COGNITO_ISSUER_URI=https://cognito-idp.${AWS_REGION}.amazonaws.com/${COGNITO_POOL_ID}
           AUTH_COGNITO_AUDIENCE=${COGNITO_CLIENT_ID}
@@ -426,6 +447,9 @@ jobs:
           FITSYNC_MEDIA_REGION: ${{ vars.FITSYNC_MEDIA_REGION }}
           FITSYNC_MEDIA_BUCKET: ${{ vars.FITSYNC_MEDIA_BUCKET }}
           FITSYNC_MEDIA_PUBLIC_BASE_URL: ${{ vars.FITSYNC_MEDIA_PUBLIC_BASE_URL }}
+          NOTIFY_EMAIL_ENABLED: ${{ vars.NOTIFY_EMAIL_ENABLED }}
+          NOTIFY_EMAIL_SENDER: ${{ vars.NOTIFY_EMAIL_SENDER }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           RECOMMENDATION_AI_ENABLED: ${{ vars.RECOMMENDATION_AI_ENABLED }}
           RECOMMENDATION_AI_PROVIDER: ${{ vars.RECOMMENDATION_AI_PROVIDER }}
           RECOMMENDATION_AI_MODEL: ${{ vars.RECOMMENDATION_AI_MODEL }}
@@ -435,7 +459,7 @@ jobs:
           set -euo pipefail
           IMAGE_TAG="${RELEASE_SHA:0:8}"
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          # Refuse to touch prod unless all 7 images exist for this tag.
+          # Refuse to touch prod unless all 8 images exist for this tag.
           for svc in $RUNNABLE_SERVICES; do
             docker manifest inspect "$ECR_REGISTRY/fitsync-$svc:$IMAGE_TAG" > /dev/null
           done
@@ -475,11 +499,19 @@ jobs:
           KAFKA_ENERGY_PROFILE_COMPUTED_LISTENER_ENABLED=true
           KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED=true
           KAFKA_STREAK_MILESTONE_REACHED_LISTENER_ENABLED=true
+          KAFKA_NOTIFICATION_PREFERENCES_UPDATED_LISTENER_ENABLED=true
+          KAFKA_ACCOUNT_DELETION_REQUESTED_LISTENER_ENABLED=true
+          KAFKA_ACCOUNT_DELETION_CANCELLED_LISTENER_ENABLED=true
+          KAFKA_WORKOUT_PLAN_SCHEDULE_CHANGED_LISTENER_ENABLED=true
           RECOMMENDATION_AI_ENABLED=${RECOMMENDATION_AI_ENABLED:-false}
           RECOMMENDATION_AI_PROVIDER=${RECOMMENDATION_AI_PROVIDER}
           RECOMMENDATION_AI_MODEL=${RECOMMENDATION_AI_MODEL}
           RECOMMENDATION_AI_BASE_URL=${RECOMMENDATION_AI_BASE_URL}
           ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+          FITSYNC_NOTIFY_EMAIL_ENABLED=${NOTIFY_EMAIL_ENABLED:-false}
+          FITSYNC_NOTIFY_EMAIL_SENDER=${NOTIFY_EMAIL_SENDER}
+          FITSYNC_APP_BASE_URL=${APP_BASE_URL:-https://d26vi6hikexzev.cloudfront.net}
+          AWS_REGION=${AWS_REGION}
           COGNITO_ENABLED=${COGNITO_ENABLED:-false}
           NGINX_SERVER_NAME=${PROD_DOMAIN:-_}
           NGINX_CERT_NAME=${PROD_DOMAIN:-localhost}
