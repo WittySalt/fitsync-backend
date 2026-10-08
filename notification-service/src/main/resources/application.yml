@@ -57,6 +57,9 @@ fitsync:
     app-base-url: ${FITSYNC_APP_BASE_URL:http://localhost:4200}
     # How often reminders are planned and due emails are sent.
     tick: ${FITSYNC_NOTIFY_TICK:PT5M}
+    # The tick runs on its own unless this is false; tests turn it off and drive the tick by hand.
+    scheduler:
+      enabled: ${FITSYNC_NOTIFY_SCHEDULER_ENABLED:true}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:
@@ -73,6 +76,8 @@ fitsync:
         enabled: ${KAFKA_NOTIFICATION_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
       account-deletion-requested:
         enabled: ${KAFKA_ACCOUNT_DELETION_REQUESTED_LISTENER_ENABLED:false}
+      account-deletion-cancelled:
+        enabled: ${KAFKA_ACCOUNT_DELETION_CANCELLED_LISTENER_ENABLED:false}
       account-deleted:
         enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}
       goal-updated:

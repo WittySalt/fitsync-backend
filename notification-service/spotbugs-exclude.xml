@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs exclusions for notification-service, read together with the shared ../spotbugs-exclude.xml.
+  Each entry is a known false positive with its reason; real security findings are not suppressed here.
+-->
+<FindBugsFilter>
+
+    <!-- Spring singletons keep the repositories, the clock, the transaction template and the SES client
+         they were constructed with and never hand them out; the same constructor-injection noise the
+         shared filter lists for the other services. -->
+    <Match>
+        <Or>
+            <Class name="~com\.fitsync\.notification\.handler\..*Handler"/>
+            <Class name="com.fitsync.notification.service.EmailDispatcher"/>
+            <Class name="com.fitsync.notification.service.EmailQueue"/>
+            <Class name="com.fitsync.notification.service.RecipientStore"/>
+            <Class name="com.fitsync.notification.service.TrainingReminderPlanner"/>
+            <Class name="com.fitsync.notification.email.SesEmailSender"/>
+        </Or>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- These log lines carry only email and event ids (UUIDs), email kinds (enum names), fixed reason
+         words and exception class names, none of which can hold a line break. The one user-typed value
+         that is logged, the subject in LoggingEmailSender, has CR and LF replaced inline before logging. -->
+    <Match>
+        <Or>
+            <Class name="com.fitsync.notification.service.EmailDispatcher"/>
+            <Class name="com.fitsync.notification.service.EmailQueue"/>
+            <Class name="com.fitsync.notification.service.NotificationTick"/>
+            <Class name="com.fitsync.notification.handler.AccountDeletedHandler"/>
+            <Class name="com.fitsync.notification.email.LoggingEmailSender"/>
+        </Or>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
+</FindBugsFilter>

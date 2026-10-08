@@ -83,6 +83,19 @@
     </dependencies>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <!-- The shared SpotBugs filter plus this module's own, so the notification exclusions
+                     live with the code they are about. -->
+                <plugin>
+                    <groupId>com.github.spotbugs</groupId>
+                    <artifactId>spotbugs-maven-plugin</artifactId>
+                    <configuration>
+                        <excludeFilterFile>${project.basedir}/../spotbugs-exclude.xml,${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

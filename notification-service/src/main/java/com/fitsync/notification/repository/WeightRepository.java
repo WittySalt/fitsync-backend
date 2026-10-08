@@ -17,6 +17,11 @@ public interface WeightRepository extends JpaRepository<WeightEntity, UUID> {
 
     Optional<WeightEntity> findFirstByUserIdAndMeasuredAtLessThanOrderByMeasuredAtDesc(UUID userId, Instant before);
 
+    Optional<WeightEntity> findFirstByUserIdAndMeasuredAtLessThanEqualOrderByMeasuredAtDesc(UUID userId, Instant at);
+
+    Optional<WeightEntity> findFirstByUserIdAndMeasuredAtGreaterThanEqualAndMeasuredAtLessThanOrderByMeasuredAtDesc(
+            UUID userId, Instant from, Instant until);
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from WeightEntity w where w.userId = :userId")
     void deleteByUserId(@Param("userId") UUID userId);
