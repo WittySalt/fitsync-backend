@@ -12,6 +12,10 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.util.StringUtils;
 
+/**
+ * Adds role authorities from a Cognito token's {@code cognito:groups} and custom {@code role} claims to the
+ * default scope authorities, upper-casing and prefixing each with {@code ROLE_} unless it already is.
+ */
 public class CognitoAuthoritiesConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
 
     private final JwtGrantedAuthoritiesConverter defaultAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();

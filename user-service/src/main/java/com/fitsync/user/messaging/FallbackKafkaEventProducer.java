@@ -6,6 +6,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+/**
+ * Stands in for Kafka when {@code fitsync.kafka.enabled} is not true: it only logs the event, so the relay
+ * marks it published without it going anywhere.
+ */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class FallbackKafkaEventProducer implements KafkaEventProducer {

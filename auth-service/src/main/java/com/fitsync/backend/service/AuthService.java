@@ -23,6 +23,11 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Local password accounts (register and login) and issuing the application token for any account. The token
+ * is an HMAC-signed JWT whose subject is the email and whose claims carry the id, display name and role that
+ * the gateway and the other services read.
+ */
 @Service
 public class AuthService {
 

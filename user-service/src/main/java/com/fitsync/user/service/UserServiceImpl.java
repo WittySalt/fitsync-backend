@@ -97,10 +97,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * Owns the person's own data: profile, avatar, preferences, health readiness, body metrics and goals, plus
+ * onboarding, data export and account deletion. Missing per-user rows are created with defaults on first read.
+ * Every change that another service keeps a projection of is announced through the outbox, on
+ * {@code user-events} for profile and preference facts and {@code progress-events} for goals and body metrics.
+ */
 @Service
 public class UserServiceImpl implements UserService {
 
     private static final String SOURCE = "user-service";
+    private static final String USER_EVENTS_TOPIC = "user-events";
     private static final String PROGRESS_EVENTS_TOPIC = "progress-events";
     private static final int RECONCILE_PAGE_SIZE = 200;
     private static final String ACCOUNT_DELETION_REASON_USER_REQUESTED = "USER_REQUESTED";
@@ -461,6 +468,10 @@ public class UserServiceImpl implements UserService {
         return toBodyMetricView(saved, profile);
     }
 
+    /**
+     * Records the onboarding baseline, replacing the earlier baseline (found by its note) when onboarding is
+     * completed again rather than adding a second one.
+     */
     private BodyMetricView upsertOnboardingBodyMetrics(CurrentUserPrincipal principal, CreateBodyMetricRequest request) {
         validateBodyMetricRequest(request);
         UserProfileEntity profile = getOrCreateProfileEntity(principal);
@@ -617,6 +628,7 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public AccountDataExportRequestView requestAccountDataExport(CurrentUserPrincipal principal) {
+        // The export is assembled when it is downloaded, so a request is ready as soon as it is recorded.
         Instant now = Instant.now(Clock.systemUTC());
         AccountDataExportRequestEntity entity = new AccountDataExportRequestEntity();
         entity.setUserId(principal.userId());
@@ -682,9 +694,9 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * Publishes the nutrition reference profile, the preferences, the latest weight and the energy profile of every user once, so that a service that
-     * started keeping a projection of them after those users last changed anything gets its rows filled. A user
-     * without a stored row or a weight is skipped for that event.
+     * Publishes the nutrition reference profile, the preferences, the latest weight and the energy profile of
+     * every user once, so that a service that started keeping a projection of them after those users last
+     * changed anything gets its rows filled. A user without a stored row or a weight is skipped for that event.
      */
     @Override
     @Transactional
@@ -699,14 +711,13 @@ public class UserServiceImpl implements UserService {
             page = userProfileRepository.findAll(PageRequest.of(pageNumber++, RECONCILE_PAGE_SIZE, Sort.by("userId")));
             for (UserProfileEntity profile : page.getContent()) {
                 UUID userId = profile.getUserId();
-                UserNutritionPreferencesEntity nutritionForReference =
+                UserNutritionPreferencesEntity nutrition =
                         userNutritionPreferencesRepository.findById(userId).orElse(null);
                 publishReferenceProfile(userId, deriveReference(profile,
-                        nutritionForReference == null ? null : nutritionForReference.getNutrientReferenceRange()));
+                        nutrition == null ? null : nutrition.getNutrientReferenceRange()));
                 referenceProfiles++;
                 UserAppPreferencesEntity app = userAppPreferencesRepository.findById(userId).orElse(null);
                 UserTrainingPreferencesEntity training = userTrainingPreferencesRepository.findById(userId).orElse(null);
-                UserNutritionPreferencesEntity nutrition = userNutritionPreferencesRepository.findById(userId).orElse(null);
                 UserNotificationPreferencesEntity notifications =
                         userNotificationPreferencesRepository.findById(userId).orElse(null);
                 if (app != null && training != null && nutrition != null && notifications != null) {
@@ -766,7 +777,7 @@ public class UserServiceImpl implements UserService {
         userProfileRepository.deleteById(userId);
 
         domainEventPublisher.publish(
-                "user-events", "UserAccount", userId.toString(), new FitSyncDomainEvent<>(
+                USER_EVENTS_TOPIC, "UserAccount", userId.toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "AccountDeleted", 1, deletedAt, SOURCE, userId,
                 new AccountDeletedPayload(deletedAt, ACCOUNT_DELETION_REASON_USER_REQUESTED)));
     }
@@ -877,7 +888,7 @@ public class UserServiceImpl implements UserService {
                                            UserNutritionPreferencesEntity nutrition,
                                            UserNotificationPreferencesEntity notifications) {
         domainEventPublisher.publish(
-                "user-events", "UserPreferences", userId.toString(), new FitSyncDomainEvent<>(
+                USER_EVENTS_TOPIC, "UserPreferences", userId.toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "UserPreferencesUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, userId,
                 new UserPreferencesUpdatedPayload(
                         app.getPreferredUnits().getCode(),
@@ -910,14 +921,14 @@ public class UserServiceImpl implements UserService {
 
     private void publishReferenceProfile(UUID userId, NutritionReferenceProfileDeriver.Derived derived) {
         domainEventPublisher.publish(
-                "user-events", "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
+                USER_EVENTS_TOPIC, "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "NutritionReferenceProfileUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE,
                 userId, new NutritionReferenceProfileUpdatedPayload(derived.referenceSex(), derived.ageBand())));
     }
 
     private void publishProfileUpdated(UUID userId, UserProfileEntity saved, List<String> changedFields) {
         domainEventPublisher.publish(
-                "user-events", "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
+                USER_EVENTS_TOPIC, "UserProfile", userId.toString(), new FitSyncDomainEvent<>(
                 UUID.randomUUID(), "UserProfileUpdated", 1, Instant.now(Clock.systemUTC()), SOURCE, userId,
                 new UserProfileUpdatedPayload(
                         saved.getDisplayName(),
@@ -1066,6 +1077,11 @@ public class UserServiceImpl implements UserService {
         return weightKg.divide(heightMeters.multiply(heightMeters), 2, RoundingMode.HALF_UP);
     }
 
+    /**
+     * A starting calorie target: Mifflin-St Jeor BMR times the activity multiplier, then a 400 kcal deficit to
+     * lose weight or a 250 kcal surplus to gain it, never below 1200 kcal. The age counts calendar years only,
+     * defaults to 30 and is at least 16.
+     */
     private int estimateDailyCalories(CompleteOnboardingRequest request) {
         int age = request.birthDate() == null
                 ? 30
@@ -1083,6 +1099,7 @@ public class UserServiceImpl implements UserService {
         return Math.max(1200, tdee.add(goalAdjustment).setScale(0, RoundingMode.HALF_UP).intValue());
     }
 
+    /** 1.8 g per kg of body weight when cutting or asking for high protein, otherwise 1.6 g per kg. */
     private BigDecimal estimateProteinTarget(CompleteOnboardingRequest request) {
         BigDecimal multiplier = request.targetWeightKg().compareTo(request.currentWeightKg()) < 0
                 || request.macroPreference() == MacroPreference.HIGH_PROTEIN
@@ -1091,12 +1108,14 @@ public class UserServiceImpl implements UserService {
         return request.currentWeightKg().multiply(multiplier).setScale(0, RoundingMode.HALF_UP);
     }
 
+    /** 30% of calories from fat, at 9 kcal per gram. */
     private BigDecimal estimateFatTarget(int calorieTarget) {
         return BigDecimal.valueOf(calorieTarget)
                 .multiply(BigDecimal.valueOf(0.30))
                 .divide(BigDecimal.valueOf(9), 0, RoundingMode.HALF_UP);
     }
 
+    /** Whatever calories protein (4 kcal/g) and fat (9 kcal/g) leave, as carbohydrate at 4 kcal/g. */
     private BigDecimal estimateCarbTarget(int calorieTarget, BigDecimal proteinTarget, BigDecimal fatTarget) {
         BigDecimal remainingCalories = BigDecimal.valueOf(calorieTarget)
                 .subtract(proteinTarget.multiply(BigDecimal.valueOf(4)))
@@ -1107,6 +1126,7 @@ public class UserServiceImpl implements UserService {
         return remainingCalories.divide(BigDecimal.valueOf(4), 0, RoundingMode.HALF_UP);
     }
 
+    /** The Mifflin-St Jeor sex constant; any other or no answer takes the midpoint of the two. */
     private BigDecimal genderAdjustment(com.fitsync.user.domain.Gender gender) {
         if (gender == com.fitsync.user.domain.Gender.MALE) {
             return BigDecimal.valueOf(5);
@@ -1127,6 +1147,7 @@ public class UserServiceImpl implements UserService {
         };
     }
 
+    /** The first and latest non-null value of one measurement; the entries arrive oldest first. */
     private BodyMetricTrend trend(List<BodyMetricEntryEntity> entries,
                                   Function<BodyMetricEntryEntity, BigDecimal> extractor) {
         BodyMetricTrendPoint first = null;

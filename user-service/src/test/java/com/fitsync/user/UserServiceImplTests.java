@@ -47,8 +47,6 @@ import com.fitsync.user.entity.BodyMetricEntryEntity;
 import com.fitsync.user.entity.UserAppPreferencesEntity;
 import com.fitsync.user.entity.UserGoalEntity;
 import com.fitsync.user.entity.UserHealthReadinessEntity;
-import com.fitsync.user.entity.UserNotificationPreferencesEntity;
-import com.fitsync.user.entity.UserNutritionPreferencesEntity;
 import com.fitsync.user.entity.UserTrainingPreferencesEntity;
 import com.fitsync.user.messaging.DomainEventPublisher;
 import com.fitsync.user.repository.AccountDataExportRequestRepository;

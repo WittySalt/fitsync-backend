@@ -15,6 +15,7 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
+/** Issues and reads the application's own HMAC-signed JWTs (not Cognito tokens, which Spring decodes). */
 @Service
 public class JwtService {
 
@@ -68,6 +69,7 @@ public class JwtService {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
+    /** Accepts the secret Base64-encoded or, when it does not decode, as plain UTF-8 text. */
     private byte[] resolveKeyBytes() {
         String secret = jwtProperties.secret();
         try {

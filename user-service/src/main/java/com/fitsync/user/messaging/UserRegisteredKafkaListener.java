@@ -14,6 +14,10 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.stereotype.Component;
 
+/**
+ * Consumes {@code user-events} and provisions the default profile and preference rows for each
+ * {@code UserRegistered}; every other event type on the topic is skipped.
+ */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka.listeners.user-registered", name = "enabled", havingValue = "true")
 public class UserRegisteredKafkaListener {

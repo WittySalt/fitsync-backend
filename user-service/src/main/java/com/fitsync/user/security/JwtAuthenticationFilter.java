@@ -13,6 +13,11 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/**
+ * Authenticates a request from the application bearer token itself, verifying its signature here rather than
+ * trusting the identity headers the gateway adds. A token that does not verify leaves the request
+ * unauthenticated for the authorization rules to answer.
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -33,7 +38,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        String token = authorization.substring(7);
+        String token = authorization.substring("Bearer ".length());
         try {
             CurrentUserPrincipal principal = jwtService.extractCurrentUser(token);
             if (SecurityContextHolder.getContext().getAuthentication() == null) {

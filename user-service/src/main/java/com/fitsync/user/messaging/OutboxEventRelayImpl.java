@@ -8,6 +8,10 @@ import com.fitsync.user.messaging.repository.OutboxEventRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Sends the oldest pending outbox events in creation order and marks each one published or failed. A failed
+ * event keeps its error and is not picked up again by later batches.
+ */
 @Service
 public class OutboxEventRelayImpl implements OutboxEventRelay {
 
@@ -42,6 +46,7 @@ public class OutboxEventRelayImpl implements OutboxEventRelay {
         return publishedCount;
     }
 
+    /** The {@code error_message} column holds 500 characters. */
     private String truncate(String message) {
         if (message == null || message.length() <= 500) {
             return message;
