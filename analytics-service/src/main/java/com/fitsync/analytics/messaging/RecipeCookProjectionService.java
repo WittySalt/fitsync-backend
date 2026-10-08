@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserCooksEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserCooksRepository;
@@ -42,7 +41,7 @@ public class RecipeCookProjectionService {
             return;
         }
         if (event.userId() == null) {
-            recordProcessedEvent(event);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             return;
         }
         UUID userId = event.userId();
@@ -56,7 +55,7 @@ public class RecipeCookProjectionService {
             cooks.setLastCookAt(cookedAt);
         }
         cooksRepository.save(cooks);
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(userId);
     }
 
@@ -72,14 +71,5 @@ public class RecipeCookProjectionService {
         created.setUserId(userId);
         created.setCooks(0);
         return created;
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() == null ? Instant.now(clock) : event.occurredAt());
-        processedEventRepository.save(processedEvent);
     }
 }

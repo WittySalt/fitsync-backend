@@ -24,6 +24,7 @@ import com.fitsync.nutrition.repository.MealNutritionQueryRepository;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository.MealNutritionRow;
 import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -137,7 +138,7 @@ public class NutritionPageInsightServiceImpl implements NutritionPageInsightServ
         try {
             return ZoneId.of(timezone);
         } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("Invalid timezone");
+            throw new BadRequestException("Invalid timezone");
         }
     }
 

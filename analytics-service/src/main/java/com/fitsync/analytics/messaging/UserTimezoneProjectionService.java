@@ -5,7 +5,6 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZoneId;
 
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
 import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository;
@@ -56,7 +55,7 @@ public class UserTimezoneProjectionService {
             dashboardSnapshotRepository.save(snapshot);
             cacheInvalidationService.evictForUser(event.userId());
         }
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
     }
 
     private String normalizeTimezone(String timezone) {
@@ -69,14 +68,5 @@ public class UserTimezoneProjectionService {
         } catch (DateTimeException ex) {
             return null;
         }
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() == null ? Instant.now(clock) : event.occurredAt());
-        processedEventRepository.save(processedEvent);
     }
 }

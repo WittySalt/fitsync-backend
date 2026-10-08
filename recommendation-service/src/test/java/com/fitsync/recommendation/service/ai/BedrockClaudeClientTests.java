@@ -31,7 +31,7 @@ class BedrockClaudeClientTests {
     void setUp() {
         bedrock = mock(BedrockRuntimeClient.class);
         RecommendationProperties properties = new RecommendationProperties(null,
-                new RecommendationProperties.Ai(true, "bedrock", MODEL, null, 300, null, null));
+                new RecommendationProperties.Ai(true, "bedrock", MODEL, null, 300, null));
         client = new BedrockClaudeClient(bedrock, properties);
     }
 

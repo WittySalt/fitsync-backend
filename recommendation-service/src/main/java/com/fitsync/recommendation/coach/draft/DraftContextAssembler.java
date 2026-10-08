@@ -172,7 +172,7 @@ public class DraftContextAssembler {
         try {
             for (JsonNode session : objectMapper.readTree(body).path("content")) {
                 String completedAt = session.path("completedAt").asText("");
-                if (completedAt.length() < 10 || !completedAt.startsWith(yesterday.toString())) {
+                if (!completedAt.startsWith(yesterday.toString())) {
                     continue;
                 }
                 for (JsonNode logged : session.path("exercises")) {

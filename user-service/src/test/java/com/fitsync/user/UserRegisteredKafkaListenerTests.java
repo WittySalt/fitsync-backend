@@ -1,5 +1,7 @@
 package com.fitsync.user;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -59,6 +61,18 @@ class UserRegisteredKafkaListenerTests {
 
         listener.onMessage(objectMapper.writeValueAsString(event), "user-events", event.userId().toString());
 
+        verifyNoInteractions(consumer);
+    }
+
+    @Test
+    void rejectsAPayloadThatIsNotAnEvent() {
+        UserRegisteredEventConsumer consumer = mock(UserRegisteredEventConsumer.class);
+        UserRegisteredKafkaListener listener = new UserRegisteredKafkaListener(objectMapper, consumer);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> listener.onMessage("{not json", "user-events", null));
+
+        assertEquals("Failed to deserialize UserRegistered event", error.getMessage());
         verifyNoInteractions(consumer);
     }
 }

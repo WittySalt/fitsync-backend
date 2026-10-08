@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.DayOfWeek;
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -289,19 +288,8 @@ public class GoalProgressEvaluator {
 
     private ZoneId resolveZone(UUID userId) {
         return dashboardSnapshotRepository.findById(userId)
-                .map(snapshot -> parseZone(snapshot.getTimezone()))
+                .map(snapshot -> UserZone.of(snapshot.getTimezone()))
                 .orElse(DEFAULT_ZONE);
-    }
-
-    private ZoneId parseZone(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            return DEFAULT_ZONE;
-        }
-        try {
-            return ZoneId.of(timezone.trim());
-        } catch (DateTimeException ex) {
-            return DEFAULT_ZONE;
-        }
     }
 
     private String normalizeGoalType(String goalType) {

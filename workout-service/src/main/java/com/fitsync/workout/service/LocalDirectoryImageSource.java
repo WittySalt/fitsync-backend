@@ -3,7 +3,6 @@ package com.fitsync.workout.service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -17,8 +16,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class LocalDirectoryImageSource implements CatalogImageSource {
-
-    private static final String JPEG_CONTENT_TYPE = "image/jpeg";
 
     private final Optional<Path> imageSourceDirectory;
 
@@ -60,7 +57,7 @@ public class LocalDirectoryImageSource implements CatalogImageSource {
             return Optional.empty();
         }
         try {
-            return Optional.of(new CatalogImage(Files.readAllBytes(imagePath), contentType(relativeImagePath)));
+            return Optional.of(new CatalogImage(Files.readAllBytes(imagePath), CatalogImage.contentTypeOf(relativeImagePath)));
         } catch (IOException ex) {
             throw new IllegalArgumentException("Unable to read free-exercise-db image " + relativeImagePath, ex);
         }
@@ -71,16 +68,5 @@ public class LocalDirectoryImageSource implements CatalogImageSource {
             return Optional.empty();
         }
         return Optional.of(Path.of(configuredDirectory).toAbsolutePath().normalize());
-    }
-
-    private String contentType(String sourceImage) {
-        String normalized = sourceImage == null ? "" : sourceImage.trim().toLowerCase(Locale.ROOT);
-        if (normalized.endsWith(".png")) {
-            return "image/png";
-        }
-        if (normalized.endsWith(".webp")) {
-            return "image/webp";
-        }
-        return JPEG_CONTENT_TYPE;
     }
 }

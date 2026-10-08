@@ -60,6 +60,14 @@ class ApiGatewayApplicationTests {
     @MockBean
     private GatewayProxyService gatewayProxyService;
 
+    @Autowired
+    private org.springframework.context.ApplicationContext context;
+
+    @Test
+    void startsWithoutCognitoBeansWhileCognitoIsDisabled() {
+        assertThat(context.getBeansOfType(org.springframework.security.oauth2.jwt.JwtDecoder.class)).isEmpty();
+    }
+
     @Test
     void healthEndpointIsPublic() throws Exception {
         mockMvc.perform(get("/api/v1/health"))

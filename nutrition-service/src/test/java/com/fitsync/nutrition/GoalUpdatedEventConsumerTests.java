@@ -71,6 +71,32 @@ class GoalUpdatedEventConsumerTests {
     }
 
     @Test
+    void aFractionalCalorieGoalIsRoundedToTheNearestKcal() {
+        UUID userId = UUID.randomUUID();
+
+        consumer.consume(new FitSyncDomainEvent<>(
+                UUID.randomUUID(),
+                "GoalUpdated",
+                1,
+                Instant.parse("2026-06-11T14:00:00Z"),
+                "user-service",
+                userId,
+                new GoalUpdatedPayload(
+                        UUID.randomUUID(),
+                        "CALORIES",
+                        new BigDecimal("1999.6"),
+                        "kcal",
+                        LocalDate.parse("2026-09-01"),
+                        "ACTIVE")));
+
+        assertThat(nutritionTargetRepository.findById(userId))
+                .isPresent()
+                .get()
+                .extracting(target -> target.getCalorieTarget())
+                .isEqualTo(2000);
+    }
+
+    @Test
     void nonActiveGoalClearsTrackedTarget() {
         UUID userId = UUID.randomUUID();
 

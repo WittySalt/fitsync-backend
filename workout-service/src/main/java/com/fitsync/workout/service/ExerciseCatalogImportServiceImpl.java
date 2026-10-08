@@ -222,8 +222,11 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         }
         Optional<CatalogImageSource> selectedImageSource = selectImageSource();
         if (selectedImageSource.isEmpty()) {
+            // Empty means both sources are out: the local directory is unset, missing or empty, and the
+            // upstream download is switched off. The message names both so neither is chased alone.
             if (!entity.getImages().isEmpty()) {
-                LOGGER.debug("Skipping free-exercise-db image refresh for {} because no image source directory is configured",
+                LOGGER.debug("Skipping free-exercise-db image refresh for {} because no local image directory is "
+                                + "available and the upstream download is disabled",
                         sanitizeForLog(externalRef));
             }
             return;
@@ -248,7 +251,8 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
                 continue;
             }
             String imageUrl = mediaStorageServiceProvider.getObject()
-                    .put(imageStorageKey(externalRef, position), catalogImage.get().bytes(), catalogImage.get().contentType());
+                    .put(imageStorageKey(externalRef, position, catalogImage.get()), catalogImage.get().bytes(),
+                            catalogImage.get().contentType());
             ExerciseImageEntity imageEntity = entity.getImages().stream()
                     .filter(existing -> position == existing.getPosition())
                     .findFirst()
@@ -288,8 +292,13 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         }
     }
 
-    private String imageStorageKey(String externalRef, int position) {
-        return CATALOG_IMAGE_KEY_PREFIX + externalRef + "/" + position + ".jpg";
+    /**
+     * The media key of a catalogue image, named after its content type so a PNG or WebP is not stored
+     * as .jpg. The key is only written to, never compared, so each run uploads again and points the
+     * row at the returned URL; a JPEG keeps its old key.
+     */
+    private String imageStorageKey(String externalRef, int position, CatalogImage image) {
+        return CATALOG_IMAGE_KEY_PREFIX + externalRef + "/" + position + "." + image.fileExtension();
     }
 
     /**

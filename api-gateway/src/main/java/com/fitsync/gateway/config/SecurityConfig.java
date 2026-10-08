@@ -12,8 +12,11 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -86,6 +89,7 @@ public class SecurityConfig {
                 throw new IllegalStateException("Cognito auth is enabled but JWT resource server beans are missing");
             }
             http.oauth2ResourceServer(oauth2 -> oauth2
+                    .bearerTokenResolver(cognitoTokenResolver())
                     .authenticationEntryPoint(restAuthenticationEntryPoint)
                     .jwt(jwt -> jwt
                             .decoder(cognitoJwtDecoder)
@@ -93,5 +97,17 @@ public class SecurityConfig {
         }
 
         return http.build();
+    }
+
+    /**
+     * Hands the bearer token to the Cognito decoder only when the application-token filter, which runs first, has
+     * not already authenticated the request. Otherwise every application token, which Cognito's keys cannot
+     * verify, would be decoded a second time and rejected with a 401 as soon as Cognito is enabled.
+     */
+    private static BearerTokenResolver cognitoTokenResolver() {
+        DefaultBearerTokenResolver headerResolver = new DefaultBearerTokenResolver();
+        return request -> SecurityContextHolder.getContext().getAuthentication() != null
+                ? null
+                : headerResolver.resolve(request);
     }
 }

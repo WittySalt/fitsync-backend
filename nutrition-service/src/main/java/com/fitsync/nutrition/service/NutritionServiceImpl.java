@@ -12,6 +12,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -372,7 +373,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Transactional
     public MealView copyMeal(CurrentUserPrincipal principal, UUID mealId, CopyMealRequest request) {
         MealLogEntity source = getOwnedMeal(principal.userId(), mealId);
-        return copyMealTo(principal.userId(), source, request.consumedAt(), request.mealType());
+        return copyMealTo(principal.userId(), source, request.consumedAt(), request.mealType(), loadFoodGroups());
     }
 
     @Override
@@ -386,19 +387,22 @@ public class NutritionServiceImpl implements NutritionService {
                 .findByUserIdAndConsumedAtGreaterThanEqualAndConsumedAtLessThanEqualOrderByConsumedAtDesc(
                         principal.userId(), from, to);
         List<MealView> copied = new ArrayList<>();
+        // Read the category table once for the whole day instead of once per copied meal.
+        Map<String, String> foodGroups = loadFoodGroups();
         for (MealLogEntity meal : meals) {
             if (meal.getMealType() == MealType.FAST) {
                 continue;
             }
             LocalTime localTime = meal.getConsumedAt().atZone(zone).toLocalTime();
             Instant target = request.targetDate().atTime(localTime).atZone(zone).toInstant();
-            copied.add(copyMealTo(principal.userId(), meal, target, null));
+            copied.add(copyMealTo(principal.userId(), meal, target, null, foodGroups));
         }
         return copied;
     }
 
     /** Clones a meal and its item snapshots (+ nutrient details) to a new time, emitting MealLogged. */
-    private MealView copyMealTo(UUID userId, MealLogEntity source, Instant targetConsumedAt, MealType mealTypeOverride) {
+    private MealView copyMealTo(UUID userId, MealLogEntity source, Instant targetConsumedAt, MealType mealTypeOverride,
+                                Map<String, String> foodGroups) {
         MealType copyType = mealTypeOverride != null ? mealTypeOverride : source.getMealType();
         if (copyType == MealType.FAST) {
             throw new BadRequestException("A fasted day cannot be copied");
@@ -407,7 +411,7 @@ public class NutritionServiceImpl implements NutritionService {
         MealLogEntity newMeal = new MealLogEntity();
         newMeal.setMealId(UUID.randomUUID());
         newMeal.setUserId(userId);
-        newMeal.setMealType(mealTypeOverride != null ? mealTypeOverride : source.getMealType());
+        newMeal.setMealType(copyType);
         newMeal.setName(source.getName());
         newMeal.setSource(source.getSource());
         newMeal.setConsumedAt(targetConsumedAt);
@@ -428,7 +432,7 @@ public class NutritionServiceImpl implements NutritionService {
             newItems.add(savedItem);
         }
         publishMealLogged(savedMeal, newItems);
-        return toMealView(savedMeal, newItems);
+        return toMealView(savedMeal, newItems, foodGroups);
     }
 
     private MealItemEntity copyMealItem(UUID newMealId, MealItemEntity src) {
@@ -1714,8 +1718,9 @@ public class NutritionServiceImpl implements NutritionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Custom food not found"));
     }
 
+    /** Reads only the categories this meal's items use; callers rendering many meals pass one shared map. */
     private MealView toMealView(MealLogEntity meal, List<MealItemEntity> items) {
-        return toMealView(meal, items, loadFoodGroups());
+        return toMealView(meal, items, loadFoodGroups(items.stream().map(MealItemEntity::getCategoryCode).toList()));
     }
 
     private MealView toMealView(MealLogEntity meal, List<MealItemEntity> items, Map<String, String> foodGroups) {
@@ -1749,6 +1754,23 @@ public class NutritionServiceImpl implements NutritionService {
     private Map<String, String> loadFoodGroups() {
         Map<String, String> groups = new HashMap<>();
         for (FoodCategoryEntity category : foodCategoryRepository.findAll()) {
+            groups.put(category.getCode(), category.getFoodGroup());
+        }
+        return groups;
+    }
+
+    /**
+     * The plate group of just the given category codes, for a view that shows one food or one meal and so
+     * does not need the whole category table. Codes with no category row are left out, which
+     * {@link #foodGroupOf} turns into OTHER exactly as it does with the full map.
+     */
+    private Map<String, String> loadFoodGroups(List<String> categoryCodes) {
+        List<String> codes = categoryCodes.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        Map<String, String> groups = new HashMap<>();
+        if (codes.isEmpty()) {
+            return groups;
+        }
+        for (FoodCategoryEntity category : foodCategoryRepository.findByCodeIn(codes)) {
             groups.put(category.getCode(), category.getFoodGroup());
         }
         return groups;
@@ -1938,7 +1960,7 @@ public class NutritionServiceImpl implements NutritionService {
                 food.getSourceDataset(),
                 servings,
                 nutrientDetails,
-                foodGroupOf(food.getCategoryCode(), loadFoodGroups()),
+                foodGroupOf(food.getCategoryCode(), loadFoodGroups(Collections.singletonList(food.getCategoryCode()))),
                 food.isCountsTowardWater(),
                 profile == null ? null : profile.getWaterG(),
                 alcoholGrams);
@@ -2090,12 +2112,18 @@ public class NutritionServiceImpl implements NutritionService {
         return result;
     }
 
+    /**
+     * The newest active profile of each food, read in one query for the whole page rather than one per food.
+     * The rows come back newest first, so the first one seen for a food is the one a single-food read would pick.
+     */
     private Map<UUID, FoodNutrientProfileEntity> loadPrimaryProfiles(List<UUID> foodIds, LocalDate onDate) {
         Map<UUID, FoodNutrientProfileEntity> result = new HashMap<>();
-        for (UUID foodId : foodIds.stream().distinct().toList()) {
-            foodNutrientProfileRepository.findActiveProfilesByFoodId(foodId, onDate).stream()
-                    .findFirst()
-                    .ifPresent(profile -> result.put(foodId, profile));
+        if (foodIds.isEmpty()) {
+            return result;
+        }
+        for (FoodNutrientProfileEntity profile
+                : foodNutrientProfileRepository.findActiveProfilesByFoodIdIn(foodIds.stream().distinct().toList(), onDate)) {
+            result.putIfAbsent(profile.getFoodId(), profile);
         }
         return result;
     }
@@ -2208,17 +2236,25 @@ public class NutritionServiceImpl implements NutritionService {
     /**
      * The weight of the portion in grams, which the plate on the Diary is drawn from. The nutrient profile
      * gives the basis the portion was scaled against, so grams are the multiplier times a gram basis, or a
-     * millilitre basis times the food's density when the density is known. Null when neither is possible.
+     * millilitre basis times the food's density. A millilitre food with no known density weighs as much as
+     * water, the same rule {@link #resolveGramsMultiplier} logs it by, so the weight shown for a portion is
+     * the weight the user entered. Null when the basis is neither grams nor millilitres.
      */
     private BigDecimal resolveGramsConsumed(FoodCatalogItemEntity food, FoodNutrientProfileEntity profile, BigDecimal multiplier) {
         BigDecimal basisAmount = profile.getBasisQuantity().multiply(multiplier);
         if (matchesUnit(profile.getBasisUnit(), "g")) {
             return basisAmount.setScale(2, RoundingMode.HALF_UP);
         }
-        if (matchesUnit(profile.getBasisUnit(), "ml") && food.getDensityGramsPerMl() != null) {
-            return basisAmount.multiply(food.getDensityGramsPerMl()).setScale(2, RoundingMode.HALF_UP);
+        if (matchesUnit(profile.getBasisUnit(), "ml")) {
+            return basisAmount.multiply(gramsPerMl(food)).setScale(2, RoundingMode.HALF_UP);
         }
         return null;
+    }
+
+    /** The food's density, or that of water (1 g per ml) when no usable density is recorded. */
+    private static BigDecimal gramsPerMl(FoodCatalogItemEntity food) {
+        BigDecimal density = food.getDensityGramsPerMl();
+        return density != null && density.signum() > 0 ? density : BigDecimal.ONE;
     }
 
     /**
@@ -2254,10 +2290,12 @@ public class NutritionServiceImpl implements NutritionService {
             }
             return serving;
         }
-        return foodServingRepository.findActiveByFoodId(food.getFoodId(), today).stream()
+        // One read serves both choices: the default serving if the food has one, else its first serving.
+        List<FoodServingEntity> servings = foodServingRepository.findActiveByFoodId(food.getFoodId(), today);
+        return servings.stream()
                 .filter(FoodServingEntity::isDefaultServing)
                 .findFirst()
-                .orElseGet(() -> foodServingRepository.findActiveByFoodId(food.getFoodId(), today).stream().findFirst().orElse(null));
+                .orElseGet(() -> servings.stream().findFirst().orElse(null));
     }
 
     private BigDecimal resolveMultiplier(MealItemInput input,
@@ -2290,9 +2328,7 @@ public class NutritionServiceImpl implements NutritionService {
         }
         if (matchesUnit(profile.getBasisUnit(), "ml")) {
             // Without a known density the food is taken to weigh as much as water (1 g per ml).
-            BigDecimal density = food.getDensityGramsPerMl() != null && food.getDensityGramsPerMl().signum() > 0
-                    ? food.getDensityGramsPerMl() : BigDecimal.ONE;
-            return grams.divide(density, 6, RoundingMode.HALF_UP).divide(basisQuantity, 6, RoundingMode.HALF_UP);
+            return grams.divide(gramsPerMl(food), 6, RoundingMode.HALF_UP).divide(basisQuantity, 6, RoundingMode.HALF_UP);
         }
         throw new BadRequestException("Unable to derive nutrient totals from grams for this food");
     }
@@ -2388,7 +2424,8 @@ public class NutritionServiceImpl implements NutritionService {
         serving.setLabel(profile.getBasisQuantity().stripTrailingZeros().toPlainString() + " " + profile.getBasisUnit());
         serving.setQuantity(profile.getBasisQuantity());
         serving.setUnit(profile.getBasisUnit());
-        if ("g".equals(profile.getBasisUnit())) {
+        // Compared the same way as everywhere else units meet, so a basis of "G" still gets its weight.
+        if (matchesUnit(profile.getBasisUnit(), "g")) {
             serving.setGramsEquivalent(profile.getBasisQuantity());
         }
         serving.setSortOrder(1);
@@ -2537,15 +2574,17 @@ public class NutritionServiceImpl implements NutritionService {
                         totals.totalFatGrams(),
                         items.size(),
                         meal.getSource().name(),
-                        foodGroupCalories(items))));
+                        caloriesByCategoryCode(items))));
     }
 
     /**
-     * Per-food-group energy for the meal (internal category code → summed kcal), over items that carry a
-     * category snapshot (SNAP-3). Projected onto the MealLogged event so analytics gets food-group balance
-     * without reading nutrition internals (EV-1). Unclassified items are omitted; null calories count as 0.
+     * Energy for the meal per internal category code (summed kcal), over items that carry a category snapshot
+     * (SNAP-3). The keys are category codes such as {@code FRUITS}, not the plate food groups; the event field
+     * this fills is still called {@code foodGroupCalories} because that name is part of the MealLogged and
+     * MealUpdated contract that analytics reads (EV-1), so only this method carries the accurate name.
+     * Unclassified items are omitted; null calories count as 0.
      */
-    private static Map<String, Integer> foodGroupCalories(List<MealItemEntity> items) {
+    private static Map<String, Integer> caloriesByCategoryCode(List<MealItemEntity> items) {
         Map<String, Integer> byGroup = new HashMap<>();
         for (MealItemEntity item : items) {
             String code = item.getCategoryCode();
@@ -2577,18 +2616,24 @@ public class NutritionServiceImpl implements NutritionService {
                         totals.totalFatGrams(),
                         items.size(),
                         meal.getSource().name(),
-                        foodGroupCalories(items))));
+                        caloriesByCategoryCode(items))));
     }
 
+    /**
+     * Bad input from the client is reported with {@link BadRequestException}, like every other check in this
+     * service, so the error carries the service's own code and status rather than relying on the generic
+     * handler for {@link IllegalArgumentException}.
+     */
     private void validateDateRange(Instant from, Instant to) {
         if ((from == null) != (to == null)) {
-            throw new IllegalArgumentException("from and to must be provided together");
+            throw new BadRequestException("from and to must be provided together");
         }
         if (from != null && to != null && to.isBefore(from)) {
-            throw new IllegalArgumentException("to must not be before from");
+            throw new BadRequestException("to must not be before from");
         }
     }
 
+    /** A blank timezone means UTC; one that is not a known zone id is the client's error (400). */
     private ZoneId resolveZone(String timezone) {
         if (timezone == null || timezone.isBlank()) {
             return ZoneOffset.UTC;
@@ -2596,7 +2641,7 @@ public class NutritionServiceImpl implements NutritionService {
         try {
             return ZoneId.of(timezone);
         } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("Invalid timezone");
+            throw new BadRequestException("Invalid timezone");
         }
     }
 

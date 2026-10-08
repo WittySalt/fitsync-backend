@@ -1,11 +1,9 @@
 package com.fitsync.analytics.service;
 
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -112,13 +110,6 @@ public class FootprintService {
         String timezone = snapshotRepository.findById(userId)
                 .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
                 .orElse(null);
-        if (timezone == null || timezone.isBlank()) {
-            return ZoneOffset.UTC;
-        }
-        try {
-            return ZoneId.of(timezone.trim());
-        } catch (DateTimeException ex) {
-            return ZoneOffset.UTC;
-        }
+        return UserZone.of(timezone);
     }
 }

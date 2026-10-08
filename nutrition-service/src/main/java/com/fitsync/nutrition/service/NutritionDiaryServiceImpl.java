@@ -783,7 +783,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         try {
             return ZoneId.of(timezone);
         } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("Invalid timezone");
+            throw new BadRequestException("Invalid timezone");
         }
     }
 

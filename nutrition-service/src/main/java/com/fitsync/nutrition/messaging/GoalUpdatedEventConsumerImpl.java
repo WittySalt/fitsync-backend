@@ -1,5 +1,6 @@
 package com.fitsync.nutrition.messaging;
 
+import java.math.RoundingMode;
 import java.time.Instant;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
@@ -54,7 +55,9 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         boolean active = ACTIVE.equals(payload.status());
         if (CALORIES.equals(payload.goalType())) {
             entity.setCalorieGoalId(payload.goalId());
-            entity.setCalorieTarget(active && payload.targetValue() != null ? payload.targetValue().intValue() : null);
+            // Rounded to the nearest kcal rather than cut off, so a 1999.6 kcal goal is 2000, not 1999.
+            entity.setCalorieTarget(active && payload.targetValue() != null
+                    ? payload.targetValue().setScale(0, RoundingMode.HALF_UP).intValue() : null);
             entity.setCalorieTargetDate(active ? payload.targetDate() : null);
         } else if (PROTEIN.equals(payload.goalType())) {
             entity.setProteinGoalId(payload.goalId());

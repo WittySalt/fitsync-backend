@@ -60,39 +60,39 @@
 
     <!-- Spring dependency injection on auth-service security components can trigger EI_EXPOSE_REP2 noise -->
     <Match>
-        <Class name="com.fitsync.backend.config.SecurityConfig"/>
+        <Class name="com.fitsync.auth.config.SecurityConfig"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
     <Match>
-        <Class name="com.fitsync.backend.messaging.SpringKafkaEventProducer"/>
+        <Class name="com.fitsync.auth.messaging.SpringKafkaEventProducer"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
     <!-- Auth controllers are intentional REST endpoints -->
     <Match>
-        <Class name="com.fitsync.backend.controller.AuthController"/>
+        <Class name="com.fitsync.auth.controller.AuthController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
     <Match>
-        <Class name="com.fitsync.backend.controller.InternalOutboxController"/>
+        <Class name="com.fitsync.auth.controller.InternalOutboxController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
     <Match>
-        <Class name="com.fitsync.backend.controller.AuthAccountLifecycleController"/>
+        <Class name="com.fitsync.auth.controller.AuthAccountLifecycleController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
     <Match>
-        <Class name="com.fitsync.backend.controller.AuthSecurityController"/>
+        <Class name="com.fitsync.auth.controller.AuthSecurityController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
     <!-- Admin console user-lookup controller, new endpoint: intentional Spring entrypoint. -->
     <Match>
-        <Class name="com.fitsync.backend.controller.InternalUserLookupController"/>
+        <Class name="com.fitsync.auth.controller.InternalUserLookupController"/>
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
@@ -320,14 +320,6 @@
         <Bug pattern="CRLF_INJECTION_LOGS"/>
     </Match>
 
-    <!-- UsdaSrLegacyImportRunner logs the import directory + a summary of ints. The directory is
-         operator-supplied application config (@Value fitsync.nutrition.usda-import.directory), not a
-         request/payload taint source, so CRLF/log-injection (CWE-117) does not apply. findsecbugs still
-         flags the non-constant argument (false positive), so exclude it for this class only. -->
-    <Match>
-        <Class name="com.fitsync.nutrition.service.ingest.UsdaSrLegacyImportRunner"/>
-        <Bug pattern="CRLF_INJECTION_LOGS"/>
-    </Match>
 
     <!-- Account-deletion cascade consumers/projection services: Spring DI on singleton
          components triggers EI_EXPOSE_REP2 noise (same as the messaging consumers above). -->
