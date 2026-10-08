@@ -75,7 +75,7 @@ The `nutrition-events` topic carries these event types. Each has a golden sample
 ## Notification Events
 
 notification-service sends the emails in `Documents/architecture/email-notifications-spec.md`.
-These three event types exist for it; each has a golden sample and its own listener flag there.
+These four event types exist for it; each has a golden sample and its own listener flag there.
 
 | eventType | Topic | Payload | Key | Published when | Notification flag |
 |---|---|---|---|---|---|
