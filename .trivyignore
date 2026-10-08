@@ -5,3 +5,10 @@
 # handling. Fixed only in Spring Framework 7.0.9, a major upgrade. No service uses XsltView
 # or any XSLT view, so the vulnerable code path is never reached. Reviewed 2026-10-08.
 CVE-2026-47884
+
+# CVE-2026-47890 (spring-webmvc, scored CRITICAL by NVD, LOW by Spring): corrupted Server-Sent
+# Event streams when view fragments are rendered over SSE. Fixed only in Spring Framework 7.0.9,
+# a major upgrade. Our only SSE is the coach stream (SseEmitter sending JSON); no service renders
+# views or fragments (no template engine, no FragmentsRendering), so the code path is never
+# reached. https://spring.io/security/cve-2026-47890 Reviewed 2026-10-09.
+CVE-2026-47890
