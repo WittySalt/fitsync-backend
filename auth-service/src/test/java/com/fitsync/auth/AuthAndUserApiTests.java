@@ -453,9 +453,8 @@ class AuthAndUserApiTests {
         assertThat(event.getAggregateId()).isEqualTo(user.getId().toString());
         Instant requestedAt = appUserRepository.findById(user.getId()).orElseThrow().getAccountDeletionRequestedAt();
         JsonNode payload = objectMapper.readTree(event.getPayload()).get("payload");
-        // The column keeps microseconds while the event carries the instant as it was taken.
         Instant published = Instant.parse(payload.get("requestedAt").asText());
-        assertThat(published.truncatedTo(ChronoUnit.MICROS)).isEqualTo(requestedAt.truncatedTo(ChronoUnit.MICROS));
+        assertThat(published).isEqualTo(requestedAt);
         assertThat(Instant.parse(payload.get("scheduledFor").asText())).isEqualTo(published.plus(Duration.ofDays(7)));
     }
 
@@ -478,7 +477,8 @@ class AuthAndUserApiTests {
         bootstrapOk("cancel-event-sub", "cancel-event@example.com");
         AppUser user = appUserRepository.findByExternalSubject("cancel-event-sub").orElseThrow();
         requestDeletion("cancel-event-sub", "cancel-event@example.com");
-        Instant before = Instant.now();
+        // The service keeps microseconds, so the lower bound is taken at the same precision.
+        Instant before = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
         mockMvc.perform(post("/api/v1/auth/account-deletion/cancel")
                         .with(cognitoJwt("cancel-event-sub", "cancel-event@example.com")))

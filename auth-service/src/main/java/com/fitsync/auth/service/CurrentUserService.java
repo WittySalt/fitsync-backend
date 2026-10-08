@@ -1,6 +1,7 @@
 package com.fitsync.auth.service;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.List;
 import java.util.Optional;
@@ -159,7 +160,7 @@ public class CurrentUserService {
         // A repeated request while one is pending keeps the first time and publishes nothing, so the
         // goodbye email notification-service sends for the event goes out once per request.
         if (user.getAccountDeletionRequestedAt() == null) {
-            user.setAccountDeletionRequestedAt(Instant.now());
+            user.setAccountDeletionRequestedAt(storableNow());
             user = appUserRepository.save(user);
             publishAccountDeletionRequested(user);
         }
@@ -183,14 +184,15 @@ public class CurrentUserService {
         if (user.getAccountDeletionRequestedAt() == null) {
             return toAccountDeletionStatus(user);
         }
-        if (accountDeletionPolicy.gracePeriodEnded(user, Instant.now())) {
+        Instant now = storableNow();
+        if (accountDeletionPolicy.gracePeriodEnded(user, now)) {
             throw accountDeletionPolicy.deletionFinal(user);
         }
 
         user.setAccountDeletionRequestedAt(null);
         AppUser saved = appUserRepository.save(user);
         // Only a cancellation of a pending request gets here, so notification-service hears of each one once.
-        publishAccountDeletionCancelled(saved);
+        publishAccountDeletionCancelled(saved, now);
         return toAccountDeletionStatus(saved);
     }
 
@@ -392,8 +394,15 @@ public class CurrentUserService {
                 user.getAuthProvider() == AuthProvider.LOCAL);
     }
 
-    private void publishAccountDeletionCancelled(AppUser user) {
-        Instant cancelledAt = Instant.now();
+    /**
+     * The current instant at the precision the database keeps (microseconds), so a time that is both stored and
+     * published in an event is the same instant in both places on every platform.
+     */
+    private static Instant storableNow() {
+        return Instant.now().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    private void publishAccountDeletionCancelled(AppUser user, Instant cancelledAt) {
         FitSyncDomainEvent<AccountDeletionCancelledPayload> event = new FitSyncDomainEvent<>(
                 UUID.randomUUID(),
                 "AccountDeletionCancelled",
