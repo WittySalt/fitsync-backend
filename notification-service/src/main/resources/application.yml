@@ -1,0 +1,87 @@
+spring:
+  application:
+    name: notification-service
+  profiles:
+    default: local
+  datasource:
+    url: ${LOCAL_DB_URL:${DB_URL:jdbc:postgresql://localhost:5432/fitsync}}
+    username: ${LOCAL_DB_USERNAME:${DB_USERNAME:fitsync}}
+    password: ${LOCAL_DB_PASSWORD:${DB_PASSWORD:fitsync}}
+    hikari:
+      schema: notification
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: notification
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    default-schema: notification
+    schemas: notification
+    table: notification_flyway_schema_history
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      missing-topics-fatal: false
+
+server:
+  port: ${SERVER_PORT:8087}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+fitsync:
+  notification:
+    email:
+      # Off by default: with it off every email is written to the log instead of being sent,
+      # which is what local runs and tests want. The cloud turns it on with SES behind it.
+      enabled: ${FITSYNC_NOTIFY_EMAIL_ENABLED:false}
+      # The From address. It must be an identity verified in SES.
+      sender: ${FITSYNC_NOTIFY_EMAIL_SENDER:no-reply@fitsync.local}
+      region: ${AWS_REGION:ap-southeast-1}
+    # Where the links in an email point: the SPA's address in this environment.
+    app-base-url: ${FITSYNC_APP_BASE_URL:http://localhost:4200}
+    # How often reminders are planned and due emails are sent.
+    tick: ${FITSYNC_NOTIFY_TICK:PT5M}
+  kafka:
+    enabled: ${KAFKA_ENABLED:false}
+    topics:
+      user-events: ${KAFKA_USER_EVENTS_TOPIC:user-events}
+      progress-events: ${KAFKA_PROGRESS_EVENTS_TOPIC:progress-events}
+      analytics-events: ${KAFKA_ANALYTICS_EVENTS_TOPIC:analytics-events}
+      workout-events: ${KAFKA_WORKOUT_EVENTS_TOPIC:workout-events}
+    consumer-groups:
+      notification-service: ${KAFKA_NOTIFICATION_SERVICE_GROUP:notification-consumer-group}
+    listeners:
+      user-registered:
+        enabled: ${KAFKA_USER_REGISTERED_LISTENER_ENABLED:false}
+      notification-preferences-updated:
+        enabled: ${KAFKA_NOTIFICATION_PREFERENCES_UPDATED_LISTENER_ENABLED:false}
+      account-deletion-requested:
+        enabled: ${KAFKA_ACCOUNT_DELETION_REQUESTED_LISTENER_ENABLED:false}
+      account-deleted:
+        enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}
+      goal-updated:
+        enabled: ${KAFKA_GOAL_UPDATED_LISTENER_ENABLED:false}
+      body-metrics-recorded:
+        enabled: ${KAFKA_BODY_METRICS_RECORDED_LISTENER_ENABLED:false}
+      workout-logged:
+        enabled: ${KAFKA_WORKOUT_LOGGED_LISTENER_ENABLED:false}
+      workout-plan-schedule-changed:
+        enabled: ${KAFKA_WORKOUT_PLAN_SCHEDULE_CHANGED_LISTENER_ENABLED:false}
+      weekly-recap-generated:
+        enabled: ${KAFKA_WEEKLY_RECAP_GENERATED_LISTENER_ENABLED:false}
