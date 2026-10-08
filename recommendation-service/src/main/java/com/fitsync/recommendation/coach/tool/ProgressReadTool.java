@@ -46,8 +46,11 @@ abstract class ProgressReadTool implements CoachTool {
 
     @Override
     public final ToolResult invoke(CoachCallContext context, JsonNode args) {
-        ProgressToolSupport.Period period = ProgressToolSupport.period(args, context, calendar);
-        String body = fetch(context, args, period);
+        // The endpoints slice days in the zone they are sent and fall back to UTC without one. A turn
+        // whose client sent no zone still speaks in the user's stored zone, so that zone is sent on.
+        CoachCallContext zoned = context.withTimezone(UserCalendar.zoneName(calendar.zone(context)));
+        ProgressToolSupport.Period period = ProgressToolSupport.period(args, zoned, calendar);
+        String body = fetch(zoned, args, period);
         if (body == null) {
             return unavailable(period);
         }

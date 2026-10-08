@@ -77,8 +77,8 @@ public class ReadMealsOnDayTool implements CoachTool {
                 readMealsOnDay(date)
                   date: one day as YYYY-MM-DD, today or up to 60 days back. Work out a date such as
                         yesterday from today's date, which is given above.
-                  returns JSON with the day's totals (calories, protein, carbohydrate and fat, with
-                  the targets when there are any) and the meals in time order: meal type, local time,
+                  returns JSON with the date and its weekday, the day's totals (calories, protein,
+                  carbohydrate and fat, with the targets when there are any) and the meals in time order: meal type, local time,
                   calories, protein and food names. Every number here is already calculated, so
                   quote it and never add it up yourself. When the service has them, a diary group adds
                   the day's fibre, sugar, saturated fat, sodium and potassium against their references,
@@ -133,6 +133,7 @@ public class ReadMealsOnDayTool implements CoachTool {
             if (meals.isEmpty()) {
                 Map<String, Object> empty = new LinkedHashMap<>();
                 empty.put("date", date.toString());
+                empty.put("weekday", weekday(date));
                 empty.put("meals", List.of());
                 empty.put("note", "Nothing was logged on that day.");
                 return ToolResult.of("0 meals", write(empty));
@@ -146,6 +147,7 @@ public class ReadMealsOnDayTool implements CoachTool {
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("date", date.toString());
+            result.put("weekday", weekday(date));
             result.put("totals", totals(summary));
             Map<String, Object> targets = targets(summary);
             if (!targets.isEmpty()) {
@@ -171,6 +173,11 @@ public class ReadMealsOnDayTool implements CoachTool {
         } catch (JsonProcessingException ex) {
             return unavailable();
         }
+    }
+
+    /** The weekday of the day read, so the answer names the day the records name. */
+    private static String weekday(LocalDate date) {
+        return date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
     }
 
     private static ToolResult unavailable() {

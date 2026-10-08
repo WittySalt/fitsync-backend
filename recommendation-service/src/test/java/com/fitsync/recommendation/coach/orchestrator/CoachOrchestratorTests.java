@@ -704,6 +704,22 @@ class CoachOrchestratorTests {
         assertThat(systems.get(0)).doesNotContain("ignore all rules");
     }
 
+    @Test
+    @DisplayName("the prompt lists the last three weeks day by day, so \"Tuesday two weeks ago\" is looked up, not counted")
+    void thePromptCarriesACalendarOfTheLastThreeWeeks() {
+        String line = CoachOrchestrator.todayLine(java.time.LocalDate.of(2026, 10, 9));
+
+        assertThat(line)
+                .contains("Today is Friday 2026-10-09 in the user's timezone.")
+                .contains("This week: Monday 2026-10-05, Tuesday 2026-10-06, Wednesday 2026-10-07, "
+                        + "Thursday 2026-10-08, Friday 2026-10-09 (today).")
+                .contains("Last week: Monday 2026-09-28, ")
+                .contains("Sunday 2026-10-04.")
+                .contains("Two weeks ago: Monday 2026-09-21, Tuesday 2026-09-22, ")
+                .contains("Thursday 2026-09-24")
+                .doesNotContain("Saturday 2026-10-10");
+    }
+
     /** A user with no projected timezone, on a fixed day. */
     private UserCalendar calendar() {
         com.fitsync.recommendation.repository.RecommendationContextRepository repository =

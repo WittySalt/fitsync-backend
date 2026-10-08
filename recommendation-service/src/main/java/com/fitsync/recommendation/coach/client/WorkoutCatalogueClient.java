@@ -1,5 +1,6 @@
 package com.fitsync.recommendation.coach.client;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -73,10 +74,11 @@ public class WorkoutCatalogueClient extends CatalogueClient {
         return get(EXERCISES + "/" + exerciseId, params(), bearerToken);
     }
 
-    public String completedSessions(String bearerToken, LocalDate from, int size) {
+    /** Completed sessions since {@code from}, the start of the user's first day in the window. */
+    public String completedSessions(String bearerToken, Instant from, int size) {
         Map<String, Object> params = params();
         params.put("status", "COMPLETED");
-        params.put("from", from + "T00:00:00Z");
+        params.put("from", from.toString());
         params.put("page", 0);
         params.put("size", size);
         return get(SESSIONS, params, bearerToken);

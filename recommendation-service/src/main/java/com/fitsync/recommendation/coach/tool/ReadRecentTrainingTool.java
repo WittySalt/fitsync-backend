@@ -1,9 +1,11 @@
 package com.fitsync.recommendation.coach.tool;
 
-import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,6 +20,10 @@ import org.springframework.stereotype.Component;
  * <p>Distinct from {@code readFacts}, which carries this week's counts from the projection. This
  * returns the sessions themselves, because a question like "what should I train today" turns on
  * which days were used and what was done on them, not on a weekly total.
+ *
+ * <p>Sessions are dated in the user's own zone, with the weekday written out. workout-service sends
+ * instants in UTC, and a morning session in Singapore falls on the UTC day before; cutting the date
+ * off the instant told the model "Wednesday" for a session the user did on Thursday morning.
  */
 @Component
 public class ReadRecentTrainingTool implements CoachTool {
@@ -28,12 +34,12 @@ public class ReadRecentTrainingTool implements CoachTool {
 
     private final WorkoutCatalogueClient client;
     private final ObjectMapper objectMapper;
-    private final Clock clock;
+    private final UserCalendar calendar;
 
-    public ReadRecentTrainingTool(WorkoutCatalogueClient client, ObjectMapper objectMapper, Clock clock) {
+    public ReadRecentTrainingTool(WorkoutCatalogueClient client, ObjectMapper objectMapper, UserCalendar calendar) {
         this.client = client;
         this.objectMapper = objectMapper;
-        this.clock = clock;
+        this.calendar = calendar;
     }
 
     @Override
@@ -51,23 +57,25 @@ public class ReadRecentTrainingTool implements CoachTool {
         return """
                 readRecentTraining(days?)
                   days: 1 to 90, default 7
-                  returns one line per completed session: "date | name | type | minutes", and for a
-                  session with time segments how long each ran against its plan""";
+                  returns one line per completed session: "weekday date | name | type | minutes", dated
+                  in the user's timezone, and for a session with time segments how long each ran
+                  against its plan""";
     }
 
     @Override
     public ToolResult invoke(CoachCallContext context, JsonNode args) {
         int days = args.path("days").asInt(DEFAULT_DAYS);
         days = Math.max(1, Math.min(days, MAX_DAYS));
-        LocalDate from = LocalDate.now(clock).minusDays(days - 1L);
+        ZoneId zone = calendar.zone(context);
+        LocalDate from = calendar.today(zone).minusDays(days - 1L);
 
-        String body = client.completedSessions(context.bearerToken(), from, PAGE_SIZE);
+        String body = client.completedSessions(context.bearerToken(), from.atStartOfDay(zone).toInstant(), PAGE_SIZE);
         if (body == null) {
             return ToolResult.of("history unavailable",
                     "Recent training history could not be read. Answer without it, or say so.");
         }
 
-        List<String> rows = project(body);
+        List<String> rows = project(body, zone);
         if (rows.isEmpty()) {
             return ToolResult.of("0 sessions",
                     "No completed sessions in the last " + days + " days.");
@@ -75,14 +83,13 @@ public class ReadRecentTrainingTool implements CoachTool {
         return ToolResult.of(rows.size() + " sessions in " + days + "d", String.join("\n", rows));
     }
 
-    private List<String> project(String body) {
+    private List<String> project(String body, ZoneId zone) {
         List<String> rows = new ArrayList<>();
         try {
             JsonNode content = objectMapper.readTree(body).path("content");
             for (JsonNode item : content) {
-                String completedAt = item.path("completedAt").asText("");
                 String row = "%s | %s | %s | %s min".formatted(
-                        completedAt.length() >= 10 ? completedAt.substring(0, 10) : completedAt,
+                        localDay(item, zone),
                         item.path("name").asText(""),
                         item.path("workoutType").asText(""),
                         item.path("durationMinutes").asText("?"));
@@ -95,6 +102,17 @@ public class ReadRecentTrainingTool implements CoachTool {
             return List.of();
         }
         return rows;
+    }
+
+    /**
+     * The day a session was done in the user's zone, as "Thursday 2026-10-08": the completion time,
+     * else the start time. Empty when neither is a readable instant.
+     */
+    static String localDay(JsonNode session, ZoneId zone) {
+        return UserCalendar.localDate(session.path("completedAt").asText(null), zone)
+                .or(() -> UserCalendar.localDate(session.path("startedAt").asText(null), zone))
+                .map(day -> day.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH) + " " + day)
+                .orElse("");
     }
 
     /**

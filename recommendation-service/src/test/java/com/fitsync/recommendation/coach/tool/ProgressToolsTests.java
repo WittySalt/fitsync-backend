@@ -356,4 +356,24 @@ class ProgressToolsTests {
             assertThat(text).as(text).doesNotContain(code);
         }
     }
+
+    @Test
+    @DisplayName("a turn without a client zone reads progress in the stored zone, never the endpoints' UTC fallback")
+    void storedZoneIsForwardedWhenTheClientSentNone() {
+        RecommendationContextRepository repository = mock(RecommendationContextRepository.class);
+        com.fitsync.recommendation.entity.RecommendationContextEntity stored =
+                new com.fitsync.recommendation.entity.RecommendationContextEntity();
+        stored.setTimezone("Asia/Singapore");
+        when(repository.findById(USER)).thenReturn(java.util.Optional.of(stored));
+        // 02:19 on Friday 9 October in Singapore is still Thursday 8 October in UTC.
+        UserCalendar singapore = new UserCalendar(repository,
+                Clock.fixed(Instant.parse("2026-10-08T18:19:00Z"), ZoneOffset.UTC));
+        when(workout.trainingProgress(anyString(), any(), any(), any())).thenReturn(TRAINING);
+
+        new ReadTrainingProgressTool(workout, objectMapper, singapore)
+                .invoke(new CoachCallContext(USER, CALLER, UUID.randomUUID()), objectMapper.createObjectNode());
+
+        verify(workout).trainingProgress(CALLER, "Asia/Singapore",
+                LocalDate.parse("2026-09-12"), LocalDate.parse("2026-10-09"));
+    }
 }

@@ -161,6 +161,8 @@ class ReadMealsOnDayToolTests {
         JsonNode day = objectMapper.readTree(tool.invoke(CALL, args("2026-09-30")).observation());
 
         assertThat(day.path("date").asText()).isEqualTo("2026-09-30");
+        // The weekday comes with the date, so the answer names the day the records name.
+        assertThat(day.path("weekday").asText()).isEqualTo("Wednesday");
         assertThat(day.path("meals").isArray()).isTrue();
         assertThat(day.path("meals")).isEmpty();
         assertThat(day.path("note").asText()).contains("Nothing was logged");
