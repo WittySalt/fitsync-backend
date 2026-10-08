@@ -153,8 +153,9 @@ services:
       # CORS allowlist. Pass-through so each environment can add its own SPA
       # origin (the browser sends Origin on POST even same-origin; an un-listed
       # origin is rejected 403, which the SPA CloudFront then serves as the
-      # index.html error page). Default keeps prod behaviour unchanged.
-      FITSYNC_CORS_ALLOWED_ORIGINS: ${FITSYNC_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:4200,https://d26vi6hikexzev.cloudfront.net}
+      # index.html error page). The default is prod's list: its CloudFront name
+      # and the apex and www custom domains on the same distribution.
+      FITSYNC_CORS_ALLOWED_ORIGINS: ${FITSYNC_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:4200,https://d26vi6hikexzev.cloudfront.net,https://fitsyncapp.click,https://www.fitsyncapp.click}
       AUTH_SERVICE_BASE_URL: http://auth-service:8080
       USER_SERVICE_BASE_URL: http://user-service:8081
       WORKOUT_SERVICE_BASE_URL: http://workout-service:8082
