@@ -248,6 +248,10 @@ public class SessionDraftService {
         }
     }
 
+    /**
+     * A 409 whose body names {@link #ACTIVE_SESSION_EXISTS}; any other refusal, or a body that cannot be
+     * read, is reported as a plain failure to start instead.
+     */
     private boolean isActiveSessionConflict(DownstreamWriteException ex) {
         if (ex.status() != 409 || ex.responseBody() == null) {
             return false;

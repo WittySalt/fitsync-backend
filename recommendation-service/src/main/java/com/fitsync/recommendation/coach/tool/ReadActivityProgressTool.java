@@ -136,8 +136,8 @@ public class ReadActivityProgressTool extends ProgressReadTool {
         } else if (weekday.isTextual()) {
             day = ProgressToolSupport.activityName(weekday.asText()) + " ";
         }
-        int h = Math.max(0, Math.min(23, hour.asInt()));
-        return day + "around " + String.format(Locale.ROOT, "%02d:00", h);
+        int clampedHour = Math.max(0, Math.min(23, hour.asInt()));
+        return day + "around " + String.format(Locale.ROOT, "%02d:00", clampedHour);
     }
 
     private static void appendWeekly(StringBuilder out, JsonNode weekly) {

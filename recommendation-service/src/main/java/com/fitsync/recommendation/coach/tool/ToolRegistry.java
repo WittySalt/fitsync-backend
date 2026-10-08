@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 /**
  * The one place a tool is looked up, described to the model, and invoked.
  *
- * <p>Two of the tools here read catalogues owned by other bounded contexts. Funnelling them through
+ * <p>Most of the tools here read data owned by other bounded contexts. Funnelling them through
  * a registry rather than letting the orchestrator call clients directly means cross-context access
  * is mediated in a single place and audited without anybody remembering to: every invocation leaves
  * a row saying which tool was asked, with what arguments, how long it took, and what came back in

@@ -14,10 +14,11 @@ import org.springframework.stereotype.Service;
 
 /**
  * R1 — daily nutrition gap: remaining kcal / protein for today. The calorie target is
- * the user's explicit CALORIES goal when set; otherwise a local TDEE estimate
- * (Mifflin–St Jeor from height + latest weight + activity level, with a neutral
- * age/sex assumption since the events carry neither — README §2 fact 3), adjusted by
- * the direction of a WEIGHT goal. The protein target is the user's explicit PROTEIN
+ * the user's explicit CALORIES goal when set; otherwise the energy profile's TDEE from
+ * user-service; otherwise a local TDEE estimate (Mifflin–St Jeor from height + latest
+ * weight + activity level, with a neutral age/sex assumption since the events carry
+ * neither — README §2 fact 3). The last two are adjusted by the direction of a WEIGHT
+ * goal and never fall below {@link #MIN_DAILY_CALORIES}. The protein target is the user's explicit PROTEIN
  * goal when set, otherwise the body-weight estimate (weight × 1.6). Consumed numbers
  * come from the Nutrition Diary's daily summary, read by the caller for today in the user's
  * timezone. When the diary could not be read the rule states the targets only and no consumed
@@ -31,7 +32,10 @@ public class NutritionGapRule implements Rule {
     static final int SEX_CONSTANT_MIDPOINT = -78;
     static final int WEIGHT_LOSS_DEFICIT_CALORIES = 500;
     static final int WEIGHT_GAIN_SURPLUS_CALORIES = 300;
-    /** Safety floor — also handed to the A1 prompt as {@code minimumDailyCalories}. */
+    /**
+     * Safety floor for a derived target — also the coach guardrail's calorie floor and the
+     * {@code minimumDailyCalories} fact handed to the coach Q&amp;A model.
+     */
     public static final int MIN_DAILY_CALORIES = 1200;
     static final BigDecimal PROTEIN_GRAMS_PER_KG = new BigDecimal("1.6");
 

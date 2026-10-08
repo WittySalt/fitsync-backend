@@ -14,6 +14,11 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/**
+ * Authenticates a request from its {@code Bearer} token. A missing, invalid or expired token never
+ * fails the request here: the request continues unauthenticated and the security chain decides whether
+ * the endpoint allowed that.
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 

@@ -53,6 +53,9 @@ public class CoachThreadService {
     private static final int MAX_TITLE_LENGTH = 200;
     private static final int DERIVED_TITLE_LENGTH = 60;
 
+    /** The length of the tool invocation's result_summary and error columns. */
+    private static final int MAX_INVOCATION_TEXT_LENGTH = 500;
+
     private final CoachThreadRepository threadRepository;
     private final CoachTurnRepository turnRepository;
     private final ToolInvocationRepository toolRepository;
@@ -215,10 +218,10 @@ public class CoachThreadService {
         invocation.setSeq(seq);
         invocation.setTool(tool);
         invocation.setArgsJson(argsJson);
-        invocation.setResultSummary(trimToLength(resultSummary, 500));
+        invocation.setResultSummary(trimToLength(resultSummary, MAX_INVOCATION_TEXT_LENGTH));
         invocation.setLatencyMs(latencyMs);
         invocation.setOk(ok);
-        invocation.setError(trimToLength(error, 500));
+        invocation.setError(trimToLength(error, MAX_INVOCATION_TEXT_LENGTH));
         toolRepository.save(invocation);
     }
 

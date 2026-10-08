@@ -61,6 +61,7 @@ public class CoachConversationService {
 
     static final String FAILED_VERDICT = "FAILED";
 
+    /** How often a replayed turn re-reads its answer while the original run is still writing it. */
     private static final Duration POLL_INTERVAL = Duration.ofMillis(300);
 
     public CoachConversationService(CoachThreadService threadService,
