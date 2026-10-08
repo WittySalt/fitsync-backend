@@ -22,6 +22,7 @@ import com.fitsync.nutrition.repository.MealItemNutrientDetailRepository;
 import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealLogRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -304,7 +305,7 @@ class UsualMealsServiceTests {
     void usesUtcWhenNoTimezoneIsGivenAndRejectsAnUnknownZone() {
         assertEquals("UTC", service.getUsualMeals(user, null).timezone());
         assertEquals("UTC", service.getUsualMeals(user, " ").timezone());
-        assertThrows(IllegalArgumentException.class, () -> service.getUsualMeals(user, "Mars/Olympus"));
+        assertThrows(BadRequestException.class, () -> service.getUsualMeals(user, "Mars/Olympus"));
     }
 
     @Test

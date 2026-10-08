@@ -22,6 +22,7 @@ import com.fitsync.nutrition.repository.MealItemRepository;
 import com.fitsync.nutrition.repository.MealLogRepository;
 import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -235,7 +236,7 @@ class NutritionPageInsightServiceTests {
     void usesUtcWhenNoTimezoneIsGivenAndRejectsAnUnknownZone() {
         assertEquals("UTC", service.getNutritionPageInsight(user, null).timezone());
         assertEquals("UTC", service.getNutritionPageInsight(user, " ").timezone());
-        assertThrows(IllegalArgumentException.class, () -> service.getNutritionPageInsight(user, "Mars/Olympus"));
+        assertThrows(BadRequestException.class, () -> service.getNutritionPageInsight(user, "Mars/Olympus"));
     }
 
     private static Instant noonOn(LocalDate date) {

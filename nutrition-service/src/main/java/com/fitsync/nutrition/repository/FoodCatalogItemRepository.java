@@ -59,7 +59,7 @@ public interface FoodCatalogItemRepository extends JpaRepository<FoodCatalogItem
 
     List<FoodCatalogItemEntity> findByOwnerUserId(UUID ownerUserId);
 
-    // Used by external-data importers to make ingestion idempotent (upsert keyed on the source record).
+    // Looks up a food by the external record it was imported from (e.g. an OpenFoodFacts barcode).
     java.util.Optional<FoodCatalogItemEntity> findBySourceDatasetAndSourceRef(String sourceDataset,
                                                                               String sourceRef);
 }

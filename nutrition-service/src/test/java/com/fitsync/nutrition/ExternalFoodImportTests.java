@@ -270,6 +270,18 @@ class ExternalFoodImportTests {
     }
 
     @Test
+    void anImportedFoodWithAnUpperCaseGramBasisGetsTheWeightOfItsServing() throws Exception {
+        externalFoodSource.addBarcodeResult(BARCODE, externalFood(BARCODE, "Greek Yogurt", "FAGE", "DAIRY", 59, "G"));
+        String token = tokenFor("off-upper-g@example.com", "OFF Upper G");
+
+        mockMvc.perform(post("/api/v1/nutrition/foods/import/barcode/{barcode}", BARCODE)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.servings.length()").value(1))
+                .andExpect(jsonPath("$.servings[0].gramsEquivalent").value(100.0));
+    }
+
+    @Test
     void loggingCatalogFoodSnapshotsClassificationOntoMealItem() throws Exception {
         externalFoodSource.addBarcodeResult(BARCODE,
                 externalFood(BARCODE, "Greek Yogurt", "FAGE", "DAIRY", 59));
@@ -313,6 +325,15 @@ class ExternalFoodImportTests {
                                         String brandName,
                                         String categoryCode,
                                         Integer calories) {
+        return externalFood(barcode, displayName, brandName, categoryCode, calories, "g");
+    }
+
+    private FoodDetailView externalFood(String barcode,
+                                        String displayName,
+                                        String brandName,
+                                        String categoryCode,
+                                        Integer calories,
+                                        String basisUnit) {
         return new FoodDetailView(
                 null,
                 displayName,
@@ -337,7 +358,7 @@ class ExternalFoodImportTests {
                 null,
                 null,
                 new BigDecimal("100.00"),
-                "g",
+                basisUnit,
                 barcode,
                 1,
                 "A",
