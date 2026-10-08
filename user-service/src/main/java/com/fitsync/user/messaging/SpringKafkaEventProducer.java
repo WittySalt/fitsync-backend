@@ -36,6 +36,7 @@ public class SpringKafkaEventProducer implements KafkaEventProducer {
             record.headers().add(new RecordHeader("user-id", event.getUserId().toString().getBytes(StandardCharsets.UTF_8)));
         }
 
+        // Waits for the broker's acknowledgement so the relay only marks an event published once it is.
         try {
             kafkaTemplate.send(record).get();
         } catch (InterruptedException ex) {
@@ -46,6 +47,7 @@ public class SpringKafkaEventProducer implements KafkaEventProducer {
         }
     }
 
+    /** Keyed by user where there is one, so all of a user's events land on one partition and stay in order. */
     private String partitionKey(OutboxEventEntity event) {
         if (event.getUserId() != null) {
             return event.getUserId().toString();

@@ -60,6 +60,7 @@ public class WeeklyReviewService {
     /** The period label of the week still going. */
     static final String WEEK_SO_FAR = "WEEK_SO_FAR";
 
+    /** How long a PENDING review is trusted to be still running, the same window the page readings use. */
     private static final long PENDING_ABANDON_SECONDS = 60L;
 
     /** The facts column holds at most this many characters; a longer list is shown but not stored. */

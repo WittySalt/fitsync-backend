@@ -52,6 +52,7 @@ public final class NutritionReferenceProfileDeriver {
             return null;
         }
         int years = Period.between(birthDate, LocalDate.now(clock)).getYears();
+        // The reference tables start at adulthood, so anyone younger is read against the youngest adult band.
         if (years <= 30) {
             return "19-30";
         }

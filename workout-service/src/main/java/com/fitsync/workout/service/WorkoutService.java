@@ -1,7 +1,6 @@
 package com.fitsync.workout.service;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -109,9 +108,17 @@ public interface WorkoutService {
 
     WorkoutSessionResumeView resumeSession(CurrentUserPrincipal currentUser, UUID sessionId);
 
+    /** Repeats a completed session; equivalent to {@code repeatSession(currentUser, sessionId, "UTC")}. */
     WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId);
 
+    /** Repeats a completed session, dating its entries on today's local date in the given zone. */
+    WorkoutSessionView repeatSession(CurrentUserPrincipal currentUser, UUID sessionId, String timezone);
+
+    /** Repeats the latest completed session; equivalent to {@code repeatLatestSession(currentUser, "UTC")}. */
     WorkoutSessionView repeatLatestSession(CurrentUserPrincipal currentUser);
+
+    /** Repeats the latest completed session, dating its entries on today's local date in the given zone. */
+    WorkoutSessionView repeatLatestSession(CurrentUserPrincipal currentUser, String timezone);
 
     WorkoutSessionView updateSession(CurrentUserPrincipal currentUser, UUID sessionId, UpsertWorkoutSessionRequest request);
 

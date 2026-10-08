@@ -12,6 +12,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -117,6 +118,16 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+/**
+ * The core of the food diary: meals and their items, custom foods, the food catalogue (search with its fuzzy
+ * and external-source fallbacks, barcode lookup and import, cloning), user recipes, meal templates, favourites,
+ * recent and frequent foods, water and the CSV export. The daily summary is delegated to
+ * {@link NutritionDiaryService}.
+ *
+ * <p>A meal item is a snapshot: when it is logged, the food's nutrition is scaled to the portion and copied
+ * onto the item together with its classification, so later catalogue edits never change a logged day. Every
+ * meal change publishes MealLogged, MealUpdated or MealDeleted through the outbox.
+ */
 @Service
 public class NutritionServiceImpl implements NutritionService {
 
@@ -124,16 +135,19 @@ public class NutritionServiceImpl implements NutritionService {
     private static final String FAST_HAS_NO_FOODS = "A fasted day has no foods";
     private static final String NUTRITION_EVENTS_TOPIC = "nutrition-events";
     private static final int FOOD_SEARCH_MAX_SIZE = 50;
+    /** A search that finds fewer local foods than this tops the first page up from the external source. */
     private static final int EXTERNAL_SEARCH_FALLBACK_THRESHOLD = 5;
     /** A search that finds fewer foods than this by name adds the ones with a similar name. */
     static final int FUZZY_SEARCH_THRESHOLD = 5;
-    private static final int LOGGED_FOOD_DEFAULT_LIMIT = 20;
     private static final int LOGGED_FOOD_MAX_LIMIT = 50;
+    /** Recent and frequent foods are worked out from the caller's latest this-many meal items only. */
     private static final int LOGGED_FOOD_SCAN_LIMIT = 500;
+    /** Caps an export at about a year of diary, so one request cannot read a user's whole history. */
     private static final long EXPORT_MAX_DAYS = 370;
     private static final String FOOD_GROUP_OTHER = "OTHER";
     private static final Set<String> FOOD_GROUPS = Set.of(
             "VEG", "FRUIT", "GRAINS", "PROTEIN", "DAIRY", "NUTS", "LEGUMES", "DRINKS", "SWEETS", FOOD_GROUP_OTHER);
+    /** The nutrient code whose detail row gives a food's alcohol grams. */
     private static final String ALCOHOL_CODE = "ALCOHOL";
 
     private final DomainEventPublisher domainEventPublisher;
@@ -359,7 +373,7 @@ public class NutritionServiceImpl implements NutritionService {
     @Transactional
     public MealView copyMeal(CurrentUserPrincipal principal, UUID mealId, CopyMealRequest request) {
         MealLogEntity source = getOwnedMeal(principal.userId(), mealId);
-        return copyMealTo(principal.userId(), source, request.consumedAt(), request.mealType());
+        return copyMealTo(principal.userId(), source, request.consumedAt(), request.mealType(), loadFoodGroups());
     }
 
     @Override
@@ -373,19 +387,22 @@ public class NutritionServiceImpl implements NutritionService {
                 .findByUserIdAndConsumedAtGreaterThanEqualAndConsumedAtLessThanEqualOrderByConsumedAtDesc(
                         principal.userId(), from, to);
         List<MealView> copied = new ArrayList<>();
+        // Read the category table once for the whole day instead of once per copied meal.
+        Map<String, String> foodGroups = loadFoodGroups();
         for (MealLogEntity meal : meals) {
             if (meal.getMealType() == MealType.FAST) {
                 continue;
             }
             LocalTime localTime = meal.getConsumedAt().atZone(zone).toLocalTime();
             Instant target = request.targetDate().atTime(localTime).atZone(zone).toInstant();
-            copied.add(copyMealTo(principal.userId(), meal, target, null));
+            copied.add(copyMealTo(principal.userId(), meal, target, null, foodGroups));
         }
         return copied;
     }
 
     /** Clones a meal and its item snapshots (+ nutrient details) to a new time, emitting MealLogged. */
-    private MealView copyMealTo(UUID userId, MealLogEntity source, Instant targetConsumedAt, MealType mealTypeOverride) {
+    private MealView copyMealTo(UUID userId, MealLogEntity source, Instant targetConsumedAt, MealType mealTypeOverride,
+                                Map<String, String> foodGroups) {
         MealType copyType = mealTypeOverride != null ? mealTypeOverride : source.getMealType();
         if (copyType == MealType.FAST) {
             throw new BadRequestException("A fasted day cannot be copied");
@@ -394,7 +411,7 @@ public class NutritionServiceImpl implements NutritionService {
         MealLogEntity newMeal = new MealLogEntity();
         newMeal.setMealId(UUID.randomUUID());
         newMeal.setUserId(userId);
-        newMeal.setMealType(mealTypeOverride != null ? mealTypeOverride : source.getMealType());
+        newMeal.setMealType(copyType);
         newMeal.setName(source.getName());
         newMeal.setSource(source.getSource());
         newMeal.setConsumedAt(targetConsumedAt);
@@ -415,7 +432,7 @@ public class NutritionServiceImpl implements NutritionService {
             newItems.add(savedItem);
         }
         publishMealLogged(savedMeal, newItems);
-        return toMealView(savedMeal, newItems);
+        return toMealView(savedMeal, newItems, foodGroups);
     }
 
     private MealItemEntity copyMealItem(UUID newMealId, MealItemEntity src) {
@@ -562,6 +579,8 @@ public class NutritionServiceImpl implements NutritionService {
         if (!shouldSearchExternalFoods(criteria, normalizedQuery, page, localResults.size())) {
             return new PageImpl<>(localResults, pageRequest, totalFound);
         }
+        // External results only fill the page up to the fallback threshold, never past the page size, and
+        // skip any product whose barcode is already in the local results.
         int externalLimit = Math.min(size - localResults.size(), EXTERNAL_SEARCH_FALLBACK_THRESHOLD - localResults.size());
         if (externalLimit <= 0) {
             return new PageImpl<>(localResults, pageRequest, totalFound);
@@ -576,6 +595,7 @@ public class NutritionServiceImpl implements NutritionService {
                     .limit(externalLimit)
                     .toList();
         } catch (RuntimeException ex) {
+            // The external source is best effort: when it is down the local results are still returned.
             return new PageImpl<>(localResults, pageRequest, totalFound);
         }
         if (externalResults.isEmpty()) {
@@ -624,6 +644,7 @@ public class NutritionServiceImpl implements NutritionService {
         return merged.values().stream().limit(pageSize).toList();
     }
 
+    /** Same rule as the fuzzy fallback: a plain text search on the first page that found few foods. */
     private boolean shouldSearchExternalFoods(FoodSearchCriteria criteria,
                                               String normalizedQuery,
                                               int page,
@@ -838,6 +859,10 @@ public class NutritionServiceImpl implements NutritionService {
         return buildMealItemFromCatalog(userId, input, byGrams);
     }
 
+    /**
+     * Never below 0.01: a tiny share of an ingredient must not round to a zero quantity, which a logged item
+     * never has (the API requires a positive one).
+     */
     private BigDecimal scaledQuantity(BigDecimal amount, BigDecimal factor) {
         BigDecimal scaled = amount.multiply(factor).setScale(2, RoundingMode.HALF_UP);
         return scaled.signum() > 0 ? scaled : new BigDecimal("0.01");
@@ -1040,13 +1065,28 @@ public class NutritionServiceImpl implements NutritionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Meal template not found"));
     }
 
-    private MealItemInput mealItemInputFromTemplateItem(MealTemplateItemEntity ti) {
+    private MealItemInput mealItemInputFromTemplateItem(MealTemplateItemEntity templateItem) {
         return new MealItemInput(
-                ti.getCustomFoodId(), ti.getFoodCatalogItemId(), ti.getFoodServingId(),
-                ti.getExternalFoodRef(), ti.getBarcode(), ti.getFoodName(), ti.getBrandName(),
-                ti.getQuantity(), ti.getUnit(), ti.getServingSize(), ti.getServingUnit(),
-                ti.getSnapshotServingLabel(), ti.getCalories(), ti.getProteinGrams(), ti.getCarbsGrams(),
-                ti.getFatGrams(), ti.getFiberGrams(), ti.getSugarGrams(), ti.getSodiumMg(), null);
+                templateItem.getCustomFoodId(),
+                templateItem.getFoodCatalogItemId(),
+                templateItem.getFoodServingId(),
+                templateItem.getExternalFoodRef(),
+                templateItem.getBarcode(),
+                templateItem.getFoodName(),
+                templateItem.getBrandName(),
+                templateItem.getQuantity(),
+                templateItem.getUnit(),
+                templateItem.getServingSize(),
+                templateItem.getServingUnit(),
+                templateItem.getSnapshotServingLabel(),
+                templateItem.getCalories(),
+                templateItem.getProteinGrams(),
+                templateItem.getCarbsGrams(),
+                templateItem.getFatGrams(),
+                templateItem.getFiberGrams(),
+                templateItem.getSugarGrams(),
+                templateItem.getSodiumMg(),
+                null);
     }
 
     private MealTemplateView toMealTemplateView(MealTemplateEntity template, List<MealTemplateItemEntity> items) {
@@ -1054,14 +1094,28 @@ public class NutritionServiceImpl implements NutritionService {
         List<MealTemplateItemView> itemViews = new ArrayList<>();
         Map<String, String> logos = loadBrandLogosByName(
                 items.stream().map(MealTemplateItemEntity::getBrandName).toList());
-        for (MealTemplateItemEntity ti : items) {
-            totalCalories += defaultInteger(ti.getCalories());
+        for (MealTemplateItemEntity templateItem : items) {
+            totalCalories += defaultInteger(templateItem.getCalories());
             itemViews.add(new MealTemplateItemView(
-                    ti.getTemplateItemId(), ti.getCustomFoodId(), ti.getFoodCatalogItemId(), ti.getFoodServingId(),
-                    ti.getFoodName(), ti.getBrandName(), logoOf(logos, ti.getBrandName()), ti.getQuantity(),
-                    ti.getUnit(), ti.getSnapshotServingLabel(), ti.getCalories(), ti.getProteinGrams(), ti.getCarbsGrams(), ti.getFatGrams(),
-                    ti.getFiberGrams(), ti.getSugarGrams(), ti.getSodiumMg(),
-                    ti.getRecipeId(), ti.getRecipeServings()));
+                    templateItem.getTemplateItemId(),
+                    templateItem.getCustomFoodId(),
+                    templateItem.getFoodCatalogItemId(),
+                    templateItem.getFoodServingId(),
+                    templateItem.getFoodName(),
+                    templateItem.getBrandName(),
+                    logoOf(logos, templateItem.getBrandName()),
+                    templateItem.getQuantity(),
+                    templateItem.getUnit(),
+                    templateItem.getSnapshotServingLabel(),
+                    templateItem.getCalories(),
+                    templateItem.getProteinGrams(),
+                    templateItem.getCarbsGrams(),
+                    templateItem.getFatGrams(),
+                    templateItem.getFiberGrams(),
+                    templateItem.getSugarGrams(),
+                    templateItem.getSodiumMg(),
+                    templateItem.getRecipeId(),
+                    templateItem.getRecipeServings()));
         }
         return new MealTemplateView(template.getTemplateId(), template.getName(), template.getMealType(),
                 template.getNote(), totalCalories, itemViews);
@@ -1076,24 +1130,24 @@ public class NutritionServiceImpl implements NutritionService {
         RecipeEntity recipe = recipeLibraryService.findVisible(userId, input.recipeId());
         RecipeInsightService.RecipeComputation computation = recipeInsightService.compute(recipe);
         BigDecimal servings = input.servings();
-        MealTemplateItemEntity ti = new MealTemplateItemEntity();
-        ti.setTemplateItemId(UUID.randomUUID());
-        ti.setTemplateId(templateId);
-        ti.setFoodName(truncate(recipe.getName(), 120));
-        ti.setQuantity(servings);
-        ti.setUnit("serving");
-        ti.setCalories(BigDecimal.valueOf(computation.kcalPerServing()).multiply(servings)
+        MealTemplateItemEntity templateItem = new MealTemplateItemEntity();
+        templateItem.setTemplateItemId(UUID.randomUUID());
+        templateItem.setTemplateId(templateId);
+        templateItem.setFoodName(truncate(recipe.getName(), 120));
+        templateItem.setQuantity(servings);
+        templateItem.setUnit("serving");
+        templateItem.setCalories(BigDecimal.valueOf(computation.kcalPerServing()).multiply(servings)
                 .setScale(0, RoundingMode.HALF_UP).intValue());
-        ti.setProteinGrams(scaleTwo(computation.proteinPerServing().multiply(servings)));
-        ti.setCarbsGrams(scaleTwo(computation.carbsPerServing().multiply(servings)));
-        ti.setFatGrams(scaleTwo(computation.fatPerServing().multiply(servings)));
-        ti.setFiberGrams(scaleTwo(computation.fibrePerServing().multiply(servings)));
-        ti.setSugarGrams(scaleTwo(computation.sugarPerServing().multiply(servings)));
-        ti.setSodiumMg(scaleTwo(computation.sodiumPerServing().multiply(servings)));
-        ti.setRecipeId(recipe.getRecipeId());
-        ti.setRecipeServings(servings);
-        ti.setSortOrder(sortOrder);
-        return ti;
+        templateItem.setProteinGrams(scaleTwo(computation.proteinPerServing().multiply(servings)));
+        templateItem.setCarbsGrams(scaleTwo(computation.carbsPerServing().multiply(servings)));
+        templateItem.setFatGrams(scaleTwo(computation.fatPerServing().multiply(servings)));
+        templateItem.setFiberGrams(scaleTwo(computation.fibrePerServing().multiply(servings)));
+        templateItem.setSugarGrams(scaleTwo(computation.sugarPerServing().multiply(servings)));
+        templateItem.setSodiumMg(scaleTwo(computation.sodiumPerServing().multiply(servings)));
+        templateItem.setRecipeId(recipe.getRecipeId());
+        templateItem.setRecipeServings(servings);
+        templateItem.setSortOrder(sortOrder);
+        return templateItem;
     }
 
     /**
@@ -1144,57 +1198,57 @@ public class NutritionServiceImpl implements NutritionService {
     }
 
     private MealTemplateItemEntity templateItemFromMealItem(UUID templateId, MealItemEntity src, int sortOrder) {
-        MealTemplateItemEntity ti = new MealTemplateItemEntity();
-        ti.setTemplateItemId(UUID.randomUUID());
-        ti.setTemplateId(templateId);
-        ti.setCustomFoodId(src.getCustomFoodId());
-        ti.setFoodCatalogItemId(src.getFoodCatalogItemId());
-        ti.setFoodServingId(src.getFoodServingId());
-        ti.setExternalFoodRef(src.getExternalFoodRef());
-        ti.setBarcode(src.getBarcode());
-        ti.setFoodName(src.getFoodName());
-        ti.setBrandName(src.getBrandName());
-        ti.setQuantity(src.getQuantity());
-        ti.setUnit(src.getUnit());
-        ti.setServingSize(src.getServingSize());
-        ti.setServingUnit(src.getServingUnit());
-        ti.setSnapshotServingLabel(src.getSnapshotServingLabel());
-        ti.setCalories(src.getCalories());
-        ti.setProteinGrams(src.getProteinGrams());
-        ti.setCarbsGrams(src.getCarbsGrams());
-        ti.setFatGrams(src.getFatGrams());
-        ti.setFiberGrams(src.getFiberGrams());
-        ti.setSugarGrams(src.getSugarGrams());
-        ti.setSodiumMg(src.getSodiumMg());
-        ti.setSortOrder(sortOrder);
-        return ti;
+        MealTemplateItemEntity templateItem = new MealTemplateItemEntity();
+        templateItem.setTemplateItemId(UUID.randomUUID());
+        templateItem.setTemplateId(templateId);
+        templateItem.setCustomFoodId(src.getCustomFoodId());
+        templateItem.setFoodCatalogItemId(src.getFoodCatalogItemId());
+        templateItem.setFoodServingId(src.getFoodServingId());
+        templateItem.setExternalFoodRef(src.getExternalFoodRef());
+        templateItem.setBarcode(src.getBarcode());
+        templateItem.setFoodName(src.getFoodName());
+        templateItem.setBrandName(src.getBrandName());
+        templateItem.setQuantity(src.getQuantity());
+        templateItem.setUnit(src.getUnit());
+        templateItem.setServingSize(src.getServingSize());
+        templateItem.setServingUnit(src.getServingUnit());
+        templateItem.setSnapshotServingLabel(src.getSnapshotServingLabel());
+        templateItem.setCalories(src.getCalories());
+        templateItem.setProteinGrams(src.getProteinGrams());
+        templateItem.setCarbsGrams(src.getCarbsGrams());
+        templateItem.setFatGrams(src.getFatGrams());
+        templateItem.setFiberGrams(src.getFiberGrams());
+        templateItem.setSugarGrams(src.getSugarGrams());
+        templateItem.setSodiumMg(src.getSodiumMg());
+        templateItem.setSortOrder(sortOrder);
+        return templateItem;
     }
 
     private MealTemplateItemEntity templateItemFromDraft(UUID templateId, MealItemDraft draft, int sortOrder) {
-        MealTemplateItemEntity ti = new MealTemplateItemEntity();
-        ti.setTemplateItemId(UUID.randomUUID());
-        ti.setTemplateId(templateId);
-        ti.setCustomFoodId(draft.customFoodId());
-        ti.setFoodCatalogItemId(draft.foodCatalogItemId());
-        ti.setFoodServingId(draft.foodServingId());
-        ti.setExternalFoodRef(draft.externalFoodRef());
-        ti.setBarcode(draft.barcode());
-        ti.setFoodName(draft.foodName());
-        ti.setBrandName(draft.brandName());
-        ti.setQuantity(draft.quantity());
-        ti.setUnit(draft.unit());
-        ti.setServingSize(draft.servingSize());
-        ti.setServingUnit(draft.servingUnit());
-        ti.setSnapshotServingLabel(draft.snapshotServingLabel());
-        ti.setCalories(draft.calories());
-        ti.setProteinGrams(draft.proteinGrams());
-        ti.setCarbsGrams(draft.carbsGrams());
-        ti.setFatGrams(draft.fatGrams());
-        ti.setFiberGrams(draft.fiberGrams());
-        ti.setSugarGrams(draft.sugarGrams());
-        ti.setSodiumMg(draft.sodiumMg());
-        ti.setSortOrder(sortOrder);
-        return ti;
+        MealTemplateItemEntity templateItem = new MealTemplateItemEntity();
+        templateItem.setTemplateItemId(UUID.randomUUID());
+        templateItem.setTemplateId(templateId);
+        templateItem.setCustomFoodId(draft.customFoodId());
+        templateItem.setFoodCatalogItemId(draft.foodCatalogItemId());
+        templateItem.setFoodServingId(draft.foodServingId());
+        templateItem.setExternalFoodRef(draft.externalFoodRef());
+        templateItem.setBarcode(draft.barcode());
+        templateItem.setFoodName(draft.foodName());
+        templateItem.setBrandName(draft.brandName());
+        templateItem.setQuantity(draft.quantity());
+        templateItem.setUnit(draft.unit());
+        templateItem.setServingSize(draft.servingSize());
+        templateItem.setServingUnit(draft.servingUnit());
+        templateItem.setSnapshotServingLabel(draft.snapshotServingLabel());
+        templateItem.setCalories(draft.calories());
+        templateItem.setProteinGrams(draft.proteinGrams());
+        templateItem.setCarbsGrams(draft.carbsGrams());
+        templateItem.setFatGrams(draft.fatGrams());
+        templateItem.setFiberGrams(draft.fiberGrams());
+        templateItem.setSugarGrams(draft.sugarGrams());
+        templateItem.setSodiumMg(draft.sodiumMg());
+        templateItem.setSortOrder(sortOrder);
+        return templateItem;
     }
 
     @Override
@@ -1383,6 +1437,10 @@ public class NutritionServiceImpl implements NutritionService {
         return upper;
     }
 
+    /**
+     * The identity two logged items share when they are the same food: the catalogue food, else the custom
+     * food, else the external reference, else the name ignoring case. The prefix keeps the kinds apart.
+     */
     private String loggedFoodKey(MealItemEntity item) {
         if (item.getFoodCatalogItemId() != null) {
             return "C:" + item.getFoodCatalogItemId();
@@ -1457,6 +1515,11 @@ public class NutritionServiceImpl implements NutritionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Food not found"));
     }
 
+    /**
+     * Not {@code @Transactional}: the import runs in its own transaction so that, when a concurrent request
+     * imported the same barcode first and the unique constraint fails, the food that request saved can be
+     * read and returned in a fresh one.
+     */
     @Override
     public FoodDetailView importFoodByBarcode(CurrentUserPrincipal principal, String barcode) {
         String normalizedBarcode = requireNonBlank(barcode, "barcode is required");
@@ -1476,6 +1539,7 @@ public class NutritionServiceImpl implements NutritionService {
             return transactionTemplate.execute(status -> importFoodByBarcodeInTransaction(
                     principal.userId(), normalizedBarcode, externalFood, today));
         } catch (DataIntegrityViolationException ex) {
+            // Lost the race on the barcode: return the food the other import saved, or rethrow if there is none.
             return foodBarcodeRepository.findActiveByBarcode(normalizedBarcode, today)
                     .map(barcodeEntity -> toFoodDetailView(
                             getAccessibleFood(principal.userId(), barcodeEntity.getFoodId(), today)))
@@ -1654,8 +1718,9 @@ public class NutritionServiceImpl implements NutritionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Custom food not found"));
     }
 
+    /** Reads only the categories this meal's items use; callers rendering many meals pass one shared map. */
     private MealView toMealView(MealLogEntity meal, List<MealItemEntity> items) {
-        return toMealView(meal, items, loadFoodGroups());
+        return toMealView(meal, items, loadFoodGroups(items.stream().map(MealItemEntity::getCategoryCode).toList()));
     }
 
     private MealView toMealView(MealLogEntity meal, List<MealItemEntity> items, Map<String, String> foodGroups) {
@@ -1694,7 +1759,24 @@ public class NutritionServiceImpl implements NutritionService {
         return groups;
     }
 
-    /** A code with no category row, or an item without a category, falls into OTHER or stays unset. */
+    /**
+     * The plate group of just the given category codes, for a view that shows one food or one meal and so
+     * does not need the whole category table. Codes with no category row are left out, which
+     * {@link #foodGroupOf} turns into OTHER exactly as it does with the full map.
+     */
+    private Map<String, String> loadFoodGroups(List<String> categoryCodes) {
+        List<String> codes = categoryCodes.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        Map<String, String> groups = new HashMap<>();
+        if (codes.isEmpty()) {
+            return groups;
+        }
+        for (FoodCategoryEntity category : foodCategoryRepository.findByCodeIn(codes)) {
+            groups.put(category.getCode(), category.getFoodGroup());
+        }
+        return groups;
+    }
+
+    /** An item without a category has no group; a category code with no category row falls into OTHER. */
     private String foodGroupOf(String categoryCode, Map<String, String> foodGroups) {
         if (categoryCode == null) {
             return null;
@@ -1878,7 +1960,7 @@ public class NutritionServiceImpl implements NutritionService {
                 food.getSourceDataset(),
                 servings,
                 nutrientDetails,
-                foodGroupOf(food.getCategoryCode(), loadFoodGroups()),
+                foodGroupOf(food.getCategoryCode(), loadFoodGroups(Collections.singletonList(food.getCategoryCode()))),
                 food.isCountsTowardWater(),
                 profile == null ? null : profile.getWaterG(),
                 alcoholGrams);
@@ -2030,12 +2112,18 @@ public class NutritionServiceImpl implements NutritionService {
         return result;
     }
 
+    /**
+     * The newest active profile of each food, read in one query for the whole page rather than one per food.
+     * The rows come back newest first, so the first one seen for a food is the one a single-food read would pick.
+     */
     private Map<UUID, FoodNutrientProfileEntity> loadPrimaryProfiles(List<UUID> foodIds, LocalDate onDate) {
         Map<UUID, FoodNutrientProfileEntity> result = new HashMap<>();
-        for (UUID foodId : foodIds.stream().distinct().toList()) {
-            foodNutrientProfileRepository.findActiveProfilesByFoodId(foodId, onDate).stream()
-                    .findFirst()
-                    .ifPresent(profile -> result.put(foodId, profile));
+        if (foodIds.isEmpty()) {
+            return result;
+        }
+        for (FoodNutrientProfileEntity profile
+                : foodNutrientProfileRepository.findActiveProfilesByFoodIdIn(foodIds.stream().distinct().toList(), onDate)) {
+            result.putIfAbsent(profile.getFoodId(), profile);
         }
         return result;
     }
@@ -2148,17 +2236,25 @@ public class NutritionServiceImpl implements NutritionService {
     /**
      * The weight of the portion in grams, which the plate on the Diary is drawn from. The nutrient profile
      * gives the basis the portion was scaled against, so grams are the multiplier times a gram basis, or a
-     * millilitre basis times the food's density when the density is known. Null when neither is possible.
+     * millilitre basis times the food's density. A millilitre food with no known density weighs as much as
+     * water, the same rule {@link #resolveGramsMultiplier} logs it by, so the weight shown for a portion is
+     * the weight the user entered. Null when the basis is neither grams nor millilitres.
      */
     private BigDecimal resolveGramsConsumed(FoodCatalogItemEntity food, FoodNutrientProfileEntity profile, BigDecimal multiplier) {
         BigDecimal basisAmount = profile.getBasisQuantity().multiply(multiplier);
         if (matchesUnit(profile.getBasisUnit(), "g")) {
             return basisAmount.setScale(2, RoundingMode.HALF_UP);
         }
-        if (matchesUnit(profile.getBasisUnit(), "ml") && food.getDensityGramsPerMl() != null) {
-            return basisAmount.multiply(food.getDensityGramsPerMl()).setScale(2, RoundingMode.HALF_UP);
+        if (matchesUnit(profile.getBasisUnit(), "ml")) {
+            return basisAmount.multiply(gramsPerMl(food)).setScale(2, RoundingMode.HALF_UP);
         }
         return null;
+    }
+
+    /** The food's density, or that of water (1 g per ml) when no usable density is recorded. */
+    private static BigDecimal gramsPerMl(FoodCatalogItemEntity food) {
+        BigDecimal density = food.getDensityGramsPerMl();
+        return density != null && density.signum() > 0 ? density : BigDecimal.ONE;
     }
 
     /**
@@ -2194,10 +2290,12 @@ public class NutritionServiceImpl implements NutritionService {
             }
             return serving;
         }
-        return foodServingRepository.findActiveByFoodId(food.getFoodId(), today).stream()
+        // One read serves both choices: the default serving if the food has one, else its first serving.
+        List<FoodServingEntity> servings = foodServingRepository.findActiveByFoodId(food.getFoodId(), today);
+        return servings.stream()
                 .filter(FoodServingEntity::isDefaultServing)
                 .findFirst()
-                .orElseGet(() -> foodServingRepository.findActiveByFoodId(food.getFoodId(), today).stream().findFirst().orElse(null));
+                .orElseGet(() -> servings.stream().findFirst().orElse(null));
     }
 
     private BigDecimal resolveMultiplier(MealItemInput input,
@@ -2229,9 +2327,8 @@ public class NutritionServiceImpl implements NutritionService {
             return grams.divide(basisQuantity, 6, RoundingMode.HALF_UP);
         }
         if (matchesUnit(profile.getBasisUnit(), "ml")) {
-            BigDecimal density = food.getDensityGramsPerMl() != null && food.getDensityGramsPerMl().signum() > 0
-                    ? food.getDensityGramsPerMl() : BigDecimal.ONE;
-            return grams.divide(density, 6, RoundingMode.HALF_UP).divide(basisQuantity, 6, RoundingMode.HALF_UP);
+            // Without a known density the food is taken to weigh as much as water (1 g per ml).
+            return grams.divide(gramsPerMl(food), 6, RoundingMode.HALF_UP).divide(basisQuantity, 6, RoundingMode.HALF_UP);
         }
         throw new BadRequestException("Unable to derive nutrient totals from grams for this food");
     }
@@ -2327,7 +2424,8 @@ public class NutritionServiceImpl implements NutritionService {
         serving.setLabel(profile.getBasisQuantity().stripTrailingZeros().toPlainString() + " " + profile.getBasisUnit());
         serving.setQuantity(profile.getBasisQuantity());
         serving.setUnit(profile.getBasisUnit());
-        if ("g".equals(profile.getBasisUnit())) {
+        // Compared the same way as everywhere else units meet, so a basis of "G" still gets its weight.
+        if (matchesUnit(profile.getBasisUnit(), "g")) {
             serving.setGramsEquivalent(profile.getBasisQuantity());
         }
         serving.setSortOrder(1);
@@ -2476,15 +2574,17 @@ public class NutritionServiceImpl implements NutritionService {
                         totals.totalFatGrams(),
                         items.size(),
                         meal.getSource().name(),
-                        foodGroupCalories(items))));
+                        caloriesByCategoryCode(items))));
     }
 
     /**
-     * Per-food-group energy for the meal (internal category code → summed kcal), over items that carry a
-     * category snapshot (SNAP-3). Projected onto the MealLogged event so analytics gets food-group balance
-     * without reading nutrition internals (EV-1). Unclassified items are omitted; null calories count as 0.
+     * Energy for the meal per internal category code (summed kcal), over items that carry a category snapshot
+     * (SNAP-3). The keys are category codes such as {@code FRUITS}, not the plate food groups; the event field
+     * this fills is still called {@code foodGroupCalories} because that name is part of the MealLogged and
+     * MealUpdated contract that analytics reads (EV-1), so only this method carries the accurate name.
+     * Unclassified items are omitted; null calories count as 0.
      */
-    private static Map<String, Integer> foodGroupCalories(List<MealItemEntity> items) {
+    private static Map<String, Integer> caloriesByCategoryCode(List<MealItemEntity> items) {
         Map<String, Integer> byGroup = new HashMap<>();
         for (MealItemEntity item : items) {
             String code = item.getCategoryCode();
@@ -2516,18 +2616,24 @@ public class NutritionServiceImpl implements NutritionService {
                         totals.totalFatGrams(),
                         items.size(),
                         meal.getSource().name(),
-                        foodGroupCalories(items))));
+                        caloriesByCategoryCode(items))));
     }
 
+    /**
+     * Bad input from the client is reported with {@link BadRequestException}, like every other check in this
+     * service, so the error carries the service's own code and status rather than relying on the generic
+     * handler for {@link IllegalArgumentException}.
+     */
     private void validateDateRange(Instant from, Instant to) {
         if ((from == null) != (to == null)) {
-            throw new IllegalArgumentException("from and to must be provided together");
+            throw new BadRequestException("from and to must be provided together");
         }
         if (from != null && to != null && to.isBefore(from)) {
-            throw new IllegalArgumentException("to must not be before from");
+            throw new BadRequestException("to must not be before from");
         }
     }
 
+    /** A blank timezone means UTC; one that is not a known zone id is the client's error (400). */
     private ZoneId resolveZone(String timezone) {
         if (timezone == null || timezone.isBlank()) {
             return ZoneOffset.UTC;
@@ -2535,7 +2641,7 @@ public class NutritionServiceImpl implements NutritionService {
         try {
             return ZoneId.of(timezone);
         } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("Invalid timezone");
+            throw new BadRequestException("Invalid timezone");
         }
     }
 

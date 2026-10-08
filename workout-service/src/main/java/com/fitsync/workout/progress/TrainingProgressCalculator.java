@@ -53,13 +53,19 @@ public final class TrainingProgressCalculator {
     /** The seven groups the catalogue tracks; FULL_BODY and CARDIO are not muscle groups here. */
     public static final List<MuscleGroup> GROUPS = MuscleCredit.GROUPS;
 
+    /** The usual range of hard sets a week for a muscle group, shaded on the muscles chart. */
     static final int USUAL_LOW = 10;
     static final int USUAL_HIGH = 20;
+    /** MUSCLE_UNDER is raised only when the least trained group is below this many sets a week. */
     static final double MUSCLE_UNDER_SETS = 6.0;
+    /** LIFT_UP needs a rise in estimated best single of more than this percentage. */
     static final double LIFT_UP_PCT = 5.0;
+    /** Fitness is the average weekly load over this many weeks; fatigue is the latest finished week alone. */
     static final int FITNESS_WEEKS = 6;
+    /** Fatigue within this share of fitness either way reads as balanced; beyond it, fresh or tired. */
     static final double FORM_BAND = 0.15;
     static final int MAX_HIGHLIGHTS = 4;
+    /** Without a run of rising or falling weeks, a change beyond this percentage reads as load up or down. */
     private static final double LOAD_LEVEL_PCT = 5.0;
     private static final double DAYS_PER_WEEK = 7.0;
 

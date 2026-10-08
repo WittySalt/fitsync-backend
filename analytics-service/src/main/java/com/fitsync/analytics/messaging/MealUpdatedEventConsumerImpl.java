@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles MealUpdated by replacing the meal's contribution, which may move it to another day. */
 @Service
 public class MealUpdatedEventConsumerImpl implements DomainEventConsumer<MealUpdatedPayload> {
 

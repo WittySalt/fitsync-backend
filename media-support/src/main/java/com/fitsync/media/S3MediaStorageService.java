@@ -14,6 +14,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 public class S3MediaStorageService implements MediaStorageService {
 
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
+    /** Cached for a year as immutable, so changed content has to be stored under a new key. */
     private static final String CACHE_CONTROL = "public, max-age=31536000, immutable";
 
     private final ObjectProvider<S3Client> s3ClientProvider;
@@ -62,6 +63,7 @@ public class S3MediaStorageService implements MediaStorageService {
                 .build();
     }
 
+    /** Refuses absolute keys, empty segments and {@code .}/{@code ..} so a key cannot escape its prefix. */
     private String normalizeKey(String key) {
         if (key == null) {
             throw new IllegalArgumentException("Media key must not be null");
@@ -80,6 +82,7 @@ public class S3MediaStorageService implements MediaStorageService {
 
     private String encodePath(String key) {
         return Arrays.stream(key.split("/"))
+                // URLEncoder encodes for forms, where a space is '+'; in a path it has to be %20.
                 .map(segment -> URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20"))
                 .collect(Collectors.joining("/"));
     }

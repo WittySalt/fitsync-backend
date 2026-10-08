@@ -938,7 +938,7 @@ Current implementation direction:
 - service interface plus repository interfaces
 - shared persistence primitives live in `persistence-support`
 - ordinary write models inherit `BaseAuditableEntity`
-- code catalog entities inherit `BaseCodeSetEntity` / `BaseCodeValueEntity`
+- `code_sets` / `code_values` are seeded and read by SQL only (foreign keys from preference code columns); user-service maps no JPA entity onto them
 - outbox events inherit `BaseOutboxEventEntity`
 - event publisher abstraction kept separate from persistence
 - outbox relay kept behind a transport abstraction

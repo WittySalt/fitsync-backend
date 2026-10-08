@@ -15,6 +15,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
+/** Reads WorkoutLogged from the workout-events topic and hands it to the workout-logged consumer. */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka.listeners.workout-logged", name = "enabled", havingValue = "true")
 public class WorkoutLoggedKafkaListener {

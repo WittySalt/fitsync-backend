@@ -13,6 +13,10 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+/**
+ * Stateless JWT security: every API call needs a valid bearer token, the internal outbox endpoints need the
+ * ADMIN role, and only health and the OpenAPI docs are open.
+ */
 @Configuration
 public class SecurityConfig {
 

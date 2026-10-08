@@ -59,6 +59,7 @@ public class TrainingProgressServiceImpl implements TrainingProgressService {
     static final int STREAK_LOOKBACK_WEEKS = 52;
     /** The weekly card describes the 28 days ending on its reference date. */
     static final int CARD_DAYS = 28;
+    /** Session ids per query, so an IN list stays bounded however many sessions the window holds. */
     private static final int ID_CHUNK = 500;
 
     private final Clock clock;

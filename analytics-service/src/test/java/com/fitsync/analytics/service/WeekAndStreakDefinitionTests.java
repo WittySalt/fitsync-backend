@@ -54,6 +54,11 @@ class WeekAndStreakDefinitionTests {
         when(t.workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
                 USER_ID, LocalDate.parse("2026-06-15"), LocalDate.parse("2026-06-21")))
                 .thenReturn(List.of(workoutDay("2026-06-16", 1, 50), workoutDay("2026-06-20", 1, 40)));
+        // The old fields are the rolling seven days ending today, Sunday 14 to Saturday 20 June.
+        when(t.workoutRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(
+                USER_ID, LocalDate.parse("2026-06-14"), LocalDate.parse("2026-06-20")))
+                .thenReturn(List.of(workoutDay("2026-06-20", 1, 40), workoutDay("2026-06-16", 1, 50),
+                        workoutDay("2026-06-14", 1, 55)));
         when(t.workoutRepository.findTopByUserIdAndCompletedWorkoutCountGreaterThanOrderByActivityDateDesc(USER_ID, 0))
                 .thenReturn(Optional.of(workoutDay("2026-06-20", 1, 40)));
 

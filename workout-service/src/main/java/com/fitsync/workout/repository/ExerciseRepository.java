@@ -7,7 +7,6 @@ import java.util.UUID;
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
-import com.fitsync.workout.domain.MuscleGroup;
 import com.fitsync.workout.domain.WorkoutDifficulty;
 import com.fitsync.workout.dto.ExerciseCatalogSummaryResponse;
 import com.fitsync.workout.dto.ExerciseCatalogSummaryResponse.ExerciseTypeCount;

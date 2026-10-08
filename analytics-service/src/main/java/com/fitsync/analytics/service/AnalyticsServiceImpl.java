@@ -3,7 +3,6 @@ package com.fitsync.analytics.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -52,10 +51,22 @@ import com.fitsync.web.error.BadRequestException;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+/**
+ * Serves the dashboard, trend, summary, compare, goal, streak and weekly-report reads from the
+ * event-built read models (daily rows, dashboard snapshot, goal rows, streak rollup). The stored
+ * rows are only rewritten when an event arrives, so anything that means "today", "this week" or
+ * "current" is re-checked against the clock in the user's stored zone at read time. Results are
+ * cached per user; keys that depend on "today" include the user's local date so they roll over at
+ * the user's midnight.
+ */
 @Service
 public class AnalyticsServiceImpl implements AnalyticsService {
 
     private static final String DEFAULT_TIMEZONE = "UTC";
+
+    /** A day counts as "within band" when calories consumed land within 10% of the calorie target. */
+    private static final BigDecimal CALORIE_BAND_LOW = new BigDecimal("0.90");
+    private static final BigDecimal CALORIE_BAND_HIGH = new BigDecimal("1.10");
 
     private final AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository;
     private final AnalyticsUserGoalProgressRepository goalProgressRepository;
@@ -90,10 +101,11 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     public AnalyticsDashboardResponse getDashboard(CurrentUserPrincipal principal) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
                 .orElse(null);
-        ZoneId zone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        ZoneId zone = UserZone.of(snapshot == null ? null : snapshot.getTimezone());
         LocalDate today = LocalDate.now(clock.withZone(zone));
+        LiveNutritionDay todayNutrition = new LiveNutritionDay(principal.userId(), today);
         List<AnalyticsDashboardResponse.GoalProgressSummary> goals =
-                loadGoalSummaries(principal.userId(), GoalExpiryPolicy.ACTIVE_STATUS, today);
+                loadGoalSummaries(principal.userId(), GoalExpiryPolicy.ACTIVE_STATUS, today, todayNutrition);
 
         if (snapshot == null) {
             return emptyDashboard(goals);
@@ -103,11 +115,14 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         // whatever it last held. Fields named "today" and "week" therefore have to be re-checked
         // against the clock at read time, or they report months-old activity as current. See
         // Documents/architecture/functional-defects-2026-09-26.md, defect 4.
-        LocalDate snapshotDay = snapshot.getGeneratedAt() == null
-                ? null
-                : snapshot.getGeneratedAt().atZone(zone).toLocalDate();
-        boolean sameDay = today.equals(snapshotDay);
-        boolean sameWeek = isSameIsoWeek(snapshotDay, today);
+        // Those fields are not taken from the snapshot at all. Checking its generatedAt against today
+        // was not enough: every event and the nightly rebuild move generatedAt, but each rewrites only
+        // its own fields, so a meal logged this morning dated yesterday's workout count as today's.
+        // Today's calories and protein come from today's daily nutrition row in the user's zone (the
+        // same row the live goal values use), the workout counts from the daily workout rows (see
+        // workoutSummary), and both read 0 when there are no rows. The cache key carries the user's
+        // local date and every meal and workout event evicts the user's entries, so the cached
+        // response cannot outlive those rows or that day.
 
         return new AnalyticsDashboardResponse(
                 snapshot.getGeneratedAt(),
@@ -120,11 +135,11 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         latestBodyMeasurementDate(principal.userId()),
                         toDouble(snapshot.getLatestWaistCm()),
                         snapshot.getWaistMeasuredOn()),
-                workoutSummary(principal.userId(), snapshot, today, sameDay, sameWeek),
+                workoutSummary(principal.userId(), snapshot, today),
                 new AnalyticsDashboardResponse.NutritionSummary(
-                        sameDay ? snapshot.getTodayCaloriesConsumed() : Integer.valueOf(0),
+                        todayNutrition.valueFor(GoalProgressEvaluator.CALORIES).intValue(),
                         snapshot.getTodayCaloriesTarget(),
-                        sameDay ? toDouble(snapshot.getTodayProteinGrams()) : Double.valueOf(0),
+                        todayNutrition.valueFor(GoalProgressEvaluator.PROTEIN).doubleValue(),
                         toDouble(snapshot.getTodayProteinTargetGrams())),
                 goals);
     }
@@ -388,7 +403,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         String timezone = dashboardSnapshotRepository.findById(userId)
                 .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
                 .orElse(null);
-        return LocalDate.now(clock.withZone(resolveZone(timezone)));
+        return LocalDate.now(clock.withZone(UserZone.of(timezone)));
     }
 
     /** Cache-key part for read models that depend on "today", so entries roll over at the user's midnight. */
@@ -467,9 +482,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     public AnalyticsStreaksResponse getStreaks(CurrentUserPrincipal principal) {
         AnalyticsUserDashboardSnapshotEntity snapshot = dashboardSnapshotRepository.findById(principal.userId())
                 .orElse(null);
-        // Normalized through resolveZone so an invalid stored timezone is reported as the UTC
+        // Normalized through UserZone so an invalid stored timezone is reported as the UTC
         // fallback actually used to evaluate streak days, not echoed verbatim.
-        ZoneId streakZone = resolveZone(snapshot == null ? null : snapshot.getTimezone());
+        ZoneId streakZone = UserZone.of(snapshot == null ? null : snapshot.getTimezone());
         String timezone = ZoneOffset.UTC.equals(streakZone) ? DEFAULT_TIMEZONE : streakZone.getId();
 
         LocalDate lastActiveDate = dailyWorkoutRepository
@@ -543,31 +558,11 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .orElse(null);
     }
 
-    private boolean isSameIsoWeek(LocalDate left, LocalDate right) {
-        if (left == null || right == null) {
-            return false;
-        }
-        WeekFields isoWeek = WeekFields.ISO;
-        return left.get(isoWeek.weekBasedYear()) == right.get(isoWeek.weekBasedYear())
-                && left.get(isoWeek.weekOfWeekBasedYear()) == right.get(isoWeek.weekOfWeekBasedYear());
-    }
-
-    private ZoneId resolveZone(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            return ZoneOffset.UTC;
-        }
-        try {
-            return ZoneId.of(timezone.trim());
-        } catch (DateTimeException ex) {
-            return ZoneOffset.UTC;
-        }
-    }
-
     /**
      * Single-week recap. Workout totals reuse the same daily-row aggregation as /workouts/summary
      * and /summary/compare, and the week-over-week deltas compare full ISO weeks (this week's window
-     * against the seven days immediately before it). Unlike /summary/compare, whose windows are
-     * anchored to the UTC date, the default week here is anchored to the user's timezone as the
+     * against the seven days immediately before it), whereas /summary/compare only compares the
+     * elapsed part of the week. The default week is anchored to the user's timezone as the
      * weekly-report contract requires. When weekStart is omitted it defaults to the Monday of the
      * current week in the user's timezone; an explicit weekStart must itself be a Monday. A week
      * without data returns zeroed totals and null averages/deltas, never a 404.
@@ -589,6 +584,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         List<AnalyticsUserDailyNutritionEntity> nutritionRows = dailyNutritionRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(principal.userId(), from, to);
         Integer avgDailyCaloriesConsumed = averageDailyCaloriesConsumed(nutritionRows);
+        // The macro adherence score is protein eaten over the protein target, so 1 or more means the target was met.
         int proteinTargetHitDays = (int) nutritionRows.stream()
                 .map(AnalyticsUserDailyNutritionEntity::getMacroAdherenceScore)
                 .filter(Objects::nonNull)
@@ -623,7 +619,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         String timezone = dashboardSnapshotRepository.findById(userId)
                 .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
                 .orElse(null);
-        return LocalDate.now(clock.withZone(resolveZone(timezone)))
+        return LocalDate.now(clock.withZone(UserZone.of(timezone)))
                 .with(WeekFields.ISO.dayOfWeek(), 1);
     }
 
@@ -662,10 +658,9 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     }
 
     private List<AnalyticsDashboardResponse.GoalProgressSummary> loadGoalSummaries(
-            UUID userId, String status, LocalDate today) {
+            UUID userId, String status, LocalDate today, LiveNutritionDay liveDay) {
         String normalizedStatus = normalizeStatus(status);
         Map<String, AnalyticsUserGoalProgressEntity> latestByGoalType = new HashMap<>();
-        LiveNutritionDay liveDay = new LiveNutritionDay(userId, today);
         goalProgressRepository.findByUserIdAndGoalStatusOrderByTargetDateAscGoalIdAsc(userId, normalizedStatus)
                 .forEach(entity -> latestByGoalType.merge(
                         entity.getGoalType(),
@@ -680,6 +675,10 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .toList();
     }
 
+    /**
+     * Tie-break when several rows share a goal type: the most recently evaluated row wins, and the
+     * larger goal id wins when the evaluation times are equal, so the choice is deterministic.
+     */
     private boolean shouldReplaceGoalSummary(AnalyticsUserGoalProgressEntity current,
                                              AnalyticsUserGoalProgressEntity candidate) {
         int evaluatedComparison = Comparator.nullsFirst(Instant::compareTo)
@@ -690,7 +689,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return Comparator.nullsFirst(UUID::compareTo).compare(candidate.getGoalId(), current.getGoalId()) > 0;
     }
 
-    private WorkoutSummaryAggregation aggregateWorkoutSummary(java.util.UUID userId, LocalDate from, LocalDate to) {
+    private WorkoutSummaryAggregation aggregateWorkoutSummary(UUID userId, LocalDate from, LocalDate to) {
         List<AnalyticsUserDailyWorkoutEntity> rows = dailyWorkoutRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
         return new WorkoutSummaryAggregation(
@@ -701,7 +700,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 (int) rows.stream().filter(row -> defaultInteger(row.getCompletedWorkoutCount()) > 0).count());
     }
 
-    private NutritionSummaryAggregation aggregateNutritionSummary(java.util.UUID userId, LocalDate from, LocalDate to) {
+    private NutritionSummaryAggregation aggregateNutritionSummary(UUID userId, LocalDate from, LocalDate to) {
         List<AnalyticsUserDailyNutritionEntity> rows = dailyNutritionRepository
                 .findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, from, to);
         BigDecimal totalProteinGrams = rows.stream()
@@ -729,8 +728,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .filter(Objects::nonNull)
                 .toList();
         int daysWithinBand = (int) calorieRatios.stream()
-                .filter(ratio -> ratio.compareTo(new BigDecimal("0.90")) >= 0
-                        && ratio.compareTo(new BigDecimal("1.10")) <= 0)
+                .filter(ratio -> ratio.compareTo(CALORIE_BAND_LOW) >= 0
+                        && ratio.compareTo(CALORIE_BAND_HIGH) <= 0)
                 .count();
 
         return new NutritionSummaryAggregation(
@@ -753,20 +752,34 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     /**
      * One definition of "this week" (Monday to Sunday in the user's zone) and of a streak
      * (consecutive days with a completed workout, ending today or yesterday). The three old fields
-     * keep their rolling-seven-day meaning for existing clients.
+     * keep their rolling-seven-day meaning for existing clients, and like the new ones they are
+     * summed from the daily workout rows at read time rather than copied from the snapshot, whose
+     * copies are only as fresh as the last workout event.
      */
     private AnalyticsDashboardResponse.WorkoutSummary workoutSummary(UUID userId,
                                                                     AnalyticsUserDashboardSnapshotEntity snapshot,
-                                                                    LocalDate today,
-                                                                    boolean sameDay,
-                                                                    boolean sameWeek) {
+                                                                    LocalDate today) {
         LocalDate monday = today.with(DayOfWeek.MONDAY);
         WorkoutSummaryAggregation thisWeek = aggregateWorkoutSummary(userId, monday, monday.plusDays(6));
+        // The same seven days, ending today, that the workout projection and the rebuild write.
+        List<AnalyticsUserDailyWorkoutEntity> lastSevenDays = dailyWorkoutRepository
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, today.minusDays(6), today);
+        int todayWorkoutCount = lastSevenDays.stream()
+                .filter(row -> today.equals(row.getActivityDate()))
+                .mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount()))
+                .sum();
+        int rollingWorkoutCount = lastSevenDays.stream()
+                .mapToInt(row -> defaultInteger(row.getCompletedWorkoutCount()))
+                .sum();
+        int rollingWorkoutMinutes = lastSevenDays.stream()
+                .mapToInt(row -> defaultInteger(row.getTotalWorkoutMinutes()))
+                .sum();
         int streak = liveStreakDays(userId, snapshot.getActiveStreakDays(), today);
+        // The old activeStreakDays and the new currentStreakDays carry the same live value.
         return new AnalyticsDashboardResponse.WorkoutSummary(
-                sameDay ? defaultInteger(snapshot.getTodayWorkoutCount()) : 0,
-                sameWeek ? defaultInteger(snapshot.getWeekWorkoutCount()) : 0,
-                sameWeek ? defaultInteger(snapshot.getWeekWorkoutMinutes()) : 0,
+                todayWorkoutCount,
+                rollingWorkoutCount,
+                rollingWorkoutMinutes,
                 streak,
                 thisWeek.totalWorkoutCount(),
                 thisWeek.totalWorkoutMinutes(),
@@ -791,22 +804,22 @@ public class AnalyticsServiceImpl implements AnalyticsService {
      * final day. That clamp is intentional and makes month-end comparisons behave as "this month vs
      * last month", even when the window lengths differ.
      */
-    private PeriodRanges compareRanges(LocalDate todayUtc, ComparePeriod period) {
+    private PeriodRanges compareRanges(LocalDate today, ComparePeriod period) {
         return switch (period) {
             case WEEK -> {
-                LocalDate currentFrom = todayUtc.with(WeekFields.ISO.dayOfWeek(), 1);
-                long elapsedDays = ChronoUnit.DAYS.between(currentFrom, todayUtc);
+                LocalDate currentFrom = today.with(WeekFields.ISO.dayOfWeek(), 1);
+                long elapsedDays = ChronoUnit.DAYS.between(currentFrom, today);
                 LocalDate previousFrom = currentFrom.minusWeeks(1);
                 yield new PeriodRanges(
-                        currentFrom, todayUtc, previousFrom, previousFrom.plusDays(elapsedDays), currentFrom.plusDays(6));
+                        currentFrom, today, previousFrom, previousFrom.plusDays(elapsedDays), currentFrom.plusDays(6));
             }
             case MONTH -> {
-                LocalDate currentFrom = todayUtc.withDayOfMonth(1);
+                LocalDate currentFrom = today.withDayOfMonth(1);
                 LocalDate previousFrom = currentFrom.minusMonths(1);
-                int previousEndDay = Math.min(todayUtc.getDayOfMonth(), previousFrom.lengthOfMonth());
+                int previousEndDay = Math.min(today.getDayOfMonth(), previousFrom.lengthOfMonth());
                 yield new PeriodRanges(
                         currentFrom,
-                        todayUtc,
+                        today,
                         previousFrom,
                         previousFrom.withDayOfMonth(previousEndDay),
                         currentFrom.withDayOfMonth(currentFrom.lengthOfMonth()));
@@ -839,6 +852,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 percentageDelta(delta, previous));
     }
 
+    /** Percent change against the previous period; null when the previous period is zero (no baseline). */
     private Double percentageDelta(BigDecimal delta, BigDecimal previous) {
         if (previous.compareTo(BigDecimal.ZERO) == 0) {
             return null;
@@ -1011,7 +1025,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
             return null;
         }
         BigDecimal total = values.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        return total.divide(BigDecimal.valueOf(values.size()), 4, java.math.RoundingMode.HALF_UP).doubleValue();
+        return total.divide(BigDecimal.valueOf(values.size()), 4, RoundingMode.HALF_UP).doubleValue();
     }
 
     private static Double toNullableDouble(BigDecimal value) {

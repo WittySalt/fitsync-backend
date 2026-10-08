@@ -9,8 +9,8 @@ import jakarta.validation.constraints.Size;
 
 /**
  * One recipe ingredient: a catalog food + quantity. {@code foodServingId} is optional — the food's
- * default serving is used when omitted. (v1 supports catalog foods only; custom-food ingredients
- * are a follow-up.)
+ * default serving is used when omitted. When {@code grams} is set the ingredient is counted by that weight
+ * instead and the serving is ignored. Only catalog foods can be ingredients; custom foods cannot.
  */
 public record RecipeIngredientInput(
         @NotNull UUID foodCatalogItemId,

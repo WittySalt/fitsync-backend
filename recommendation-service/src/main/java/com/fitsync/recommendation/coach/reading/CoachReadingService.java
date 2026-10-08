@@ -63,6 +63,12 @@ public class CoachReadingService {
     /** How long a PENDING row is trusted to mean "a generation is genuinely still running". */
     private static final long PENDING_ABANDON_SECONDS = 60L;
 
+    /**
+     * A reading's id is this many leading hex characters of its facts hash: short enough for a client to
+     * carry back on a coach turn, and still only matched when the facts and period are the same.
+     */
+    private static final int READING_ID_LENGTH = 16;
+
     private final Map<ReadingSurface, ReadingPage> pages;
     private final ReadingValidator validator;
     private final CoachPageReadingStore store;
@@ -144,7 +150,7 @@ public class CoachReadingService {
         }
 
         String hash = hash(snapshot);
-        String computedId = hash.substring(0, 16);
+        String computedId = hash.substring(0, READING_ID_LENGTH);
         if (!CoachPageReadingStore.hashesMatch(computedId, readingId)) {
             return Optional.empty();
         }
@@ -228,7 +234,7 @@ public class CoachReadingService {
         }
 
         String hash = hash(snapshot);
-        String readingId = hash.substring(0, 16);
+        String readingId = hash.substring(0, READING_ID_LENGTH);
         Instant now = Instant.now(clock);
 
         Optional<CoachPageReadingEntity> existing = store.find(userId, surface);

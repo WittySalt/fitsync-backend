@@ -1,5 +1,6 @@
 package com.fitsync.nutrition.messaging;
 
+import java.math.RoundingMode;
 import java.time.Instant;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
@@ -10,12 +11,18 @@ import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Keeps the local projection of the user's nutrition targets in step with GoalUpdated events from
+ * user-service. Only calorie and macro goals are tracked; any other goal type is ignored. A goal that
+ * is no longer ACTIVE clears its target and date but keeps the goal id.
+ */
 @Service
 public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpdatedPayload> {
 
     private static final String ACTIVE = "ACTIVE";
     private static final String CALORIES = "CALORIES";
     private static final String PROTEIN = "PROTEIN";
+    /** Carbohydrate goals arrive under either name. */
     private static final String CARBS = "CARBS";
     private static final String CARBOHYDRATES = "CARBOHYDRATES";
     private static final String FAT = "FAT";
@@ -48,7 +55,9 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         boolean active = ACTIVE.equals(payload.status());
         if (CALORIES.equals(payload.goalType())) {
             entity.setCalorieGoalId(payload.goalId());
-            entity.setCalorieTarget(active && payload.targetValue() != null ? payload.targetValue().intValue() : null);
+            // Rounded to the nearest kcal rather than cut off, so a 1999.6 kcal goal is 2000, not 1999.
+            entity.setCalorieTarget(active && payload.targetValue() != null
+                    ? payload.targetValue().setScale(0, RoundingMode.HALF_UP).intValue() : null);
             entity.setCalorieTargetDate(active ? payload.targetDate() : null);
         } else if (PROTEIN.equals(payload.goalType())) {
             entity.setProteinGoalId(payload.goalId());

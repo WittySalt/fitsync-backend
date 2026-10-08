@@ -62,6 +62,13 @@ import com.fitsync.web.error.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * The read side of the Diary: the day summary (macros against the goal projection, the nutrient balance lines
+ * with their top foods, water and protein per meal), a range of days, the vitamins and minerals table and one
+ * nutrient's page. Everything is summed from the snapshots on the logged meal items through
+ * {@link MealNutritionQueryRepository}, and compared with the person's references from
+ * {@link NutrientReferenceService}. An amount no item carries stays unknown rather than zero.
+ */
 @Service
 public class NutritionDiaryServiceImpl implements NutritionDiaryService {
 
@@ -85,6 +92,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
     private static final int DEFAULT_PAGE_DAYS = 7;
     // Fibre, sugar, sodium and saturated fat are columns of the meal item, not snapshotted nutrient rows.
     private static final Set<String> COLUMN_CODES = Set.of(FIBER, SUGAR, SODIUM, SAT_FAT);
+    /** Nutrients a vegetarian or vegan diet tends to fall short on; for those diets the table adds them first. */
     private static final List<String> FOCUS_CODES = List.of("VIT_B12", "IRON", "ZINC");
     private static final Set<String> FOCUS_DIETS = Set.of("VEGETARIAN", "VEGAN");
     private static final List<MealType> PROTEIN_MEAL_ORDER = List.of(
@@ -160,6 +168,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         Map<String, Map<String, SourceTotal>> sources = new HashMap<>();
         for (DiaryItemRow row : rows) {
             mealIds.add(row.getMealId());
+            // A meal without items (a fast, for one) still counts as a meal but adds no nutrition.
             if (row.getMealItemId() == null) {
                 continue;
             }
@@ -585,6 +594,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         BigDecimal average = known
                 ? total.divide(BigDecimal.valueOf(daysLogged), 2, RoundingMode.HALF_UP)
                 : null;
+        // A nutrient is judged against its target when it has one, otherwise against its limit.
         BigDecimal target = references.target(code);
         BigDecimal limit = target == null ? references.limit(code) : null;
         boolean isLimit = limit != null;
@@ -773,7 +783,7 @@ public class NutritionDiaryServiceImpl implements NutritionDiaryService {
         try {
             return ZoneId.of(timezone);
         } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("Invalid timezone");
+            throw new BadRequestException("Invalid timezone");
         }
     }
 

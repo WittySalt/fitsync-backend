@@ -113,7 +113,7 @@ public class RecommendationResolver {
 
     /**
      * Recompute the rule stage for a user (the {@code POST /refresh} entry point).
-     * Rules run synchronously; a future AI stage is enqueued from here, never inline.
+     * Rules run synchronously; no model is called on this path.
      */
     @Transactional
     public void refresh(UUID userId) {

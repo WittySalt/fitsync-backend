@@ -4,8 +4,8 @@
 
 Related design references:
 
-- [workout-service-design.md](/E:/Code/NUS-ISS/Capstone/backend/workout-service/workout-service-design.md)
-- [backend-kafka-event-architecture.md](/E:/Code/NUS-ISS/Capstone/backend/backend-kafka-event-architecture.md)
+- [workout-service-design.md](workout-service-design.md)
+- [backend-kafka-event-architecture.md](../backend-kafka-event-architecture.md)
 
 ## Current Scope
 
@@ -20,6 +20,7 @@ Implemented backend capabilities:
   - `WorkoutLogged`
   - `WorkoutUpdated`
   - `WorkoutDeleted`
+  - `PersonalRecordAchieved`
 - admin-only internal outbox relay endpoint
 
 ## Local Run
@@ -72,9 +73,12 @@ curl -X POST "http://localhost:8082/api/v1/internal/outbox/publish?batchSize=10"
   -H "Authorization: Bearer <admin-jwt>"
 ```
 
-The internal relay endpoint is `ADMIN`-only:
+The internal endpoints are `ADMIN`-only:
 
 - `POST /api/v1/internal/outbox/publish`
+- `GET /api/v1/internal/outbox/pending`
+- `POST /api/v1/internal/workouts/exercises/import-catalog`
+- `GET /api/v1/internal/workouts/exercises/summary`
 
 ## Useful APIs
 
@@ -96,14 +100,14 @@ The internal relay endpoint is `ADMIN`-only:
 Run the normal test suite:
 
 ```powershell
-mvn "-Dmaven.repo.local=E:/Code/NUS-ISS/Capstone/backend/.m2/repository" -pl workout-service -am test
+mvn -pl workout-service -am test
 ```
 
 Run the broker-backed Kafka relay integration test after Kafka is up:
 
 ```powershell
 $env:KAFKA_INTEGRATION_TESTS="true"
-mvn "-Dmaven.repo.local=E:/Code/NUS-ISS/Capstone/backend/.m2/repository" -pl workout-service -am verify
+mvn -pl workout-service -am verify
 ```
 
 The Kafka integration test class is:

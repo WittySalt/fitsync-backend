@@ -2,12 +2,11 @@ package com.fitsync.analytics.messaging;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.LocalDate;
 import java.util.Set;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
 import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
@@ -22,6 +21,11 @@ import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Handles GoalUpdated: upserts the goal's progress row (or drops it when the goal was archived or cancelled),
+ * marks an active goal past its target date as expired, mirrors calorie and protein targets onto the dashboard
+ * snapshot and re-evaluates the goal. Redelivered events are skipped through the processed-event table.
+ */
 @Service
 public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpdatedPayload> {
 
@@ -65,20 +69,23 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
 
         GoalUpdatedPayload payload = event.payload();
         if (payload == null) {
-            recordProcessedEvent(event);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             return;
         }
 
         Instant evaluatedAt = event.occurredAt() != null ? event.occurredAt() : Instant.now(clock);
-        String goalStatus = resolveGoalStatus(payload, evaluatedAt);
+        // A goal expires at the user's midnight, as the nightly rollup and the reads decide it, so the
+        // event's day is taken in the user's zone; the UTC date expired goals a day early or late.
+        LocalDate eventDay = goalProgressEvaluator.activityDateForUser(event.userId(), evaluatedAt);
+        String goalStatus = resolveGoalStatus(payload, eventDay);
 
         if (isRemoved(payload.status())) {
             // Soft-deleted upstream: drop the row from the read model so it disappears
             // from goal-progress and stops counting toward dashboard targets. Guard the
             // delete so a removal event for a never-projected goal is a no-op.
             goalProgressRepository.findById(payload.goalId()).ifPresent(goalProgressRepository::delete);
-            updateDashboardTargets(event, payload);
-            recordProcessedEvent(event);
+            updateDashboardTargets(event, payload, eventDay);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             cacheInvalidationService.evictForUser(event.userId());
             return;
         }
@@ -95,8 +102,7 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         captureWeightBaselineIfAvailable(event, payload, entity);
         entity.setLastEvaluatedAt(evaluatedAt);
         if (GoalExpiryPolicy.isActive(goalStatus)) {
-            entity.setDaysRemaining(GoalExpiryPolicy.daysRemaining(
-                    payload.targetDate(), evaluatedAt.atZone(ZoneOffset.UTC).toLocalDate()));
+            entity.setDaysRemaining(GoalExpiryPolicy.daysRemaining(payload.targetDate(), eventDay));
         } else {
             entity.setOnTrack(false);
             entity.setProgressRatio(null);
@@ -105,14 +111,14 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         }
         goalProgressRepository.save(entity);
 
-        updateDashboardTargets(event, payload);
+        updateDashboardTargets(event, payload, eventDay);
         if (GoalExpiryPolicy.isActive(goalStatus) && payload.goalType() != null) {
             goalProgressEvaluator.recompute(
                     event.userId(),
                     Set.of(payload.goalType()),
                     goalProgressEvaluator.todayForUser(event.userId()));
         }
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(event.userId());
     }
 
@@ -127,7 +133,9 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
                 .ifPresent(entity::setBaselineValue);
     }
 
-    private void updateDashboardTargets(FitSyncDomainEvent<GoalUpdatedPayload> event, GoalUpdatedPayload payload) {
+    private void updateDashboardTargets(FitSyncDomainEvent<GoalUpdatedPayload> event,
+                                        GoalUpdatedPayload payload,
+                                        LocalDate eventDay) {
         if (!CALORIES.equals(payload.goalType()) && !PROTEIN.equals(payload.goalType())) {
             return;
         }
@@ -138,7 +146,7 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
                 .orElseThrow(() -> new IllegalStateException("Dashboard snapshot was not created"));
 
         boolean active = GoalExpiryPolicy.isActive(payload.status())
-                && !GoalExpiryPolicy.isExpired(payload.targetDate(), generatedAt.atZone(ZoneOffset.UTC).toLocalDate());
+                && !GoalExpiryPolicy.isExpired(payload.targetDate(), eventDay);
         if (CALORIES.equals(payload.goalType())) {
             snapshot.setTodayCaloriesTarget(active && payload.targetValue() != null ? payload.targetValue().intValue() : null);
         } else {
@@ -148,23 +156,14 @@ public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpd
         dashboardSnapshotRepository.save(snapshot);
     }
 
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() != null ? event.occurredAt() : Instant.now(clock));
-        processedEventRepository.save(processedEvent);
-    }
-
     private boolean isRemoved(String status) {
         String normalized = GoalExpiryPolicy.normalizeStatus(status);
         return "ARCHIVED".equals(normalized) || "CANCELLED".equals(normalized);
     }
 
-    private String resolveGoalStatus(GoalUpdatedPayload payload, Instant evaluatedAt) {
+    private String resolveGoalStatus(GoalUpdatedPayload payload, LocalDate eventDay) {
         if (GoalExpiryPolicy.isActive(payload.status())
-                && GoalExpiryPolicy.isExpired(payload.targetDate(), evaluatedAt.atZone(ZoneOffset.UTC).toLocalDate())) {
+                && GoalExpiryPolicy.isExpired(payload.targetDate(), eventDay)) {
             return GoalExpiryPolicy.EXPIRED_STATUS;
         }
         return payload.status();

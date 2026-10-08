@@ -43,6 +43,7 @@ public class JwtService {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
+    /** Accepts the secret Base64-encoded or, when it does not decode, as plain UTF-8 text. */
     private byte[] resolveKeyBytes() {
         String secret = jwtProperties.secret();
         try {

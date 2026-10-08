@@ -53,6 +53,10 @@ public class RecipeInsightService {
 
     private static final String FOOD_GROUP_OTHER = "OTHER";
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
+    // The tag thresholds follow the EU nutrition-claim rules (high protein: at least 20 % of the energy from
+    // protein; high fibre: at least 6 g per 100 g) and the UK front-of-pack "high" levels (sugar over 22.5 g,
+    // salt over 1.5 g, so sodium over 600 mg, per 100 g). The 3 g protein floor keeps a dish with little
+    // protein in absolute terms from the "High protein" tag.
     private static final BigDecimal PROTEIN_ENERGY_SHARE = new BigDecimal("0.20");
     private static final BigDecimal KCAL_PER_GRAM_PROTEIN = BigDecimal.valueOf(4);
     private static final BigDecimal HIGH_PROTEIN_MIN_PER_100G = BigDecimal.valueOf(3);

@@ -35,6 +35,9 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  # Let Tomcat's RemoteIpValve take the client address from X-Forwarded-For, but only when the request
+  # comes from a trusted private-range proxy (nginx, the load balancer); a client-sent header is ignored.
+  forward-headers-strategy: native
 
 management:
   endpoints:

@@ -13,5 +13,8 @@ public interface FoodCategoryRepository extends JpaRepository<FoodCategoryEntity
 
     List<FoodCategoryEntity> findByCodeInAndActiveTrue(List<String> codes);
 
+    /** Inactive categories included, so a food or meal item filed under a retired category keeps its group. */
+    List<FoodCategoryEntity> findByCodeIn(List<String> codes);
+
     Optional<FoodCategoryEntity> findByCategoryIdAndActiveTrue(UUID categoryId);
 }

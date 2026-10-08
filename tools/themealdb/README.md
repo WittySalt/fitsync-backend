@@ -56,7 +56,7 @@ python tools/themealdb/import_recipes.py --self-test    # measure parser and ste
 
 The result is deterministic: running it twice gives a byte-identical file. The script also checks that the
 quotes and parentheses of every statement balance. The V902 migration needs the columns and the
-`recipe_steps` table of the recipe library migration (`recipes-data-model.zh.md`, sections 2.1 to 2.3), so it
+`recipe_steps` table of the recipe library migration (`V21__create_recipe_library.sql`), so it
 cannot run against a database before that migration.
 
 ## How it decides

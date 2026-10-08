@@ -1,5 +1,9 @@
 # FitSync Backend Kafka Event Architecture
 
+> **Status:** planning document written in June 2026, before most services were built. Its
+> "current state" and phase sections are historical; for what exists today see
+> [README.md](README.md) and the code.
+
 ## 1. Purpose
 
 This document defines the recommended Kafka and event-driven design for the FitSync backend.
@@ -17,8 +21,8 @@ It covers:
 
 This document complements:
 
-- [backend.md](E:/Code/NUS-ISS/Capstone/backend/backend.md)
-- [backend-api-communication.md](E:/Code/NUS-ISS/Capstone/backend/backend-api-communication.md)
+- [backend.md](backend.md)
+- [backend-api-communication.md](backend-api-communication.md)
 
 ---
 

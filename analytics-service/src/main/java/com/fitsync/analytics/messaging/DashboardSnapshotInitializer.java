@@ -9,6 +9,11 @@ import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * Creates an empty dashboard snapshot row for a user if none exists, so the projections can load and update
+ * it without racing each other on the first insert. Postgres uses {@code on conflict do nothing}; H2, used
+ * by tests, lacks that syntax and gets a check-then-insert instead.
+ */
 @Component
 public class DashboardSnapshotInitializer {
 

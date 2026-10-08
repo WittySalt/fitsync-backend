@@ -47,8 +47,6 @@ import com.fitsync.user.entity.BodyMetricEntryEntity;
 import com.fitsync.user.entity.UserAppPreferencesEntity;
 import com.fitsync.user.entity.UserGoalEntity;
 import com.fitsync.user.entity.UserHealthReadinessEntity;
-import com.fitsync.user.entity.UserNotificationPreferencesEntity;
-import com.fitsync.user.entity.UserNutritionPreferencesEntity;
 import com.fitsync.user.entity.UserTrainingPreferencesEntity;
 import com.fitsync.user.messaging.DomainEventPublisher;
 import com.fitsync.user.repository.AccountDataExportRequestRepository;
@@ -146,6 +144,64 @@ class UserServiceImplTests {
 
         assertEquals(java.util.List.of("LEFT_KNEE", "LOWER_BACK"), view.injuryAreas());
         assertEquals(Instant.parse("2026-06-20T09:15:00Z"), view.acknowledgedDisclaimerAt());
+    }
+
+    @Test
+    void upsertHealthReadinessDeduplicatesInjuryAreasAfterNormalising() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "health@test.dev", "Health", "USER");
+        when(fixtures.userHealthReadinessRepository.findById(userId)).thenReturn(Optional.empty());
+        when(fixtures.userHealthReadinessRepository.save(any(UserHealthReadinessEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        HealthReadinessView view = fixtures.service.upsertHealthReadiness(
+                principal,
+                new UpsertHealthReadinessRequest(
+                        false, false, false, true, false, false,
+                        java.util.List.of("knee", "lower_back", " KNEE ", "Lower_Back"),
+                        null));
+
+        assertEquals(java.util.List.of("KNEE", "LOWER_BACK"), view.injuryAreas());
+    }
+
+    @Test
+    void accountDataExportCarriesTheWholeBodyMetricHistoryAndReadsGoalsOnce() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        CurrentUserPrincipal principal = new CurrentUserPrincipal(userId, "export@test.dev", "Export", "USER");
+        com.fitsync.user.entity.AccountDataExportRequestEntity exportRequest =
+                new com.fitsync.user.entity.AccountDataExportRequestEntity();
+        exportRequest.setUserId(userId);
+        exportRequest.setStatus(com.fitsync.user.domain.AccountDataExportStatus.READY);
+        UUID exportRequestId = UUID.randomUUID();
+        when(fixtures.accountDataExportRequestRepository.findByExportRequestIdAndUserId(exportRequestId, userId))
+                .thenReturn(Optional.of(exportRequest));
+        when(fixtures.userProfileRepository.findById(userId))
+                .thenReturn(Optional.of(new com.fitsync.user.entity.UserProfileEntity()));
+        when(fixtures.userAppPreferencesRepository.findById(userId)).thenReturn(Optional.of(new UserAppPreferencesEntity()));
+        when(fixtures.userTrainingPreferencesRepository.findById(userId))
+                .thenReturn(Optional.of(new UserTrainingPreferencesEntity()));
+        when(fixtures.userNutritionPreferencesRepository.findById(userId))
+                .thenReturn(Optional.of(new com.fitsync.user.entity.UserNutritionPreferencesEntity()));
+        when(fixtures.userNotificationPreferencesRepository.findById(userId))
+                .thenReturn(Optional.of(new com.fitsync.user.entity.UserNotificationPreferencesEntity()));
+        Instant newest = Instant.parse("2026-09-30T08:00:00Z");
+        List<BodyMetricEntryEntity> history = java.util.stream.IntStream.range(0, 250)
+                .mapToObj(day -> weight(userId, newest.minus(day, ChronoUnit.DAYS), "70.0"))
+                .toList();
+        when(fixtures.bodyMetricEntryRepository.findByUserIdOrderByMeasuredAtDesc(userId)).thenReturn(history);
+        when(fixtures.userGoalRepository.findByUserIdOrderByGoalTypeAsc(userId))
+                .thenReturn(List.of(goal(userId, GoalType.WEIGHT, GoalStatus.ACTIVE, "65.00", "kg")));
+
+        var export = fixtures.service.downloadAccountDataExport(principal, exportRequestId);
+
+        assertEquals(250, export.bodyMetrics().size());
+        assertEquals(newest, export.bodyMetrics().get(0).measuredAt());
+        assertEquals(newest, export.account().latestBodyMetrics().measuredAt());
+        assertEquals(1, export.goals().size());
+        assertEquals(export.goals(), export.account().activeGoals());
+        verify(fixtures.userGoalRepository, times(1)).findByUserIdOrderByGoalTypeAsc(userId);
     }
 
     @Test

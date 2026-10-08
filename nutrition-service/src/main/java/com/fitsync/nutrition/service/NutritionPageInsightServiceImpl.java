@@ -24,9 +24,15 @@ import com.fitsync.nutrition.repository.MealNutritionQueryRepository;
 import com.fitsync.nutrition.repository.MealNutritionQueryRepository.MealNutritionRow;
 import com.fitsync.nutrition.repository.NutritionTargetRepository;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import com.fitsync.web.error.BadRequestException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * The weekly insight on the Nutrition page: average protein and calories per logged day over the last full
+ * Monday-to-Sunday week (or this week so far), next to the week before and the person's targets, with the
+ * protein split by meal type. Days without meals are left out of the averages rather than counted as zero.
+ */
 @Service
 public class NutritionPageInsightServiceImpl implements NutritionPageInsightService {
 
@@ -132,7 +138,7 @@ public class NutritionPageInsightServiceImpl implements NutritionPageInsightServ
         try {
             return ZoneId.of(timezone);
         } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("Invalid timezone");
+            throw new BadRequestException("Invalid timezone");
         }
     }
 

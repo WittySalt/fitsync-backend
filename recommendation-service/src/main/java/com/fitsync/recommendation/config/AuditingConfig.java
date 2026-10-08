@@ -10,6 +10,10 @@ import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+/**
+ * Fills the JPA audit columns with the authenticated caller's name, or {@code system} when the write
+ * happens outside a user request, such as from an event handler.
+ */
 @Configuration
 @EnableJpaAuditing
 public class AuditingConfig {

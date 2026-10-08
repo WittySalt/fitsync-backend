@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.RecipeCookedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles RecipeCooked by adding one to the user's cook counter. */
 @Service
 public class RecipeCookedEventConsumerImpl implements DomainEventConsumer<RecipeCookedPayload> {
 

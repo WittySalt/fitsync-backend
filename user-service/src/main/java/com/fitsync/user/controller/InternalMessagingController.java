@@ -67,8 +67,9 @@ public class InternalMessagingController {
     }
 
     /**
-     * Republishes the profile, the preferences and the latest weight of every user, so that the projections of
-     * other services are filled once for users who have not changed anything since those projections existed.
+     * Republishes the nutrition reference profile, the preferences, the latest weight and the energy profile of
+     * every user, so that the projections of other services are filled once for users who have not changed
+     * anything since those projections existed.
      */
     @PostMapping("/profiles/reconcile")
     public ResponseEntity<PersonFactsReconcileResponse> reconcilePersonFacts() {
@@ -88,7 +89,10 @@ public class InternalMessagingController {
         return ResponseEntity.ok(result);
     }
 
-    /** The admin's user id, or null when the caller is not a signed-in user (never a free-text name, so it is safe to log). */
+    /**
+     * The admin's user id, or null when the caller is not a signed-in user (never a free-text name, so it is
+     * safe to log).
+     */
     private static UUID adminId(Authentication authentication) {
         if (authentication != null && authentication.getPrincipal() instanceof CurrentUserPrincipal principal) {
             return principal.userId();

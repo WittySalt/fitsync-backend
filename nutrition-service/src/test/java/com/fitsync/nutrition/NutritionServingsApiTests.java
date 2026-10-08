@@ -81,6 +81,22 @@ class NutritionServingsApiTests extends DiaryApiTestBase {
     }
 
     @Test
+    void aMillilitreFoodWithNoDensityIsWeighedAsWater() throws Exception {
+        String token = tokenFor("servings-no-density@example.com");
+        Seeded juice = seedFood("Cloudy juice", "BEVERAGES", false, "ml", 40, "0", null, mapOf())
+                .addServing("1 glass", "ml", "250", "250");
+        jdbcTemplate.update("update food_catalog_items set density_grams_per_ml = null where food_id = ?", juice.foodId);
+
+        // A 250 ml glass of a food with no recorded density weighs 250 g, the same 1 g per ml the gram path assumes.
+        mockMvc.perform(post(BASE + "/meals").contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content(mealJson("LUNCH", "2026-06-11T12:00:00Z", juice, "1 glass", "1")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.items[0].calories").value(100))
+                .andExpect(jsonPath("$.items[0].gramsConsumed").value(250.0));
+    }
+
+    @Test
     void aServingOfAnotherFoodIsRejected() throws Exception {
         String token = tokenFor("servings-other@example.com");
         String body = """

@@ -40,10 +40,21 @@ import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.web.util.UriUtils;
 
+/**
+ * Forwards each public route to its owning service unchanged in path and query, stripping hop-by-hop
+ * and identity headers from the client and replacing the identity headers with the ones derived from the
+ * token this gateway has already verified.
+ */
 @Service
 public class GatewayProxyServiceImpl implements GatewayProxyService {
 
     private static final Logger LOG = LoggerFactory.getLogger(GatewayProxyServiceImpl.class);
+
+    /**
+     * Never copied in either direction. Besides the standard hop-by-hop headers this includes the identity
+     * and correlation headers, so a client cannot spoof them: the gateway sets them itself after authenticating.
+     */
+    private static final String FORWARDED_FOR = "X-Forwarded-For";
 
     private static final List<String> HOP_BY_HOP_HEADERS = List.of(
             HttpHeaders.HOST.toLowerCase(Locale.ROOT),
@@ -281,7 +292,23 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
                 headers.add(headerName, values.nextElement());
             }
         }
+        appendForwardedFor(headers, request.getRemoteAddr());
         return headers;
+    }
+
+    /**
+     * Adds the address this request came from to {@code X-Forwarded-For}, as any proxy does. A service behind
+     * the gateway trusts only the hops it knows (private addresses), so it reads the client from the last
+     * untrusted entry; without this, a client calling the gateway directly could put any address there.
+     */
+    private static void appendForwardedFor(HttpHeaders headers, String remoteAddress) {
+        if (remoteAddress == null || remoteAddress.isBlank()) {
+            return;
+        }
+        List<String> forwardedFor = headers.get(FORWARDED_FOR);
+        headers.set(FORWARDED_FOR, forwardedFor == null || forwardedFor.isEmpty()
+                ? remoteAddress
+                : String.join(", ", forwardedFor) + ", " + remoteAddress);
     }
 
     private HttpHeaders filterResponseHeaders(HttpHeaders downstreamHeaders) {

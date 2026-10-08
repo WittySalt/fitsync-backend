@@ -2,9 +2,9 @@
 
 Declarative provisioning of the FitSync AWS environment. This is the **cloud-resource
 layer** of our IaC story; the **runtime layer** (container orchestration) lives in
-`backend/docker-compose.prod.yml`, `backend/scripts/ec2-deploy.sh`, and `.github/workflows/cd.yml`.
+`docker-compose.prod.yml`, `scripts/ec2-deploy.sh`, and `.github/workflows/cd.yml`.
 
-> **Location:** this lives at `backend/infra/terraform/` (inside the backend repo, so
+> **Location:** this lives at `infra/terraform/` (inside the backend repo, so
 > the CD workflow can run it). **State:** remote in S3
 > (`s3://fitsync-tfstate-437659978621`, native `use_lockfile` locking) — local and CI
 > share one state. `terraform init` requires AWS credentials.

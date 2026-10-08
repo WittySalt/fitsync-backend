@@ -8,7 +8,6 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -449,14 +448,7 @@ public class AnalyticsEnergyService {
         String stored = dashboardSnapshotRepository.findById(userId)
                 .map(AnalyticsUserDashboardSnapshotEntity::getTimezone)
                 .orElse(null);
-        if (stored != null && !stored.isBlank()) {
-            try {
-                return ZoneId.of(stored.trim());
-            } catch (DateTimeException ex) {
-                return ZoneOffset.UTC;
-            }
-        }
-        return ZoneOffset.UTC;
+        return UserZone.of(stored);
     }
 
     private static int restingKcal(Integer bmrKcal) {

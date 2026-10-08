@@ -1,12 +1,12 @@
 package com.fitsync.analytics.messaging;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Set;
 
 import com.fitsync.contracts.events.DomainEventConsumer;
-import com.fitsync.analytics.entity.AnalyticsProcessedEventEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
 import com.fitsync.analytics.repository.AnalyticsProcessedEventRepository;
@@ -14,6 +14,7 @@ import com.fitsync.analytics.repository.AnalyticsUserDashboardSnapshotRepository
 import com.fitsync.analytics.repository.AnalyticsUserDailyBodyRepository;
 import com.fitsync.analytics.repository.AnalyticsUserGoalProgressRepository;
 import com.fitsync.analytics.service.AnalyticsCacheInvalidationService;
+import com.fitsync.analytics.service.BodyWeightChange;
 import com.fitsync.analytics.service.GoalProgressEvaluator;
 import com.fitsync.analytics.service.GoalExpiryPolicy;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
@@ -21,6 +22,11 @@ import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Handles BodyMetricsRecorded: writes the day's body row (with weight deltas against the previous entry and
+ * the first entry), refreshes the body fields of the dashboard snapshot, fills missing weight-goal baselines
+ * and re-evaluates weight goals. Redelivered events are skipped through the processed-event table.
+ */
 @Service
 public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer<BodyMetricsRecordedPayload> {
 
@@ -31,6 +37,7 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
     private final AnalyticsCacheInvalidationService cacheInvalidationService;
     private final DashboardSnapshotInitializer dashboardSnapshotInitializer;
     private final GoalProgressEvaluator goalProgressEvaluator;
+    private final Clock clock;
 
     public BodyMetricsRecordedEventConsumerImpl(AnalyticsProcessedEventRepository processedEventRepository,
                                                 AnalyticsUserDailyBodyRepository dailyBodyRepository,
@@ -38,7 +45,8 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
                                                 AnalyticsUserDashboardSnapshotRepository dashboardSnapshotRepository,
                                                 AnalyticsCacheInvalidationService cacheInvalidationService,
                                                 DashboardSnapshotInitializer dashboardSnapshotInitializer,
-                                                GoalProgressEvaluator goalProgressEvaluator) {
+                                                GoalProgressEvaluator goalProgressEvaluator,
+                                                Clock clock) {
         this.processedEventRepository = processedEventRepository;
         this.dailyBodyRepository = dailyBodyRepository;
         this.goalProgressRepository = goalProgressRepository;
@@ -46,6 +54,7 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
         this.cacheInvalidationService = cacheInvalidationService;
         this.dashboardSnapshotInitializer = dashboardSnapshotInitializer;
         this.goalProgressEvaluator = goalProgressEvaluator;
+        this.clock = clock;
     }
 
     @Override
@@ -57,7 +66,7 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
 
         BodyMetricsRecordedPayload payload = event.payload();
         if (payload == null || payload.measuredAt() == null) {
-            recordProcessedEvent(event);
+            ProcessedEvents.record(processedEventRepository, event, clock);
             return;
         }
 
@@ -80,7 +89,8 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
                 .orElseThrow(() -> new IllegalStateException("Dashboard snapshot was not created"));
         snapshot.setLatestWeightKg(payload.weightKg());
         snapshot.setLatestBodyFatRate(payload.bodyFatRate());
-        snapshot.setWeightChange30d(resolveWeightChange30d(event.userId(), metricDate, payload.weightKg()));
+        snapshot.setWeightChange30d(
+                BodyWeightChange.over30Days(dailyBodyRepository, event.userId(), metricDate, payload.weightKg()));
         applyLatestWaist(snapshot, payload.waistCm(), metricDate);
         snapshot.setGeneratedAt(generatedAt);
         dashboardSnapshotRepository.save(snapshot);
@@ -90,7 +100,7 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
                 event.userId(),
                 Set.of(GoalProgressEvaluator.WEIGHT),
                 goalProgressEvaluator.todayForUser(event.userId()));
-        recordProcessedEvent(event);
+        ProcessedEvents.record(processedEventRepository, event, clock);
         cacheInvalidationService.evictForUser(event.userId());
     }
 
@@ -114,19 +124,6 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
                 .filter(startWeight -> startWeight != null)
                 .map(weightKg::subtract)
                 .orElse(BigDecimal.ZERO);
-    }
-
-    private BigDecimal resolveWeightChange30d(java.util.UUID userId, LocalDate metricDate, BigDecimal weightKg) {
-        if (weightKg == null) {
-            return null;
-        }
-        return dailyBodyRepository.findTopByUserIdAndMetricDateLessThanEqualOrderByMetricDateDesc(
-                        userId,
-                        metricDate.minusDays(30))
-                .map(AnalyticsUserDailyBodyEntity::getWeightKg)
-                .filter(baseline -> baseline != null)
-                .map(weightKg::subtract)
-                .orElse(null);
     }
 
     /**
@@ -163,14 +160,5 @@ public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer
                     goal.setBaselineValue(baselineValue);
                     goalProgressRepository.save(goal);
                 });
-    }
-
-    private void recordProcessedEvent(FitSyncDomainEvent<?> event) {
-        AnalyticsProcessedEventEntity processedEvent = new AnalyticsProcessedEventEntity();
-        processedEvent.setEventId(event.eventId());
-        processedEvent.setEventType(event.eventType());
-        processedEvent.setUserId(event.userId());
-        processedEvent.setProcessedAt(event.occurredAt() != null ? event.occurredAt() : Instant.now());
-        processedEventRepository.save(processedEvent);
     }
 }

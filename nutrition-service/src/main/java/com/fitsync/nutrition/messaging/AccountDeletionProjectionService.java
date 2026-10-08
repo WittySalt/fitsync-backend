@@ -5,7 +5,6 @@ import java.util.UUID;
 
 import com.fitsync.nutrition.entity.FoodCatalogItemEntity;
 import com.fitsync.nutrition.entity.MealTemplateEntity;
-import com.fitsync.nutrition.entity.RecipeEntity;
 import com.fitsync.nutrition.repository.CustomFoodRepository;
 import com.fitsync.nutrition.repository.FoodBarcodeRepository;
 import com.fitsync.nutrition.repository.FoodCatalogItemRepository;
@@ -24,6 +23,12 @@ import com.fitsync.nutrition.repository.WaterLogRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Hard-deletes everything nutrition-service holds for a user when their account is deleted: meals and
+ * recipes (soft-deleted rows included), templates, the foods they own in the catalogue with their
+ * servings, profiles, details and barcodes, favourites, custom foods, water logs and the projections of
+ * their preferences and goals. Children are removed before parents because the tables have foreign keys.
+ */
 @Service
 public class AccountDeletionProjectionService {
 

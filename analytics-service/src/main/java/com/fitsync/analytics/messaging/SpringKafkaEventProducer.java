@@ -11,6 +11,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * Sends outbox rows to Kafka and waits for the broker's acknowledgement. The record is keyed by user id
+ * (aggregate id when there is no user), so one user's events stay in order on one partition, and carries the
+ * event metadata as headers.
+ */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka", name = "enabled", havingValue = "true")
 public class SpringKafkaEventProducer implements KafkaEventProducer {
