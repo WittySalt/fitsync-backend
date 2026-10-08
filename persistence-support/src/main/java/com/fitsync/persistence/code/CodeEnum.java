@@ -2,6 +2,10 @@ package com.fitsync.persistence.code;
 
 import java.util.Arrays;
 
+/**
+ * An enum persisted by a stable short code instead of its Java name, so a constant can be renamed without a data
+ * migration. Reading accepts the code, the constant name or a legacy code, ignoring case.
+ */
 public interface CodeEnum {
 
     String getCode();
@@ -10,6 +14,7 @@ public interface CodeEnum {
 
     String getDefaultDescription();
 
+    /** Codes this constant was stored under before, still accepted when reading old rows. */
     default String[] getLegacyCodes() {
         return new String[0];
     }

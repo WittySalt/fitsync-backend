@@ -16,6 +16,10 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 
+/**
+ * Provides a {@link MediaStorageService} backed by S3 (MinIO locally) to any service that has media-support on
+ * its classpath. Either bean can be replaced by declaring one of the same type.
+ */
 @AutoConfiguration
 @EnableConfigurationProperties(MediaStorageProperties.class)
 public class MediaStorageAutoConfiguration {
@@ -26,6 +30,7 @@ public class MediaStorageAutoConfiguration {
         S3ClientBuilder builder = S3Client.builder()
                 .region(Region.of(properties.region()))
                 .credentialsProvider(credentialsProvider(properties))
+                // Path-style URLs (endpoint/bucket/key), which MinIO needs and S3 still accepts.
                 .forcePathStyle(true);
         if (StringUtils.hasText(properties.endpoint())) {
             builder.endpointOverride(URI.create(properties.endpoint()));

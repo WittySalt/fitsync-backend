@@ -23,11 +23,18 @@ import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.util.backoff.FixedBackOff;
 
+/**
+ * The shared error handler for Kafka listeners. A failing record is retried a few times, unless the failure
+ * is one a retry cannot fix (a payload that does not parse or convert), and then logged with its topic,
+ * offset and event type and, when a Kafka template is available, sent to {@code <topic>.DLT} so the
+ * partition is not blocked by it.
+ */
 @Configuration
 @ConditionalOnClass(DefaultErrorHandler.class)
 public class CommonKafkaListenerErrorConfiguration {
 
     static final long KAFKA_LISTENER_RETRY_INTERVAL_MS = 2000L;
+    /** Retries after the first delivery, so a record is tried up to four times in all. */
     static final long KAFKA_LISTENER_MAX_RETRY_ATTEMPTS = 3L;
 
     private static final Logger log = LoggerFactory.getLogger(CommonKafkaListenerErrorConfiguration.class);
@@ -61,6 +68,7 @@ public class CommonKafkaListenerErrorConfiguration {
         }
         DeadLetterPublishingRecoverer deadLetterRecoverer = new DeadLetterPublishingRecoverer(
                 kafkaOperations,
+                // A negative partition lets the producer choose one, so the DLT need not match the source.
                 (record, exception) -> new TopicPartition(record.topic() + ".DLT", -1));
         return (record, exception) -> {
             logFailedRecord(record, exception, objectMapper);
