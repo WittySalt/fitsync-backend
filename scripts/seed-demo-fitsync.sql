@@ -24,6 +24,10 @@
 --   persona  which situation to generate. One of: steady, drifting, fresh.
 --            Defaults to steady. An unknown persona, or an email that matches
 --            no account, stops the script before anything is changed.
+--   now      the run time as Singapore wall-clock time, '2026-10-09T02:00'.
+--            Defaults to the current time. Every date comes from it, and no
+--            row is written after it. demo-reseed.ps1 passes one value to all
+--            three accounts.
 --
 -- HOW TO RUN  (must connect as a role that can see ALL schemas — the RDS master
 -- user, or the local Postgres superuser; a per-service user like nutrition_svc
@@ -59,24 +63,27 @@
 -- in-flight Kafka/outbox event re-projects analytics rows after the reset.
 --
 -- The three personas:
---   steady    Someone for whom things are going well: four sessions a week,
---             progressive overload, a calorie/protein window inside target,
---             and a steady downward weight trend.
---   drifting  Someone who started well and is slipping: sessions and weights
---             fall away over the most recent weeks, logging gets patchy, and
---             the WEIGHT goal's target date has already passed.
+--   steady    Someone for whom things are going well: four plan sessions a
+--             week, a short mobility session on every rest day of the last
+--             14 days (a streak of two weeks or more ending yesterday),
+--             progressive overload, meals every day, a weigh-in every two or
+--             three days (the latest yesterday) and a steady downward trend.
+--   drifting  Someone who did well until 13 days ago and is slipping: two
+--             short sessions and three days of meals in the last 12 days,
+--             nothing in the last three, no weigh-in for 10 days, weight
+--             creeping back up and the goal pace behind.
 --   fresh     Someone who has just finished onboarding: a profile and
 --             preferences, one goal, and otherwise empty history, so the
 --             empty states can be checked.
 --
 -- Recording-day shape (steady): history runs through YESTERDAY. Today carries a
---              breakfast and the first sip of water only, so the Home guide card, the
---              Diary and the Today views have something true to say in the morning.
+--              breakfast (07:30) and the first sip of water (08:00) only, each written
+--              only once its time has passed, and today's plan session is not done.
 --              One past Sunday is a FAST day (a FAST meal, no items) for the fasted-day
 --              line, three recipes are cooked (recipe_cooks plus the analytics cook
 --              counter), the badge ledger is cleared so the service writes it fresh on
 --              the first read, and the streak and energy projections are filled in.
---              Run it after 08:00 Singapore time so today's breakfast is not in the future.
+--              It can run at any hour: before 07:30 today simply has nothing logged yet.
 --
 -- Demo window: a ROLLING 60-day window that always ends on "today" (the
 --              current date in Asia/Singapore) so the Dashboard "Today"/streak
@@ -95,6 +102,10 @@
 \else
   \set persona steady
 \endif
+\if :{?now}
+\else
+  \set now ''
+\endif
 
 begin;
 
@@ -108,10 +119,16 @@ create temporary table demo_config on commit drop as
 select
     u.id                                                           as user_id,
     'Asia/Singapore'::text                                         as tz,
-    ((now() at time zone 'Asia/Singapore')::date - 59)             as d_start,
-    (now() at time zone 'Asia/Singapore')::date                    as d_today,
+    (r.now_local::date - 59)                                       as d_start,
+    r.now_local::date                                              as d_today,
+    r.now_local                                                    as now_local,
+    (r.now_local at time zone 'Asia/Singapore')                    as now_ts,
     lower(:'persona')                                              as persona
 from auth.app_users u
+-- The run's one "now", as Singapore wall-clock time. Every date and every cut-off for today is taken
+-- from it, so nothing is written after it. -v now='2026-10-09 02:00' pins it, for testing a run day.
+cross join (select coalesce(nullif(:'now', '')::timestamp,
+                            date_trunc('minute', now() at time zone 'Asia/Singapore')) as now_local) r
 where u.email = :'email';
 
 do $$
@@ -338,12 +355,14 @@ alter table demo_days add column meal_mult       numeric(5,3) not null default 1
 alter table demo_days add column shake_day       boolean not null default false;
 alter table demo_days add column fast_day         boolean not null default false;
 
--- STEADY: Monday/Friday strength, a Thursday run and Saturday badminton, every
--- week, which is the week the plan lays out; one Thursday (week 0) and one
--- Saturday (week 1) dropped inside the first three weeks so the record is not
--- a wall of perfect weeks. Weight rises every two
--- weeks going forward in time (equivalently: falls every two weeks the
--- further back from "now" you look), floored at 10 kg.
+-- o: whole days before today (0 is today, 1 yesterday). The recent story is laid out by o rather than
+-- by weekday, so that it reads the same on whatever day the seed runs.
+alter table demo_days add column o int;
+update demo_days dd set o = (c.d_today - dd.d) from demo_config c;
+
+-- STEADY: the plan's week (Monday/Friday strength, a Thursday run, Saturday badminton) every week; one
+-- Thursday (week 0) and one Saturday (week 1) dropped in the first three weeks, so the record is not a
+-- wall of perfect weeks. Lift weights rise every two weeks going forward in time, floored at 10 kg.
 update demo_days
 set is_training_day = dow in (1, 4, 5, 6),
     workout_kind = case dow when 1 then 'STRENGTH' when 5 then 'STRENGTH'
@@ -366,6 +385,19 @@ where dd.persona = 'steady'
   and dd.dow in (2, 4)
   and dd.w = dd.w_last + case when extract(isodow from c.d_today)::int >= 3 then 1 else 0 end;
 
+-- Light days: over the last 14 days every day without a plan session carries a short morning mobility
+-- session (20 or 25 minutes, no plan day), so the streak is a healthy run ending yesterday and the last
+-- two weeks have no empty day. These sessions do not count toward the plan's days.
+update demo_days
+set is_training_day  = true,
+    skip_session     = false,
+    workout_kind     = 'MOBILITY',
+    plan_dow         = null,
+    duration_minutes = case when idx % 2 = 0 then 20 else 25 end
+where persona = 'steady'
+  and o between 1 and 14
+  and not (is_training_day and not skip_session);
+
 update demo_days
 set bench_w = greatest(10, round(22.50 - 2.50 * tier, 2)),
     squat_w = greatest(10, round(18.00 - 2.00 * tier, 2)),
@@ -376,7 +408,7 @@ where persona = 'steady';
 update demo_days
 set meal_day  = true,
     meal_mult = case idx % 3 when 0 then 1.03 when 1 then 1.10 else 1.17 end,
-    shake_day = is_training_day and not skip_session
+    shake_day = is_training_day and not skip_session and workout_kind <> 'MOBILITY'
 where persona = 'steady';
 
 -- One past Sunday is a fasted day: the most recent Sunday before today. The day carries a FAST meal
@@ -390,60 +422,43 @@ where dd.persona = 'steady'
   and dd.d = c.d_today - case when extract(isodow from c.d_today)::int = 7
                               then 7 else extract(isodow from c.d_today)::int end;
 
--- DRIFTING: same shape as steady for the oldest weeks (m >= 4, "the first
--- five weeks"), drops to 3 sessions/week (no Saturday) for m in (2,3), then
--- to 2 sessions/week (Monday + Thursday only, Monday shortened to 40 min) for
--- m <= 1 — the most recent three calendar weeks (the still-forming current
--- week and the two completed weeks before it). Lift weight rises through the
--- oldest weeks, peaks four weeks before the last completed one, and then
--- falls, so that each of the recent weeks moves no more weight than the week
--- before it and the last completed week moves less.
+-- DRIFTING: the same plan and a good record until 13 days ago, then a slip over the last 12 days. In the
+-- slip there are two sessions (10 and 4 days ago), each shorter and lighter, done for the most recent
+-- plan day of its week (Monday at the latest), so most plan days of the slip go missed; meals are logged
+-- on three days only (10, 8 and 4 days ago, heavier); there is no weigh-in after 10 days ago and nothing
+-- at all in the last three days. No seven-day week of the slip holds four active days, so the weekly
+-- recap reads short of the four-day goal on any run day, and the streak is 0.
 update demo_days
-set is_training_day = case
-        when m >= 4      then dow in (1, 4, 5, 6)
-        when m in (2, 3) then dow in (1, 4, 5)
-        else                  dow in (1, 4)
-    end,
-    workout_kind = case dow when 1 then 'STRENGTH' when 5 then 'STRENGTH'
-                             when 4 then 'CARDIO'   when 6 then 'SPORT' end,
-    duration_minutes = case
-        when dow = 1 and m <= 1 then 40
-        when dow in (1, 5)      then 50
-        when dow = 4            then 35
-        when dow = 6            then 60
-    end,
+set is_training_day = case when o >= 13 then dow in (1, 4, 5, 6) else o in (10, 4) end,
+    plan_dow = case when o >= 13 then null
+                    when dow in (1, 2, 3) then 1 when dow = 4 then 4 when dow = 5 then 5 else 6 end,
     skip_session = false
 where persona = 'drifting';
 
-alter table demo_days add column fall int;
 update demo_days
-set fall = case
-        when m >= 4      then ceil((m - 4) / 2.0)::int
-        when m = 3       then 0
-        when m in (1, 2) then 1
-        else                  2
+set workout_kind = case coalesce(plan_dow, dow) when 1 then 'STRENGTH' when 5 then 'STRENGTH'
+                                                when 4 then 'CARDIO'   when 6 then 'SPORT' end,
+    duration_minutes = case
+        when o <= 12 then case coalesce(plan_dow, dow) when 4 then 25 when 6 then 45 else 40 end
+        when dow in (1, 5) then 50 when dow = 4 then 35 else 60
+    end
+where persona = 'drifting' and is_training_day;
+
+update demo_days
+set bench_w = greatest(10, round(20.00 - 2.50 * tier - case when o <= 12 then 2.50 else 0 end, 2)),
+    squat_w = greatest(10, round(16.00 - 2.00 * tier - case when o <= 12 then 2.00 else 0 end, 2)),
+    row_w   = greatest(10, round(18.00 - 2.00 * tier - case when o <= 12 then 2.00 else 0 end, 2)),
+    run_km  = greatest(3.00, round(5.25 - 0.25 * tier - case when o <= 12 then 1.25 else 0 end, 2))
+where persona = 'drifting';
+
+update demo_days
+set meal_day  = o >= 13 or o in (10, 8, 4),
+    meal_mult = case
+        when o <= 12 then 1.25 + (idx % 3) * 0.03
+        else case idx % 3 when 0 then 1.03 when 1 then 1.10 else 1.17 end
     end
 where persona = 'drifting';
-
-update demo_days
-set bench_w = greatest(10, round(20.00 - 2.50 * fall, 2)),
-    squat_w = greatest(10, round(16.00 - 2.00 * fall, 2)),
-    row_w   = greatest(10, round(18.00 - 2.00 * fall, 2)),
-    run_km  = greatest(4.00, round(5.25 - 0.25 * fall, 2))
-where persona = 'drifting';
-
--- Logged every day for the first five weeks (absolute week 0-4 from d_start),
--- about four days a week after that (Mon/Tue/Thu/Sat). Calories climb to the
--- 2,300-2,500 range on logged days in the last three weeks (absolute week
--- 6-8) as the deficit slips.
-update demo_days
-set meal_day  = case when w <= 4 then true else dow in (1, 2, 4, 6) end,
-    meal_mult = case
-        when w >= 6 then 1.25 + (idx % 3) * 0.03
-        else case idx % 3 when 0 then 1.03 when 1 then 1.10 else 1.17 end
-    end,
-    shake_day = is_training_day and not skip_session
-where persona = 'drifting';
+update demo_days set shake_day = meal_day and is_training_day where persona = 'drifting';
 
 -- FRESH: no training days, no meal days — demo_days keeps its all-false /
 -- 1.0 defaults, so the sections below naturally seed nothing for this
@@ -485,6 +500,7 @@ from demo_days dd
 cross join meals m
 where dd.persona <> 'fresh'
   and (dd.d < (select d_today from demo_config) or m.code = 'BFAST')  -- today has its breakfast only
+  and (dd.d + m.at_t) <= (select now_local from demo_config)           -- and only once its time has passed
   and dd.meal_day
   and (m.workout_only = false or dd.shake_day);
 
@@ -595,6 +611,7 @@ sized as (
       join demo_food_basis fb on fb.food_key = it.food_key
      where dd.persona <> 'fresh'
        and (dd.d < (select d_today from demo_config) or it.code = 'BFAST')
+       and (dd.d + m.at_t) <= (select now_local from demo_config)
        and dd.meal_day
        and (m.workout_only = false or dd.shake_day)
 )
@@ -755,7 +772,8 @@ on conflict do nothing;
 
 drop table snapshot_scale;
 
--- 3c. water_logs — four sips per day, ~2.3 L total, for the whole window (today: the first sip only).
+-- 3c. water_logs — four sips per day, ~2.3 L total, on every day with a meal or a fast (today: the first
+--     sip only, once 08:00 has passed).
 insert into nutrition.water_logs
     (water_id, user_id, amount_ml, logged_at, timezone,
      date_time_created, date_time_updated, created_by, updated_by, version)
@@ -774,18 +792,20 @@ select
     'demo-seed', 'demo-seed', 0
 from demo_days dd cross join sips s
 where dd.persona <> 'fresh'
-  and (dd.d < (select d_today from demo_config) or s.slot = 1);  -- today has the morning sip only
+  and (dd.meal_day or dd.fast_day)
+  and (dd.d < (select d_today from demo_config) or s.slot = 1)  -- today has the morning sip only
+  and (dd.d + s.at_t) <= (select now_local from demo_config);
 
 -- ============================================================================
 -- 4. USER profile data — body metrics + goals.
 -- ============================================================================
 
 -- 4a. body_metric_entries — Monday/Thursday mornings, skipped entirely for
---     "fresh". steady falls from 74.20 kg to 71.10 kg at a pace that picks up
+--     "fresh" (the days are set in the query). steady falls from 74.20 kg to 71.10 kg at a pace that picks up
 --     slightly, about 0.4 kg a week over the last four weeks, so that the rate
 --     of the last 28 days reaches the 68 kg goal before its date. drifting
---     falls from 74.20 kg to ~72.00 kg by day 35 (week 5) and climbs back to
---     ~72.90 kg by d_today. Small deterministic noise keeps the line from
+--     falls from 74.20 kg to 71.80 kg by day 30 and climbs back to about
+--     73.20 kg by its last weigh-in 10 days ago, so its 30-day change is a gain. Small deterministic noise keeps the line from
 --     being perfectly straight. Body fat and waist trend down with weight.
 insert into user_domain.body_metric_entries
     (metric_id, user_id, weight_kg, body_fat_rate, waist_cm, hip_cm, chest_cm,
@@ -797,13 +817,16 @@ with calc as (
         case dd.persona
             when 'steady'   then round(74.20 - 3.10 * power(dd.idx::numeric / 59.0, 1.15), 2)
             when 'drifting' then case
-                when dd.idx <= 35 then round(74.20 - 2.20 * (dd.idx::numeric / 35.0), 2)
-                else                   round(72.00 + 0.90 * ((dd.idx - 35)::numeric / 24.0), 2)
+                when dd.idx <= 30 then round(74.20 - 2.40 * (dd.idx::numeric / 30.0), 2)
+                else                   round(71.80 + 1.40 * ((dd.idx - 30)::numeric / 19.0), 2)
             end
         end as base_w,
         round((((dd.idx * 37) % 7) - 3) * 0.03, 2) as noise
     from demo_days dd
-    where dd.dow in (1, 4) and dd.persona in ('steady', 'drifting')
+    -- Every two or three days counted back from yesterday (1, 3, 5, 8, 10, ... days ago), so steady's
+    -- latest weigh-in is always yesterday; drifting stops weighing in after 10 days ago.
+    where dd.o % 7 in (1, 3, 5)
+      and (dd.persona = 'steady' or (dd.persona = 'drifting' and dd.o >= 9))
 )
 select
     md5(c.user_id::text || 'body' || c.idx::text)::uuid,
@@ -821,8 +844,8 @@ from calc c;
 
 -- 4b. user_goals (deterministic ids; feed the analytics targets below).
 --     fresh gets only WORKOUT_FREQUENCY (the empty-state persona). steady's
---     WEIGHT target date is 8 weeks after today; drifting's is 10 days
---     before today, so it reads as overdue.
+--     WEIGHT target date is 10 weeks after today; drifting's is 6 weeks
+--     after today, which its regained weight no longer reaches.
 insert into user_domain.user_goals
     (goal_id, user_id, goal_type, target_value, target_unit, target_date, status, notes,
      date_time_created, date_time_updated, created_by, updated_by, version)
@@ -833,12 +856,13 @@ select
         -- Ten weeks ahead, which the steady persona's rate of loss reaches, so that the pace rule and
         -- the goal progress agree that the goal is on track.
         when g.goal_type = 'WEIGHT' and c.persona = 'steady'   then (c.d_today + 70)::date
-        when g.goal_type = 'WEIGHT' and c.persona = 'drifting' then (c.d_today - 10)::date
+        -- Six weeks ahead, which drifting's regained weight no longer reaches, so the pace reads behind.
+        when g.goal_type = 'WEIGHT' and c.persona = 'drifting' then (c.d_today + 42)::date
         else (c.d_today + 60)::date
     end,
     'ACTIVE', g.notes,
     (c.d_start + time '08:00') at time zone c.tz,
-    (c.d_today + time '08:00') at time zone c.tz,
+    c.now_ts,
     'demo-seed', 'demo-seed', 0
 from demo_config c
 cross join (values
@@ -1088,10 +1112,38 @@ begin
         started   := (r.d + time '18:30') at time zone v_tz;
         v_session := gen_random_uuid();
         -- A moved session keeps the plan day it was meant for.
-        v_plan_day := case coalesce(r.plan_dow, r.dow)
-            when 1 then v_day_mon when 4 then v_day_thu when 5 then v_day_fri when 6 then v_day_sat end;
+        v_plan_day := case when r.workout_kind = 'MOBILITY' then null else case coalesce(r.plan_dow, r.dow)
+            when 1 then v_day_mon when 4 then v_day_thu when 5 then v_day_fri when 6 then v_day_sat end end;
 
-        if r.workout_kind = 'STRENGTH' then
+        if r.workout_kind = 'MOBILITY' then
+            -- A light day: a short morning mobility session outside the plan, core holds as its one entry.
+            started := (r.d + time '06:45') at time zone v_tz;
+            insert into workout.workout_sessions
+                (session_id, user_id, plan_id, plan_day_id, name, workout_type, kind, status, source,
+                 started_at, completed_at, duration_minutes, calories_burned,
+                 perceived_exertion, notes, date_time_created, date_time_updated,
+                 created_by, updated_by, version)
+            values
+                (v_session, v_user, null, null,
+                 case when r.idx % 2 = 0 then 'Mobility flow' else 'Stretch and core' end,
+                 'MOBILITY', 'MOBILITY', 'COMPLETED', 'MANUAL',
+                 started, started + (r.duration_minutes * interval '1 minute'), r.duration_minutes, 90, 3,
+                 'Easy morning session on a rest day.',
+                 started, started + (r.duration_minutes * interval '1 minute'), 'demo-seed', 'demo-seed', 0);
+
+            v_log := gen_random_uuid();
+            insert into workout.workout_session_entries
+                (exercise_log_id, session_id, exercise_id, exercise_name_snapshot, sequence_no, position,
+                 performed_sets, performed_reps, total_volume_kg, distance_km, duration_seconds,
+                 average_heart_rate, max_heart_rate, notes, logged_on)
+            values (v_log, v_session, ex_plank, 'Plank Hold', 1, 1, 2, null, null, null, 90, 105, 115, null, r.d);
+            insert into workout.workout_exercise_set_logs
+                (set_log_id, exercise_log_id, set_number, reps, weight_kg, duration_seconds,
+                 distance_km, rest_seconds, perceived_exertion, notes, logged, status)
+            select gen_random_uuid(), v_log, s.n, null, null, 45, null, 45, 3, null, true, 'DONE'
+            from (values (1),(2)) as s(n);
+
+        elsif r.workout_kind = 'STRENGTH' then
             insert into workout.workout_sessions
                 (session_id, user_id, plan_id, plan_day_id, name, workout_type, kind, status, source,
                  started_at, completed_at, duration_minutes, calories_burned,
@@ -1814,7 +1866,12 @@ begin
     select
         c.user_id,
         c.tz,
-        c.d_today,
+        -- today_date is the day of the last logged meal, as MealLoggedEventHandler keeps it: today once
+        -- today's breakfast is in, yesterday on a run before breakfast, and days back for drifting, whose
+        -- quiet days the logging reminder (R8) counts from it. Fresh has no meals and keeps today.
+        case when c.persona = 'fresh' then c.d_today
+             else (select max(n.activity_date) from analytics.analytics_user_daily_nutrition n
+                    where n.user_id = c.user_id and n.meal_count > 0) end,
         wg.goal_type, wg.target_value, wg.target_unit, wg.target_date,
         -- Pace baseline: earliest weight inside the demo window, so R3 has both ends of the line.
         (select bd.weight_kg from analytics.analytics_user_daily_body bd
@@ -1823,10 +1880,11 @@ begin
         (select bd.metric_date from analytics.analytics_user_daily_body bd
           where bd.user_id = c.user_id and bd.weight_kg is not null
           order by bd.metric_date asc limit 1),
+        -- The targets from the newest nutrition day, which is yesterday on a run before breakfast.
         (select n.calorie_target::int from analytics.analytics_user_daily_nutrition n
-          where n.user_id = c.user_id and n.activity_date = c.d_today),
+          where n.user_id = c.user_id order by n.activity_date desc limit 1),
         (select n.protein_target_grams from analytics.analytics_user_daily_nutrition n
-          where n.user_id = c.user_id and n.activity_date = c.d_today),
+          where n.user_id = c.user_id order by n.activity_date desc limit 1),
         bd_latest.weight_kg, bd_latest.body_fat_rate,
         (bd_latest.metric_date + time '08:00') at time zone c.tz,
         p.height_cm, p.activity_level,

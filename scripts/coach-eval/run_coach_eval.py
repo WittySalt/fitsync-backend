@@ -11,15 +11,16 @@ real model rather than a unit test with a scripted one.
 Usage:
     python run_coach_eval.py [--base http://localhost:8088] [--token-file ../../.local/demo2.jwt]
                              [--golden golden.json] [--out ../../.local/coach-eval.md] [--only grounded,refusal]
-                             [--today 2026-10-09]
-    python run_coach_eval.py --print-facts [--today 2026-10-09]   # the expectations for a day, no stack
+                             [--now 2026-10-09T02:00]
+    python run_coach_eval.py --print-facts [--now 2026-10-09T02:00]   # the expectations for a run, no stack
     python run_coach_eval.py --self-test                           # checks the day arithmetic, no stack
 
 The steady seed is rolling: it always ends on today in Singapore, so the streak, this week's and last
 week's training and the last session move with the weekday the seed runs on. Those expectations are
 not written into golden.json as numbers. A golden string holds a placeholder such as {streakSaid},
-and day_facts() fills it from the same day-relative plan seed-demo-fitsync.sql lays out, for the date
-given by --today or today in Singapore. Run the evaluation on the day the seed ran.
+and day_facts() fills it from the same day-relative plan seed-demo-fitsync.sql lays out, for the seed's
+run time given by --now (or --today, taken as 12:00), else now in Singapore. Pass the time the seed ran:
+a run before 07:30 has no breakfast today. Run the evaluation on the day the seed ran.
 
 Each question runs on its own thread so prior turns cannot leak into the next answer. Drafts run
 through the drafting endpoint and the metrics endpoint is read before and after, so the numbers
@@ -45,36 +46,45 @@ HERE = pathlib.Path(__file__).resolve().parent
 SGT = dt.timezone(dt.timedelta(hours=8))
 
 # Today's breakfast in the steady seed. The seed scales each day's portions by meal_mult, chosen by the
-# day's index in the 60-day window, and today is always index 59 (multiplier 1.17), so the breakfast,
-# the only meal today carries, is the same on every day. Taken from a seeded database: three items
-# (oats, banana, Greek yoghurt) summed as the Diary and the coach sum them.
+# day's index in the 60-day window, and today is always index 59 (multiplier 1.17), so the breakfast is
+# the same on every day. Taken from a seeded database: three items (oats, banana, Greek yoghurt) summed
+# as the Diary and the coach sum them. The seed writes it only once 07:30 has passed on the run's clock.
 BREAKFAST_KCAL = 506
 BREAKFAST_PROTEIN_G = 31
+BREAKFAST_AT = dt.time(7, 30)
 CALORIE_TARGET = 2100
 PROTEIN_TARGET_G = 140
 
 PLACEHOLDER = re.compile(r"\{[A-Za-z]\w*\}")
 NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+PLAN_DAYS = (1, 4, 5, 6)  # Monday and Friday strength, a Thursday run, Saturday badminton
 
 
-def steady_session_days(today: dt.date) -> list[dt.date]:
-    """The steady persona's completed session days before today, as section 2b of the seed plans them."""
+def steady_sessions(today: dt.date) -> list[tuple[dt.date, int | None]]:
+    """The steady persona's completed sessions before today, as section 2b of the seed plans them: each
+    one's date and the plan weekday it counts for (None for a light mobility day outside the plan)."""
     d_start = today - dt.timedelta(days=59)
     monday_of_start = d_start - dt.timedelta(days=d_start.isoweekday() - 1)
     w_last = (today - monday_of_start).days // 7 - 1
     # The Thursday run moved to Tuesday: in the current week once Tuesday has passed, else last week.
     moved_week = w_last + (1 if today.isoweekday() >= 3 else 0)
-    days = []
+    sessions = []
     for i in range(59):  # d_start .. today - 1; nothing is trained today
         d = d_start + dt.timedelta(days=i)
-        dow, w = d.isoweekday(), (d - monday_of_start).days // 7
-        training = dow in (1, 4, 5, 6)
+        dow, w, o = d.isoweekday(), (d - monday_of_start).days // 7, (today - d).days
+        plan_dow = dow if dow in PLAN_DAYS else None
         skipped = (w == 0 and dow == 4) or (w == 1 and dow == 6)
         if w == moved_week and dow in (2, 4):
-            training = dow == 2
-        if training and not skipped:
-            days.append(d)
-    return days
+            plan_dow, skipped = (4 if dow == 2 else None), False
+        if plan_dow is not None and not skipped:
+            sessions.append((d, plan_dow))
+        elif 1 <= o <= 14:
+            sessions.append((d, None))  # the light mobility session of a rest day in the last two weeks
+    return sessions
+
+
+def steady_session_days(today: dt.date) -> list[dt.date]:
+    return [d for d, _ in steady_sessions(today)]
 
 
 def active_streak(days: list[dt.date], today: dt.date) -> int:
@@ -101,13 +111,20 @@ def count_phrases(n: int) -> list[str]:
     return [str(n), NUMBER_WORDS[n] if n < len(NUMBER_WORDS) else str(n)]
 
 
-def day_facts(today: dt.date) -> dict:
-    """The date-dependent expectations for the steady account seeded on `today` (Singapore)."""
-    days = steady_session_days(today)
+def day_facts(now: dt.datetime | dt.date) -> dict:
+    """The date-dependent expectations for the steady account seeded at `now` (Singapore wall clock).
+    A bare date means a run at 12:00, after breakfast."""
+    if not isinstance(now, dt.datetime):
+        now = dt.datetime.combine(now, dt.time(12, 0))
+    today = now.date()
+    breakfast = now.time() >= BREAKFAST_AT
+    sessions = steady_sessions(today)
+    days = [d for d, _ in sessions]
     week_start = today - dt.timedelta(days=today.isoweekday() - 1)
     last_week_start = week_start - dt.timedelta(days=7)
     last_week_end = last_week_start + dt.timedelta(days=6)
     this_week = [d for d in days if d >= week_start]
+    planned_done = len({p for d, p in sessions if d >= week_start and p is not None})
     last_week = [d for d in days if last_week_start <= d < week_start]
     rolling7 = [d for d in days if d >= today - dt.timedelta(days=6)]
     streak = active_streak(days, today)
@@ -115,22 +132,34 @@ def day_facts(today: dt.date) -> dict:
     last_said = [spoken(last), f"{last:%A}", f"{last:%b} {last.day}", f"{last.day} {last:%b}"]
     if last == today - dt.timedelta(days=1):
         last_said.insert(0, "yesterday")
-    n = len(this_week)
-    word = NUMBER_WORDS[n]
+    # "How many days did I train this week" can be answered with every session this week (light days
+    # included) or with the plan days done, so both counts are right and neither is a wrong word.
+    n, p = len(this_week), planned_done
+    valid = {n, p}
+    words = [w for k in sorted(valid) for w in (NUMBER_WORDS[k], NUMBER_WORDS[k].capitalize())]
+    kcal = BREAKFAST_KCAL if breakfast else 0
+    protein = BREAKFAST_PROTEIN_G if breakfast else 0
+    # No bare "0 kcal" or "0 g": they would match "2100 kcal" and "140 g".
+    nothing_yet = ["nothing", "no meals", "not logged", "haven't logged", "have not logged", "zero", "none", "yet to"]
     return {
         "today": today.isoformat(),
-        "consumedCalories": BREAKFAST_KCAL,
-        "remainingCalories": CALORIE_TARGET - BREAKFAST_KCAL,
-        "proteinConsumedGrams": BREAKFAST_PROTEIN_G,
-        "proteinShortGrams": PROTEIN_TARGET_G - BREAKFAST_PROTEIN_G,
+        "seedTime": now.strftime("%Y-%m-%d %H:%M"),
+        "breakfastLogged": breakfast,
+        "consumedCalories": kcal,
+        "remainingCalories": CALORIE_TARGET - kcal,
+        "proteinConsumedGrams": protein,
+        "proteinShortGrams": PROTEIN_TARGET_G - protein,
+        "consumedSaid": [str(kcal)] if breakfast else nothing_yet,
+        "proteinSaid": [str(protein)] if breakfast else nothing_yet,
         "streakDays": streak,
         "streakSaid": count_phrases(streak) + (["no streak", "no active streak", "not on a streak", "broken",
                                                  "ended", "reset"] if streak == 0 else []),
         "thisWeekDays": n,
-        "thisWeekSaid": count_phrases(n),
-        "thisWeekWord": [word, word.capitalize()] + (["none", "no days", "not yet"] if n == 0 else []),
+        "thisWeekPlanDaysDone": p,
+        "thisWeekSaid": sorted(set(count_phrases(n) + count_phrases(p))),
+        "thisWeekWord": words + (["none", "no days", "not yet"] if 0 in valid else []),
         "thisWeekWrongWords": [f"{NUMBER_WORDS[k]} day" + ("" if k == 1 else "s")
-                               for k in (n - 1, n + 1) if 0 <= k < len(NUMBER_WORDS)],
+                               for k in sorted({n - 1, n + 1, p - 1, p + 1} - valid) if 0 <= k < len(NUMBER_WORDS)],
         "lastWeekSessions": len(last_week),
         "lastWeekDates": [spoken(last_week_start), spoken(last_week_end),
                           f"{last_week_start.day} {last_week_start:%b}", f"{last_week_end.day} {last_week_end:%b}"],
@@ -159,9 +188,9 @@ def fill(value, facts: dict):
     return value
 
 
-def resolve_golden(golden: dict, today: dt.date) -> dict:
-    """The golden file with its date-dependent expectations filled in for `today`."""
-    facts = {**golden.get("facts", {}), **day_facts(today)}
+def resolve_golden(golden: dict, now: dt.datetime | dt.date) -> dict:
+    """The golden file with its date-dependent expectations filled in for a seed run at `now`."""
+    facts = {**golden.get("facts", {}), **day_facts(now)}
     fields = ("text", "setup", "expect_any", "forbid_any")
     questions = [{k: (fill(v, facts) if k in fields else v) for k, v in q.items()} for q in golden["questions"]]
     return {**golden, "facts": facts, "questions": questions}
@@ -170,18 +199,25 @@ def resolve_golden(golden: dict, today: dt.date) -> dict:
 def self_test() -> int:
     """Checks the day arithmetic against dates worked out by hand from the seed, and that every
     placeholder in golden.json resolves on every weekday."""
+    t = dt.datetime
+    # Worked out from the verification tables of seeded databases (see scripts/README.md). Light mobility
+    # sessions fill every rest day of the last 14 days, so the streak always ends yesterday.
     checks = {
-        # Fri 9 Oct 2026: the run moved to Tue 6 Oct, so this week holds Mon 5 and Tue 6 and Thu 8 is empty.
-        dt.date(2026, 10, 9): {"streakDays": 0, "thisWeekDays": 2, "lastWeekSessions": 4, "rolling7Sessions": 3,
-                               "lastWeekDates": "28 September", "lastSessionSaid": "6 October"},
-        # Tue 6 Oct 2026: the moved run is last week's (Tue 29 Sep) and Mon 5 Oct was trained yesterday.
-        dt.date(2026, 10, 6): {"streakDays": 1, "thisWeekDays": 1, "lastWeekSessions": 4, "rolling7Sessions": 3,
-                               "lastWeekDates": "4 October", "lastSessionSaid": "yesterday"},
-        # Sun 11 Oct 2026: Fri 9 and Sat 10 were trained, the plan's last two days.
-        dt.date(2026, 10, 11): {"streakDays": 2, "thisWeekDays": 4, "lastWeekSessions": 4},
-        # Mon 12 Oct 2026: nothing yet this week, and Sunday was a rest day.
-        dt.date(2026, 10, 12): {"streakDays": 0, "thisWeekDays": 0, "lastWeekSessions": 4,
-                                "lastWeekDates": "5 October"},
+        # Fri 9 Oct 02:00: before breakfast. This week Mon 5 strength, Tue 6 the moved Thursday run, Wed 7
+        # and Thu 8 mobility; two plan days done; Friday strength still to do.
+        t(2026, 10, 9, 2, 0): {"streakDays": 15, "thisWeekDays": 4, "thisWeekPlanDaysDone": 2,
+                               "lastWeekSessions": 7, "rolling7Sessions": 6, "consumedCalories": 0,
+                               "breakfastLogged": False, "lastWeekDates": "28 September",
+                               "lastSessionSaid": "yesterday", "consumedSaid": "nothing"},
+        t(2026, 10, 9, 10, 0): {"streakDays": 15, "consumedCalories": 506, "remainingCalories": 1594},
+        # Sat 10 Oct 10:00: Friday strength done, badminton today.
+        t(2026, 10, 10, 10, 0): {"streakDays": 16, "thisWeekDays": 5, "thisWeekPlanDaysDone": 3,
+                                 "lastWeekSessions": 7, "consumedCalories": 506},
+        t(2026, 10, 5, 10, 0): {"streakDays": 14, "thisWeekDays": 0, "thisWeekPlanDaysDone": 0,
+                                "lastWeekDates": "4 October"},
+        t(2026, 10, 6, 10, 0): {"streakDays": 15, "thisWeekDays": 1, "thisWeekPlanDaysDone": 1},
+        t(2026, 10, 8, 10, 0): {"streakDays": 14, "thisWeekDays": 3, "thisWeekPlanDaysDone": 2},
+        t(2026, 10, 11, 10, 0): {"streakDays": 17, "thisWeekDays": 6, "thisWeekPlanDaysDone": 4},
     }
     failures = 0
     for day, expected in checks.items():
@@ -192,8 +228,12 @@ def self_test() -> int:
             if not ok:
                 failures += 1
                 print(f"FAIL {day} {key}: expected {want!r}, got {got!r}")
+        right = {facts["thisWeekDays"], facts["thisWeekPlanDaysDone"]}
+        if any(w.startswith(NUMBER_WORDS[k] + " ") for w in facts["thisWeekWrongWords"] for k in right):
+            failures += 1
+            print(f"FAIL {day}: a right count is listed as a wrong word")
     golden = json.loads((HERE / "golden.json").read_text(encoding="utf-8"))
-    for day in (dt.date(2026, 10, 5) + dt.timedelta(days=i) for i in range(7)):
+    for day in [t(2026, 10, 5 + i, h, 0) for i in range(7) for h in (2, 10)]:
         resolved = resolve_golden(golden, day)
         unresolved = [q["id"] for q in resolved["questions"]
                       if PLACEHOLDER.search(json.dumps([q.get(k) for k in ("text", "setup", "expect_any", "forbid_any")]))]
@@ -275,8 +315,13 @@ def contains_any(text: str, needles: list[str]) -> bool:
 
 
 def run(args: argparse.Namespace) -> int:
-    today = dt.date.fromisoformat(args.today) if args.today else dt.datetime.now(SGT).date()
-    golden = resolve_golden(json.loads(pathlib.Path(args.golden).read_text(encoding="utf-8")), today)
+    if args.now:
+        seeded = dt.datetime.fromisoformat(args.now)
+    elif args.today:
+        seeded = dt.date.fromisoformat(args.today)
+    else:
+        seeded = dt.datetime.now(SGT).replace(tzinfo=None)
+    golden = resolve_golden(json.loads(pathlib.Path(args.golden).read_text(encoding="utf-8")), seeded)
     if args.print_facts:
         print(json.dumps(golden["facts"], indent=2))
         return 0
@@ -450,7 +495,10 @@ def main() -> int:
                                              f"coach-eval-{dt.datetime.now():%Y%m%d-%H%M}.md"))
     parser.add_argument("--only", default=None, help="comma-separated categories to run")
     parser.add_argument("--today", default=None,
-                        help="the date the seed ran on, YYYY-MM-DD (default: today in Singapore)")
+                        help="the date the seed ran on, YYYY-MM-DD, taken as a run at 12:00")
+    parser.add_argument("--now", default=None,
+                        help="when the seed ran, Singapore time, YYYY-MM-DDTHH:MM (default: now in Singapore); "
+                             "today's breakfast is in the seed only when this is 07:30 or later")
     parser.add_argument("--print-facts", action="store_true", help="print the expectations for the day and stop")
     parser.add_argument("--self-test", action="store_true", help="check the day arithmetic and stop")
     args = parser.parse_args()
