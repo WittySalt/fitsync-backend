@@ -21,6 +21,11 @@ import com.fitsync.contracts.events.user.BodyMetricsRecordedPayload;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Handles BodyMetricsRecorded: writes the day's body row (with weight deltas against the previous entry and
+ * the first entry), refreshes the body fields of the dashboard snapshot, fills missing weight-goal baselines
+ * and re-evaluates weight goals. Redelivered events are skipped through the processed-event table.
+ */
 @Service
 public class BodyMetricsRecordedEventConsumerImpl implements DomainEventConsumer<BodyMetricsRecordedPayload> {
 

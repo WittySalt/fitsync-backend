@@ -12,6 +12,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 
+/**
+ * Names the per-user read caches and gives each its Redis TTL: 5 minutes for the dashboard, goals, streaks
+ * and achievements, 10 for the rest. Values are stored as JSON with their type, so cached records come back
+ * as their own classes. Events evict a user's entries through {@code AnalyticsCacheInvalidationService}.
+ */
 @Configuration
 @EnableCaching
 public class CacheConfig {

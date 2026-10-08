@@ -17,6 +17,7 @@ import com.fitsync.analytics.dto.BodyTrendBucket;
 import com.fitsync.analytics.dto.ComparePeriod;
 import com.fitsync.analytics.security.CurrentUserPrincipal;
 
+/** The user-scoped analytics reads behind {@code AnalyticsController}. */
 public interface AnalyticsService {
 
     AnalyticsDashboardResponse getDashboard(CurrentUserPrincipal principal);

@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.workout.WorkoutDeletedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles WorkoutDeleted by removing the session's contribution from its day's workout totals. */
 @Service
 public class WorkoutDeletedEventConsumerImpl implements DomainEventConsumer<WorkoutDeletedPayload> {
 

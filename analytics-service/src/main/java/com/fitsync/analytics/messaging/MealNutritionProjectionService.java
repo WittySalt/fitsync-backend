@@ -25,6 +25,12 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Projects meals into the per-day nutrition rows and the dashboard snapshot's "today" fields. Each meal is
+ * kept as a contribution row, so an update subtracts the old contribution from its day and adds the new one,
+ * and a delete subtracts it. Events are applied once through the processed-event table, and a delete that
+ * arrives before its meal leaves a marker so the late log is ignored.
+ */
 @Service
 public class MealNutritionProjectionService {
 

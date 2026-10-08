@@ -11,6 +11,10 @@ import com.fitsync.analytics.messaging.repository.OutboxEventRepository;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Component;
 
+/**
+ * Publishes domain events by writing them to the outbox table in the caller's transaction; the outbox relay
+ * sends them to Kafka later.
+ */
 @Component
 public class OutboxDomainEventPublisher implements DomainEventPublisher {
 

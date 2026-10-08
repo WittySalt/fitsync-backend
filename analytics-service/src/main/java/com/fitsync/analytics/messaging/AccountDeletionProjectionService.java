@@ -24,6 +24,12 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Deletes everything analytics-service holds about a user when their account is deleted: contributions,
+ * daily rows, goals, the dashboard snapshot, rollups, achievements, cook and record tallies, recap marks and
+ * the user's processed-event rows. The AccountDeleted event itself is recorded after the purge, so a
+ * redelivery of it is still ignored.
+ */
 @Service
 public class AccountDeletionProjectionService {
 

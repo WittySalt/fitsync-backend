@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles MealLogged by adding the meal's contribution to its day's nutrition totals. */
 @Service
 public class MealLoggedEventConsumerImpl implements DomainEventConsumer<MealLoggedPayload> {
 

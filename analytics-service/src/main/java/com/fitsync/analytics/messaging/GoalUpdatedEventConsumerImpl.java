@@ -22,6 +22,11 @@ import com.fitsync.contracts.events.user.GoalUpdatedPayload;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Handles GoalUpdated: upserts the goal's progress row (or drops it when the goal was archived or cancelled),
+ * marks an active goal past its target date as expired, mirrors calorie and protein targets onto the dashboard
+ * snapshot and re-evaluates the goal. Redelivered events are skipped through the processed-event table.
+ */
 @Service
 public class GoalUpdatedEventConsumerImpl implements DomainEventConsumer<GoalUpdatedPayload> {
 

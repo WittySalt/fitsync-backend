@@ -15,7 +15,6 @@ import java.util.UUID;
 import com.fitsync.analytics.dto.AnalyticsRebuildResponse;
 import com.fitsync.analytics.entity.AnalyticsMealContributionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDashboardSnapshotEntity;
-import com.fitsync.analytics.entity.AnalyticsUserDailyBodyEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyNutritionEntity;
 import com.fitsync.analytics.entity.AnalyticsUserDailyWorkoutEntity;
 import com.fitsync.analytics.entity.AnalyticsUserGoalProgressEntity;
@@ -31,6 +30,12 @@ import com.fitsync.analytics.repository.AnalyticsWorkoutContributionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Recomputes read models from their source rows instead of applying event deltas: one day's nutrition or
+ * workout row from the stored meal or workout contributions, and the dashboard snapshot from the daily rows
+ * and the active goals. Used by the admin rebuild endpoints and by the nightly rollup. A rebuild of the
+ * dashboard also announces any streak milestone the new streak crossed.
+ */
 @Service
 public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
 
@@ -251,6 +256,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
         return daily;
     }
 
+    /** Active calorie and protein goals set the targets; with several, the last in target-date order wins. */
     private void applyTargetsFromGoals(AnalyticsUserDashboardSnapshotEntity snapshot, UUID userId) {
         snapshot.setTodayCaloriesTarget(null);
         snapshot.setTodayProteinTargetGrams(null);
@@ -297,8 +303,8 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
     }
 
     /**
-     * Preserves a user's streak during the current UTC day when the latest activity was yesterday.
-     * The streak decays only when the latest active row is two or more days before today.
+     * Preserves a user's streak during the current day in the user's zone when the latest activity was
+     * yesterday. The streak decays only when the latest active row is two or more days before today.
      */
     private int calculateActiveStreak(List<AnalyticsUserDailyWorkoutEntity> rows, LocalDate today) {
         int streak = 0;
@@ -309,6 +315,7 @@ public class AnalyticsRebuildServiceImpl implements AnalyticsRebuildService {
             if (!expected.equals(row.getActivityDate())) {
                 if (streak == 0 && row.getActivityDate().equals(today.minusDays(1))
                         && defaultInt(row.getCompletedWorkoutCount()) > 0) {
+                    // No row for today yet, but yesterday was active: the streak starts there.
                 } else {
                     break;
                 }

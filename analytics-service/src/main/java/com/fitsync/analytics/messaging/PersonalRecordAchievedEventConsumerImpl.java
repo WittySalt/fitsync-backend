@@ -5,6 +5,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.workout.PersonalRecordAchievedPayload;
 import org.springframework.stereotype.Service;
 
+/** Handles PersonalRecordAchieved by adding the event's records to the user's personal-record tally. */
 @Service
 public class PersonalRecordAchievedEventConsumerImpl implements DomainEventConsumer<PersonalRecordAchievedPayload> {
 

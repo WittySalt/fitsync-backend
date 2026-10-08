@@ -10,6 +10,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
+/** Reads AccountDeleted from the user-events topic and hands it to the account-deleted consumer. */
 @Component
 @ConditionalOnProperty(prefix = "fitsync.kafka.listeners.account-deleted", name = "enabled", havingValue = "true")
 public class AccountDeletedKafkaListener extends AbstractDomainEventKafkaListener<AccountDeletedPayload> {

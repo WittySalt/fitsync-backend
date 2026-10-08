@@ -24,6 +24,12 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Projects workout sessions into the per-day workout rows and the dashboard snapshot. Each session is
+ * kept as a contribution row, so an update first subtracts the old contribution from its day and then
+ * adds the new one (possibly on a different day), and a delete subtracts it. Events are applied once:
+ * the processed-event table makes redelivery a no-op.
+ */
 @Service
 public class WorkoutProjectionService {
 
@@ -165,10 +171,11 @@ public class WorkoutProjectionService {
         AnalyticsUserDashboardSnapshotEntity snapshot = findOrCreateDashboardSnapshot(userId, occurredAt);
         ZoneId userZone = resolveZone(snapshot.getTimezone());
         LocalDate today = LocalDate.now(clock.withZone(userZone));
-        LocalDate weekStart = today.minusDays(6);
+        // The snapshot's week fields are a rolling seven days ending today, not the calendar week.
+        LocalDate windowStart = today.minusDays(6);
 
         List<AnalyticsUserDailyWorkoutEntity> lastSevenDays = dailyWorkoutRepository
-                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, weekStart, today);
+                .findByUserIdAndActivityDateBetweenOrderByActivityDateDesc(userId, windowStart, today);
 
         int weekWorkoutCount = lastSevenDays.stream()
                 .mapToInt(row -> defaultInt(row.getCompletedWorkoutCount()))
@@ -199,6 +206,10 @@ public class WorkoutProjectionService {
                 goalProgressEvaluator.todayForUser(userId));
     }
 
+    /**
+     * Counts consecutive days with a completed workout, walking back from today over rows sorted newest
+     * first. A streak may also start yesterday, so it is not reported as broken before today's workout.
+     */
     private int calculateActiveStreak(List<AnalyticsUserDailyWorkoutEntity> rows, LocalDate today) {
         int streak = 0;
         LocalDate expectedDate = today;
@@ -206,6 +217,7 @@ public class WorkoutProjectionService {
             if (!expectedDate.equals(row.getActivityDate())) {
                 if (streak == 0 && row.getActivityDate().equals(today.minusDays(1))
                         && defaultInt(row.getCompletedWorkoutCount()) > 0) {
+                    // No row for today yet, but yesterday was active: the streak starts there.
                 } else {
                     break;
                 }

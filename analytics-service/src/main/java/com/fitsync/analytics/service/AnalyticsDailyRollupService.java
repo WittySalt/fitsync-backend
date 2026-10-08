@@ -14,6 +14,10 @@ import org.springframework.data.domain.Slice;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+/**
+ * Nightly job that walks every user with a dashboard snapshot, in pages, and runs the per-user rollup. A
+ * failing user is logged and counted, and does not stop the run.
+ */
 @Service
 public class AnalyticsDailyRollupService {
 
