@@ -194,10 +194,20 @@ public class UserServiceImpl implements UserService {
         LocalDate targetDate = request.targetDate() == null
                 ? LocalDate.now(ZoneId.systemDefault()).plusMonths(3)
                 : request.targetDate();
-        int calorieTarget = estimateDailyCalories(request);
-        BigDecimal proteinTarget = estimateProteinTarget(request);
-        BigDecimal fatTarget = estimateFatTarget(calorieTarget);
-        BigDecimal carbTarget = estimateCarbTarget(calorieTarget, proteinTarget, fatTarget);
+        // The plan step shows these targets and lets the user edit them, so the ones sent
+        // are kept as they are; only a missing one is estimated here.
+        int calorieTarget = request.targetCalories() != null
+                ? request.targetCalories()
+                : estimateDailyCalories(request);
+        BigDecimal proteinTarget = request.targetProteinGrams() != null
+                ? BigDecimal.valueOf(request.targetProteinGrams())
+                : estimateProteinTarget(request);
+        BigDecimal fatTarget = request.targetFatGrams() != null
+                ? BigDecimal.valueOf(request.targetFatGrams())
+                : estimateFatTarget(calorieTarget);
+        BigDecimal carbTarget = request.targetCarbsGrams() != null
+                ? BigDecimal.valueOf(request.targetCarbsGrams())
+                : estimateCarbTarget(calorieTarget, proteinTarget, fatTarget);
 
         upsertProfile(principal, new UpsertUserProfileRequest(
                 displayName,
