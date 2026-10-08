@@ -57,6 +57,12 @@ public record CompleteOnboardingRequest(
         @NotNull CalorieTrackingMode calorieTrackingMode,
         @NotNull MacroPreference macroPreference,
         @Min(0) @Max(10000) Integer waterGoalMl,
+        // Daily targets the user saw (and may have edited) on the plan step. Each one is
+        // optional; a missing one is estimated on the server from the body data above.
+        @Min(1000) @Max(6000) Integer targetCalories,
+        @Min(20) @Max(400) Integer targetProteinGrams,
+        @Min(0) @Max(900) Integer targetCarbsGrams,
+        @Min(10) @Max(300) Integer targetFatGrams,
         boolean workoutReminderEnabled,
         boolean mealReminderEnabled,
         boolean weighInReminderEnabled,

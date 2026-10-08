@@ -35,6 +35,10 @@ resource "aws_cognito_user_pool_client" "spa" {
 
   generate_secret = false
 
+  # Sign-in and password reset answer an unknown email like a known one, so neither
+  # tells anyone which emails have an account.
+  prevent_user_existence_errors = "ENABLED"
+
   # Custom Angular login UI calls the User Pool directly -> needs USER_PASSWORD_AUTH.
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
