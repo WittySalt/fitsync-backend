@@ -81,4 +81,7 @@ public interface UserService {
     PersonFactsReconcileResponse republishPersonFacts();
 
     void deleteCurrentUser(CurrentUserPrincipal principal);
+
+    /** Erases the person's data in this service without announcing it; see the implementation. */
+    void purgeAccountData(UUID userId);
 }

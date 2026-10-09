@@ -63,4 +63,9 @@ public interface AuthSessionRepository extends JpaRepository<AuthSession, UUID> 
     int revokeAll(@Param("ids") List<UUID> ids,
                   @Param("now") Instant now,
                   @Param("reason") SessionRevocationReason reason);
+
+    /** Removes every session of an erased account (see AccountPurgeService); nothing else deletes sessions. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from AuthSession s where s.userId = :userId")
+    int purgeAllByUserId(@Param("userId") UUID userId);
 }

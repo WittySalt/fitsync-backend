@@ -30,3 +30,9 @@ security:
   jwt:
     secret: test-secret-test-secret-test-secret-123456
     expiration: PT1H
+
+fitsync:
+  account-deletion:
+    purge:
+      # Tests call AccountPurgeService directly; no run at startup or on a schedule.
+      enabled: false

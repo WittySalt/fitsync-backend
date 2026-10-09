@@ -10,4 +10,11 @@ public interface MediaStorageService {
     String put(String key, InputStream inputStream, long contentLength, String contentType);
 
     String urlFor(String key);
+
+    /**
+     * Deletes every object whose key starts with this folder prefix (which must end with {@code /}).
+     *
+     * @return how many objects were deleted
+     */
+    int deleteAll(String folderPrefix);
 }
