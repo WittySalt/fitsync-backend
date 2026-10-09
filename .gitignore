@@ -28,3 +28,5 @@ AGENTS.md
 
 # Real demo account addresses for scripts/demo-reseed.ps1
 scripts/demo-accounts.env
+# Hosts and SSH key paths for scripts/demo-reseed-cloud.ps1
+scripts/demo-cloud.env
