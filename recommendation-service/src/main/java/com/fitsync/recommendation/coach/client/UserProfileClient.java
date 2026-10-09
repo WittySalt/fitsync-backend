@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * Reads the readiness questionnaire and the progress insight from user-service.
+ * Reads the coach's view of the readiness questionnaire and the progress insight from user-service.
  *
  * <p>Over HTTP with the caller's own token, like the catalogues, rather than through a projection.
  * That is the deliberate choice for this particular data: the questionnaire is health information
@@ -24,14 +24,17 @@ import org.springframework.web.client.RestClient;
  *
  * <p>What comes back is used by the draft validator to exclude exercises. It is not added to the
  * system prompt: the coach does not need to discuss a user's injuries in order to avoid loading
- * them, and the narrower the path this data travels, the better.
+ * them, and the narrower the path this data travels, the better. For the same reason the coach reads
+ * the consent-gated coach context rather than the full questionnaire: user-service releases only the
+ * injured areas, and none at all once the user has withdrawn consent to processing their health
+ * answers.
  */
 @Component
 public class UserProfileClient extends CatalogueClient {
 
     private static final Logger LOG = LoggerFactory.getLogger(UserProfileClient.class);
 
-    private static final String HEALTH_READINESS = "/api/v1/users/me/health-readiness";
+    private static final String COACH_HEALTH_CONTEXT = "/api/v1/users/me/health-readiness/coach-context";
     private static final String PROGRESS_INSIGHT = "/api/v1/users/me/insights/progress";
 
     // A reader is immutable, which a shared ObjectMapper is not.
@@ -44,9 +47,12 @@ public class UserProfileClient extends CatalogueClient {
         this.insightReader = objectMapper.readerFor(ProgressInsight.class);
     }
 
-    /** @return the questionnaire as JSON, or null when it could not be read */
-    public String healthReadiness(String bearerToken) {
-        return get(HEALTH_READINESS, params(), bearerToken);
+    /**
+     * @return the coach context as JSON ({@code healthDataConsent} and {@code injuryAreas}), or null
+     *         when it could not be read
+     */
+    public String coachHealthContext(String bearerToken) {
+        return get(COACH_HEALTH_CONTEXT, params(), bearerToken);
     }
 
     /**
