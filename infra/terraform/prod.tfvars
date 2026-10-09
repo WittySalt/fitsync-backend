@@ -7,10 +7,11 @@
 #   terraform workspace select prod || terraform workspace new prod
 #   terraform apply -var-file=prod.tfvars    # with TF_VAR_ec2_public_key
 #
-# Resources are named fitsync-prod-*. Kept outside Terraform on purpose: the
-# Cognito pool (real users), the media bucket fitsync-media (prod uploads to it
-# with the instance role, granted here), the frontend bucket
-# fitsync-frontend-prod and its CloudFront distribution. See RUNBOOK.md "Rebuild".
+# Resources are named fitsync-prod-*. The hand-built Cognito pool (real users) is
+# adopted by import (cognito_prod.tf). Kept outside Terraform on purpose: the media
+# bucket fitsync-media (prod uploads to it with the instance role, granted here), the
+# frontend bucket fitsync-frontend-prod and its CloudFront distribution. See RUNBOOK.md
+# "Rebuild".
 
 region = "ap-southeast-1"
 env    = "prod"
@@ -27,8 +28,16 @@ db_multi_az       = true
 # The existing media bucket (exercise images already uploaded). Staging gets its own.
 existing_media_bucket = "fitsync-media"
 
-# Existing pool ap-southeast-1_myVyuOmPD stays in charge of sign-in.
+# Existing pool ap-southeast-1_myVyuOmPD stays in charge of sign-in. auth.tf builds no
+# pool here; cognito_prod.tf adopts the existing one by import and must never recreate it
+# (it holds the real users). The client id is the one the SPA (auth.config.ts) and
+# auth-service use.
 enable_cognito = false
+prod_cognito = {
+  user_pool_id = "ap-southeast-1_myVyuOmPD"
+  client_id    = "4mvse0cgmkplgocfg827uolvad"
+  domain       = "ap-southeast-1myvyuompd"
+}
 
 # Only the prod CloudFront distribution reaches the gateway, as before the teardown.
 api_from_cloudfront_only = true
@@ -38,3 +47,11 @@ api_from_cloudfront_only = true
 # staging.tfvars). Set the line below once the domain verifies, and keep it equal to
 # the production NOTIFY_EMAIL_SENDER variable in GitHub.
 notify_email_sender = "noreply@fitsyncapp.click"
+
+# ── Switch-over to private DB subnets and SSM (RUNBOOK.md "Hardening switch-over") ──
+# Transitional values. "both" keeps the public subnets in the DB subnet group while the
+# database moves onto the private ones, and port 22 stays open until CD connects through
+# SSM. Delete both lines (the defaults are "private" and no SSH port) in the commit that
+# finishes the switch-over for this environment; until then a CD apply changes neither.
+db_subnet_tier    = "both"
+ssh_ingress_cidrs = ["0.0.0.0/0"]

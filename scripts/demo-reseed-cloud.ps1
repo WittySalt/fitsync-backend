@@ -6,10 +6,15 @@
 #   powershell -NoProfile -File scripts\demo-reseed-cloud.ps1 -Env prod -Apply
 #   powershell -NoProfile -File scripts\demo-reseed-cloud.ps1 -Env prod -Persona steady,drifting -Now 2026-10-09T09:30 -Apply
 #
-# Hosts, SSH keys and secret ids come from scripts\demo-cloud.env, the addresses from
+# Instance ids, SSH keys and secret ids come from scripts\demo-cloud.env, the addresses from
 # scripts\demo-accounts.env (both git-ignored). The remote work is done by demo-cloud-remote.sh,
 # which this script uploads with scp into a private temp dir on the host; that dir is removed again
 # whatever happens. The database password stays on the host and is never printed.
+#
+# The host has no SSH port open: ssh and scp tunnel through SSM Session Manager
+# (aws ssm start-session --document-name AWS-StartSSHSession) and still log in with the deploy key.
+# Needs the AWS CLI v2, the Session Manager plugin and AWS credentials allowed to start that session
+# (infra/terraform/RUNBOOK.md "SSH over SSM").
 param(
     [Parameter(Mandatory = $true)][ValidateSet('staging', 'prod')][string]$Env,
     [string]$Now,
@@ -37,14 +42,24 @@ $cloudFile = Join-Path $PSScriptRoot 'demo-cloud.env'
 if (-not (Test-Path $cloudFile)) { throw "Not found: $cloudFile. Copy demo-cloud.example.env to demo-cloud.env and fill it in." }
 $cloud = Read-KeyValues $cloudFile
 $prefix = $Env.ToUpperInvariant()
-$sshHost = Require $cloud "${prefix}_HOST" $cloudFile
+if ($cloud["${prefix}_HOST"] -and -not $cloud["${prefix}_INSTANCE_ID"]) {
+    throw "${prefix}_HOST is no longer used: the host is reached over SSM. Set ${prefix}_INSTANCE_ID (terraform output ec2_instance_id) in $cloudFile."
+}
+$instanceId = Require $cloud "${prefix}_INSTANCE_ID" $cloudFile
 $keyPath = Require $cloud "${prefix}_SSH_KEY" $cloudFile
 $secretId = Require $cloud "${prefix}_APP_SECRET_ID" $cloudFile
+$awsProfile = $cloud["${prefix}_AWS_PROFILE"]
 $baseUrl = $cloud["${prefix}_BASE_URL"]
 if ($keyPath.StartsWith('~')) { $keyPath = Join-Path $HOME $keyPath.Substring(1).TrimStart('/', '\') }
 if (-not (Test-Path $keyPath)) { throw "SSH key not found: $keyPath" }
-if ($sshHost -notmatch '^[A-Za-z0-9.-]+$') { throw "Invalid ${prefix}_HOST '$sshHost'" }
+if ($instanceId -notmatch '^i-[0-9a-f]{8,17}$') { throw "Invalid ${prefix}_INSTANCE_ID '$instanceId'" }
 if ($secretId -notmatch '^[A-Za-z0-9/_+=.@-]+$') { throw "Invalid ${prefix}_APP_SECRET_ID '$secretId'" }
+if ($awsProfile -and $awsProfile -notmatch '^[A-Za-z0-9_.-]+$') { throw "Invalid ${prefix}_AWS_PROFILE '$awsProfile'" }
+foreach ($tool in @('aws', 'session-manager-plugin')) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        throw "$tool not found on PATH. ssh to the host goes over SSM; see infra\terraform\RUNBOOK.md 'SSH over SSM'."
+    }
+}
 
 # The accounts. The example addresses are never used here: the cloud run needs the real ones.
 $accountsFile = Join-Path $PSScriptRoot 'demo-accounts.env'
@@ -78,7 +93,7 @@ if ($Now) {
 }
 
 $mode = if ($Apply) { 'apply' } else { 'preflight' }
-Write-Host ("Environment: {0} (ec2-user@{1}), secret {2}" -f $Env, $sshHost, $secretId)
+Write-Host ("Environment: {0} (ec2-user@{1} over SSM), secret {2}" -f $Env, $instanceId, $secretId)
 Write-Host "Seed run time (SGT): $Now"
 Write-Host ("Personas: " + (($targets | ForEach-Object { $_.Split(' ')[0] }) -join ', '))
 if (-not $Apply) { Write-Host 'Dry run: read-only checks only. Add -Apply to reseed.' }
@@ -104,8 +119,13 @@ if ($Apply) {
     $uploads += $seedFile
 }
 
-$sshOpts = @('-i', $keyPath, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=15')
-$login = "ec2-user@$sshHost"
+# ssh and scp tunnel through SSM Session Manager: %h is the instance id, %p the port 22 the
+# AWS-StartSSHSession document forwards to on the host. The host key is pinned on first use.
+$proxy = 'aws ssm start-session --region ap-southeast-1 --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p'
+if ($awsProfile) { $proxy += " --profile $awsProfile" }
+$sshOpts = @('-i', $keyPath, '-o', "ProxyCommand=$proxy", '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=30')
+$login = "ec2-user@$instanceId"
 $remoteDir = '/tmp/fitsync-demo-' + [Guid]::NewGuid().ToString('N')
 $exit = 0
 try {

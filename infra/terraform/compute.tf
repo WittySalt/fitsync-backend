@@ -15,7 +15,8 @@ data "aws_ami" "al2023" {
   }
 }
 
-# CD deploys over SSH; its private half lives only in the <ENV>_EC2_SSH_KEY secret.
+# CD and operators ssh in through SSM Session Manager (no port 22), which still
+# authenticates with this key; its private half lives only in the <ENV>_EC2_SSH_KEY secret.
 resource "aws_key_pair" "app" {
   count = var.enable_ec2 && var.ec2_public_key != "" ? 1 : 0
 
@@ -65,8 +66,11 @@ resource "aws_instance" "app" {
 
   # A new AL2023 release must not silently replace the host on the next apply; move to a
   # newer image on purpose with `terraform apply -replace='aws_instance.app[0]'`.
+  # user_data runs only on the first boot, and its hash depends on the line endings of the
+  # checkout that applied it (prod was applied from a CRLF Windows checkout, staging from
+  # CD's LF one), so a later change would only stop and start a running host for nothing.
   lifecycle {
-    ignore_changes = [ami]
+    ignore_changes = [ami, user_data]
   }
 }
 

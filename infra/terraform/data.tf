@@ -1,8 +1,23 @@
 # ── RDS PostgreSQL (flagged: costs money, ~10 min to create) ─────────────────
+# The database lives in the private subnets. The group keeps its name and is re-pointed
+# in place rather than replaced by a new group, because RDS refuses to move an instance
+# to another subnet group in the same VPC ("The specified DB subnet group and DB instance
+# are in the same VPC"). RDS also refuses to drop a subnet the instance still uses, so
+# an existing database is moved in three steps (RUNBOOK.md "Move RDS into the private
+# subnets"): db_subnet_tier = "both" adds the private subnets, a manual Multi-AZ
+# failover sequence moves the instance onto them, and "private" then drops the public ones.
+locals {
+  db_subnet_ids = {
+    public  = aws_subnet.public[*].id
+    both    = concat(aws_subnet.public[*].id, aws_subnet.private[*].id)
+    private = aws_subnet.private[*].id
+  }[var.db_subnet_tier]
+}
+
 resource "aws_db_subnet_group" "main" {
   count      = var.enable_rds ? 1 : 0
   name       = "${local.name}-db-subnets"
-  subnet_ids = aws_subnet.public[*].id
+  subnet_ids = local.db_subnet_ids
   tags       = { Name = "${local.name}-db-subnets" }
 }
 

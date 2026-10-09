@@ -84,7 +84,7 @@ Locally it only logs emails (`FITSYNC_NOTIFY_EMAIL_ENABLED` stays false).
 
 `scripts\demo-reseed-cloud.ps1` seeds the same three accounts on the staging or prod AWS
 environment. It copies `demo-cloud-remote.sh` and the seed to a private temp dir on the EC2 host
-with scp, runs the seed there as the RDS master user (the password is read from Secrets Manager on
+with scp over SSM Session Manager (the host has no SSH port open), runs the seed there as the RDS master user (the password is read from Secrets Manager on
 the host and never printed), restarts analytics-service and recommendation-service, waits until both
 are healthy and prints the same checklist as the local script. The temp dir is removed afterwards.
 
@@ -94,8 +94,14 @@ Because the seed deletes the account's data, always run the dry run first.
 
 Before the first run:
 
+- Install the AWS CLI v2 and the Session Manager plugin, and use AWS credentials that may start an
+  `AWS-StartSSHSession` session to the host (the `ssm_operator_policy_arn` output of that workspace,
+  or an admin profile). `infra\terraform\RUNBOOK.md` "SSH over SSM" has the install steps and an
+  `~/.ssh/config` example for connecting by hand.
 - Copy `scripts\demo-cloud.example.env` to `scripts\demo-cloud.env` (git-ignored) and fill in the
-  EC2 host, the SSH key path and the app secret id of each environment. The addresses come from
+  EC2 instance id (`terraform output -raw ec2_instance_id`), the SSH key path and the app secret id
+  of each environment. An older file with `*_HOST` lines is refused with a message naming the new
+  key. The addresses come from
   `scripts\demo-accounts.env`, as for the local script.
 - Sign in once on that environment with every account, so it exists in `auth.app_users`.
 - No account may have a pending deletion. Signing in again cancels it.

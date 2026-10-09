@@ -1,6 +1,8 @@
 #!/bin/bash
 # Runs on an EC2 host for scripts/demo-reseed-cloud.ps1, which uploads it with the files it needs
-# into one private temp dir and removes that dir again afterwards. Not meant to be run by hand.
+# into one private temp dir (scp over SSM Session Manager, the host has no SSH port open) and
+# removes that dir again afterwards. Not meant to be run by hand. The host sits in the VPC, so psql
+# reaches the RDS in the private subnets directly; nothing here changed with the move to SSM.
 #
 #   bash demo-cloud-remote.sh preflight <env> <app-secret-id> <now>
 #   bash demo-cloud-remote.sh apply     <env> <app-secret-id> <now>

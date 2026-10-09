@@ -34,3 +34,11 @@ cognito_logout_urls   = ["http://localhost:3000/logout/callback"]
 # the line below once bootstrap's notify_email_domain_dkim_status reads SUCCESS, and
 # keep it equal to the staging NOTIFY_EMAIL_SENDER variable in GitHub.
 notify_email_sender = "noreply-staging@fitsyncapp.click"
+
+# ── Switch-over to private DB subnets and SSM (RUNBOOK.md "Hardening switch-over") ──
+# Transitional values. "both" keeps the public subnets in the DB subnet group while the
+# database moves onto the private ones, and port 22 stays open until CD connects through
+# SSM. Delete both lines (the defaults are "private" and no SSH port) in the commit that
+# finishes the switch-over for this environment; until then a CD apply changes neither.
+db_subnet_tier    = "both"
+ssh_ingress_cidrs = ["0.0.0.0/0"]
