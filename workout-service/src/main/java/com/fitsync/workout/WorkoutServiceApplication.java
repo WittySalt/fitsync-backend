@@ -7,11 +7,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 import com.fitsync.web.config.CommonWebErrorConfiguration;
+import com.fitsync.persistence.outbox.EnableOutboxCleanup;
 
 @SpringBootApplication
 @ConfigurationPropertiesScan
 @Import(CommonWebErrorConfiguration.class)
 @EnableScheduling
+@EnableOutboxCleanup
 public class WorkoutServiceApplication {
 
     public static void main(String[] args) {

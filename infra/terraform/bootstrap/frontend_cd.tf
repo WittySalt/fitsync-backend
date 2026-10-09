@@ -21,7 +21,7 @@
 variable "frontend_cd_phase" {
   description = "1 = new frontend role added, old access kept; 2 = old access removed (see RUNBOOK.md)"
   type        = number
-  default     = 1
+  default     = 2
 
   validation {
     condition     = contains([1, 2], var.frontend_cd_phase)

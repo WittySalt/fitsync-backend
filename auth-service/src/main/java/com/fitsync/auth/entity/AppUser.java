@@ -1,6 +1,7 @@
 package com.fitsync.auth.entity;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -40,4 +41,12 @@ public class AppUser extends BaseEntity {
 
     @Column
     private Instant accountDeletionRequestedAt;
+
+    /** Set when the grace period ended and the purge claimed this account; it is never cleared. */
+    @Column
+    private Instant accountPurgeStartedAt;
+
+    /** The id of the AccountDeleted event the purge wrote to the outbox. */
+    @Column
+    private UUID accountPurgeEventId;
 }

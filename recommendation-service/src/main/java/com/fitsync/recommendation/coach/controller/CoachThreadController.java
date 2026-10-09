@@ -5,12 +5,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fitsync.recommendation.coach.dto.CoachDataExport;
 import com.fitsync.recommendation.coach.dto.CoachThreadDetailView;
 import com.fitsync.recommendation.coach.dto.CoachThreadView;
 import com.fitsync.recommendation.coach.dto.CoachMessageResponse;
 import com.fitsync.recommendation.coach.dto.CreateCoachThreadRequest;
 import com.fitsync.recommendation.coach.dto.SendCoachMessageRequest;
 import com.fitsync.recommendation.coach.service.CoachConversationService;
+import com.fitsync.recommendation.coach.service.CoachDataExportService;
 import com.fitsync.recommendation.coach.service.CoachThreadService;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.timezone.RequestTimezone;
@@ -48,7 +50,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * comparing afterwards, so another user's thread is indistinguishable from one that does not exist.
  */
 @RestController
-@RequestMapping("/api/v1/coach/threads")
+@RequestMapping("/api/v1/coach")
 @Tag(name = "Coach threads", description = "Conversations with the coach, and the trace behind each answer.")
 public class CoachThreadController {
 
@@ -57,14 +59,17 @@ public class CoachThreadController {
 
     private final CoachThreadService threadService;
     private final CoachConversationService conversationService;
+    private final CoachDataExportService exportService;
 
     public CoachThreadController(CoachThreadService threadService,
-                                 CoachConversationService conversationService) {
+                                 CoachConversationService conversationService,
+                                 CoachDataExportService exportService) {
         this.threadService = threadService;
         this.conversationService = conversationService;
+        this.exportService = exportService;
     }
 
-    @GetMapping
+    @GetMapping("/threads")
     @Operation(summary = "List my live threads, most recently used first",
             description = "The conversation history. Archived threads are left out. Paged with page "
                     + "(from 0) and size (default 20, at most 50); the X-Total-Count header carries the "
@@ -85,7 +90,7 @@ public class CoachThreadController {
                 .body(threads.getContent());
     }
 
-    @PostMapping
+    @PostMapping("/threads")
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Start a thread",
             description = "The title is optional; a thread names itself from its opening question.",
@@ -100,7 +105,7 @@ public class CoachThreadController {
         return threadService.createThread(CoachPrincipal.userId(authentication), title);
     }
 
-    @GetMapping("/{threadId}")
+    @GetMapping("/threads/{threadId}")
     @Operation(summary = "Read a thread with all of its turns and traces",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
@@ -112,7 +117,7 @@ public class CoachThreadController {
         return threadService.getThread(CoachPrincipal.userId(authentication), threadId);
     }
 
-    @PostMapping("/{threadId}/messages")
+    @PostMapping("/threads/{threadId}/messages")
     @Operation(summary = "Send a message and get the coach's answer",
             description = "Answers in one response. The orchestrator gathers what it needs through "
                     + "its tools, each of which is recorded against the answering turn, so the trace "
@@ -163,7 +168,7 @@ public class CoachThreadController {
         }
     }
 
-    @PostMapping(path = "/{threadId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(path = "/threads/{threadId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Send a message and watch the coach work",
             description = "Same turn as the plain endpoint, with each step streamed as it happens: "
                     + "tool_started and tool_finished per tool, thinking before each model call, then "
@@ -191,7 +196,7 @@ public class CoachThreadController {
                 zone.map(ZoneId::getId).orElse(null));
     }
 
-    @DeleteMapping("/{threadId}")
+    @DeleteMapping("/threads/{threadId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Archive a thread",
             description = "Archiving rather than deleting keeps the telemetry on its turns available "
@@ -206,4 +211,23 @@ public class CoachThreadController {
         threadService.archiveThread(CoachPrincipal.userId(authentication), threadId);
     }
 
+    /**
+     * The coach part of the caller's account data export. It lives on this controller, under the
+     * shared {@code /api/v1/coach} root, because the conversation is the bulk of what it returns.
+     */
+    @GetMapping("/me/export")
+    @Operation(summary = "Export everything the coach holds about me",
+            description = "One JSON object for the account data export: every thread (archived ones "
+                    + "included) with the messages the caller wrote and the coach's replies in order, "
+                    + "the session drafts the coach proposed, the page readings and weekly reviews it "
+                    + "wrote, and the stored recommendation results. Model telemetry and internal tool "
+                    + "observations are left out. An account with no coach data gets empty lists.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Export returned"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    public CoachDataExport export(Authentication authentication) {
+        return exportService.export(CoachPrincipal.userId(authentication));
+    }
 }

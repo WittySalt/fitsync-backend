@@ -1,5 +1,6 @@
 package com.fitsync.user.entity;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import com.fitsync.persistence.entity.BaseAuditableEntity;
@@ -39,6 +40,10 @@ public class UserAppPreferencesEntity extends BaseAuditableEntity {
     @Column(name = "data_sharing_consent", nullable = false)
     private boolean dataSharingConsent;
 
+    /** When consent to process health answers was last given; null while it is not given. */
+    @Column(name = "health_data_consent_at")
+    private Instant healthDataConsentAt;
+
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public UnitSystem getPreferredUnits() { return preferredUnits; }
@@ -51,4 +56,6 @@ public class UserAppPreferencesEntity extends BaseAuditableEntity {
     public void setPrivacyLevel(PrivacyLevel privacyLevel) { this.privacyLevel = privacyLevel; }
     public boolean isDataSharingConsent() { return dataSharingConsent; }
     public void setDataSharingConsent(boolean dataSharingConsent) { this.dataSharingConsent = dataSharingConsent; }
+    public Instant getHealthDataConsentAt() { return healthDataConsentAt; }
+    public void setHealthDataConsentAt(Instant healthDataConsentAt) { this.healthDataConsentAt = healthDataConsentAt; }
 }

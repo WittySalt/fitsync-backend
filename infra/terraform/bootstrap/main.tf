@@ -17,8 +17,10 @@
 #     notify_email_domain is set
 #   - default EBS encryption for the region and a multi-region CloudTrail trail with its
 #     private, encrypted log bucket (account_security.tf)
-# All of this is free, except the hosted zone at $0.50 a month and the trail's S3
-# storage (cents a month).
+#   - privacy@ inbound mail: MX, SES receipt rule, raw-mail bucket and a forwarder Lambda
+#     (email_inbound.tf), only when privacy_forward_to is set as well
+# All of this is free, except the hosted zone at $0.50 a month, the trail's S3 storage
+# and inbound mail (cents a month each).
 # ─────────────────────────────────────────────────────────────────────────────
 
 terraform {
@@ -28,6 +30,11 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    # Zips the privacy@ forwarder Lambda (email_inbound.tf).
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
     }
   }
 

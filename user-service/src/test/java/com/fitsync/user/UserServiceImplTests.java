@@ -279,6 +279,7 @@ class UserServiceImplTests {
         verify(fixtures.userTrainingPreferencesRepository).deleteById(userId);
         verify(fixtures.userAppPreferencesRepository).deleteById(userId);
         verify(fixtures.userProfileRepository).deleteById(userId);
+        verify(fixtures.mediaStorageService).deleteAll("avatars/" + userId + "/");
 
         ArgumentCaptor<FitSyncDomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(FitSyncDomainEvent.class);
         verify(fixtures.domainEventPublisher)
@@ -292,6 +293,50 @@ class UserServiceImplTests {
         AccountDeletedPayload payload = (AccountDeletedPayload) event.payload();
         assertEquals("USER_REQUESTED", payload.reason());
         assertEquals(event.occurredAt(), payload.deletedAt());
+    }
+
+    @Test
+    void purgingAccountDataRemovesRowsAndAvatarsWithoutPublishing() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+
+        fixtures.service.purgeAccountData(userId);
+
+        verify(fixtures.bodyMetricEntryRepository).deleteByUserId(userId);
+        verify(fixtures.userProfileRepository).deleteById(userId);
+        verify(fixtures.userGuideStateRepository).deleteById(userId);
+        verify(fixtures.mediaStorageService).deleteAll("avatars/" + userId + "/");
+        org.mockito.Mockito.verifyNoInteractions(fixtures.domainEventPublisher);
+    }
+
+    @Test
+    void deletingABodyMetricMarksItInsteadOfRemovingTheRow() {
+        Fixtures fixtures = new Fixtures();
+        UUID userId = UUID.randomUUID();
+        UUID metricId = UUID.randomUUID();
+        BodyMetricEntryEntity entry = new BodyMetricEntryEntity();
+        entry.setUserId(userId);
+        when(fixtures.bodyMetricEntryRepository.findByMetricIdAndUserId(metricId, userId))
+                .thenReturn(java.util.Optional.of(entry));
+
+        fixtures.service.deleteBodyMetric(new CurrentUserPrincipal(userId, "m@test.dev", "M", "USER"), metricId);
+
+        org.junit.jupiter.api.Assertions.assertNotNull(entry.getDeletedAt());
+        verify(fixtures.bodyMetricEntryRepository).save(entry);
+        verify(fixtures.bodyMetricEntryRepository, org.mockito.Mockito.never()).delete(any());
+    }
+
+    @Test
+    void deletingSomeoneElsesBodyMetricIsNotFound() {
+        Fixtures fixtures = new Fixtures();
+        UUID metricId = UUID.randomUUID();
+        when(fixtures.bodyMetricEntryRepository.findByMetricIdAndUserId(any(), any()))
+                .thenReturn(java.util.Optional.empty());
+
+        org.junit.jupiter.api.Assertions.assertThrows(com.fitsync.web.error.ResourceNotFoundException.class,
+                () -> fixtures.service.deleteBodyMetric(
+                        new CurrentUserPrincipal(UUID.randomUUID(), "o@test.dev", "O", "USER"), metricId));
+        verify(fixtures.bodyMetricEntryRepository, org.mockito.Mockito.never()).save(any());
     }
 
     @Test
@@ -460,6 +505,7 @@ class UserServiceImplTests {
 
         private Fixtures() {
             when(mediaStorageServiceProvider.getObject()).thenReturn(mediaStorageService);
+            when(mediaStorageServiceProvider.getIfAvailable()).thenReturn(mediaStorageService);
         }
 
         private final UserServiceImpl service = new UserServiceImpl(

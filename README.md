@@ -120,7 +120,7 @@ publishes them to Kafka, and consumers record processed event IDs so a redeliver
 
 | Producer | Events |
 |---|---|
-| `auth-service` | `UserRegistered` |
+| `auth-service` | `UserRegistered`, `AccountDeletionRequested`, `AccountDeletionCancelled`, `AccountDeleted` |
 | `user-service` | `UserProfileUpdated`, `UserPreferencesUpdated`, `BodyMetricsRecorded`, `GoalUpdated`, `EnergyProfileComputed`, `NutritionReferenceProfileUpdated`, `AccountDeleted` |
 | `workout-service` | `WorkoutLogged`, `WorkoutUpdated`, `WorkoutDeleted`, `PersonalRecordAchieved` |
 | `nutrition-service` | `MealLogged`, `MealUpdated`, `MealDeleted`, `RecipeCooked` |
@@ -129,6 +129,19 @@ publishes them to Kafka, and consumers record processed event IDs so a redeliver
 The main consumers are `analytics-service` and `recommendation-service`. `nutrition-service`
 also consumes goal and reference-profile events for its daily targets. Payloads live in
 `event-contracts`. Failed records are retried, then sent to a dead-letter topic.
+
+### Account deletion
+
+A person asks to delete their account in auth-service, which signs them out and keeps the account
+for a grace period (`ACCOUNT_DELETION_GRACE_DAYS`, 30 days) during which signing in again can cancel
+it. A daily job in auth-service (also run once at startup; `ACCOUNT_DELETION_PURGE_ENABLED=false`
+turns it off) then claims each account whose grace period has ended and publishes `AccountDeleted`
+through its outbox. Every service that keeps the person's data erases it when it receives the event,
+user-service included (rows, avatar images and its outbox rows). Once the relay has published the
+event, auth-service deletes the Cognito user (`ACCOUNT_DELETION_COGNITO_DELETE_ENABLED`, which
+follows `COGNITO_ENABLED`) and then the account row, its sessions and its outbox rows. These are
+real deletes: everywhere else a user-facing delete is a soft delete, but erasure must not keep
+anything that identifies the person.
 
 ## Seed data and media
 

@@ -1,27 +1,52 @@
 package com.fitsync.media;
 
 import java.io.InputStream;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.ObjectProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 public class S3MediaStorageService implements MediaStorageService {
 
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
-    /** Cached for a year as immutable, so changed content has to be stored under a new key. */
-    private static final String CACHE_CONTROL = "public, max-age=31536000, immutable";
+    /** Public catalogue media is cached for a year as immutable, so changed content needs a new key. */
+    private static final String PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
+    /**
+     * Private media (avatars) may only be kept by the viewer's own browser, and no longer than the pre-signed URL
+     * it was read through stays valid, so shared caches never hold a copy.
+     */
+    private static final String PRIVATE_CACHE_CONTROL = "private, max-age=3600";
+    /** Keys under this prefix are private objects that the bucket policy does not expose. */
+    private static final String PRIVATE_KEY_PREFIX = "avatars/";
 
     private final ObjectProvider<S3Client> s3ClientProvider;
+    private final ObjectProvider<S3Presigner> s3PresignerProvider;
     private final MediaStorageProperties properties;
 
-    public S3MediaStorageService(ObjectProvider<S3Client> s3ClientProvider, MediaStorageProperties properties) {
+    public S3MediaStorageService(ObjectProvider<S3Client> s3ClientProvider,
+                                 ObjectProvider<S3Presigner> s3PresignerProvider,
+                                 MediaStorageProperties properties) {
         this.s3ClientProvider = s3ClientProvider;
+        this.s3PresignerProvider = s3PresignerProvider;
         this.properties = properties;
     }
 
@@ -54,12 +79,81 @@ public class S3MediaStorageService implements MediaStorageService {
         return baseUrl + "/" + encodePath(normalizeKey(key));
     }
 
+    @Override
+    public int deleteAll(String folderPrefix) {
+        if (folderPrefix == null || !folderPrefix.endsWith("/")) {
+            throw new IllegalArgumentException("Media folder prefix must end with '/'");
+        }
+        String prefix = normalizeKey(folderPrefix.substring(0, folderPrefix.length() - 1)) + "/";
+        S3Client s3Client = s3ClientProvider.getObject();
+        int deleted = 0;
+        String continuationToken = null;
+        do {
+            // One listing page holds at most 1000 keys, which is also the most one DeleteObjects call takes.
+            ListObjectsV2Response page = s3Client.listObjectsV2(ListObjectsV2Request.builder()
+                    .bucket(properties.bucket())
+                    .prefix(prefix)
+                    .continuationToken(continuationToken)
+                    .build());
+            List<ObjectIdentifier> keys = new ArrayList<>();
+            for (S3Object object : page.contents()) {
+                keys.add(ObjectIdentifier.builder().key(object.key()).build());
+            }
+            if (!keys.isEmpty()) {
+                DeleteObjectsResponse response = s3Client.deleteObjects(DeleteObjectsRequest.builder()
+                        .bucket(properties.bucket())
+                        .delete(Delete.builder().objects(keys).quiet(true).build())
+                        .build());
+                if (response.hasErrors() && !response.errors().isEmpty()) {
+                    throw new IllegalStateException("Media objects could not be deleted: "
+                            + response.errors().get(0).code());
+                }
+                deleted += keys.size();
+            }
+            continuationToken = Boolean.TRUE.equals(page.isTruncated()) ? page.nextContinuationToken() : null;
+        } while (continuationToken != null);
+        return deleted;
+    }
+
+    @Override
+    public String presignedGetUrl(String key, Duration ttl) {
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            throw new IllegalArgumentException("Pre-signed URL lifetime must be positive");
+        }
+        GetObjectPresignRequest request = GetObjectPresignRequest.builder()
+                .signatureDuration(ttl)
+                .getObjectRequest(get -> get.bucket(properties.bucket()).key(normalizeKey(key)))
+                .build();
+        return s3PresignerProvider.getObject().presignGetObject(request).url().toString();
+    }
+
+    @Override
+    public Optional<String> keyForUrl(String url) {
+        if (url == null) {
+            return Optional.empty();
+        }
+        String prefix = trimTrailingSlash(properties.publicBaseUrl()) + "/";
+        String trimmed = url.trim();
+        if (!trimmed.startsWith(prefix) || trimmed.indexOf('?') >= 0 || trimmed.indexOf('#') >= 0) {
+            return Optional.empty();
+        }
+        try {
+            String key = Arrays.stream(trimmed.substring(prefix.length()).split("/", -1))
+                    // Undoes encodePath; a literal '+' was encoded as %2B, so it must survive decoding.
+                    .map(segment -> URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8))
+                    .collect(Collectors.joining("/"));
+            return Optional.of(normalizeKey(key));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
+        }
+    }
+
     private PutObjectRequest putRequest(String key, String contentType) {
         return PutObjectRequest.builder()
                 .bucket(properties.bucket())
                 .key(key)
                 .contentType(contentType == null || contentType.isBlank() ? DEFAULT_CONTENT_TYPE : contentType)
-                .cacheControl(CACHE_CONTROL)
+                .cacheControl(key.startsWith(PRIVATE_KEY_PREFIX) ? PRIVATE_CACHE_CONTROL : PUBLIC_CACHE_CONTROL)
                 .build();
     }
 

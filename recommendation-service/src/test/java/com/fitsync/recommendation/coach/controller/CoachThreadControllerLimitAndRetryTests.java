@@ -20,6 +20,7 @@ import java.util.UUID;
 import com.fitsync.recommendation.coach.dto.CoachMessageResponse;
 import com.fitsync.recommendation.coach.dto.CoachThreadView;
 import com.fitsync.recommendation.coach.service.CoachConversationService;
+import com.fitsync.recommendation.coach.service.CoachDataExportService;
 import com.fitsync.recommendation.coach.service.CoachLimitException;
 import com.fitsync.recommendation.coach.service.CoachThreadService;
 import com.fitsync.recommendation.security.CurrentUserPrincipal;
@@ -57,6 +58,9 @@ class CoachThreadControllerLimitAndRetryTests {
 
     @MockBean
     private CoachConversationService conversationService;
+
+    @MockBean
+    private CoachDataExportService exportService;
 
     @MockBean
     private JwtService jwtService;

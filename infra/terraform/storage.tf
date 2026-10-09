@@ -1,4 +1,4 @@
-# ── S3: media (exercise images + avatars, public read) ───────────────────────
+# ── S3: media (exercise images public, avatars private) ──────────────────────
 # Each environment writes to its own bucket. Staging gets a bucket made here; prod
 # adopts the existing fitsync-media by import (var.prod_media_bucket, media_prod.tf).
 # var.existing_media_bucket still names a bucket to use without managing it. The services
@@ -38,7 +38,9 @@ resource "aws_s3_bucket_policy" "media_public_read" {
       Effect    = "Allow"
       Principal = "*"
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.media[0].arn}/*"
+      # Catalogue media only. Avatars (avatars/) stay private and are read through
+      # pre-signed URLs from user-service (media_avatars.tf).
+      Resource = "${aws_s3_bucket.media[0].arn}/exercises/*"
     }]
   })
   depends_on = [aws_s3_bucket_public_access_block.media]

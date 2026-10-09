@@ -19,6 +19,7 @@ import com.fitsync.user.domain.TrainingEquipment;
 import com.fitsync.user.domain.TrainingFocusArea;
 import com.fitsync.user.domain.TrainingLocation;
 import com.fitsync.user.domain.UnitSystem;
+import com.fitsync.user.dto.validation.MinimumAge;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -32,7 +33,7 @@ public record CompleteOnboardingRequest(
         @NotBlank @Size(min = 2, max = 80) String displayName,
         @Size(max = 80) String firstName,
         @Size(max = 80) String lastName,
-        LocalDate birthDate,
+        @MinimumAge LocalDate birthDate,
         Gender gender,
         @NotNull @DecimalMin("80.0") @DecimalMax("300.0") BigDecimal heightCm,
         @NotNull ActivityLevel activityLevel,
@@ -67,7 +68,9 @@ public record CompleteOnboardingRequest(
         boolean mealReminderEnabled,
         boolean weighInReminderEnabled,
         @Valid UpsertHealthReadinessRequest healthReadiness,
-        PrimaryGoal primaryGoal) {
+        PrimaryGoal primaryGoal,
+        // Consent to process the health answers above. Absent means not given, as before the field existed.
+        Boolean healthDataConsent) {
 
     public CompleteOnboardingRequest {
         equipmentInventory = equipmentInventory == null ? List.of() : List.copyOf(equipmentInventory);

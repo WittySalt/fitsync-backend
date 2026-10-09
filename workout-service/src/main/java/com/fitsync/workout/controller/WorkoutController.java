@@ -31,6 +31,7 @@ import com.fitsync.workout.dto.MonthlyTrainingInsightView;
 import com.fitsync.workout.dto.TrainingPageInsightView;
 import com.fitsync.workout.dto.WeeklyTrainingInsightView;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutDataExport;
 import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
@@ -153,6 +154,12 @@ public class WorkoutController {
     @GetMapping("/export")
     public WorkoutExportView exportWorkoutData(Authentication authentication) {
         return workoutService.exportWorkoutData(currentPrincipal(authentication));
+    }
+
+    @Operation(summary = "Export everything workout-service holds for the current user")
+    @GetMapping("/me/export")
+    public WorkoutDataExport exportAccountData(Authentication authentication) {
+        return workoutService.exportAccountData(currentPrincipal(authentication));
     }
 
     @Operation(summary = "Get the weekly training insight summary for the current user")

@@ -8,6 +8,10 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *                              chain (the EC2 instance role in the cloud) and ignores
  *                              accessKey/secretKey; when false (the default, for local MinIO)
  *                              it uses those keys
+ * @param presignEndpoint       the endpoint written into pre-signed URLs, which a browser must be able to reach;
+ *                              blank means {@code endpoint}. Locally the services reach MinIO as
+ *                              {@code http://minio:9000} inside docker while the browser needs
+ *                              {@code http://localhost:9000}, so the local compose file sets it
  */
 @ConfigurationProperties(prefix = "fitsync.media")
 public record MediaStorageProperties(
@@ -17,5 +21,6 @@ public record MediaStorageProperties(
         @DefaultValue("fitsync-password") String secretKey,
         @DefaultValue("fitsync-media") String bucket,
         @DefaultValue("http://localhost:9000/fitsync-media") String publicBaseUrl,
-        @DefaultValue("false") boolean awsDefaultCredentials) {
+        @DefaultValue("false") boolean awsDefaultCredentials,
+        @DefaultValue("") String presignEndpoint) {
 }

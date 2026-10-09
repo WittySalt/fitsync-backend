@@ -13,3 +13,6 @@ override.tf
 override.tf.json
 .terraformrc
 terraform.rc
+# Lambda zips built by archive_file (bootstrap/email_inbound.tf)
+.build/
+__pycache__/

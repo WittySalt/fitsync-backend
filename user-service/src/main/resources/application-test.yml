@@ -33,3 +33,5 @@ fitsync:
     listeners:
       user-registered:
         enabled: false
+      account-deleted:
+        enabled: false

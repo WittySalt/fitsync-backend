@@ -5,6 +5,7 @@ import java.time.LocalDate;
 
 import com.fitsync.user.domain.ActivityLevel;
 import com.fitsync.user.domain.Gender;
+import com.fitsync.user.dto.validation.MinimumAge;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
@@ -29,7 +30,7 @@ public record UpsertUserProfileRequest(
         @NotBlank @Size(min = 2, max = 80) String displayName,
         @Size(max = 80) String firstName,
         @Size(max = 80) String lastName,
-        LocalDate birthDate,
+        @MinimumAge LocalDate birthDate,
         Gender gender,
         @DecimalMin("80.0") @DecimalMax("300.0")
         BigDecimal heightCm,

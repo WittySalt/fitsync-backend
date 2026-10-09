@@ -24,6 +24,7 @@ import com.fitsync.nutrition.dto.MealTemplateView;
 import com.fitsync.nutrition.dto.CustomFoodView;
 import com.fitsync.nutrition.dto.DailyNutritionSummaryView;
 import com.fitsync.nutrition.dto.NutrientPageView;
+import com.fitsync.nutrition.dto.NutritionDataExport;
 import com.fitsync.nutrition.dto.NutrientSummaryView;
 import com.fitsync.nutrition.dto.NutritionPageInsightView;
 import com.fitsync.nutrition.dto.RangeSummaryView;
@@ -47,6 +48,7 @@ import com.fitsync.nutrition.dto.TemplateRecipeInput;
 import com.fitsync.nutrition.dto.WaterDaySummaryView;
 import com.fitsync.nutrition.dto.WaterLogView;
 import com.fitsync.nutrition.security.CurrentUserPrincipal;
+import com.fitsync.nutrition.service.NutritionDataExportService;
 import com.fitsync.nutrition.service.NutritionDiaryService;
 import com.fitsync.nutrition.service.NutritionPageInsightService;
 import com.fitsync.nutrition.service.NutritionService;
@@ -92,6 +94,7 @@ public class NutritionController {
     private final RecipeLibraryService recipeLibraryService;
     private final RecipeCookService recipeCookService;
     private final RecipeSuggestionService recipeSuggestionService;
+    private final NutritionDataExportService nutritionDataExportService;
 
     public NutritionController(NutritionService nutritionService,
                                NutritionPageInsightService nutritionPageInsightService,
@@ -99,7 +102,8 @@ public class NutritionController {
                                NutritionDiaryService nutritionDiaryService,
                                RecipeLibraryService recipeLibraryService,
                                RecipeCookService recipeCookService,
-                               RecipeSuggestionService recipeSuggestionService) {
+                               RecipeSuggestionService recipeSuggestionService,
+                               NutritionDataExportService nutritionDataExportService) {
         this.nutritionService = nutritionService;
         this.nutritionPageInsightService = nutritionPageInsightService;
         this.usualMealsService = usualMealsService;
@@ -107,6 +111,7 @@ public class NutritionController {
         this.recipeLibraryService = recipeLibraryService;
         this.recipeCookService = recipeCookService;
         this.recipeSuggestionService = recipeSuggestionService;
+        this.nutritionDataExportService = nutritionDataExportService;
     }
 
     @PostMapping("/meals")
@@ -409,6 +414,16 @@ public class NutritionController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"food-diary.csv\"")
                 .contentType(MediaType.parseMediaType("text/csv"))
                 .body(body);
+    }
+
+    @Operation(summary = "Export everything the signed-in person entered or owns in nutrition-service as one JSON object")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The caller's nutrition data"),
+            @ApiResponse(responseCode = "401", description = "No valid access token")
+    })
+    @GetMapping("/me/export")
+    public NutritionDataExport exportMyData(Authentication authentication) {
+        return nutritionDataExportService.export(currentPrincipal(authentication));
     }
 
     @PostMapping("/recipes")

@@ -1939,6 +1939,45 @@ cross join lateral (
 ) e
 on conflict do nothing;
 
+-- App preferences with the health-data consent. steady and drifting are established users who agreed
+-- to the processing of their health answers when they started, so consent is on and recorded at the
+-- first moment of their history (d_start 06:00, the same moment as "Member since"); the coach may then
+-- use their injury answers. fresh keeps consent off, so its onboarding still shows the consent box.
+-- The row was deleted in section 1c, and the upsert keeps a second run on the same values.
+insert into user_domain.user_app_preferences
+    (user_id, preferred_units_code, language_code, timezone, privacy_level_code, data_sharing_consent,
+     date_time_created, date_time_updated, created_by, updated_by, version)
+select c.user_id,
+       (select cv.code from user_domain.code_values cv
+         where cv.code_set_key = 'unit_system' and cv.enum_name = 'METRIC'),
+       (select cv.code from user_domain.code_values cv
+         where cv.code_set_key = 'language_preference' and cv.enum_name = 'EN'),
+       null,
+       (select cv.code from user_domain.code_values cv
+         where cv.code_set_key = 'privacy_level' and cv.enum_name = 'PRIVATE'),
+       c.persona in ('steady', 'drifting'),
+       now(), now(), 'demo-seed', 'demo-seed', 0
+from demo_config c
+on conflict (user_id) do update
+   set data_sharing_consent = excluded.data_sharing_consent,
+       date_time_updated = now();
+
+-- When the consent was given (user-service V12). Guarded on the column existing, since it arrived in a
+-- later user-service migration; null for fresh, as user-service keeps it while consent is off.
+do $$
+begin
+    if exists (select 1 from information_schema.columns
+                where table_schema = 'user_domain' and table_name = 'user_app_preferences'
+                  and column_name = 'health_data_consent_at') then
+        update user_domain.user_app_preferences a
+           set health_data_consent_at = case when a.data_sharing_consent
+                                             then (c.d_start + time '06:00') at time zone c.tz
+                                        end
+          from demo_config c
+         where a.user_id = c.user_id;
+    end if;
+end $$;
+
 -- Food-group classification: the seeded items are linked to the USDA catalogue (section 3b), which
 -- gives them their category_code, so the food-group breakdown below needs no mapping by name.
 

@@ -9,6 +9,7 @@ import com.fitsync.auth.messaging.OutboxEventStatus;
 import com.fitsync.auth.messaging.entity.OutboxEventEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -35,4 +36,12 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEventEntity, 
                                                  @Param("maxAttempts") int maxAttempts,
                                                  @Param("now") Instant now,
                                                  Pageable pageable);
+
+    /**
+     * Removes every outbox row of an erased account. Published events keep their payload, and some of those
+     * (UserRegistered) carry the email and the name, so they go with the account.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from OutboxEventEntity e where e.userId = :userId")
+    int purgeAllByUserId(@Param("userId") UUID userId);
 }

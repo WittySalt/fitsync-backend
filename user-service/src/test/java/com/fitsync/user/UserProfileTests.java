@@ -1178,7 +1178,54 @@ class UserProfileTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.account.email").value("export@example.com"))
                 .andExpect(jsonPath("$.account.profile.displayName").value("Export User"))
-                .andExpect(jsonPath("$.bodyMetrics").isArray());
+                .andExpect(jsonPath("$.bodyMetrics").isArray())
+                .andExpect(jsonPath("$.healthReadiness").doesNotExist())
+                .andExpect(jsonPath("$.relatedExports", hasSize(3)));
+    }
+
+    @Test
+    void theAccountDataExportCarriesTheReadinessAnswersAndOnlyTheCallersOwnData() throws Exception {
+        String token = tokenFor("export-readiness@example.com", "Export Readiness");
+        String otherToken = tokenFor("export-other@example.com", "Export Other");
+        mockMvc.perform(put("/api/v1/users/me/health-readiness")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token)
+                        .content("""
+                                {
+                                  "heartCondition": true,
+                                  "chestPainActivity": false,
+                                  "dizziness": false,
+                                  "boneJointIssue": false,
+                                  "bpOrHeartMeds": false,
+                                  "otherReason": false,
+                                  "injuryAreas": ["LEFT_KNEE"],
+                                  "acknowledgedDisclaimerAt": "2026-06-20T09:15:00Z"
+                                }
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/users/me/body-metrics")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + otherToken)
+                        .content("""
+                                {"weightKg": 91.0, "measuredAt": "2026-06-11T08:00:00Z", "source": "MANUAL"}
+                                """))
+                .andExpect(status().isCreated());
+        String exportRequestId = objectMapper.readTree(mockMvc.perform(post("/api/v1/users/me/data-export/requests")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString()).get("exportRequestId").asText();
+
+        mockMvc.perform(get("/api/v1/users/me/data-export/requests/{exportRequestId}/download", exportRequestId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.account.email").value("export-readiness@example.com"))
+                .andExpect(jsonPath("$.healthReadiness.heartCondition").value(true))
+                .andExpect(jsonPath("$.healthReadiness.injuryAreas[0]").value("LEFT_KNEE"))
+                .andExpect(jsonPath("$.bodyMetrics", hasSize(0)));
+        // Another person cannot download this export by its id.
+        mockMvc.perform(get("/api/v1/users/me/data-export/requests/{exportRequestId}/download", exportRequestId)
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isNotFound());
     }
 
     @Test

@@ -18,6 +18,7 @@ import com.fitsync.workout.dto.UpdateWorkoutPlanRequest;
 import com.fitsync.workout.dto.UpsertWorkoutExerciseSetRequest;
 import com.fitsync.workout.dto.UpsertWorkoutSessionRequest;
 import com.fitsync.workout.dto.WorkoutExerciseLogInput;
+import com.fitsync.workout.dto.WorkoutDataExport;
 import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanView;
 import com.fitsync.workout.dto.WorkoutSessionResumeView;
@@ -62,6 +63,12 @@ public interface WorkoutService {
     ExerciseRecordsView getExerciseRecords(CurrentUserPrincipal currentUser, UUID exerciseId);
 
     WorkoutExportView exportWorkoutData(CurrentUserPrincipal currentUser);
+
+    /**
+     * Returns everything this service holds for the caller as one document for a personal data export: the whole
+     * session history with exercises and sets, every plan with its days, and the caller's own custom exercises.
+     */
+    WorkoutDataExport exportAccountData(CurrentUserPrincipal currentUser);
 
     WorkoutPlanView updatePlan(CurrentUserPrincipal currentUser, UUID planId, UpdateWorkoutPlanRequest request);
 
