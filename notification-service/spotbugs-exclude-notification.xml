@@ -16,6 +16,7 @@
             <Class name="com.fitsync.notification.service.RecipientStore"/>
             <Class name="com.fitsync.notification.service.TrainingReminderPlanner"/>
             <Class name="com.fitsync.notification.email.SesEmailSender"/>
+            <Class name="com.fitsync.notification.admin.AdminEmailService"/>
         </Or>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
@@ -32,5 +33,12 @@
             <Class name="com.fitsync.notification.email.LoggingEmailSender"/>
         </Or>
         <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
+
+    <!-- The admin console's "send now" controller is an intentional endpoint, behind the ADMIN role
+         and a stateless bearer token, like the other services' internal controllers. -->
+    <Match>
+        <Class name="com.fitsync.notification.admin.AdminEmailController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 </FindBugsFilter>

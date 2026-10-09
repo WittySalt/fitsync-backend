@@ -104,12 +104,14 @@
         <pluginManagement>
             <plugins>
                 <!-- The shared SpotBugs filter plus this module's own, so the notification exclusions
-                     live with the code they are about. -->
+                     live with the code they are about. The plugin copies each filter into target/
+                     under its file name, so the module's filter needs a name of its own; with the
+                     same name one copy overwrote the other and only one filter was applied. -->
                 <plugin>
                     <groupId>com.github.spotbugs</groupId>
                     <artifactId>spotbugs-maven-plugin</artifactId>
                     <configuration>
-                        <excludeFilterFile>${project.basedir}/../spotbugs-exclude.xml,${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>
+                        <excludeFilterFile>${project.basedir}/../spotbugs-exclude.xml,${project.basedir}/spotbugs-exclude-notification.xml</excludeFilterFile>
                     </configuration>
                 </plugin>
             </plugins>

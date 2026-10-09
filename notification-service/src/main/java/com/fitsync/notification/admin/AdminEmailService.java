@@ -108,13 +108,15 @@ public class AdminEmailService {
             emailId = transactions.execute(status -> queueChecked(adminId, userId, kind));
         } catch (ApiException ex) {
             log.info("event=admin_email_send adminId={} userId={} kind={} outcome=REFUSED reason={}",
-                    adminId, userId, kind, ex.getCode());
+                    sanitizeForLog(adminId), sanitizeForLog(userId), sanitizeForLog(kind),
+                    sanitizeForLog(ex.getCode()));
             throw ex;
         }
         Outcome outcome = emailId == null ? Outcome.DROPPED
                 : emails.findById(emailId).map(AdminEmailService::outcomeOf).orElse(Outcome.DROPPED);
         log.info("event=admin_email_send adminId={} userId={} kind={} outcome={} emailId={}",
-                adminId, userId, kind, outcome, emailId);
+                sanitizeForLog(adminId), sanitizeForLog(userId), sanitizeForLog(kind), sanitizeForLog(outcome),
+                sanitizeForLog(emailId));
         return new SendResponse(kind, outcome);
     }
 
@@ -214,6 +216,13 @@ public class AdminEmailService {
                         lastWeekStart.toString())
                 .map(report -> Composed.of(new ComposedEmail(report.getSubject(), report.getBodyText())))
                 .orElseGet(() -> Composed.refused(AdminEmailRefusal.NO_RECAP));
+    }
+
+    /** The values are ids and enum names, but the line break check is cheap and keeps the log honest. */
+    private static String sanitizeForLog(Object value) {
+        return String.valueOf(value)
+                .replace("\r", "_")
+                .replace("\n", "_");
     }
 
     private static Outcome outcomeOf(EmailEntity email) {
