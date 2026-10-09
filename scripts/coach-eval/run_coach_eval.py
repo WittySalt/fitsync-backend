@@ -11,9 +11,9 @@ real model rather than a unit test with a scripted one.
 Usage:
     python run_coach_eval.py [--base http://localhost:8088] [--token-file ../../.local/demo2.jwt]
                              [--golden golden.json] [--out ../../.local/coach-eval.md] [--only grounded,refusal]
-                             [--now 2026-10-09T02:00]
+                             [--now 2026-10-09T02:00] [--pace 0.6]
     python run_coach_eval.py --print-facts [--now 2026-10-09T02:00]   # the expectations for a run, no stack
-    python run_coach_eval.py --self-test                           # checks the day arithmetic, no stack
+    python run_coach_eval.py --self-test                           # checks the day arithmetic and the 429 handling, no stack
 
 The steady seed is rolling: it always ends on today in Singapore, so the streak, this week's and last
 week's training and the last session move with the weekday the seed runs on. Those expectations are
@@ -26,6 +26,12 @@ Each question runs on its own thread so prior turns cannot leak into the next an
 through the drafting endpoint and the metrics endpoint is read before and after, so the numbers
 reported are for this run alone. Every raw answer is written next to its verdict so a low score can
 be read, not just counted.
+
+Every call honours a 429. The gateway's per-user rate limit (code RATE_LIMITED) is waited out for its
+Retry-After header, else the seconds in its message, else 5 s, and the call is tried again, up to six
+times. The coach's own limit (code COACH_LIMIT) is waited out the same way only when it frees within a
+minute; a longer wait fails the call as before. --pace spaces the calls out so a cloud run stays under
+the gateway limit in the first place. The retries are counted in the console and the report.
 
 Stdlib only, on purpose: it has to run on the recording machine with nothing installed.
 """
@@ -54,6 +60,13 @@ BREAKFAST_PROTEIN_G = 31
 BREAKFAST_AT = dt.time(7, 30)
 CALORIE_TARGET = 2100
 PROTEIN_TARGET_G = 140
+
+# How a call answers a 429: up to MAX_RETRIES more attempts, each after the wait the refusal asks for.
+MAX_RETRIES = 6
+DEFAULT_WAIT_S = 5.0
+# The coach's own limit is waited out only when it frees this soon; an hourly window that is full is not.
+COACH_LIMIT_MAX_WAIT_S = 60.0
+RETRY_IN_MESSAGE = re.compile(r"try again in (\d+(?:\.\d+)?) seconds?", re.IGNORECASE)
 
 PLACEHOLDER = re.compile(r"\{[A-Za-z]\w*\}")
 # A needle that starts with "re:" is a regular expression, matched without regard to case.
@@ -305,36 +318,107 @@ def self_test() -> int:
         if unresolved:
             failures += 1
             print(f"FAIL {day}: unresolved placeholders in {unresolved}")
+    failures += retry_self_test()
     print("self-test passed" if failures == 0 else f"self-test: {failures} failure(s)")
     return 0 if failures == 0 else 1
 
 
+def _seconds(value) -> float | None:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds >= 0 else None
+
+
+def retry_wait(status: int, headers, body) -> float | None:
+    """How long to wait before trying a refused call again, or None when it is not to be retried.
+
+    A gateway refusal (RATE_LIMITED, or any other 429) is waited out for its Retry-After header, else the
+    seconds named in its message, else DEFAULT_WAIT_S. The coach's own COACH_LIMIT is waited out only when
+    its retryAfterSeconds is COACH_LIMIT_MAX_WAIT_S or less, because a full hourly window will not free
+    while the run waits."""
+    if status != 429:
+        return None
+    body = body if isinstance(body, dict) else {}
+    if body.get("code") == "COACH_LIMIT":
+        seconds = _seconds(body.get("retryAfterSeconds"))
+        if seconds is None and headers is not None:
+            seconds = _seconds(headers.get("Retry-After"))
+        return seconds if seconds is not None and seconds <= COACH_LIMIT_MAX_WAIT_S else None
+    seconds = _seconds(headers.get("Retry-After")) if headers is not None else None
+    if seconds is None:
+        match = RETRY_IN_MESSAGE.search(str(body.get("message") or ""))
+        seconds = float(match.group(1)) if match else DEFAULT_WAIT_S
+    return seconds
+
+
+def http_send(base: str, token: str, method: str, path: str, body: dict | None) -> tuple[int, object, object]:
+    """One HTTP call: the status, the response headers and the decoded body."""
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(base + path, data=data, method=method)
+    req.add_header("Authorization", "Bearer " + token)
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            raw = resp.read()
+            return resp.status, resp.headers, (json.loads(raw) if raw else None)
+    except urllib.error.HTTPError as err:
+        raw = err.read()
+        try:
+            return err.code, err.headers, json.loads(raw)
+        except Exception:
+            return err.code, err.headers, {"raw": raw.decode(errors="replace")[:300]}
+
+
 class Client:
-    def __init__(self, base: str, token: str):
+    """The coach API. Every call goes through _call, which paces the calls and waits out a 429."""
+
+    def __init__(self, base: str, token: str, pace: float = 0.0, send=None, sleep=time.sleep,
+                 clock=time.monotonic, log=print):
         self.base = base.rstrip("/")
         self.token = token
+        self.pace = max(0.0, pace)
+        self._send = send or (lambda method, path, body: http_send(self.base, self.token, method, path, body))
+        self._sleep = sleep
+        self._clock = clock
+        self._log = log
+        self._last_sent: float | None = None
+        self.retries = 0
+        self.retry_wait_s = 0.0
+
+    def _paced_send(self, method: str, path: str, body: dict | None):
+        if self.pace and self._last_sent is not None:
+            gap = self._last_sent + self.pace - self._clock()
+            if gap > 0:
+                self._sleep(gap)
+        self._last_sent = self._clock()
+        return self._send(method, path, body)
 
     def _call(self, method: str, path: str, body: dict | None = None) -> tuple[int, dict | list | None]:
-        data = None if body is None else json.dumps(body).encode()
-        req = urllib.request.Request(self.base + path, data=data, method=method)
-        req.add_header("Authorization", "Bearer " + self.token)
-        req.add_header("Content-Type", "application/json")
-        req.add_header("Accept", "application/json")
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                raw = resp.read()
-                return resp.status, (json.loads(raw) if raw else None)
-        except urllib.error.HTTPError as err:
-            raw = err.read()
-            try:
-                return err.code, json.loads(raw)
-            except Exception:
-                return err.code, {"raw": raw.decode(errors="replace")[:300]}
+        attempt = 0
+        while True:
+            status, headers, payload = self._paced_send(method, path, body)
+            wait = retry_wait(status, headers, payload)
+            if wait is None or attempt == MAX_RETRIES:
+                return status, payload
+            attempt += 1
+            self.retries += 1
+            self.retry_wait_s += wait
+            code = payload.get("code") if isinstance(payload, dict) else None
+            self._log(f"    429 {code or ''} on {method} {path}, waiting {wait:g}s (retry {attempt} of {MAX_RETRIES})",
+                  flush=True)
+            self._sleep(wait)
 
     def new_thread(self) -> str:
         status, body = self._call("POST", "/api/v1/coach/threads", {})
         if status != 201:
-            raise SystemExit(f"could not create a thread: {status} {body}")
+            hint = ""
+            if status == 429 and isinstance(body, dict) and body.get("code") == "COACH_LIMIT":
+                hint = (" (the coach's per-user limit is full: raise FITSYNC_COACH_TURNS_PER_HOUR on the target, "
+                        "see scripts/README.md)")
+            raise SystemExit(f"could not create a thread: {status} {body}{hint}")
         return body["threadId"]
 
     def ask(self, thread_id: str, text: str, context: dict | None = None) -> dict:
@@ -365,6 +449,69 @@ class Client:
         return body
 
 
+def retry_self_test() -> int:
+    """Checks the 429 handling against fake responses, without a stack and without really sleeping."""
+    failures = 0
+
+    def check(label: str, got, want) -> None:
+        nonlocal failures
+        if got != want:
+            failures += 1
+            print(f"FAIL retry {label}: expected {want!r}, got {got!r}")
+
+    gateway = {"code": "RATE_LIMITED", "message": "Too many requests. Try again in 3 seconds."}
+    check("Retry-After header", retry_wait(429, {"Retry-After": "7"}, gateway), 7.0)
+    check("message seconds", retry_wait(429, {}, gateway), 3.0)
+    check("fallback", retry_wait(429, {}, {"raw": "<html>Too Many Requests</html>"}), DEFAULT_WAIT_S)
+    check("not a 429", retry_wait(500, {"Retry-After": "1"}, gateway), None)
+    check("short coach limit", retry_wait(429, {}, {"code": "COACH_LIMIT", "retryAfterSeconds": 42}), 42.0)
+    check("long coach limit", retry_wait(429, {"Retry-After": "1800"},
+                                         {"code": "COACH_LIMIT", "retryAfterSeconds": 1800}), None)
+
+    now = [0.0]
+    slept: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds
+
+    def fake(replies):
+        return Client("http://fake", "token", send=lambda m, p, b: replies.pop(0) if len(replies) > 1 else replies[0],
+                      sleep=sleep, clock=lambda: now[0], log=lambda line, **kw: None)
+
+    # Two gateway refusals and then the thread: two retries, each waited out as the refusal asked.
+    client = fake([(429, {"Retry-After": "1"}, gateway), (429, {}, gateway), (201, {}, {"threadId": "t-1"})])
+    check("thread after retries", client.new_thread(), "t-1")
+    check("retry count", client.retries, 2)
+    check("waits", slept, [1.0, 3.0])
+
+    # Pacing: two calls back to back are spaced by the pace, a call after a long gap is not delayed.
+    slept.clear()
+    client = fake([(200, {}, {})])
+    client.pace = 0.6
+    client._call("GET", "/a")
+    client._call("GET", "/b")
+    now[0] += 10
+    client._call("GET", "/c")
+    check("pace", [round(s, 3) for s in slept], [0.6])
+
+    # A refusal that never clears gives up after MAX_RETRIES and hands the 429 back.
+    slept.clear()
+    client = fake([(429, {}, gateway)])
+    check("gives up", client._call("GET", "/d")[0], 429)
+    check("gives up retries", client.retries, MAX_RETRIES)
+
+    # A coach limit that frees in an hour is not retried and fails as before, naming the setting to raise.
+    client = fake([(429, {"Retry-After": "900"}, {"code": "COACH_LIMIT", "retryAfterSeconds": 900})])
+    try:
+        client.new_thread()
+        check("long coach limit fails", "returned", "SystemExit")
+    except SystemExit as exc:
+        check("long coach limit message", "FITSYNC_COACH_TURNS_PER_HOUR" in str(exc), True)
+    check("long coach limit retries", client.retries, 0)
+    return failures
+
+
 def with_card_period(context: dict) -> dict:
     """A card without dates is asked about the last 28 days, so the golden file never goes stale."""
     card = context.get("card")
@@ -392,7 +539,7 @@ def run(args: argparse.Namespace) -> int:
         print(json.dumps(golden["facts"], indent=2))
         return 0
     token = pathlib.Path(args.token_file).read_text(encoding="utf-8").strip()
-    client = Client(args.base, token)
+    client = Client(args.base, token, pace=args.pace)
     only = set(args.only.split(",")) if args.only else None
 
     questions = [q for q in golden["questions"] if not only or q["category"] in only]
@@ -452,7 +599,9 @@ def run(args: argparse.Namespace) -> int:
               f"attempts={draft_rows[-1]['attempts']}  {str(draft_rows[-1]['title'])[:60]!r}", flush=True)
     after = client.draft_metrics() if drafts else None
 
-    report = render(golden, rows, draft_rows, before, after, tiers, started, args)
+    print(f"\n429 retries: {client.retries} ({client.retry_wait_s:g}s waited)")
+    report = render(golden, rows, draft_rows, before, after, tiers, started, args,
+                    client.retries, client.retry_wait_s)
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
@@ -464,7 +613,7 @@ def rate(hits: int, total: int) -> str:
     return "n/a" if total == 0 else f"{hits}/{total} = {100.0 * hits / total:.0f}%"
 
 
-def render(golden, rows, draft_rows, before, after, tiers, started, args) -> str:
+def render(golden, rows, draft_rows, before, after, tiers, started, args, retries=0, retry_wait_s=0.0) -> str:
     by_cat: dict[str, list[dict]] = {}
     for r in rows:
         by_cat.setdefault(r["category"], []).append(r)
@@ -482,7 +631,8 @@ def render(golden, rows, draft_rows, before, after, tiers, started, args) -> str
     lines.append(f"# Coach evaluation · {started.strftime('%Y-%m-%d %H:%M UTC')}")
     lines.append("")
     lines.append(f"Base `{args.base}` · golden `{pathlib.Path(args.golden).name}` for {golden['facts']['today']} · "
-                 f"{len(rows)} chat questions, {len(draft_rows)} drafts.")
+                 f"{len(rows)} chat questions, {len(draft_rows)} drafts · pace {args.pace:g} s · "
+                 f"{retries} retries after a 429 ({retry_wait_s:g} s waited).")
     lines.append("")
     lines.append("## The numbers")
     lines.append("")
@@ -565,8 +715,11 @@ def main() -> int:
     parser.add_argument("--now", default=None,
                         help="when the seed ran, Singapore time, YYYY-MM-DDTHH:MM (default: now in Singapore); "
                              "today's breakfast is in the seed only when this is 07:30 or later")
+    parser.add_argument("--pace", type=float, default=0.0,
+                        help="minimum seconds between requests (default 0); 0.6 keeps a cloud run under the "
+                             "gateway's 120 requests a minute")
     parser.add_argument("--print-facts", action="store_true", help="print the expectations for the day and stop")
-    parser.add_argument("--self-test", action="store_true", help="check the day arithmetic and stop")
+    parser.add_argument("--self-test", action="store_true", help="check the day arithmetic and the 429 handling, and stop")
     args = parser.parse_args()
     if args.self_test:
         return self_test()

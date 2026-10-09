@@ -124,6 +124,45 @@ powershell -NoProfile -File scripts\demo-reseed-cloud.ps1 -Env staging -Apply
 powershell -NoProfile -File scripts\demo-reseed-cloud.ps1 -Env prod -Apply
 ```
 
+## Coach evaluation on a cloud environment
+
+The coach evaluation runs against staging or prod the same way it runs locally, with `--base` set
+to the environment's address and a sign-in token of the steady account on that environment. Two
+limits stand in the way, and the run handles one of them while the other has to be raised by hand.
+
+The API gateway allows each user 120 requests a minute and answers the rest with a 429 (code
+`RATE_LIMITED`). A full run makes a little over 200 calls, three for each chat question, so it
+would hit that limit in about a minute. Pass `--pace 0.6` to space the calls 0.6 s apart, which
+keeps a run at 100 a minute at most. A 429 that still gets through is waited out and the call is tried
+again, up to six times: the wait is the `Retry-After` header, else the seconds in the message, else
+5 s. The console prints each retry, and the report header gives the total.
+
+The coach also has its own per-user limit of 30 turns an hour and 150 a day, and one run starts
+about 77 (one per question and one per draft). Its 429 (code `COACH_LIMIT`) is waited out only
+when it frees within 60 s. A full hourly window fails the run with a message naming the setting,
+as before. Raise the limit on the target for the run with a temporary compose override on the
+host, the same way it is done locally, and remove it afterwards:
+
+```yaml
+# docker-compose.eval.yml, next to the compose file on the host; do not commit it
+services:
+  recommendation-service:
+    environment:
+      FITSYNC_COACH_TURNS_PER_HOUR: "500"
+      FITSYNC_COACH_TURNS_PER_DAY: "1000"
+```
+
+Recreate recommendation-service with both files (`docker compose -f docker-compose.prod.yml -f
+docker-compose.eval.yml up -d recommendation-service`), run the evaluation, then recreate it with
+the main file alone so the normal limits apply again.
+
+```powershell
+python scripts\coach-eval\run_coach_eval.py --now 2026-10-09T09:30 --base https://staging.fitsyncapp.click --pace 0.6 --token-file .local\staging-steady.jwt --out .local\coach-eval-staging.md
+```
+
+`--now` is the reseed's run time, as printed by `demo-reseed-cloud.ps1`. `--pace` defaults to 0,
+which is right for a local stack.
+
 ## What the demo accounts show
 
 Names and dates. The seed gives an account a person's name only where its stored name is blank, a
