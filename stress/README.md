@@ -53,7 +53,7 @@ target. It is **manual** (it needs a deployed environment): Actions → CD → *
 with *Run k6 stress test against staging* ticked. It is configured with repository
 variables and secrets:
 
-- `STRESS_TARGET_URL` — base URL of the gateway/host to hit
+- `STRESS_TARGET_URL` — base URL to hit. For staging this is `https://staging.fitsyncapp.click`: the ALB accepts CloudFront only, and CloudFront forwards `/api/*` (the `/actuator/health` probe there answers with the SPA page, so it does not measure the gateway)
 - `STRESS_USER_EMAIL`, `STRESS_USER_PASSWORD` — credentials of an account of the target's Cognito pool
 - the job also has to pass the pool's app client id as `-e COGNITO_CLIENT_ID=...` (a new `STRESS_COGNITO_CLIENT_ID`
   variable); `.github/workflows/cd.yml` does not pass it yet (it is a protected file), so the CI job cannot

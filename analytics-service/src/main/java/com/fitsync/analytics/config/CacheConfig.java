@@ -5,8 +5,12 @@ import java.time.Duration;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.boot.autoconfigure.cache.RedisCacheManagerBuilderCustomizer;
+import org.springframework.cache.annotation.CachingConfigurer;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.interceptor.CacheErrorHandler;
+import org.springframework.cache.interceptor.LoggingCacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
@@ -16,10 +20,19 @@ import org.springframework.data.redis.serializer.RedisSerializationContext;
  * Names the per-user read caches and gives each its Redis TTL: 5 minutes for the dashboard, goals, streaks
  * and achievements, 10 for the rest. Values are stored as JSON with their type, so cached records come back
  * as their own classes. Events evict a user's entries through {@code AnalyticsCacheInvalidationService}.
+ *
+ * <p>The cache is an optimisation, never a dependency: when Redis cannot be reached (or an entry cannot be
+ * read back) the error is logged and the call goes to the read model as if the entry were missing, so a
+ * cache outage costs latency, not failed requests.
  */
 @Configuration
 @EnableCaching
-public class CacheConfig {
+public class CacheConfig implements CachingConfigurer {
+
+    @Override
+    public CacheErrorHandler errorHandler() {
+        return new LoggingCacheErrorHandler(LogFactory.getLog(CacheConfig.class), false);
+    }
 
     public static final String DASHBOARD_CACHE = "analyticsDashboard";
     public static final String BODY_TRENDS_CACHE = "analyticsBodyTrends";

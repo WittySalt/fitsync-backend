@@ -43,7 +43,7 @@ from an empty database.
 
 | Environment | tfvars | State (workspace) | Notes |
 |-------------|--------|-------------------|-------|
-| **staging** | `staging.tfvars` → `fitsync-staging-*` | `staging` | own Cognito pool, ALB open on :80 for stress/DAST, single-AZ RDS, throwaway |
+| **staging** | `staging.tfvars` → `fitsync-staging-*` | `staging` | own Cognito pool, ALB reachable from CloudFront only (stress/DAST go through `https://staging.fitsyncapp.click`), single-AZ RDS, throwaway |
 | **prod** | `prod.tfvars` → `fitsync-prod-*` | `prod` | empty Multi-AZ RDS (Flyway builds it), deletion protection + final snapshot, ALB reachable from CloudFront only |
 
 Both environments pull from the same ECR repositories (`fitsync-<service>`, in
@@ -569,6 +569,11 @@ It works with port 22 still open, so it must be live (step 4 of "The order") bef
 `ssh_ingress_cidrs` line is removed. The same diff updates `.github/CICD-VARIABLES.md` for the
 new variable. Saved as a file, it applies with `git apply` to `main` as of this branch.
 
+The same protected edit also switches the analytics cache to Redis in the cloud: in both rendered
+`.env.deploy` blocks (`deploy-staging-app` and `deploy-prod`), `SPRING_CACHE_TYPE=simple` becomes
+`SPRING_CACHE_TYPE=redis`. `docker-compose.prod.yml` already defaults to `redis` and caps the
+container as a cache; until cd.yml changes, the rendered `.env` keeps forcing `simple`.
+
 ```diff
 --- a/.github/workflows/cd.yml
 +++ b/.github/workflows/cd.yml
@@ -849,6 +854,6 @@ then tear it down to stop the bill.
 **Order (jobs of the CD workflow on `main`, or local terraform):**
 1. `tf-plan` → **`deploy-staging`** (terraform apply: VPC, ALB, EC2, RDS, Cognito, Secrets Manager).
 2. **`deploy-staging-app`** (SSH-deploys the app; `ec2-deploy.sh` bootstraps the seven service roles from `fitsync-staging/app` before starting the stack, then the job checks the gateway health on the host).
-3. Set `STRESS_TARGET_URL` / `DAST_TARGET_URL` = `http://<alb_dns_name>` (+ `STRESS_USER_EMAIL/PASSWORD` of a seeded staging user), then run **`stress-test`** / **`owasp-zap`** (Actions → CD → **Run workflow** with the stress / DAST boxes ticked).
+3. Set `STRESS_TARGET_URL` / `DAST_TARGET_URL` = `https://staging.fitsyncapp.click` (+ `STRESS_USER_EMAIL/PASSWORD` of a seeded staging user), then run **`stress-test`** / **`owasp-zap`** (Actions → CD → **Run workflow** with the stress / DAST boxes ticked). The staging ALB accepts CloudFront only (`api_from_cloudfront_only`), so `http://<alb_dns_name>` times out from a runner. The distribution forwards only `/api/*` to the ALB: `/actuator/*` and `/v3/api-docs` answer with the SPA's `index.html` (HTTP 200, `text/html`), so k6's health check passes without reaching the gateway and ZAP scans the SPA plus the API. Check the gateway itself from the host (`ssh fitsync-staging "curl -fsS http://localhost:8088/actuator/health"`), as `deploy-staging-app` does.
 4. Frontend: point the staging SPA at the new pool, client and ALB (frontend PR).
 5. **`terraform destroy -var-file=staging.tfvars`** when done.

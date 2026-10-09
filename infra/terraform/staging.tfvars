@@ -4,7 +4,8 @@
 # (the prod workspace, prod.tfvars).
 #
 # ⚠️ COST: enable_ec2 + enable_rds bill while up. This config stands up the full
-# app+DB so stress/DAST can run against it; `terraform destroy` after the demo.
+# app+DB so stress/DAST can run against it (through CloudFront); `terraform destroy`
+# after the demo.
 # Also required at apply time:
 #   - (no DB password: RDS manages the master one, Terraform generates the rest into Secrets Manager)
 #   - TF_VAR_ec2_public_key  SSH public key for the deploy key pair; its private half
@@ -14,11 +15,14 @@
 region = "ap-southeast-1"
 env    = "staging"
 
-# Full staging environment (EC2 app host + RDS). The app SG exposes the gateway
-# on :8088 to 0.0.0.0/0, so stress/DAST hit it directly (frontend CloudFront, if
-# any, is now owned by frontend/infra/terraform/).
+# Full staging environment (EC2 app host + RDS). The gateway port is open to the ALB
+# only, and the ALB to CloudFront only, as in prod: everything reaches staging through
+# https://staging.fitsyncapp.click (the distribution is owned by frontend/infra/terraform/).
+# Stress and DAST target that address too.
 enable_rds = true
 enable_ec2 = true
+
+api_from_cloudfront_only = true
 
 # The full 7-service stack + kafka + redis idles at ~3 GB with ~7 GB of container
 # limits; the t3.small default (2 GB) cannot run it. Match prod's t3.large, and
