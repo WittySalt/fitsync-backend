@@ -11,10 +11,21 @@
 #   docker compose -f docker-compose.prod.yml --env-file .env up -d
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Container logs rotate on the host: each container keeps at most LOG_MAX_FILE files of
+# LOG_MAX_SIZE (default 5 x 20 MB = 100 MB), and the oldest file is dropped when a new one
+# starts. Logs can hold identifiers such as user ids, so they are not kept indefinitely
+# (infra/terraform/RUNBOOK.md "Data retention"). Every service below uses this block.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-20m}
+    max-file: "${LOG_MAX_FILE:-5}"
+
 x-service-defaults: &service-defaults
   restart: unless-stopped
   mem_limit: ${SPRING_SERVICE_MEM_LIMIT:-768m}
   networks: [fitsync-net]
+  logging: *default-logging
 
 # Shared env for every JWT + RDS-backed service. Kafka stays disabled in phase 1
 # (no MSK) — listeners are off by default so nothing tries to reach a broker.
@@ -86,6 +97,7 @@ services:
     image: redis:7-alpine
     container_name: fitsync-redis
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${REDIS_MEM_LIMIT:-256m}
     # Short-lived data only, and every key has a TTL: analytics-service's read caches (rebuilt
     # from the database), the gateway's rate-limit counters, and the session deny-list
@@ -120,6 +132,7 @@ services:
     container_name: fitsync-kafka
     profiles: ["events"]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${KAFKA_MEM_LIMIT:-768m}
     environment:
       KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xmx512m -Xms512m}
@@ -136,6 +149,12 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Retention (the image turns KAFKA_LOG_RETENTION_HOURS into log.retention.hours). Events
+      # carry personal data such as weights and email addresses, so a topic keeps 7 days, which
+      # is far longer than any consumer lags; the outbox tables and the database stay the
+      # source of truth. Segments roll daily so a closed one can expire on time.
+      KAFKA_LOG_RETENTION_HOURS: ${KAFKA_LOG_RETENTION_HOURS:-168}
+      KAFKA_LOG_ROLL_HOURS: 24
     ports:
       - "127.0.0.1:9092:9092"
     volumes:
@@ -453,6 +472,7 @@ services:
     image: nginx:1.27-alpine
     container_name: fitsync-nginx
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${NGINX_MEM_LIMIT:-128m}
     environment:
       NGINX_SERVER_NAME: ${NGINX_SERVER_NAME:-_}

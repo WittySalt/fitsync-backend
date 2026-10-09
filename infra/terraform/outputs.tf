@@ -62,7 +62,7 @@ output "ec2_public_ip" {
 }
 
 output "alb_dns_name" {
-  description = "CloudFront /api origin and the stress/DAST target (null unless enable_alb=true)"
+  description = "ALB name (null unless enable_alb=true); the CloudFront /api origin while origin_hostname is empty"
   value       = var.enable_alb ? aws_lb.app[0].dns_name : null
 }
 
@@ -74,4 +74,9 @@ output "app_secret_name" {
 output "notify_email_identity_arn" {
   description = "SES address identity of the notification sender (null unless notify_email_create_identity; the domain identity is a bootstrap output)"
   value       = length(aws_sesv2_email_identity.notify_sender) > 0 ? aws_sesv2_email_identity.notify_sender[0].arn : null
+}
+
+output "origin_hostname" {
+  description = "HTTPS name of the ALB for the CloudFront /api origin (api_origin_domain in the frontend stack); null while origin_hostname is empty"
+  value       = local.origin_https ? var.origin_hostname : null
 }

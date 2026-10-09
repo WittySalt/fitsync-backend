@@ -10,7 +10,7 @@ layer** of our IaC story; the **runtime layer** (container orchestration) lives 
 > share one state. `terraform init` requires AWS credentials.
 
 ```
-Terraform  ──►  AWS resources (VPC, ECR, S3, CloudFront, Cognito, IAM, RDS, EC2)
+Terraform  ──►  AWS resources (VPC, ECR, S3, Cognito, IAM, RDS, EC2, ALB, ACM, CloudTrail)
                                    │
 docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 ```
@@ -21,16 +21,17 @@ docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 |------|-----------|--------------|
 | `network.tf` | VPC, public subnets (app host, ALB) with the IGW route, private subnets with no internet route (RDS), security groups (no SSH port) | free, instant |
 | `alb.tf` | Application Load Balancer across both public subnets, gateway target group, HTTP listener* | ~$20/month while up |
+| `origin_tls.tf` | ACM certificate, alias record and HTTPS listener for the ALB when `origin_hostname` is set (TLS from CloudFront) | free, a few minutes for validation |
 | `secrets.tf` | Secrets Manager `fitsync-<env>/app` (DB endpoint, generated service passwords, JWT key) + read access for the EC2 role | ~$0.4/month |
-| `storage.tf` | S3 media bucket, S3 frontend bucket, CloudFront* | ~free; CloudFront slow |
-| `auth.tf` | Cognito user pool + SPA client + hosted domain (staging) | free tier, instant |
+| `storage.tf` | S3 media bucket; the EC2 role may upload, and delete under `avatars/` | ~free |
+| `auth.tf` | Cognito user pool + SPA client + hosted domain (staging); `AdminDeleteUser` on the environment's pool for the account purge | free tier, instant |
 | `cognito_prod.tf` | adopts the hand-built prod pool, its client and domain by `import` (prod only, never recreated) | free, instant |
 | `media_prod.tf` | adopts the hand-built prod media bucket `fitsync-media` and its policy, public access block, encryption and ownership settings by `import` (prod only, never recreated or emptied) | free, instant |
 | `ci_iam.tf` | EC2 instance role/profile, CI deploy policy, SSM ssh operator policy | free, instant |
 | `email.tf` | `ses:SendEmail` for the EC2 role pinned to `notify_email_sender` (+ an address identity only when `notify_email_create_identity`) | free (SES bills per email) |
 | `data.tf` | RDS PostgreSQL* (RDS-managed master password; Multi-AZ when `db_multi_az`) | **costs money**, ~10 min (Multi-AZ doubles it) |
-| `compute.tf` | EC2 app host + EIP* + deploy key pair | **costs money** |
-| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role (backend), `fitsync-frontend-github-deploy` role (frontend), workload boundary, the 8 shared ECR repos, the SES sending domain + its hosted zone and DNS records when `notify_email_domain` is set (own state, applied by hand) | free, instant (the hosted zone is $0.50/month) |
+| `compute.tf` | EC2 app host with an encrypted root volume + EIP* + deploy key pair | **costs money** |
+| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role (backend), `fitsync-frontend-github-deploy` role (frontend), workload boundary, the 8 shared ECR repos, the SES sending domain + its hosted zone and DNS records when `notify_email_domain` is set, default EBS encryption, the CloudTrail trail and its log bucket (own state, applied by hand) | free, instant (the hosted zone is $0.50/month, the trail's S3 storage cents) |
 
 `*` gated behind feature flags (`enable_rds`, `enable_ec2` default **false**; `enable_alb`
 defaults to true, `db_multi_az` to false and is on in `prod.tfvars`).
@@ -623,7 +624,8 @@ allowed only on the caller's own sessions.
 (they are encrypted end to end inside the tunnel), so S3 or CloudWatch logging would hold
 nothing for these sessions while costing a bucket or a log group. CloudTrail already records
 every `StartSession` and `TerminateSession` with the caller and the target instance, which is
-the audit trail that matters here, at no cost.
+the audit trail that matters here, and the account trail (`bootstrap/account_security.tf`) keeps
+those records in S3 for 365 days.
 
 **Local setup (Windows).**
 
@@ -936,6 +938,226 @@ for them, and signing in on the prod site must still work. Never apply a plan th
 destroys the pool or its client (`prevent_destroy` makes such a plan fail anyway); fix the
 arguments in `cognito_prod.tf` instead. If the pool must ever leave Terraform again, use
 `terraform state rm`, which forgets it without touching it.
+
+## Compliance controls: encrypted EBS, CloudTrail, retention, purge grants
+
+These changes close infrastructure gaps listed in `Documents/architecture/compliance-gdpr-pdpa.md`
+(rows 10, 12, 20, 21 and 24, and the Cognito and avatar parts of row 8).
+
+| Change | Where | Live effect of the apply |
+|---|---|---|
+| Default EBS encryption for `ap-southeast-1` | `bootstrap/account_security.tf` (`aws_ebs_encryption_by_default`) | every new volume is encrypted with `aws/ebs`; existing volumes are untouched |
+| Multi-region CloudTrail trail with log file validation | `bootstrap/account_security.tf` (`aws_cloudtrail.account`, bucket `fitsync-cloudtrail-<account>`) | management events land in a private SSE-S3 bucket that expires them after 365 days |
+| Encrypted root volume on the app host | `compute.tf` (`root_block_device.encrypted = true`) | **replaces the EC2 instance** in each workspace, see the next section |
+| `cognito-idp:AdminDeleteUser` on the environment's pool | `auth.tf` (`aws_iam_role_policy.ec2_cognito_purge`) | the account purge can delete the Cognito user; staging names its own pool, prod the adopted `ap-southeast-1_myVyuOmPD` |
+| `s3:DeleteObject` and `s3:ListBucket` under `avatars/` | `storage.tf` (`data.aws_iam_policy_document.ec2_media`) | the purge can list `avatars/<userId>/` and delete the files there; exercise images stay undeletable for the host |
+| HTTPS listener on the ALB | `origin_tls.tf`, `alb.tf`, `origin_hostname` in both tfvars | see "TLS from CloudFront to the ALB" |
+| Log rotation and Kafka retention | `docker-compose.prod.yml` (`x-logging`, `KAFKA_LOG_RETENTION_HOURS`) | takes effect on the next deploy, see "Data retention" |
+
+The plans of 2026-10-09 against the live state were:
+
+| Stack | Plan | What it does |
+|---|---|---|
+| `bootstrap/` | 8 to add, 0 to change, 0 to destroy | default EBS encryption; the trail, its bucket, the bucket's public access block, ownership, encryption, lifecycle and policy |
+| staging | 8 to add, 5 to change, 2 to destroy | replaces `aws_instance.app[0]` (`i-08b745d9535de0b43`) and `aws_lb_target_group_attachment.gateway[0]`; moves `aws_eip.app[0]` to the new instance in place; updates `fitsync-staging-ci-deploy` and `fitsync-staging-ssm-operator` (they name the instance ARN) and the media policy; adds the Cognito purge policy, the origin certificate, its validation record and validation, the `origin-staging` alias record and the HTTPS listener; widens the ALB ingress rule to ports 80 to 443 |
+| prod | 8 to add, 6 to change, 2 to destroy | the same for prod (`i-0d0a9c1e503ce3d94`, `origin.fitsyncapp.click`), plus one change found on the live host: the app security group has an `SSH 22 from 0.0.0.0/0` rule that is not in the code, and the apply removes it |
+
+Bootstrap is applied by hand. A CD run applies `staging.tfvars` as committed, so **the first CD
+run with `STAGING_ENABLED=true` after this merges replaces the staging host by itself**;
+`deploy-staging-app` then deploys onto the new host, because it reads the instance id from
+`terraform output`. Run staging by hand first if you want to watch it.
+
+### Rebuild the app host with an encrypted root volume
+
+The encryption of a root volume cannot be changed in place, so `terraform apply` destroys the
+running instance and creates a new one (the plan reads `aws_instance.app[0] must be replaced`
+with `encrypted = false -> true # forces replacement`). The instance has no
+`create_before_destroy`, so the old host goes first.
+
+**What gets replaced, and what stays.**
+
+| Resource | Effect |
+|---|---|
+| `aws_instance.app[0]` | destroyed, then created with a new instance id, the newest AL2023 image (today the same `ami-0595d03ac6eb6e3a7`) and an encrypted 30 GB gp3 root volume |
+| `aws_lb_target_group_attachment.gateway[0]` | destroyed before the old host goes and created for the new instance id; the ALB re-registers the target and marks it healthy once the gateway answers `/actuator/health` |
+| `aws_eip.app[0]` | updated in place: the same Elastic IP moves to the new instance, so the public address does not change |
+| `aws_iam_policy.ci_deploy`, `aws_iam_policy.ssm_operator[0]` | updated in place to the new instance ARN |
+| RDS, Secrets Manager, the ALB, its listeners, the security groups, the media bucket, Cognito | unchanged |
+
+**First boot.** `user_data` stays in `ignore_changes`, which only silences updates: a replacement
+is created with the script written in `compute.tf`, and the plan shows it. Prod's plan reads
+`user_data = "c84902bc..." -> "6b184b92..."` because prod was first applied from a CRLF checkout;
+the code now strips carriage returns, so every checkout produces the same LF script, whose hash
+`6b184b92...` matches what CD applied to staging. On first boot the script installs Docker and
+the compose plugin and creates `/opt/fitsync`. The deploy itself does not depend on it:
+`scripts/ec2-deploy.sh` installs Docker, compose and the AWS CLI when they are missing, renders
+`.env` from Secrets Manager and starts the stack. The service roles and schemas already exist in
+RDS, and the deploy's database bootstrap is written to run again without harm.
+
+**What is lost, and what re-syncs.** The root volume holds the Kafka log (`kafka-data`), the Redis
+data (`redis-data`), container logs and the rendered `.env`. All of it is rebuilt or is not
+needed:
+
+- Kafka topics, consumer offsets and dead-letter topics (`<topic>.DLT`) are gone. The outbox
+  tables (`outbox_events` in the `auth`, `user_domain`, `workout`, `nutrition` and `analytics`
+  schemas) and the projections in PostgreSQL are the source of truth. An outbox row that is still
+  `PENDING` or `FAILED` is published again by the relay on the new broker, and the consumers start
+  from `earliest` on the empty topics. An event that was already `PUBLISHED` but not yet consumed
+  is not re-sent, so drain the broker first (step 3 below).
+- Redis holds caches, rate-limit counters and the revoked-session deny-list, all with a TTL. The
+  caches refill from the database, and the counters start at zero. A device revoked in the last
+  15 minutes keeps its access token until it expires, and its next refresh is refused by the
+  database.
+- `.env` is rendered again by the deploy. The host key changes, so ssh over SSM asks once to
+  accept the new key (CD uses `accept-new`).
+
+**Downtime.** The SPA stays up (S3 and CloudFront). `/api` answers 502 or 503 from the moment the
+target deregisters (30 s delay) until the new host is deployed and healthy: about 2 minutes to
+replace the instance and boot it, then 5 to 10 minutes for `ec2-deploy.sh` to pull the images and
+start the eight JVMs. Plan for 15 minutes per environment.
+
+**Order (staging first).** From PowerShell in `infra/terraform`, with an admin profile:
+
+1. Bootstrap once: `cd bootstrap; terraform plan; terraform apply` (8 to add). New volumes are
+   encrypted from here on, and the trail starts logging.
+2. Staging plan: `terraform workspace select staging`, set `TF_VAR_ec2_public_key` from
+   `fitsync-staging-deploy.pub` as in "Hardening switch-over", run
+   `terraform plan -var-file="staging.tfvars"` and check it reads 8 to add, 5 to change,
+   2 to destroy, with only the instance and the target group attachment replaced.
+3. Drain the staging broker. On the host (`ssh fitsync-staging`), check that no consumer lags and
+   that no dead-letter topic holds anything you need:
+   ```bash
+   docker exec fitsync-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups | awk 'NR==1 || $6>0'
+   docker exec fitsync-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list | grep '\.DLT$'
+   ```
+   The first command must print only its header.
+4. Optional fallback: snapshot the old root volume so it can be read if something on it turns
+   out to matter (`aws ec2 describe-instances --instance-ids <id> --query "Reservations[].Instances[].BlockDeviceMappings[].Ebs.VolumeId"`,
+   then `aws ec2 create-snapshot --volume-id <vol> --description "fitsync-staging pre-encryption"`).
+   The snapshot is unencrypted and holds personal data, so delete it within a week.
+5. `terraform apply -var-file="staging.tfvars"`. Note the new id: `terraform output -raw ec2_instance_id`.
+6. Run CD (Actions, CD, Run workflow) with staging enabled. `deploy-staging-app` waits for the SSM
+   agent and deploys the same images. Check the site, sign in and log a meal, then on the host
+   check that the outbox drains (`docker logs fitsync-user-service --since 10m | grep -i outbox`)
+   and that `kafka-consumer-groups.sh --describe --all-groups` lists every consumer group again.
+7. Update the operator files: `STAGING_INSTANCE_ID` in `scripts/demo-cloud.env`, `HostName` of
+   `fitsync-staging` in `~/.ssh/config`, and the instance id in "SSH over SSM" above.
+8. Prod, the same way: plan (8 to add, 6 to change, 2 to destroy), drain, optional snapshot,
+   `terraform apply -var-file="prod.tfvars"`, then **set the `PROD_EC2_INSTANCE_ID` repository
+   variable** before any CD run, because `deploy-prod` targets that id:
+   `gh variable set PROD_EC2_INSTANCE_ID --repo WittySalt/fitsync-backend --body "$(terraform output -raw ec2_instance_id)"`.
+   Run CD with `deploy_prod` ticked (after staging in the same run). Update `PROD_INSTANCE_ID` in
+   `demo-cloud.env`, `fitsync-prod` in `~/.ssh/config` and "SSH over SSM".
+9. Check both root volumes:
+   `aws ec2 describe-volumes --filters Name=attachment.instance-id,Values=<new id> --query "Volumes[].Encrypted"`
+   must print `true`.
+
+**Rollback.** The old instance is terminated by the apply and cannot be brought back; the data
+that matters lives in RDS, which is untouched. If the new host fails to deploy, fix the cause and
+run CD again on the same image tag. If the encrypted host itself is the problem, revert
+`encrypted = true` in `compute.tf` and apply again, which builds another, unencrypted host the same
+way (another replacement and another new instance id). If something on the old volume is needed,
+create a volume from the step 4 snapshot and attach it to the new host to read it.
+
+### TLS from CloudFront to the ALB
+
+Today CloudFront reaches the ALB over HTTP on port 80. With `origin_hostname` set, the workspace
+gives the ALB a name in the `fitsyncapp.click` zone (bootstrap owns the zone, `origin_tls.tf` only
+looks it up), requests an ACM certificate for that name in `ap-southeast-1` with DNS validation,
+and adds an HTTPS listener on 443 with the `ELBSecurityPolicy-TLS13-1-2-2021-06` policy. ACM
+public certificates are free and renew by themselves while the validation record stays.
+
+| Workspace | `origin_hostname` |
+|---|---|
+| staging | `origin-staging.fitsyncapp.click` |
+| prod | `origin.fitsyncapp.click` |
+
+CloudFront validates the origin certificate against the name it sends. The `/api/*` behaviour
+uses the managed origin request policy `Managed-AllViewerExceptHostHeader`
+(`b689b0a8-53d0-40ab-baf2-68738e2966ac`; the comment in the frontend code calls it AllViewer), so
+CloudFront sends the origin domain as Host and SNI, and the certificate for `origin...` matches.
+The ALB's ingress rule now covers ports 80 to 443 in one rule: the CloudFront prefix list counts
+as about 55 rules against the security group's limit of 60, so a second rule that references it
+would not fit. The ALB answers only on its listener ports, 80 and 443.
+
+**Order.**
+
+1. Apply the workspace (part of the steps above). The certificate validates in a few minutes;
+   `terraform output origin_hostname` prints the name.
+2. Check that the name resolves to the ALB (`Resolve-DnsName origin.fitsyncapp.click`) and that
+   the certificate is issued (`aws acm list-certificates --query "CertificateSummaryList[].[DomainName,Status]"`).
+   A request from your machine times out, because the security group admits only CloudFront.
+3. Change the frontend stack as below and apply it (CloudFront takes a few minutes to deploy).
+   Check that `https://fitsyncapp.click/api/v1/auth/me` answers 401 JSON, not 502.
+4. Close port 80: add `alb_http_listener_enabled = false` to the tfvars, plan (the HTTP listener
+   is destroyed and the ingress rule becomes 443 only), apply, commit.
+
+**Frontend change (`frontend/infra/terraform`, separate repository).** Add a variable and use it
+for the API origin:
+
+```hcl
+# variables.tf
+variable "api_origin_protocol_policy" {
+  description = "How CloudFront reaches the /api/* origin: http-only (ALB DNS on :80) or https-only (the backend's origin_hostname on :443)"
+  type        = string
+  default     = "http-only"
+
+  validation {
+    condition     = contains(["http-only", "https-only"], var.api_origin_protocol_policy)
+    error_message = "api_origin_protocol_policy must be http-only or https-only."
+  }
+}
+```
+
+```diff
+# frontend.tf, dynamic "origin" for the API
+       custom_origin_config {
+         http_port              = var.api_origin_port
+         https_port             = 443
+-        origin_protocol_policy = "http-only"
++        origin_protocol_policy = var.api_origin_protocol_policy
+         origin_ssl_protocols   = ["TLSv1.2"]
+```
+
+```diff
+# prod.tfvars
+-api_origin_domain = "fitsync-prod-alb-2084536414.ap-southeast-1.elb.amazonaws.com"
++api_origin_domain          = "origin.fitsyncapp.click"
++api_origin_protocol_policy = "https-only"
+
+# staging.tfvars
+-api_origin_domain = "fitsync-staging-alb-489104795.ap-southeast-1.elb.amazonaws.com"
++api_origin_domain          = "origin-staging.fitsyncapp.click"
++api_origin_protocol_policy = "https-only"
+```
+
+Also correct the comment on the `/api/*` behaviour's `origin_request_policy_id` to
+`Managed-AllViewerExceptHostHeader`, and the `api_origin_domain` description ("the backend's
+`origin_hostname` output, or `alb_dns_name` for HTTP"). The frontend CSP and the SPA's relative
+`/api` paths do not change.
+
+**Rollback.** Put the frontend tfvars back to the ALB DNS name with `http-only` and apply. The
+HTTP listener stays until step 4, so the old path keeps working until then. After step 4, set
+`alb_http_listener_enabled = true` again first.
+
+## Data retention
+
+| Data | Where | Kept for | Removed by |
+|---|---|---|---|
+| Application data (profile, body metrics, goals, meals, recipes, workouts, analytics, coach, notifications) | RDS PostgreSQL, one schema per service | the life of the account | the account purge, 30 days after a deletion request (auth-service grace period); each service deletes the user's rows when it consumes `AccountDeleted` |
+| Soft-deleted rows (meals, recipes, cooked recipes, workout sessions, archived goals) | the same schemas, marked with `deleted_at` or `ARCHIVED` | until the account is purged; no per-row expiry yet | the account purge. Body-metric entries are hard-deleted at once |
+| Cognito user | user pool of the environment | the life of the account | the purge, with `cognito-idp:AdminDeleteUser` (`auth.tf`) |
+| Avatar images | media bucket, `avatars/<userId>/` | the life of the account; a replaced avatar's old file stays until then | the purge lists and deletes the prefix (`storage.tf` grants) |
+| RDS automated backups | RDS | 7 days (`backup_retention_period = 7` in `data.tf`), point-in-time restore inside that window | RDS, on a rolling basis. A purged user survives in backups for up to 7 more days |
+| Prod final snapshot | RDS snapshot `fitsync-prod-db-final` | until deleted by hand | only created when the prod database is destroyed |
+| CloudTrail logs | `s3://fitsync-cloudtrail-<account>/AWSLogs/` | 365 days (`cloudtrail_retention_days`) | the bucket's lifecycle rule. The console's event history keeps 90 days on its own |
+| Container logs | json-file logs on the app host's root volume | at most 5 files of 20 MB per container (`LOG_MAX_FILE`, `LOG_MAX_SIZE`), usually days | Docker rotation; a host rebuild drops them |
+| Kafka topics | `kafka-data` volume on the app host | 7 days (`KAFKA_LOG_RETENTION_HOURS=168`, segments roll every 24 h) | Kafka's retention; a host rebuild drops them |
+| Redis | `redis-data` volume, persistence off | minutes, every key has a TTL | expiry, eviction and restarts |
+
+The compose settings apply on the next deploy. Docker applies `max-size` and `max-file` only when
+a container is created, and `docker compose up` in `ec2-deploy.sh` recreates every container whose
+settings changed, which the new logging block does for all of them. Nothing is needed on the host.
 
 ## Presentation talking points
 

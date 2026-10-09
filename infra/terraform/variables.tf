@@ -207,3 +207,21 @@ variable "prod_cognito" {
   })
   default = null
 }
+
+variable "origin_hostname" {
+  description = "Name of the ALB in hosted_zone_name for TLS from CloudFront, e.g. origin.fitsyncapp.click: adds an ACM certificate, an alias record and an HTTPS listener (empty = HTTP only)"
+  type        = string
+  default     = ""
+}
+
+variable "hosted_zone_name" {
+  description = "Public hosted zone (owned by bootstrap/email.tf) that holds origin_hostname"
+  type        = string
+  default     = "fitsyncapp.click"
+}
+
+variable "alb_http_listener_enabled" {
+  description = "Keep the plain HTTP listener on :80. Set false only after CloudFront reaches the origin over HTTPS"
+  type        = bool
+  default     = true
+}

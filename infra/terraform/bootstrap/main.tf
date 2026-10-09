@@ -15,10 +15,12 @@
 #   - the shared ECR repositories (registry.tf), empty ones cost nothing
 #   - the SES sending domain, its public hosted zone and DNS records (email.tf), only when
 #     notify_email_domain is set
+#   - default EBS encryption for the region and a multi-region CloudTrail trail with its
+#     private, encrypted log bucket (account_security.tf)
 #   - privacy@ inbound mail: MX, SES receipt rule, raw-mail bucket and a forwarder Lambda
 #     (email_inbound.tf), only when privacy_forward_to is set as well
-# All of this is free, except the hosted zone at $0.50 a month (inbound mail costs cents
-# at privacy@ volumes).
+# All of this is free, except the hosted zone at $0.50 a month, the trail's S3 storage
+# and inbound mail (cents a month each).
 # ─────────────────────────────────────────────────────────────────────────────
 
 terraform {

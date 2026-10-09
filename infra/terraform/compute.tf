@@ -36,7 +36,9 @@ resource "aws_instance" "app" {
 
   # Mirrors the bootstrap in backend/scripts/ec2-deploy.sh: install docker +
   # compose plugin so the CD deploy job can render docker-compose.prod.yml.
-  user_data = <<-EOF
+  # The carriage returns of a Windows (CRLF) checkout are stripped, so a host built from
+  # either checkout gets a script whose shebang bash can run on its first boot.
+  user_data = replace(<<-EOF
     #!/bin/bash
     set -euo pipefail
     dnf install -y docker
@@ -48,6 +50,7 @@ resource "aws_instance" "app" {
     chmod +x /usr/libexec/docker/cli-plugins/docker-compose
     mkdir -p /opt/fitsync
   EOF
+  , "\r", "")
 
   # Containers sit one network hop behind the host, so the instance role (Bedrock, ECR)
   # is only reachable from inside docker with a hop limit of 2. IMDSv2 stays mandatory.
@@ -57,9 +60,14 @@ resource "aws_instance" "app" {
     http_put_response_hop_limit = 2
   }
 
+  # Encrypted with the AWS-managed key aws/ebs (the account has no customer KMS key). It holds
+  # the Kafka log and the Redis data, and Kafka events carry personal data. Encryption cannot
+  # be switched on in place: changing it replaces the instance (RUNBOOK.md "Rebuild the app
+  # host with an encrypted root volume").
   root_block_device {
     volume_size = 30
     volume_type = "gp3"
+    encrypted   = true
   }
 
   tags = { Name = "${local.name}-app" }
@@ -69,6 +77,8 @@ resource "aws_instance" "app" {
   # user_data runs only on the first boot, and its hash depends on the line endings of the
   # checkout that applied it (prod was applied from a CRLF Windows checkout, staging from
   # CD's LF one), so a later change would only stop and start a running host for nothing.
+  # ignore_changes only silences updates: a replacement instance is created with the
+  # user_data and the newest AMI written here, and runs the script on its first boot.
   lifecycle {
     ignore_changes = [ami, user_data]
   }
