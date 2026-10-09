@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -64,6 +65,10 @@ class RateLimitFilterTests {
     @MockBean
     private GatewayProxyService gatewayProxyService;
 
+    /** The revoked-session deny-list; unstubbed, no session is revoked. */
+    @MockBean
+    private StringRedisTemplate redisTemplate;
+
     @Test
     void anAuthenticatedRequestIsCountedUnderItsUserId() throws Exception {
         UUID userId = UUID.randomUUID();
@@ -105,8 +110,7 @@ class RateLimitFilterTests {
                         .header("X-Forwarded-For", "6.6.6.6, 203.0.113.7, 130.176.10.5")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                // The route is opened up for anonymous callers by the sessions PR (#85); the count comes first
-                // either way, because this filter runs before authorization.
+                .andExpect(status().isOk())
                 .andExpect(header().string("X-RateLimit-Limit", "60"));
 
         verify(rateLimiter).tryAcquire("fitsync:ratelimit:refresh:ip:203.0.113.7", 60, WINDOW);
@@ -247,6 +251,22 @@ class RateLimitFilterTests {
         verifyNoInteractions(gatewayProxyService);
     }
 
+    @Test
+    void aRevokedSessionIsTurnedAwayBeforeItIsCountedUnderItsUser() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        allow();
+        when(redisTemplate.hasKey("fitsync:revoked-sid:" + sessionId)).thenReturn(true);
+
+        mockMvc.perform(get("/api/v1/users/me/profile")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(userId, sessionId)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("SESSION_REVOKED"));
+
+        verify(rateLimiter, never()).tryAcquire(anyString(), anyInt(), any());
+        verifyNoInteractions(gatewayProxyService);
+    }
+
     private void allow() {
         when(rateLimiter.tryAcquire(anyString(), anyInt(), any()))
                 .thenAnswer(invocation -> RateLimitDecision.allowed(invocation.getArgument(1),
@@ -261,10 +281,19 @@ class RateLimitFilterTests {
     }
 
     private static String token(UUID userId) {
+        return token(userId, null);
+    }
+
+    private static String token(UUID userId, UUID sessionId) {
         Instant now = Instant.now();
         SecretKey secretKey = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        Map<String, Object> claims = new java.util.HashMap<>(
+                Map.of("userId", userId.toString(), "displayName", "Test User", "role", "USER"));
+        if (sessionId != null) {
+            claims.put("sid", sessionId.toString());
+        }
         return Jwts.builder()
-                .claims(Map.of("userId", userId.toString(), "displayName", "Test User", "role", "USER"))
+                .claims(claims)
                 .subject("test@example.com")
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(3600)))

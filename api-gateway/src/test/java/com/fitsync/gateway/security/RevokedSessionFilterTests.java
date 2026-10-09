@@ -48,6 +48,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "security.jwt.secret=change-me-change-me-change-me-change-me",
+        "fitsync.gateway.rate-limit.enabled=false",
         "fitsync.gateway.routes.auth-service-base-url=http://auth-service:8080",
         "fitsync.gateway.routes.user-service-base-url=http://user-service:8081",
         "fitsync.gateway.routes.workout-service-base-url=http://workout-service:8082",

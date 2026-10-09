@@ -184,7 +184,7 @@ token in the body.
 
 ### 6.5 Revoked sessions
 
-`RevokedSessionFilter` runs right after `JwtAuthenticationFilter`. When a verified application token has a `sid`
+`RevokedSessionFilter` runs after every authentication filter and immediately before `RateLimitFilter` (see 7.1). When a verified application token has a `sid`
 claim, the filter looks up `fitsync:revoked-sid:<sid>` in Redis and answers 401 with code `SESSION_REVOKED` if the
 key exists. auth-service writes that key when it revokes a session.
 
@@ -192,7 +192,8 @@ A token without `sid` was issued before sessions existed and is accepted until i
 reached, the filter lets the request through, stops asking Redis for five seconds, and logs a warning at most once a
 minute. Revocation is then still enforced within one access-token lifetime, because auth-service refuses the
 session's next refresh. The Redis health indicator is switched off so that Redis being down does not mark the
-gateway unhealthy. The gateway reads `REDIS_HOST` and `REDIS_PORT` (default `localhost:6379`).
+gateway unhealthy. The gateway reads `SPRING_DATA_REDIS_HOST`, `SPRING_DATA_REDIS_PORT` and `SPRING_DATA_REDIS_PASSWORD`
+(default `localhost:6379`, no password), the same connection the rate limiter uses.
 
 ---
 
@@ -255,6 +256,13 @@ the ALB each append one entry, so with two hops the gateway reads the address Cl
 client writes into the header itself sits further left and is ignored, so a client cannot choose its own
 key. This relies on the gateway being reachable only through those proxies, which the security groups
 enforce in prod. An entry that is not an IP literal is never used as a key.
+
+The order in the security chain is the authentication filters, then `RevokedSessionFilter`, then
+`RateLimitFilter`, then authorization. A revoked token is therefore turned away with `SESSION_REVOKED`
+before it can be counted under its member's id, so a replayed revoked token cannot use up that member's
+budget. The revoked-session filter writes its own 401, because the SPA reads that code to tell the member
+they were signed out on this device. The accepted trade-off is that a flood of revoked tokens never reaches
+the limiter; each one costs a single Redis lookup and is refused at once.
 
 The limiter fails open. If Redis cannot answer, the request goes through, one warning is logged, and Redis
 is left alone for 30 seconds before it is tried again. Redis is not part of the gateway's health check, so a
