@@ -1,12 +1,20 @@
 package com.fitsync.analytics.config;
 
 import java.time.Duration;
+import java.util.Collection;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.boot.autoconfigure.cache.RedisCacheManagerBuilderCustomizer;
+import org.springframework.cache.annotation.CachingConfigurer;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.interceptor.CacheErrorHandler;
+import org.springframework.cache.interceptor.LoggingCacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
@@ -16,10 +24,19 @@ import org.springframework.data.redis.serializer.RedisSerializationContext;
  * Names the per-user read caches and gives each its Redis TTL: 5 minutes for the dashboard, goals, streaks
  * and achievements, 10 for the rest. Values are stored as JSON with their type, so cached records come back
  * as their own classes. Events evict a user's entries through {@code AnalyticsCacheInvalidationService}.
+ *
+ * <p>The cache is an optimisation, never a dependency: when Redis cannot be reached (or an entry cannot be
+ * read back) the error is logged and the call goes to the read model as if the entry were missing, so a
+ * cache outage costs latency, not failed requests.
  */
 @Configuration
 @EnableCaching
-public class CacheConfig {
+public class CacheConfig implements CachingConfigurer {
+
+    @Override
+    public CacheErrorHandler errorHandler() {
+        return new LoggingCacheErrorHandler(LogFactory.getLog(CacheConfig.class), false);
+    }
 
     public static final String DASHBOARD_CACHE = "analyticsDashboard";
     public static final String BODY_TRENDS_CACHE = "analyticsBodyTrends";
@@ -34,18 +51,38 @@ public class CacheConfig {
     public static final String ACHIEVEMENTS_CACHE = "analyticsAchievements";
     public static final String WEEKLY_REPORT_CACHE = "analyticsWeeklyReport";
 
-    @Bean
-    RedisCacheManagerBuilderCustomizer analyticsRedisCacheManagerBuilderCustomizer(ObjectMapper objectMapper) {
+    /**
+     * The serializer of every analytics cache value; package-visible so tests round-trip through it
+     * ({@code CacheValueSerializerRoundTripTests}). Values carry their type so records come back as their own
+     * classes, but only this service's types and JDK value types (collections, maps, {@code java.time}, numbers,
+     * strings, UUIDs) may be named: any other type written into Redis is refused instead of instantiated.
+     */
+    static GenericJackson2JsonRedisSerializer cacheValueSerializer(ObjectMapper objectMapper) {
         ObjectMapper cacheObjectMapper = objectMapper.copy();
         cacheObjectMapper.activateDefaultTyping(
-                BasicPolymorphicTypeValidator.builder().allowIfSubType(Object.class).build(),
+                BasicPolymorphicTypeValidator.builder()
+                        .allowIfSubType("com.fitsync.analytics.")
+                        .allowIfSubType("java.time.")
+                        .allowIfSubType(Collection.class)
+                        .allowIfSubType(Map.class)
+                        .allowIfSubType(Optional.class)
+                        .allowIfSubType(UUID.class)
+                        .allowIfSubType(Number.class)
+                        .allowIfSubType(String.class)
+                        .allowIfSubType(Boolean.class)
+                        .allowIfSubType(Character.class)
+                        .allowIfSubTypeIsArray()
+                        .build(),
                 ObjectMapper.DefaultTyping.EVERYTHING,
                 JsonTypeInfo.As.PROPERTY);
         GenericJackson2JsonRedisSerializer.registerNullValueSerializer(cacheObjectMapper, "@class");
+        return new GenericJackson2JsonRedisSerializer(cacheObjectMapper);
+    }
 
-        GenericJackson2JsonRedisSerializer serializer = new GenericJackson2JsonRedisSerializer(cacheObjectMapper);
+    @Bean
+    RedisCacheManagerBuilderCustomizer analyticsRedisCacheManagerBuilderCustomizer(ObjectMapper objectMapper) {
         RedisSerializationContext.SerializationPair<Object> valuePair =
-                RedisSerializationContext.SerializationPair.fromSerializer(serializer);
+                RedisSerializationContext.SerializationPair.fromSerializer(cacheValueSerializer(objectMapper));
 
         return builder -> builder
                 .withCacheConfiguration(

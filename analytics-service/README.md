@@ -83,20 +83,55 @@ Default local/test mode:
 - `spring.cache.type=simple`
 - no Redis dependency at runtime
 
-Redis-backed mode:
+Redis-backed mode (the default of `docker-compose.prod.yml`, so the cloud stack uses the `redis`
+container once its rendered `.env` no longer forces `simple`):
 
 ```text
 SPRING_CACHE_TYPE=redis
-SPRING_DATA_REDIS_HOST=localhost
+SPRING_DATA_REDIS_HOST=localhost        # redis in the compose stack
 SPRING_DATA_REDIS_PORT=6379
 SPRING_DATA_REDIS_PASSWORD=
+SPRING_DATA_REDIS_TIMEOUT=500ms         # command timeout (Lettuce's default is 60 s)
+SPRING_DATA_REDIS_CONNECT_TIMEOUT=500ms
 ```
+
+- Keys are Spring's default `<cacheName>::<key>`, and every key starts with the user id, for
+  example `analyticsDashboard::<userId>:<today>` or `analyticsStreaks::<userId>`. Redis holds nothing else in this stack, so the cache names
+  (all `analytics*`) are the namespace.
+- Values are JSON with their type (`GenericJackson2JsonRedisSerializer`), so a cached record comes
+  back as its own class. The type validator allows only this service's types and JDK value types
+  (collections and maps, `java.time`, numbers, strings, UUIDs); any other type named in a Redis value
+  is refused rather than instantiated. `CacheValueSerializerRoundTripTests` round-trips the return type
+  of every `@Cacheable` method through this serializer, with `List.of`/`Set.of`/`Map.of`, nested
+  records, enums and `java.time` values filled in, both full and empty.
+- In the compose stack Redis is a pure cache: `maxmemory 160mb` inside a 256m container,
+  `allkeys-lru` eviction, and no persistence, so a restart starts empty.
+
+When Redis is down or slow:
+
+- `CacheConfig` registers a `LoggingCacheErrorHandler`: a failed cache read, write or evict is logged
+  at WARN and the call goes to the read model as on a miss (`CacheConfigErrorHandlingTests`). A
+  request costs at most the 500 ms timeout extra, it does not fail.
+- `management.health.redis.enabled=false`: Redis does not count towards `/actuator/health`, so an
+  outage neither restarts the container nor rolls back a deploy.
+- A failed per-user eviction is logged and the stale entry lives until its TTL (at most 10 minutes).
 
 Invalidation model:
 
-- any successful projection mutation or internal rebuild clears analytics caches
-- phase 1 uses coarse-grained invalidation to avoid stale cross-endpoint aggregates
-- this is intentionally conservative until projection dependency tracking becomes more granular
+- a successful projection change evicts only that user's entries, in every analytics cache:
+  `AnalyticsCacheInvalidationService` finds them with `SCAN MATCH <cacheName>::<userId>*` and
+  removes them with `UNLINK` (never `KEYS`); other users' entries stay (tested in
+  `AnalyticsCacheInvalidationServiceTests`)
+- with the in-process cache the same eviction filters the map by key prefix
+
+Checking it on a cloud host (ssh over SSM, see `infra/terraform/RUNBOOK.md`):
+
+```bash
+sudo docker exec fitsync-redis redis-cli INFO keyspace                       # db0:keys=...
+sudo docker exec fitsync-redis redis-cli --scan --pattern 'analytics*' | head
+sudo docker exec fitsync-redis redis-cli TTL 'analyticsStreaks::<userId>'    # <= 300 (seconds)
+sudo docker exec fitsync-redis redis-cli INFO stats | grep -E 'keyspace_(hits|misses)|evicted_keys'
+```
 
 Why Redis here:
 

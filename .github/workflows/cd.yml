@@ -227,6 +227,13 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+      - name: Install the Session Manager plugin
+        # ssh and scp reach the host through SSM Session Manager (port 22 is closed).
+        run: |
+          curl -fsSLo /tmp/session-manager-plugin.deb \
+            "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb"
+          sudo dpkg -i /tmp/session-manager-plugin.deb
+          session-manager-plugin --version
       - name: Render .env + deploy via ec2-deploy.sh
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
@@ -246,7 +253,7 @@ jobs:
           set -euo pipefail
           cd infra/terraform
           terraform init && terraform workspace select staging
-          STAGING_HOST="$(terraform output -raw ec2_public_ip)"
+          STAGING_INSTANCE_ID="$(terraform output -raw ec2_instance_id)"
           # auth-service must trust staging's own pool, not the prod default in compose.
           COGNITO_POOL_ID="$(terraform output -raw cognito_user_pool_id)"
           COGNITO_CLIENT_ID="$(terraform output -raw cognito_spa_client_id)"
@@ -268,14 +275,35 @@ jobs:
           # GitHub drops a secret's trailing newline; OpenSSH refuses a key without one.
           printf '%s\n' "$STAGING_EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
+          # Port 22 is closed: ssh and scp tunnel through SSM Session Manager to the instance
+          # id, authenticated by this job's AWS role, and still log in with the deploy key.
+          # ssh-keyscan cannot use a ProxyCommand, so the host key is accepted on first use
+          # over that tunnel. A freshly built host needs a minute before its agent is online.
+          for i in $(seq 1 30); do
+            status="$(aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$STAGING_INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' --output text)"
+            [ "$status" = "Online" ] && break
+            [ "$i" = 30 ] && { echo "SSM agent on $STAGING_INSTANCE_ID is not online ($status)" >&2; exit 1; }
+            sleep 10
+          done
+          cat > ~/.ssh/config <<SSHCFG
+          Host fitsync-host
+            HostName $STAGING_INSTANCE_ID
+            User ec2-user
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+            ProxyCommand aws ssm start-session --region $AWS_REGION --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p
+          SSHCFG
+          chmod 600 ~/.ssh/config
           cat > .env.deploy <<EOF
           ECR_REGISTRY=$ECR_REGISTRY
           IMAGE_TAG=$IMAGE_TAG
           JWT_EXPIRATION=PT2H
           REDIS_HOST=redis
           REDIS_PORT=6379
-          SPRING_CACHE_TYPE=simple
+          SPRING_CACHE_TYPE=redis
           SPRING_DATA_REDIS_HOST=redis
           SPRING_DATA_REDIS_PORT=6379
           KAFKA_ENABLED=true
@@ -328,19 +356,19 @@ jobs:
           FITSYNC_MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL}
           FREE_EXERCISE_DB_IMAGES_DIR=/opt/fitsync/free-exercise-db/exercises
           EOF
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
-          scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$STAGING_HOST:/opt/fitsync/docker-compose.prod.yml"
-          scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$STAGING_HOST:/opt/fitsync/nginx/nginx.conf.template"
-          scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$STAGING_HOST:/opt/fitsync/ec2-deploy.sh"
-          scp -i ~/.ssh/id_ed25519 scripts/bootstrap-db.sql "ec2-user@$STAGING_HOST:/opt/fitsync/bootstrap-db.sql"
-          scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$STAGING_HOST:/opt/fitsync/.env"
+          ssh fitsync-host "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
+          scp docker-compose.prod.yml "fitsync-host:/opt/fitsync/docker-compose.prod.yml"
+          scp nginx/nginx.conf.template "fitsync-host:/opt/fitsync/nginx/nginx.conf.template"
+          scp scripts/ec2-deploy.sh "fitsync-host:/opt/fitsync/ec2-deploy.sh"
+          scp scripts/bootstrap-db.sql "fitsync-host:/opt/fitsync/bootstrap-db.sql"
+          scp .env.deploy "fitsync-host:/opt/fitsync/.env"
           # DB endpoint, service passwords and JWT key come from Secrets Manager on the host.
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" \
+          ssh fitsync-host \
             "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' APP_SECRET_ID='fitsync-staging/app' bash /opt/fitsync/ec2-deploy.sh"
           # The gateway port is open to the ALB only, so check it from the host itself.
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$STAGING_HOST" \
+          ssh fitsync-host \
             "curl -fsS -o /dev/null http://localhost:8088/actuator/health"
-          echo "Staging gateway healthy on $STAGING_HOST"
+          echo "Staging gateway healthy on $STAGING_INSTANCE_ID"
 
   # ── stress test against staging (manual via workflow_dispatch input) ────────
   stress-test:
@@ -361,12 +389,18 @@ jobs:
           STRESS_USER_EMAIL: ${{ secrets.STRESS_USER_EMAIL }}
           STRESS_USER_PASSWORD: ${{ secrets.STRESS_USER_PASSWORD }}
           STRESS_PROFILE: ${{ vars.STRESS_PROFILE }}
+          STRESS_COGNITO_CLIENT_ID: ${{ vars.STRESS_COGNITO_CLIENT_ID }}
+          STRESS_RATE_PER_MIN: ${{ vars.STRESS_RATE_PER_MIN }}
+          STRESS_EXPECT_RATE_LIMIT: ${{ vars.STRESS_EXPECT_RATE_LIMIT }}
         run: |
           if [ -z "$STRESS_TARGET_URL" ]; then
             echo "STRESS_TARGET_URL is not set."; exit 1
           fi
           k6 run -e BASE_URL="$STRESS_TARGET_URL" -e USER_EMAIL="$STRESS_USER_EMAIL" \
             -e USER_PASSWORD="$STRESS_USER_PASSWORD" -e PROFILE="${STRESS_PROFILE:-load}" \
+            -e COGNITO_CLIENT_ID="$STRESS_COGNITO_CLIENT_ID" \
+            -e RATE_PER_MIN="${STRESS_RATE_PER_MIN:-50}" \
+            -e EXPECT_RATE_LIMIT="${STRESS_EXPECT_RATE_LIMIT:-false}" \
             stress/k6/load-test.js
       - uses: actions/upload-artifact@v4
         if: always()
@@ -410,7 +444,7 @@ jobs:
   # commit's images, or a break-glass run (see the promotion rule at the top).
   deploy-prod:
     if: >-
-      ${{ !cancelled() && vars.AWS_ROLE_ARN != '' && vars.PROD_EC2_HOST != ''
+      ${{ !cancelled() && vars.AWS_ROLE_ARN != '' && vars.PROD_EC2_INSTANCE_ID != ''
       && github.event_name == 'workflow_dispatch'
       && needs.docker-image.result == 'success'
       && ((inputs.deploy_prod && needs.deploy-staging-app.result == 'success')
@@ -438,10 +472,17 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - uses: aws-actions/amazon-ecr-login@v2
+      - name: Install the Session Manager plugin
+        # ssh and scp reach the host through SSM Session Manager (port 22 is closed).
+        run: |
+          curl -fsSLo /tmp/session-manager-plugin.deb \
+            "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb"
+          sudo dpkg -i /tmp/session-manager-plugin.deb
+          session-manager-plugin --version
       - name: Render .env + deploy to prod via ec2-deploy.sh
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          PROD_EC2_HOST: ${{ vars.PROD_EC2_HOST }}
+          PROD_EC2_INSTANCE_ID: ${{ vars.PROD_EC2_INSTANCE_ID }}
           PROD_EC2_SSH_KEY: ${{ secrets.PROD_EC2_SSH_KEY }}
           COGNITO_ENABLED: ${{ vars.COGNITO_ENABLED }}
           PROD_DOMAIN: ${{ vars.PROD_DOMAIN }}
@@ -469,14 +510,35 @@ jobs:
           # GitHub drops a secret's trailing newline; OpenSSH refuses a key without one.
           printf '%s\n' "$PROD_EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$PROD_EC2_HOST" >> ~/.ssh/known_hosts
+          # Port 22 is closed: ssh and scp tunnel through SSM Session Manager to the instance
+          # id, authenticated by this job's AWS role, and still log in with the deploy key.
+          # ssh-keyscan cannot use a ProxyCommand, so the host key is accepted on first use
+          # over that tunnel. A freshly built host needs a minute before its agent is online.
+          for i in $(seq 1 30); do
+            status="$(aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$PROD_EC2_INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' --output text)"
+            [ "$status" = "Online" ] && break
+            [ "$i" = 30 ] && { echo "SSM agent on $PROD_EC2_INSTANCE_ID is not online ($status)" >&2; exit 1; }
+            sleep 10
+          done
+          cat > ~/.ssh/config <<SSHCFG
+          Host fitsync-host
+            HostName $PROD_EC2_INSTANCE_ID
+            User ec2-user
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+            ProxyCommand aws ssm start-session --region $AWS_REGION --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p
+          SSHCFG
+          chmod 600 ~/.ssh/config
           cat > .env.deploy <<EOF
           ECR_REGISTRY=$ECR_REGISTRY
           IMAGE_TAG=$IMAGE_TAG
           JWT_EXPIRATION=PT2H
           REDIS_HOST=redis
           REDIS_PORT=6379
-          SPRING_CACHE_TYPE=simple
+          SPRING_CACHE_TYPE=redis
           SPRING_DATA_REDIS_HOST=redis
           SPRING_DATA_REDIS_PORT=6379
           KAFKA_ENABLED=true
@@ -526,12 +588,12 @@ jobs:
           FITSYNC_MEDIA_PUBLIC_BASE_URL=${FITSYNC_MEDIA_PUBLIC_BASE_URL:-https://fitsync-media.s3.ap-southeast-1.amazonaws.com}
           FREE_EXERCISE_DB_IMAGES_DIR=/opt/fitsync/free-exercise-db/exercises
           EOF
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
-          scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@$PROD_EC2_HOST:/opt/fitsync/docker-compose.prod.yml"
-          scp -i ~/.ssh/id_ed25519 nginx/nginx.conf.template "ec2-user@$PROD_EC2_HOST:/opt/fitsync/nginx/nginx.conf.template"
-          scp -i ~/.ssh/id_ed25519 scripts/ec2-deploy.sh "ec2-user@$PROD_EC2_HOST:/opt/fitsync/ec2-deploy.sh"
-          scp -i ~/.ssh/id_ed25519 scripts/bootstrap-db.sql "ec2-user@$PROD_EC2_HOST:/opt/fitsync/bootstrap-db.sql"
-          scp -i ~/.ssh/id_ed25519 .env.deploy "ec2-user@$PROD_EC2_HOST:/opt/fitsync/.env"
+          ssh fitsync-host "sudo mkdir -p /opt/fitsync/nginx && sudo chown -R ec2-user:ec2-user /opt/fitsync"
+          scp docker-compose.prod.yml "fitsync-host:/opt/fitsync/docker-compose.prod.yml"
+          scp nginx/nginx.conf.template "fitsync-host:/opt/fitsync/nginx/nginx.conf.template"
+          scp scripts/ec2-deploy.sh "fitsync-host:/opt/fitsync/ec2-deploy.sh"
+          scp scripts/bootstrap-db.sql "fitsync-host:/opt/fitsync/bootstrap-db.sql"
+          scp .env.deploy "fitsync-host:/opt/fitsync/.env"
           # DB endpoint, service passwords and JWT key come from Secrets Manager on the host.
-          ssh -i ~/.ssh/id_ed25519 "ec2-user@$PROD_EC2_HOST" \
+          ssh fitsync-host \
             "ECR_REGISTRY='$ECR_REGISTRY' IMAGE_TAG='$IMAGE_TAG' AWS_REGION='$AWS_REGION' APP_SECRET_ID='fitsync-prod/app' bash /opt/fitsync/ec2-deploy.sh"

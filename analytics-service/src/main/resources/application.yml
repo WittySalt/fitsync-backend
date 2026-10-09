@@ -38,6 +38,10 @@ spring:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
       password: ${SPRING_DATA_REDIS_PASSWORD:}
+      # Short timeouts: with the Redis cache, a slow or missing Redis must cost a read at most this
+      # long before CacheConfig's error handler falls back to the read model (Lettuce waits 60 s by default).
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:500ms}
+      connect-timeout: ${SPRING_DATA_REDIS_CONNECT_TIMEOUT:500ms}
       repositories:
         enabled: false
 
@@ -53,6 +57,11 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # Redis is only a cache here (reads fall back to the database), so a Redis outage must not mark the
+    # service DOWN and get its container restarted or a deploy rolled back.
+    redis:
+      enabled: false
 
 springdoc:
   swagger-ui:

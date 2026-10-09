@@ -18,7 +18,7 @@ commands below.
 | `AWS_REGION` | all CD | e.g. `ap-southeast-1` |
 | `STAGING_ENABLED` | staging jobs, deploy-prod | `true` while staging exists. Anything else skips every staging job, so a run never re-creates a destroyed staging; prod then needs a run with `skip_staging` + reason |
 | `AWS_ACCOUNT_ID` | docker, deploy | for the ECR registry host |
-| `PROD_EC2_HOST` | deploy-prod | prod EC2 public IP (`ec2_public_ip` output, SSH only; traffic enters through the ALB); also gates deploy-prod |
+| `PROD_EC2_INSTANCE_ID` | deploy-prod | prod EC2 instance id (`ec2_instance_id` output of the prod workspace). CD reaches the host with ssh over SSM Session Manager (no SSH port open; traffic enters through the ALB); also gates deploy-prod. Replaces `PROD_EC2_HOST` |
 | `PROD_DOMAIN` | deploy-prod | nginx server name (optional) |
 | `COGNITO_ENABLED` | deploy-prod | `true`/`false` (optional) |
 | `FITSYNC_MEDIA_ENDPOINT` `FITSYNC_MEDIA_REGION` `FITSYNC_MEDIA_BUCKET` `FITSYNC_MEDIA_PUBLIC_BASE_URL` | deploy | S3 media config |
@@ -28,7 +28,9 @@ commands below.
 | `APP_BASE_URL` | deploy-staging-app, deploy-prod | **Environment-level**, optional. Where links in emails point. Unset: staging uses the first `https://` origin of `STAGING_CORS_ALLOWED_ORIGINS`, else `https://d1z92tpb353lfi.cloudfront.net`; prod uses `https://d26vi6hikexzev.cloudfront.net` |
 | `STAGING_EC2_PUBLIC_KEY` | tf-plan, deploy-staging | public half of the staging deploy key (the private half is `STAGING_EC2_SSH_KEY`) |
 | `STAGING_CORS_ALLOWED_ORIGINS` | deploy-staging-app | the staging SPA origin, e.g. `https://<staging-cloudfront>.cloudfront.net` |
-| `STRESS_TARGET_URL` `STRESS_PROFILE` | stress-test | k6 target + profile |
+| `STRESS_TARGET_URL` `STRESS_PROFILE` | stress-test | k6 target (the staging site, `https://staging.fitsyncapp.click`) + profile |
+| `STRESS_COGNITO_CLIENT_ID` | stress-test | staging SPA client id; set it together with the two `STRESS_USER_*` secrets, or leave all three unset for an anonymous run |
+| `STRESS_RATE_PER_MIN` `STRESS_EXPECT_RATE_LIMIT` | stress-test | arrival rate (default 50/min) and whether 429s are expected (default `false`); see `stress/README.md` |
 | `DAST_TARGET_URL` | owasp-zap | ZAP target base URL |
 | `SONAR_HOST_URL` `SONAR_PROJECT_KEY` `SONAR_ORGANIZATION` `SONAR_QUALITYGATE_WAIT` | verify (optional) | only if using Sonar |
 
@@ -64,6 +66,8 @@ gh variable set AWS_ROLE_ARN  --repo WittySalt/fitsync-backend --body "arn:aws:i
 # environment-level variables (email notifications differ per environment)
 gh variable set NOTIFY_EMAIL_SENDER --repo WittySalt/fitsync-backend --env staging    --body "noreply-staging@fitsyncapp.click"
 gh variable set NOTIFY_EMAIL_SENDER --repo WittySalt/fitsync-backend --env production --body "noreply@fitsyncapp.click"
+# the prod host for ssh over SSM (run in infra/terraform with the prod workspace selected)
+gh variable set PROD_EC2_INSTANCE_ID --repo WittySalt/fitsync-backend --body "$(terraform output -raw ec2_instance_id)"
 # secrets (prompts / reads file)
 gh secret   set PROD_EC2_SSH_KEY --repo WittySalt/fitsync-backend < path/to/id_ed25519
 ```

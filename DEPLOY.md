@@ -276,8 +276,12 @@ and `SPRING_CACHE_TYPE` (`simple`) are fixed in the rendered `.env` — edit `cd
 3. Run the workflow by hand with `deploy_prod` ticked (it needs `PROD_EC2_HOST` set);
    `deploy-prod` runs once staging succeeded in that run.
    - First run auto-installs Docker + compose + aws-cli on the host, renders `/opt/fitsync/.env` from the variables, pulls from ECR, `compose up --wait`, health-gates the gateway, writes the rollback tag.
-4. Check through the ALB or CloudFront: `curl http://<alb_dns_name>/actuator/health` (staging) or
-   `https://<prod-cloudfront>/actuator/health` → `{"status":"UP"}`. Port 8088 is open to the ALB only.
+4. Check an API path through CloudFront, for example `curl -i https://staging.fitsyncapp.click/api/v1/foods`
+   (staging) or the same path on the prod address: a JSON `401 UNAUTHORIZED` means the request reached the
+   gateway. Both ALBs accept CloudFront only, and the distributions forward only `/api/*`, so `/actuator/health`
+   through CloudFront returns the SPA page. Actuator is VPC-internal only: the ALB health-checks the gateway
+   inside the VPC, and you check it on the host:
+   `curl -fsS http://localhost:8088/actuator/health` → `{"status":"UP"}`. Port 8088 is open to the ALB only.
 
 ## 8.5 Media / images (S3) — exercise images + avatars
 

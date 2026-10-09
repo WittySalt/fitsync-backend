@@ -84,7 +84,11 @@ services:
     container_name: fitsync-redis
     restart: unless-stopped
     mem_limit: ${REDIS_MEM_LIMIT:-256m}
-    command: ["redis-server", "--save", "60", "1"]
+    # A pure cache (analytics-service's read caches; every key has a TTL and can be rebuilt from
+    # the database). maxmemory stays well under mem_limit for Redis's own overhead, allkeys-lru
+    # drops the least recently used entries instead of refusing writes when it is full, and
+    # persistence is off: a restart starts empty, and no snapshot fork doubles the memory.
+    command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-160mb}", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
     volumes:
       - redis-data:/data
     healthcheck:
@@ -280,9 +284,11 @@ services:
       DB_USERNAME: analytics_svc
       DB_PASSWORD: ${ANALYTICS_DB_PASSWORD}
       SERVER_PORT: 8085
-      # analytics uses the SPRING_DATA_REDIS_* names (not REDIS_HOST). Cache stays
-      # 'simple' in phase 1; set SPRING_CACHE_TYPE=redis to use the redis container.
-      SPRING_CACHE_TYPE: ${SPRING_CACHE_TYPE:-simple}
+      # analytics uses the SPRING_DATA_REDIS_* names (not REDIS_HOST). Its read caches live in the
+      # redis container (keys <cacheName>::<userId>..., TTL 5-10 min, evicted per user on events);
+      # SPRING_CACHE_TYPE=simple falls back to an in-process cache. A Redis outage only costs
+      # latency: reads fall back to the database and health ignores Redis.
+      SPRING_CACHE_TYPE: ${SPRING_CACHE_TYPE:-redis}
       SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
       SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
       SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
