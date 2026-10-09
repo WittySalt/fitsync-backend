@@ -115,3 +115,10 @@ fitsync:
       enabled: ${OUTBOX_RELAY_ENABLED:false}
       interval: ${OUTBOX_RELAY_INTERVAL:PT30S}
       batch-size: ${OUTBOX_RELAY_BATCH_SIZE:50}
+    # Published outbox rows carry full event payloads (weights, emails), so they are deleted after
+    # the retention. PENDING and FAILED rows are never removed.
+    cleanup:
+      enabled: ${OUTBOX_CLEANUP_ENABLED:true}
+      retention: ${OUTBOX_CLEANUP_RETENTION:P7D}
+      batch-size: ${OUTBOX_CLEANUP_BATCH_SIZE:500}
+      interval: ${OUTBOX_CLEANUP_INTERVAL:PT1H}

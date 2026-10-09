@@ -2,6 +2,7 @@ package com.fitsync.nutrition;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fitsync.persistence.outbox.OutboxCleanupJob;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,5 +27,14 @@ class NutritionServiceApplicationTests {
         assertThat(environment.getProperty("spring.flyway.schemas")).isEqualTo("nutrition");
         assertThat(environment.getProperty("spring.flyway.table")).isEqualTo("nutrition_flyway_schema_history");
         assertThat(environment.getProperty("spring.jpa.properties.hibernate.default_schema")).isEqualTo("nutrition");
+    }
+
+    @Autowired
+    private OutboxCleanupJob outboxCleanupJob;
+
+    @Test
+    void outboxCleanupRunsAgainstThisServicesOutboxTable() {
+        // A wrong column or table name would fail here as a SQL error rather than in production.
+        assertThat(outboxCleanupJob.deleteExpiredPublishedEvents()).isZero();
     }
 }

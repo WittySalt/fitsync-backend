@@ -135,6 +135,12 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <!-- Consent-gated coach view of the readiness questionnaire: an intentional, signed-in endpoint. -->
+    <Match>
+        <Class name="com.fitsync.user.controller.CoachHealthContextController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
     <Match>
         <Class name="com.fitsync.user.messaging.SpringKafkaEventProducer"/>
         <Bug pattern="EI_EXPOSE_REP2"/>

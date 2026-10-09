@@ -15,6 +15,8 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 /**
  * Provides a {@link MediaStorageService} backed by S3 (MinIO locally) to any service that has media-support on
@@ -38,6 +40,27 @@ public class MediaStorageAutoConfiguration {
         return builder.build();
     }
 
+    /**
+     * Signs read URLs for private objects such as avatars. Signing happens locally with the same credentials as
+     * the client, so it needs no network call. The URL names {@code presignEndpoint} when it is set, because the
+     * browser, not the service, follows it.
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    S3Presigner mediaS3Presigner(MediaStorageProperties properties) {
+        S3Presigner.Builder builder = S3Presigner.builder()
+                .region(Region.of(properties.region()))
+                .credentialsProvider(credentialsProvider(properties))
+                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build());
+        String endpoint = StringUtils.hasText(properties.presignEndpoint())
+                ? properties.presignEndpoint()
+                : properties.endpoint();
+        if (StringUtils.hasText(endpoint)) {
+            builder.endpointOverride(URI.create(endpoint));
+        }
+        return builder.build();
+    }
+
     private static AwsCredentialsProvider credentialsProvider(MediaStorageProperties properties) {
         if (properties.awsDefaultCredentials()) {
             return DefaultCredentialsProvider.create();
@@ -49,7 +72,8 @@ public class MediaStorageAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     MediaStorageService mediaStorageService(ObjectProvider<S3Client> mediaS3ClientProvider,
+                                            ObjectProvider<S3Presigner> mediaS3PresignerProvider,
                                             MediaStorageProperties properties) {
-        return new S3MediaStorageService(mediaS3ClientProvider, properties);
+        return new S3MediaStorageService(mediaS3ClientProvider, mediaS3PresignerProvider, properties);
     }
 }

@@ -36,7 +36,9 @@ import org.springframework.stereotype.Component;
  * whether a draft is acceptable cannot, and can be tested exhaustively without any of this.
  *
  * <p>The reads are independent, so they run together on the coach's pool. They are also allowed to
- * come back empty. An unreachable questionnaire means no injury exclusions rather than a failed
+ * come back empty. Injury areas arrive only while the user consents to their health answers being
+ * used; without consent, user-service sends none and the draft is built without injury exclusions.
+ * An unreachable questionnaire likewise means no injury exclusions rather than a failed
  * draft, which is the right trade when the alternative is refusing to help; the gap it leaves is
  * narrow, because the rules that matter most are the ones checking the exercises themselves.
  */
@@ -213,13 +215,24 @@ public class DraftContextAssembler {
     }
 
     private Set<String> injuryAreas(CoachCallContext call) {
-        String body = userClient.healthReadiness(call.bearerToken());
+        return injuryAreas(userClient.coachHealthContext(call.bearerToken()), objectMapper);
+    }
+
+    /**
+     * The injured areas in a coach-context body. Areas are used only when the body says consent is
+     * given, so a body that carried areas without consent still excludes nothing.
+     */
+    static Set<String> injuryAreas(String body, ObjectMapper objectMapper) {
         if (body == null) {
             return Set.of();
         }
         try {
+            JsonNode context = objectMapper.readTree(body);
+            if (!context.path("healthDataConsent").asBoolean(false)) {
+                return Set.of();
+            }
             Set<String> areas = new LinkedHashSet<>();
-            for (JsonNode area : objectMapper.readTree(body).path("injuryAreas")) {
+            for (JsonNode area : context.path("injuryAreas")) {
                 String value = area.asText("");
                 if (!value.isBlank()) {
                     areas.add(value.trim().toUpperCase(Locale.ROOT).replace(' ', '_'));

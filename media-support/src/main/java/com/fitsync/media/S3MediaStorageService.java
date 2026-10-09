@@ -1,11 +1,14 @@
 package com.fitsync.media;
 
 import java.io.InputStream;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -19,18 +22,31 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 public class S3MediaStorageService implements MediaStorageService {
 
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
-    /** Cached for a year as immutable, so changed content has to be stored under a new key. */
-    private static final String CACHE_CONTROL = "public, max-age=31536000, immutable";
+    /** Public catalogue media is cached for a year as immutable, so changed content needs a new key. */
+    private static final String PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
+    /**
+     * Private media (avatars) may only be kept by the viewer's own browser, and no longer than the pre-signed URL
+     * it was read through stays valid, so shared caches never hold a copy.
+     */
+    private static final String PRIVATE_CACHE_CONTROL = "private, max-age=3600";
+    /** Keys under this prefix are private objects that the bucket policy does not expose. */
+    private static final String PRIVATE_KEY_PREFIX = "avatars/";
 
     private final ObjectProvider<S3Client> s3ClientProvider;
+    private final ObjectProvider<S3Presigner> s3PresignerProvider;
     private final MediaStorageProperties properties;
 
-    public S3MediaStorageService(ObjectProvider<S3Client> s3ClientProvider, MediaStorageProperties properties) {
+    public S3MediaStorageService(ObjectProvider<S3Client> s3ClientProvider,
+                                 ObjectProvider<S3Presigner> s3PresignerProvider,
+                                 MediaStorageProperties properties) {
         this.s3ClientProvider = s3ClientProvider;
+        this.s3PresignerProvider = s3PresignerProvider;
         this.properties = properties;
     }
 
@@ -99,12 +115,45 @@ public class S3MediaStorageService implements MediaStorageService {
         return deleted;
     }
 
+    @Override
+    public String presignedGetUrl(String key, Duration ttl) {
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            throw new IllegalArgumentException("Pre-signed URL lifetime must be positive");
+        }
+        GetObjectPresignRequest request = GetObjectPresignRequest.builder()
+                .signatureDuration(ttl)
+                .getObjectRequest(get -> get.bucket(properties.bucket()).key(normalizeKey(key)))
+                .build();
+        return s3PresignerProvider.getObject().presignGetObject(request).url().toString();
+    }
+
+    @Override
+    public Optional<String> keyForUrl(String url) {
+        if (url == null) {
+            return Optional.empty();
+        }
+        String prefix = trimTrailingSlash(properties.publicBaseUrl()) + "/";
+        String trimmed = url.trim();
+        if (!trimmed.startsWith(prefix) || trimmed.indexOf('?') >= 0 || trimmed.indexOf('#') >= 0) {
+            return Optional.empty();
+        }
+        try {
+            String key = Arrays.stream(trimmed.substring(prefix.length()).split("/", -1))
+                    // Undoes encodePath; a literal '+' was encoded as %2B, so it must survive decoding.
+                    .map(segment -> URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8))
+                    .collect(Collectors.joining("/"));
+            return Optional.of(normalizeKey(key));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
+        }
+    }
+
     private PutObjectRequest putRequest(String key, String contentType) {
         return PutObjectRequest.builder()
                 .bucket(properties.bucket())
                 .key(key)
                 .contentType(contentType == null || contentType.isBlank() ? DEFAULT_CONTENT_TYPE : contentType)
-                .cacheControl(CACHE_CONTROL)
+                .cacheControl(key.startsWith(PRIVATE_KEY_PREFIX) ? PRIVATE_CACHE_CONTROL : PUBLIC_CACHE_CONTROL)
                 .build();
     }
 
