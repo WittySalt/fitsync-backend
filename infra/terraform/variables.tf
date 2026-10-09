@@ -100,6 +100,12 @@ variable "db_multi_az" {
   default     = false
 }
 
+variable "prod_media_bucket" {
+  description = "Hand-built prod media bucket that media_prod.tf adopts by import and manages (prod only; empty = nothing adopted)"
+  type        = string
+  default     = ""
+}
+
 variable "existing_media_bucket" {
   description = "Use this existing media bucket instead of creating one (prod: fitsync-media)"
   type        = string
@@ -173,4 +179,31 @@ variable "notify_email_create_identity" {
   description = "Create an SES address identity for notify_email_sender in this workspace. False (default) when the sender's domain is verified in bootstrap/email.tf; true only for an address outside that domain"
   type        = bool
   default     = false
+}
+
+variable "db_subnet_tier" {
+  description = "Subnets of the RDS subnet group: private (target), both (while an existing database moves over) or public (the old layout, for rollback)"
+  type        = string
+  default     = "private"
+
+  validation {
+    condition     = contains(["public", "both", "private"], var.db_subnet_tier)
+    error_message = "db_subnet_tier must be one of: public, both, private."
+  }
+}
+
+variable "ssh_ingress_cidrs" {
+  description = "CIDRs allowed to reach port 22 on the app host. Empty (default) = no SSH port; ssh goes over SSM Session Manager. Only for the switch-over to SSM"
+  type        = list(string)
+  default     = []
+}
+
+variable "prod_cognito" {
+  description = "IDs of the hand-built prod Cognito pool, app client and domain that cognito_prod.tf adopts with import blocks (prod only; null = nothing adopted)"
+  type = object({
+    user_pool_id = string
+    client_id    = string
+    domain       = string
+  })
+  default = null
 }

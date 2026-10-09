@@ -1,6 +1,6 @@
 # ── Cognito user pool + SPA app client (free tier) ───────────────────────────
-# Off for prod: prod keeps its existing pool (created by hand, holds real users), and
-# auth-service / the SPA are pointed at it by configuration instead.
+# Off for prod: prod keeps its existing pool (created by hand, holds real users), which
+# cognito_prod.tf adopts by import; auth-service and the SPA point at it by configuration.
 resource "aws_cognito_user_pool" "main" {
   count = var.enable_cognito ? 1 : 0
 

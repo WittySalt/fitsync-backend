@@ -55,8 +55,15 @@ resource "aws_iam_instance_profile" "ec2_app" {
 }
 
 # ── CI deploy policy: push images + trigger SSM deploy (free) ─────────────────
-# Attach this to your GitHub Actions principal (the OIDC role in AWS_ROLE_ARN).
+# What CD needs, written down per environment. It is attached to nothing today: the CD
+# role fitsync-github-cd (bootstrap/) holds PowerUserAccess, which already covers all of
+# it, and this stack may not attach policies to that role. It becomes the CD role's grant
+# if PowerUserAccess is ever narrowed (attach it in bootstrap/).
 data "aws_iam_policy_document" "ci_deploy" {
+  # ssh/scp over SSM Session Manager (cd.yml ProxyCommand), to this environment's host and
+  # only with the SSH document (statements below, "ssh over SSM Session Manager").
+  source_policy_documents = [data.aws_iam_policy_document.ssm_ssh_ci.json]
+
   statement {
     sid = "EcrAuth"
     actions = [
@@ -95,4 +102,63 @@ resource "aws_iam_policy" "ci_deploy" {
   name        = "${local.name}-ci-deploy"
   description = "FitSync CI: push to ECR + deploy via SSM"
   policy      = data.aws_iam_policy_document.ci_deploy.json
+}
+
+# ── ssh over SSM Session Manager (free) ─────────────────────────────────────
+# Port 22 is closed (network.tf); ssh and scp reach the host through
+# `aws ssm start-session --document-name AWS-StartSSHSession`, which still needs the
+# deploy key. These statements allow exactly that: a session to this environment's
+# instance, only with the AWS-StartSSHSession document (SessionDocumentAccessCheck makes
+# a StartSession without a document, the plain shell, fail), and ending or resuming only
+# the caller's own sessions. A session id starts with the IAM user name for a user and
+# with the role session name for a role (configure-aws-credentials names CD's
+# GitHubActions). AWS-owned documents have no account in their ARN, hence the `*`.
+data "aws_iam_policy_document" "ssm_ssh_start" {
+  statement {
+    sid     = "StartSshSessionToAppHost"
+    actions = ["ssm:StartSession"]
+    resources = concat(
+      [for i in aws_instance.app : i.arn],
+      ["arn:aws:ssm:${var.region}:*:document/AWS-StartSSHSession"],
+    )
+    condition {
+      test     = "BoolIfExists"
+      variable = "ssm:SessionDocumentAccessCheck"
+      values   = ["true"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "ssm_ssh_ci" {
+  source_policy_documents = [data.aws_iam_policy_document.ssm_ssh_start.json]
+
+  statement {
+    sid       = "OwnSessionsOnly"
+    actions   = ["ssm:TerminateSession", "ssm:ResumeSession", "ssmmessages:OpenDataChannel"]
+    resources = ["arn:aws:ssm:${var.region}:${local.account_id}:session/GitHubActions-*"]
+  }
+}
+
+data "aws_iam_policy_document" "ssm_ssh_operator" {
+  source_policy_documents = [data.aws_iam_policy_document.ssm_ssh_start.json]
+
+  statement {
+    sid     = "OwnSessionsOnly"
+    actions = ["ssm:TerminateSession", "ssm:ResumeSession", "ssmmessages:OpenDataChannel"]
+    resources = [
+      "arn:aws:ssm:${var.region}:${local.account_id}:session/$${aws:username}-*",
+      "arn:aws:ssm:${var.region}:${local.account_id}:session/$${aws:userid}-*",
+    ]
+  }
+}
+
+# For people: attach to the operator's IAM user (or group) by hand, see RUNBOOK.md
+# "SSH over SSM". The CD stack cannot attach policies to users, and an admin profile
+# already has these rights; the policy is what a least-privilege operator needs.
+resource "aws_iam_policy" "ssm_operator" {
+  count = var.enable_ec2 ? 1 : 0
+
+  name        = "${local.name}-ssm-operator"
+  description = "FitSync ${var.env}: ssh to the app host over SSM Session Manager"
+  policy      = data.aws_iam_policy_document.ssm_ssh_operator.json
 }

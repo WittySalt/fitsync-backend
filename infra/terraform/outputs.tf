@@ -10,6 +10,11 @@ output "public_subnet_ids" {
   value = aws_subnet.public[*].id
 }
 
+output "private_subnet_ids" {
+  description = "Data-tier subnets (no internet route) that hold RDS, in AZ order"
+  value       = aws_subnet.private[*].id
+}
+
 output "media_bucket" {
   value = local.media_bucket
 }
@@ -20,16 +25,16 @@ output "media_public_base_url" {
 }
 
 output "cognito_user_pool_id" {
-  description = "null unless enable_cognito=true"
-  value       = var.enable_cognito ? aws_cognito_user_pool.main[0].id : null
+  description = "The environment's own pool (enable_cognito), the adopted prod pool (prod_cognito), else null"
+  value       = var.enable_cognito ? aws_cognito_user_pool.main[0].id : (local.adopt_prod_cognito ? aws_cognito_user_pool.prod[0].id : null)
 }
 
 output "cognito_spa_client_id" {
-  value = var.enable_cognito ? aws_cognito_user_pool_client.spa[0].id : null
+  value = var.enable_cognito ? aws_cognito_user_pool_client.spa[0].id : (local.adopt_prod_cognito ? aws_cognito_user_pool_client.prod[0].id : null)
 }
 
 output "cognito_domain" {
-  value = var.enable_cognito ? "${aws_cognito_user_pool_domain.main[0].domain}.auth.${var.region}.amazoncognito.com" : null
+  value = var.enable_cognito ? "${aws_cognito_user_pool_domain.main[0].domain}.auth.${var.region}.amazoncognito.com" : (local.adopt_prod_cognito ? "${aws_cognito_user_pool_domain.prod[0].domain}.auth.${var.region}.amazoncognito.com" : null)
 }
 
 output "ci_deploy_policy_arn" {
@@ -39,6 +44,16 @@ output "ci_deploy_policy_arn" {
 output "rds_endpoint" {
   description = "RDS endpoint (null unless enable_rds=true)"
   value       = var.enable_rds ? aws_db_instance.main[0].endpoint : null
+}
+
+output "ec2_instance_id" {
+  description = "App host instance id, the ssh target over SSM Session Manager (null unless enable_ec2=true)"
+  value       = var.enable_ec2 ? aws_instance.app[0].id : null
+}
+
+output "ssm_operator_policy_arn" {
+  description = "Managed policy to attach to an operator's IAM user for ssh over SSM (null unless enable_ec2=true)"
+  value       = var.enable_ec2 ? aws_iam_policy.ssm_operator[0].arn : null
 }
 
 output "ec2_public_ip" {
