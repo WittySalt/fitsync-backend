@@ -84,10 +84,14 @@ services:
     container_name: fitsync-redis
     restart: unless-stopped
     mem_limit: ${REDIS_MEM_LIMIT:-256m}
-    # A pure cache (analytics-service's read caches; every key has a TTL and can be rebuilt from
-    # the database). maxmemory stays well under mem_limit for Redis's own overhead, allkeys-lru
-    # drops the least recently used entries instead of refusing writes when it is full, and
-    # persistence is off: a restart starts empty, and no snapshot fork doubles the memory.
+    # Short-lived data only, and every key has a TTL: analytics-service's read caches (rebuilt
+    # from the database), the gateway's rate-limit counters, and the session deny-list
+    # (fitsync:revoked-sid:*) that auth-service writes and the gateway checks. maxmemory stays
+    # well under mem_limit for Redis's own overhead, and allkeys-lru drops the least recently
+    # used entries instead of refusing writes when it is full. Persistence is off: a restart
+    # starts empty, and no snapshot fork doubles the memory. Losing a deny-list entry this way
+    # is acceptable, because the database still refuses that session's next refresh, so a
+    # revoked device is out within one access-token lifetime (15 minutes).
     command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-160mb}", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
     volumes:
       - redis-data:/data
