@@ -55,7 +55,8 @@ Locally it only logs emails (`FITSYNC_NOTIFY_EMAIL_ENABLED` stays false).
 
 5. Eyeball checklist, steady account unless noted (numbers in the table below):
    - Home: the streak, ending yesterday; the weekly goal is six sessions and every session counts,
-     mobility included, so on Friday it reads four in, two to go; the guide card fits the hour.
+     mobility included, so on Friday it reads four in, two to go. There is no Getting started
+     card for steady and drifting, and no tour starts by itself for them.
    - Workout Today: "this week" counts the days trained against those trained or still planned (4 of 6
      on Friday, 5 of 6 on Saturday); the plan days before today are done and today's plan session is still to start
      (no plan session on Tuesday, Wednesday and Sunday, nor on Thursday once the Thursday run was
@@ -119,8 +120,9 @@ powershell -NoProfile -File scripts\demo-reseed-cloud.ps1 -Env prod -Apply
 
 ## What the demo accounts show
 
-Names and dates. The seed gives an account a person's name only where its stored name is blank or a
-persona word (steady, drifting, fresh, any case): steady becomes Jamie Lim, drifting Alex Tan and fresh
+Names and dates. The seed gives an account a person's name only where its stored name is blank, a
+persona word (steady, drifting, fresh, any case) or the local part of its email (any case), which
+sign-up fills in when no name is given: steady becomes Jamie Lim, drifting Alex Tan and fresh
 Sam Lee, in the profile (display, first and last name), the auth account and notification-service's
 copy. A real name, such as steady's own, is kept. steady and drifting are members since the first day of
 the seeded history, 59 days before the run day at 06:00; fresh keeps its real creation date, since it

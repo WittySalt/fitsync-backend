@@ -108,7 +108,7 @@ Write-Host 'Reseed done. Coach eval for this seed:'
 Write-Host ("  python scripts\coach-eval\run_coach_eval.py --now {0} --token-file .local\demo.jwt --out .local\coach-eval.md" -f $now)
 Write-Host 'Eyeball, signed in as steady unless noted (scripts\README.md has the numbers per weekday):'
 @(
-    'Home: streak about two weeks, ending yesterday; weekly goal of six sessions (Friday: two to go); today has breakfast only if the seed ran after 07:30',
+    'Home: streak about two weeks, ending yesterday; weekly goal of six sessions (Friday: two to go); today has breakfast only if the seed ran after 07:30; no Getting started card for steady and drifting',
     'Workout Today: the plan days before today are done, today''s plan day is still to start; rest days of the last two weeks carry a short mobility session',
     'Nutrition Diary: every day logged, last Sunday a fasted day, yesterday complete',
     'Recipes: three cooks in the history, Leftovers offers two (Salmon Avocado Salad 1, Spanish Chicken 2)',
