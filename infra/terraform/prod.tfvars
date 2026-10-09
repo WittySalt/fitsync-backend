@@ -53,3 +53,9 @@ notify_email_sender = "noreply@fitsyncapp.click"
 # 2026-10-09: the database runs on the private subnets (primary and standby) and the host has
 # no SSH port; operators and CD reach it through SSM Session Manager. db_subnet_tier and
 # ssh_ingress_cidrs use their defaults ("private", no SSH ingress).
+
+# TLS from CloudFront to the ALB (origin_tls.tf, RUNBOOK.md "TLS from CloudFront to the ALB"):
+# the ALB answers HTTPS as origin.fitsyncapp.click, which the frontend stack's api_origin_domain then names
+# with origin_protocol_policy "https-only". The HTTP listener stays until that switch is live;
+# then set alb_http_listener_enabled = false here.
+origin_hostname = "origin.fitsyncapp.click"

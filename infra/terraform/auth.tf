@@ -61,3 +61,33 @@ resource "aws_cognito_user_pool_domain" "main" {
   domain       = "${local.name}-${local.account_id}"
   user_pool_id = aws_cognito_user_pool.main[0].id
 }
+
+# ── Account purge: delete the Cognito user (free) ────────────────────────────
+# When the 30-day grace period of an account deletion ends, the purge deletes the user from
+# this environment's pool with cognito-idp:AdminDeleteUser, called with the EC2 instance role.
+# The grant names only that action and only this environment's pool: the staging pool built
+# above, or the adopted prod pool (cognito_prod.tf). With neither, nothing is granted.
+locals {
+  # A plain flag for count: the ARN of a pool still to be created is unknown at plan time.
+  has_app_user_pool = var.enable_cognito || local.adopt_prod_cognito
+  app_user_pool_arn = (var.enable_cognito ? aws_cognito_user_pool.main[0].arn :
+  local.adopt_prod_cognito ? aws_cognito_user_pool.prod[0].arn : null)
+}
+
+data "aws_iam_policy_document" "ec2_cognito_purge" {
+  count = local.has_app_user_pool ? 1 : 0
+
+  statement {
+    sid       = "DeletePurgedUsers"
+    actions   = ["cognito-idp:AdminDeleteUser"]
+    resources = [local.app_user_pool_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "ec2_cognito_purge" {
+  count = local.has_app_user_pool ? 1 : 0
+
+  name   = "${local.name}-ec2-cognito-purge"
+  role   = aws_iam_role.ec2_app.id
+  policy = data.aws_iam_policy_document.ec2_cognito_purge[0].json
+}

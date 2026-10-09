@@ -2,7 +2,8 @@
 # Each environment writes to its own bucket. Staging gets a bucket made here; prod
 # adopts the existing fitsync-media by import (var.prod_media_bucket, media_prod.tf).
 # var.existing_media_bucket still names a bucket to use without managing it. The services
-# upload with the EC2 instance role (s3:PutObject only).
+# upload with the EC2 instance role (s3:PutObject), and the account purge deletes avatars
+# with it (s3:DeleteObject and s3:ListBucket, under avatars/ only).
 locals {
   create_media_bucket = var.existing_media_bucket == "" && !local.adopt_media_bucket
   media_bucket = (local.create_media_bucket ? aws_s3_bucket.media[0].bucket :
@@ -48,6 +49,26 @@ data "aws_iam_policy_document" "ec2_media" {
     sid       = "UploadMedia"
     actions   = ["s3:PutObject"]
     resources = ["arn:aws:s3:::${local.media_bucket}/*"]
+  }
+
+  # The account purge removes a user's avatars. user-service stores them at
+  # avatars/<userId>/<uuid>.<ext>, so the purge lists avatars/<userId>/ and deletes what it
+  # finds. Both rights stop at the avatars/ prefix: the exercise images stay undeletable.
+  statement {
+    sid       = "DeleteAvatars"
+    actions   = ["s3:DeleteObject"]
+    resources = ["arn:aws:s3:::${local.media_bucket}/avatars/*"]
+  }
+
+  statement {
+    sid       = "ListAvatars"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${local.media_bucket}"]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["avatars/*"]
+    }
   }
 }
 
