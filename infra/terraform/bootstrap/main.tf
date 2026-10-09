@@ -7,7 +7,9 @@
 #
 # Creates:
 #   - the GitHub OIDC identity provider
-#   - fitsync-github-cd: the role both repos' workflows assume (AWS_ROLE_ARN)
+#   - fitsync-github-cd: the role the backend workflows assume (AWS_ROLE_ARN)
+#   - fitsync-frontend-github-deploy: the frontend CD's own S3 + CloudFront role
+#     (frontend_cd.tf)
 #   - fitsync-workload-boundary: the permissions boundary every role CD creates
 #     must carry, so CD can never mint a role stronger than itself
 #   - the shared ECR repositories (registry.tf), empty ones cost nothing
@@ -43,7 +45,7 @@ variable "region" {
 variable "github_repositories" {
   description = "owner/repo of every repository whose workflows may assume the CD role"
   type        = list(string)
-  default     = ["WittySalt/fitsync-backend", "WittySalt/fitsync-frontend"]
+  default     = ["WittySalt/fitsync-backend"]
 }
 
 provider "aws" {
@@ -67,7 +69,13 @@ locals {
   workload_patterns = ["fitsync-staging-*", "fitsync-prod-*"]
   # Only main and the two approval-gated environments may assume the role, so a
   # workflow on a feature branch or a fork's pull request cannot.
-  oidc_subjects = flatten([for repo in var.github_repositories : [
+  # The frontend keeps its old place in this trust until phase 2 (frontend_cd.tf), so
+  # its CD never loses access while AWS_ROLE_ARN is switched to its own role.
+  cd_trusted_repositories = concat(
+    var.github_repositories,
+    var.frontend_cd_phase == 1 ? [var.frontend_github_repository] : [],
+  )
+  oidc_subjects = flatten([for repo in local.cd_trusted_repositories : [
     "repo:${repo}:ref:refs/heads/main",
     "repo:${repo}:environment:staging",
     "repo:${repo}:environment:production",
@@ -221,7 +229,7 @@ resource "aws_iam_role_policy" "github_cd_iam" {
 }
 
 output "github_cd_role_arn" {
-  description = "Set as the AWS_ROLE_ARN repository variable in both repos"
+  description = "Set as the AWS_ROLE_ARN repository variable in the backend repo"
   value       = aws_iam_role.github_cd.arn
 }
 

@@ -4,8 +4,11 @@
   green out of the box. SonarCloud is optional (set `SONAR_TOKEN` to enable).
 - **CD** (`cd.yml`) is **dormant** until the `AWS_ROLE_ARN` *repository variable* is
   set. While it is empty, every CD job is skipped. AWS auth uses **GitHub OIDC**
-  (no static access keys) — the IAM role must trust `token.actions.githubusercontent.com`
-  with subject `repo:WittySalt/fitsync-backend:*`.
+  (no static access keys). The role is `fitsync-github-cd` (`infra/terraform/bootstrap`,
+  output `github_cd_role_arn`); it trusts `token.actions.githubusercontent.com` with the
+  subjects `repo:WittySalt/fitsync-backend:ref:refs/heads/main` and
+  `repo:WittySalt/fitsync-backend:environment:{staging,production}`. The frontend repo
+  has its own role, `fitsync-frontend-github-deploy` (output `frontend_cd_role_arn`).
 
 Set values under **Settings → Secrets and variables → Actions**, or with the `gh`
 commands below.
