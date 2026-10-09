@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -45,6 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "fitsync.gateway.rate-limit.enabled=true",
         "fitsync.gateway.rate-limit.general-limit=120",
         "fitsync.gateway.rate-limit.auth-limit=10",
+        "fitsync.gateway.rate-limit.refresh-limit=60",
         "fitsync.gateway.rate-limit.trusted-proxy-hops=2",
         "fitsync.gateway.cors.allowed-origins=https://d26vi6hikexzev.cloudfront.net"
 })
@@ -91,6 +93,66 @@ class RateLimitFilterTests {
                 .andExpect(status().isOk());
 
         verify(rateLimiter).tryAcquire("fitsync:ratelimit:auth:ip:203.0.113.7", 10, WINDOW);
+    }
+
+    @Test
+    void anUnauthenticatedRefreshHasItsOwnBucketWithTheRefreshLimit() throws Exception {
+        allow();
+        when(gatewayProxyService.forwardToAuthService(any(), any())).thenReturn(ResponseEntity.ok(new byte[0]));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(remoteAddress("10.0.1.20"))
+                        .header("X-Forwarded-For", "6.6.6.6, 203.0.113.7, 130.176.10.5")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                // The route is opened up for anonymous callers by the sessions PR (#85); the count comes first
+                // either way, because this filter runs before authorization.
+                .andExpect(header().string("X-RateLimit-Limit", "60"));
+
+        verify(rateLimiter).tryAcquire("fitsync:ratelimit:refresh:ip:203.0.113.7", 60, WINDOW);
+        verify(rateLimiter, never()).tryAcquire(eq("fitsync:ratelimit:auth:ip:203.0.113.7"), anyInt(), any());
+    }
+
+    @Test
+    void refreshesNeverUseUpTheSignInBudgetOfTheSameAddress() throws Exception {
+        allow();
+        when(gatewayProxyService.forwardToAuthService(any(), any())).thenReturn(ResponseEntity.ok(new byte[0]));
+
+        mockMvc.perform(post("/api/v1/auth/refresh").with(remoteAddress("192.0.2.10"))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"));
+        mockMvc.perform(post("/api/v1/auth/bootstrap").with(remoteAddress("192.0.2.10"))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"));
+        mockMvc.perform(post("/api/v1/auth/login").with(remoteAddress("192.0.2.10"))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"));
+
+        verify(rateLimiter).tryAcquire("fitsync:ratelimit:refresh:ip:192.0.2.10", 60, WINDOW);
+        // Sign-in and bootstrap still share the stricter counter.
+        verify(rateLimiter, times(2)).tryAcquire("fitsync:ratelimit:auth:ip:192.0.2.10", 10, WINDOW);
+    }
+
+    @Test
+    void anEncodedRefreshPathIsStillTheRefreshBucket() throws Exception {
+        allow();
+        when(gatewayProxyService.forwardToAuthService(any(), any())).thenReturn(ResponseEntity.ok(new byte[0]));
+
+        mockMvc.perform(post(URI.create("/api/v1/auth/%72efresh"))
+                .with(remoteAddress("192.0.2.10"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"));
+
+        verify(rateLimiter).tryAcquire("fitsync:ratelimit:refresh:ip:192.0.2.10", 60, WINDOW);
+    }
+
+    @Test
+    void aRefreshOverItsLimitAnswers429() throws Exception {
+        when(rateLimiter.tryAcquire(anyString(), anyInt(), any())).thenReturn(RateLimitDecision.denied(60, 7));
+
+        mockMvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "7"))
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"));
+
+        verifyNoInteractions(gatewayProxyService);
     }
 
     @Test

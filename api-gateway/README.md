@@ -230,7 +230,12 @@ after authentication and before authorization.
 |---|---|---|
 | An authenticated caller, on any route | `fitsync:ratelimit:general:user:<userId>` | 120 requests a minute |
 | An unauthenticated call to `/api/v1/auth/**` (sign-in, bootstrap, cancelling a deletion) | `fitsync:ratelimit:auth:ip:<client address>` | 10 requests a minute |
+| An unauthenticated `POST /api/v1/auth/refresh` | `fitsync:ratelimit:refresh:ip:<client address>` | 60 requests a minute |
 | Any other unauthenticated call | `fitsync:ratelimit:general:ip:<client address>` | 120 requests a minute |
+
+Token refresh has its own counter because it is called without a valid access token by design, about every
+15 minutes per session, and several members can share one address behind a NAT. On the sign-in counter a
+busy office could lock everyone out of signing in; on its own it cannot touch that budget.
 
 A caller authenticated by a Cognito token rather than an application token is counted under a SHA-256
 prefix of its principal name, so no user name or email is written into Redis. The coach routes keep their
@@ -260,6 +265,7 @@ Redis outage cannot take the gateway out of the load balancer.
 | `fitsync.gateway.rate-limit.enabled` | `GATEWAY_RATE_LIMIT_ENABLED` | `true` (set `false` locally to switch it off) |
 | `fitsync.gateway.rate-limit.general-limit` | `GATEWAY_RATE_LIMIT_GENERAL` | `120` |
 | `fitsync.gateway.rate-limit.auth-limit` | `GATEWAY_RATE_LIMIT_AUTH` | `10` |
+| `fitsync.gateway.rate-limit.refresh-limit` | `GATEWAY_RATE_LIMIT_REFRESH` | `60` |
 | `fitsync.gateway.rate-limit.window` | `GATEWAY_RATE_LIMIT_WINDOW` | `PT1M` |
 | `fitsync.gateway.rate-limit.trusted-proxy-hops` | `GATEWAY_RATE_LIMIT_TRUSTED_PROXY_HOPS` | `0` (the prod compose file sets `2`) |
 | `fitsync.gateway.rate-limit.redis-backoff` | `GATEWAY_RATE_LIMIT_REDIS_BACKOFF` | `PT30S` |

@@ -67,5 +67,7 @@ fitsync:
       window: ${GATEWAY_RATE_LIMIT_WINDOW:PT1M}
       general-limit: ${GATEWAY_RATE_LIMIT_GENERAL:120}
       auth-limit: ${GATEWAY_RATE_LIMIT_AUTH:10}
+      # POST /api/v1/auth/refresh: its own per-address counter, so refreshes never use up the sign-in budget.
+      refresh-limit: ${GATEWAY_RATE_LIMIT_REFRESH:60}
       trusted-proxy-hops: ${GATEWAY_RATE_LIMIT_TRUSTED_PROXY_HOPS:0}
       redis-backoff: ${GATEWAY_RATE_LIMIT_REDIS_BACKOFF:PT30S}

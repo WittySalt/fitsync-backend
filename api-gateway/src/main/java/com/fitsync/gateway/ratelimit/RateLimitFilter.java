@@ -34,7 +34,9 @@ import org.springframework.web.util.UrlPathHelper;
  * <p>Runs inside the security chain after authentication and before authorization, so an authenticated request
  * is counted under its user id (the same limit across devices and addresses), and an unauthenticated one under
  * its client address. Unauthenticated calls to {@code /api/v1/auth/**} (sign-in, bootstrap, cancelling a
- * deletion) have their own, stricter counter. The coach routes keep their own database-backed limiter
+ * deletion) have their own, stricter counter; token refresh, which runs without a valid access token and
+ * once per session every few minutes, has a third, looser one so that it never uses up the sign-in budget of
+ * an address shared by several members. The coach routes keep their own database-backed limiter
  * downstream and are only under the general limit here.
  *
  * <p>Not counted: the ALB health check ({@code /actuator/health} and its sub-paths), CORS preflights, and
@@ -48,6 +50,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     static final String REMAINING_HEADER = "X-RateLimit-Remaining";
 
     private static final String AUTH_PATH_PREFIX = "/api/v1/auth/";
+    private static final String REFRESH_PATH = "/api/v1/auth/refresh";
     private static final String HEALTH_PATH = "/actuator/health";
 
     private final RedisRateLimiter rateLimiter;
@@ -83,6 +86,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (userKey != null) {
             key = KEY_PREFIX + "general:" + userKey;
             limit = properties.generalLimit();
+        } else if (REFRESH_PATH.equals(pathOf(request))) {
+            key = KEY_PREFIX + "refresh:ip:" + clientAddressResolver.resolve(request);
+            limit = properties.refreshLimit();
         } else if (pathOf(request).startsWith(AUTH_PATH_PREFIX)) {
             key = KEY_PREFIX + "auth:ip:" + clientAddressResolver.resolve(request);
             limit = properties.authLimit();
