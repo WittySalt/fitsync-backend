@@ -120,6 +120,23 @@ Examples:
 - `/api/v1/meals`
 - `/api/v1/goals`
 
+### 5.1.1 Session endpoints (auth-service)
+
+All paths are under `/api/v1/auth`. Errors use the standard `ApiError` body; the session errors carry `code`.
+
+| Method and path | Auth | Success | Notes |
+|---|---|---|---|
+| `POST /bootstrap` | Cognito ID token | 200 | Returns the account fields as before plus `refreshToken`, `accessTokenExpiresAt` (ISO instant) and `sessionId`. Optional header `X-Device-Label` (sanitised, at most 60 characters); otherwise the label comes from the User-Agent, for example "Chrome on Windows". The IP address is not stored. |
+| `POST /refresh` | none | 200 | Body `{"refreshToken": "..."}`. Returns `{accessToken, refreshToken, accessTokenExpiresAt, sessionId}`; the refresh token is new on every call. 401 `SESSION_EXPIRED` for an unknown or expired token, 401 `SESSION_REVOKED` for a revoked session or a reused (already rotated) token, which also revokes the session. |
+| `POST /logout` | access token | 204 | Revokes the session named by the token's `sid`. |
+| `GET /sessions` | access token | 200 | `{"sessions": [{sessionId, deviceLabel, createdAt, lastSeenAt, current}]}`, active sessions only, the most recently used first. |
+| `DELETE /sessions/{sessionId}` | access token | 204 | Revokes one of the caller's sessions; someone else's id, an unknown id or a malformed id answers 404. Revoking the current one is a logout. |
+| `DELETE /sessions?scope=others` | access token | 204 | Revokes every session of the caller except the current one; the count is in header `X-Revoked-Count`. Any other `scope` answers 400. |
+
+The access token lives 15 minutes by default, so clients refresh shortly before `accessTokenExpiresAt`. Two tabs
+must not refresh with the same refresh token at the same time: the second call counts as reuse and signs the device
+out. Browser clients should run refresh behind a cross-tab lock (for example the Web Locks API) and share the result.
+
 ### 5.2 Clear DTO Boundaries
 
 Use dedicated DTOs for:

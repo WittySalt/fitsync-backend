@@ -22,6 +22,9 @@ spring:
     redis:
       repositories:
         enabled: false
+      # No Redis in the test JVM: the session deny-list must give up quickly instead of after a minute.
+      timeout: 200ms
+      connect-timeout: 200ms
 
 security:
   jwt:

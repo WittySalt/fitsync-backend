@@ -268,6 +268,10 @@ different addresses. Setup steps: [`infra/terraform/RUNBOOK.md`](infra/terraform
 
 Optional: `COGNITO_ENABLED` (`true`/`false`, default `false`). `JWT_EXPIRATION` (`PT2H`)
 and `SPRING_CACHE_TYPE` (`simple`) are fixed in the rendered `.env` — edit `cd.yml` to change them.
+Since multi-device sessions, auth-service defaults `JWT_EXPIRATION` to `PT15M` and keeps devices signed in with
+refresh tokens; the `PT2H` in `cd.yml` and `docker-compose.prod.yml` still wins until it is changed to `PT15M`.
+`AUTH_REFRESH_TOKEN_TTL` (default `P30D`) sets how long an unused session lasts. The api-gateway reads `REDIS_HOST`
+and `REDIS_PORT` for the revoked-session list; without them it checks nothing and lets every token through.
 
 ## 8. First deploy
 

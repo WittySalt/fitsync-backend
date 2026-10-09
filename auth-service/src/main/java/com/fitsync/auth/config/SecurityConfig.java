@@ -86,6 +86,9 @@ public class SecurityConfig {
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/bootstrap",
+                                // The refresh token in the body is the credential; an expired access token
+                                // must not be needed to get a new one.
+                                "/api/v1/auth/refresh",
                                 "/actuator/health",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",

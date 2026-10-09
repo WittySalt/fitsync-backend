@@ -298,6 +298,13 @@ Consumers:
 - `notification`
 - future onboarding workflows
 
+### 8.5.1 Session revocation (not an event yet)
+
+auth-service revokes sessions on logout, on revocation from the session list, on refresh-token reuse and on an
+account deletion request. It tells the gateway through a Redis deny-list, not through Kafka, because the gateway has
+to know within milliseconds and does not consume events. No `SessionRevoked` event is published. One could be added
+to `user-events` later, for example so notification-service can email "you were signed out of a device".
+
 ### 8.6 NotificationTriggered
 
 Producer:

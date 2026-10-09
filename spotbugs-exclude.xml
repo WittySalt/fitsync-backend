@@ -96,6 +96,12 @@
         <Bug pattern="SPRING_ENDPOINT"/>
     </Match>
 
+    <!-- Session endpoints (refresh, logout, list, revoke): intentional Spring entrypoints. -->
+    <Match>
+        <Class name="com.fitsync.auth.controller.AuthSessionController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
     <!-- Guide state: signed-in endpoints are intentional Spring entrypoints; the service keeps the shared
          Spring-managed ObjectMapper and never mutates it. -->
     <Match>
