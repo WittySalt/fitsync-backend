@@ -207,6 +207,7 @@ class AuthSessionApiTests {
         UUID sessionId = sessionIdOf(signIn);
         String first = signIn.get("refreshToken").asText();
         String second = json(refresh(first).andExpect(status().isOk())).get("refreshToken").asText();
+        rotatedAgo(sessionId, Duration.ofSeconds(11));
 
         refresh(first)
                 .andExpect(status().isUnauthorized())
@@ -221,6 +222,41 @@ class AuthSessionApiTests {
         assertThat(session.getRevokedAt()).isNotNull();
         assertThat(session.getRevokedReason()).isEqualTo(SessionRevocationReason.REFRESH_TOKEN_REUSE);
         verify(valueOperations).set("fitsync:revoked-sid:" + sessionId, "1", DENY_LIST_TTL);
+    }
+
+    @Test
+    void aReplacedTokenPresentedWithinTheGracePeriodIsRefusedButTheSessionLives() throws Exception {
+        JsonNode signIn = bootstrap("sess-grace-1");
+        UUID sessionId = sessionIdOf(signIn);
+        String first = signIn.get("refreshToken").asText();
+        String second = json(refresh(first).andExpect(status().isOk())).get("refreshToken").asText();
+
+        // A second tab or a retried request arrives with the old token a moment after the rotation.
+        refresh(first)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("SESSION_EXPIRED"));
+
+        assertThat(sessionRepository.findById(sessionId).orElseThrow().getRevokedAt()).isNull();
+        verify(redisTemplate, never()).opsForValue();
+        refresh(second).andExpect(status().isOk());
+    }
+
+    @Test
+    void theGracePeriodCountsFromTheLatestRotation() throws Exception {
+        JsonNode signIn = bootstrap("sess-grace-2");
+        UUID sessionId = sessionIdOf(signIn);
+        String first = signIn.get("refreshToken").asText();
+        String second = json(refresh(first).andExpect(status().isOk())).get("refreshToken").asText();
+        rotatedAgo(sessionId, Duration.ofSeconds(9));
+
+        refresh(first).andExpect(jsonPath("$.code").value("SESSION_EXPIRED"));
+        assertThat(sessionRepository.findById(sessionId).orElseThrow().getRevokedAt()).isNull();
+
+        rotatedAgo(sessionId, Duration.ofSeconds(10));
+        refresh(first).andExpect(jsonPath("$.code").value("SESSION_REVOKED"));
+        refresh(second).andExpect(jsonPath("$.code").value("SESSION_REVOKED"));
+        assertThat(sessionRepository.findById(sessionId).orElseThrow().getRevokedReason())
+                .isEqualTo(SessionRevocationReason.REFRESH_TOKEN_REUSE);
     }
 
     @Test
@@ -514,6 +550,13 @@ class AuthSessionApiTests {
     private JsonNode bootstrap(String subject) throws Exception {
         return json(mockMvc.perform(post("/api/v1/auth/bootstrap").with(cognitoJwt(subject, subject + "@example.com")))
                 .andExpect(status().isOk()));
+    }
+
+    /** Moves the session's last rotation into the past, as if {@code ago} had passed since it. */
+    private void rotatedAgo(UUID sessionId, Duration ago) {
+        AuthSession session = sessionRepository.findById(sessionId).orElseThrow();
+        session.setLastSeenAt(Instant.now().minus(ago).truncatedTo(ChronoUnit.MICROS));
+        sessionRepository.save(session);
     }
 
     private ResultActions refresh(String refreshToken) throws Exception {

@@ -33,6 +33,11 @@ import org.springframework.transaction.annotation.Transactional;
  * carrying its id ({@code sid}) and an opaque refresh token. Each refresh swaps the refresh token for a new one;
  * presenting a token that has already been swapped means two parties hold it, so the whole session is revoked.
  *
+ * <p>For a few seconds after a rotation ({@code fitsync.auth.sessions.reuse-grace-period}, 10 s by default) the
+ * replaced token is refused with {@code SESSION_EXPIRED} but the session is left alone, because a duplicate that
+ * close to the rotation is far more likely a second tab or a retried request than a thief. The client keeps the
+ * newer token, which still works. Later reuse revokes the session as above.
+ *
  * <p>Revoking only ever sets {@code revoked_at}. It also puts the session on the Redis deny-list that the gateway
  * checks, so its unexpired access tokens stop working at once rather than when they run out.
  */
@@ -126,7 +131,10 @@ public class SessionService {
                 now,
                 now.plus(sessionProperties.refreshTokenTtl()));
         if (rotated == 0) {
-            // Another refresh with the same token won the race, so this token has just been used twice.
+            // Another refresh with the same token won the race a moment ago, which is inside any grace period.
+            if (!sessionProperties.reuseGracePeriod().isZero()) {
+                throw SessionException.expired();
+            }
             revoke(List.of(session.getId()), SessionRevocationReason.REFRESH_TOKEN_REUSE, now);
             LOGGER.warn("Refresh token reused concurrently; revoked session {}", forLog(session.getId()));
             throw SessionException.revoked();
@@ -212,11 +220,20 @@ public class SessionService {
             return SessionException.expired();
         }
         AuthSession session = rotatedAway.get();
+        if (!session.isRevoked() && rotatedWithinGrace(session, now)) {
+            return SessionException.expired();
+        }
         if (!session.isRevoked()) {
             revoke(List.of(session.getId()), SessionRevocationReason.REFRESH_TOKEN_REUSE, now);
             LOGGER.warn("Rotated refresh token presented again; revoked session {}", forLog(session.getId()));
         }
         return SessionException.revoked();
+    }
+
+    /** The rotation that replaced the presented token happened less than the grace period ago. */
+    private boolean rotatedWithinGrace(AuthSession session, Instant now) {
+        // last_seen_at is set by the rotation itself and by nothing else after it.
+        return now.isBefore(session.getLastSeenAt().plus(sessionProperties.reuseGracePeriod()));
     }
 
     /**

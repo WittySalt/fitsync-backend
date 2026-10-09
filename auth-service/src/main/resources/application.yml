@@ -75,6 +75,8 @@ fitsync:
     sessions:
       # Sliding: every refresh starts this again.
       refresh-token-ttl: ${AUTH_REFRESH_TOKEN_TTL:P30D}
+      # A replaced refresh token presented this soon after the rotation is refused without revoking the session.
+      reuse-grace-period: ${AUTH_REFRESH_REUSE_GRACE:PT10S}
   account-deletion:
     grace-days: ${ACCOUNT_DELETION_GRACE_DAYS:30}
   kafka:

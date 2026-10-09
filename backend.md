@@ -148,7 +148,10 @@ now defaults to `PT15M`, and it carries the claim `sid` with the session id.
 The refresh token is 256 random bits encoded as base64url. auth-service stores only its SHA-256 hash, and it
 compares hashes in constant time. Every call to `POST /api/v1/auth/refresh` replaces the refresh token with a new
 one and moves the old hash into `previous_refresh_token_hash`. If a client presents that previous token again, two
-parties hold the same token, so the whole session is revoked and the call answers 401 `SESSION_REVOKED`. A session
+parties hold the same token, so the whole session is revoked and the call answers 401 `SESSION_REVOKED`. The one
+exception is a duplicate that arrives within `AUTH_REFRESH_REUSE_GRACE` (default 10 seconds) of the rotation: it is
+refused with 401 `SESSION_EXPIRED` and the session stays alive, because that is almost always a second tab or a
+retried request from the same device, and the client still holds the newer token. A session
 expires when it has not been refreshed for `AUTH_REFRESH_TOKEN_TTL` (default `P30D`), and each refresh starts that
 period again.
 
