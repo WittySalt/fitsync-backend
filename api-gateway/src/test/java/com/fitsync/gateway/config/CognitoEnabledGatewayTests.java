@@ -38,6 +38,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "security.jwt.secret=change-me-change-me-change-me-change-me",
+        "fitsync.gateway.rate-limit.enabled=false",
         "security.cognito.enabled=true",
         "security.cognito.issuer-uri=https://cognito-idp.example.invalid/pool",
         "security.cognito.jwk-set-uri=https://cognito-idp.example.invalid/pool/.well-known/jwks.json",

@@ -59,13 +59,16 @@ public class ExerciseServiceImpl implements ExerciseService {
     private final ExerciseRepository exerciseRepository;
     private final ExerciseShortStepRepository shortStepRepository;
     private final ObjectProvider<MediaStorageService> mediaStorageServiceProvider;
+    private final ExerciseCatalogueCache catalogueCache;
 
     public ExerciseServiceImpl(ExerciseRepository exerciseRepository,
                                ExerciseShortStepRepository shortStepRepository,
-                               ObjectProvider<MediaStorageService> mediaStorageServiceProvider) {
+                               ObjectProvider<MediaStorageService> mediaStorageServiceProvider,
+                               ExerciseCatalogueCache catalogueCache) {
         this.exerciseRepository = exerciseRepository;
         this.shortStepRepository = shortStepRepository;
         this.mediaStorageServiceProvider = mediaStorageServiceProvider;
+        this.catalogueCache = catalogueCache;
     }
 
     @Override
@@ -180,6 +183,10 @@ public class ExerciseServiceImpl implements ExerciseService {
                 .toList();
     }
 
+    /**
+     * A user without exercises of their own sees exactly the shared catalogue, so their search is answered from
+     * the catalogue cache; anyone else's goes to the database, since it must include their own exercises.
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<ExerciseView> listExercises(CurrentUserPrincipal currentUser,
@@ -190,10 +197,30 @@ public class ExerciseServiceImpl implements ExerciseService {
                                                     WorkoutDifficulty difficulty,
                                                     int page,
                                                     int size) {
+        String normalizedQuery = normalizeQuery(query);
+        if (exerciseRepository.existsByOwnerUserIdAndStatus(currentUser.userId(), ExerciseStatus.ACTIVE)) {
+            return searchExercises(currentUser.userId(), normalizedQuery, exerciseType, primaryMuscleGroup,
+                    equipment, difficulty, page, size);
+        }
+        return catalogueCache.search(
+                ExerciseCatalogueCache.key(normalizedQuery, exerciseType, primaryMuscleGroup, equipment, difficulty,
+                        page, size),
+                () -> searchExercises(ExerciseCatalogueCache.CATALOGUE_ONLY_OWNER, normalizedQuery, exerciseType,
+                        primaryMuscleGroup, equipment, difficulty, page, size));
+    }
+
+    private PageResponse<ExerciseView> searchExercises(UUID ownerUserId,
+                                                       String normalizedQuery,
+                                                       ExerciseType exerciseType,
+                                                       MuscleGroup primaryMuscleGroup,
+                                                       ExerciseEquipment equipment,
+                                                       WorkoutDifficulty difficulty,
+                                                       int page,
+                                                       int size) {
         return PageResponses.of(exerciseRepository.searchAccessible(
-                        currentUser.userId(),
+                        ownerUserId,
                         ExerciseStatus.ACTIVE,
-                        normalizeQuery(query),
+                        normalizedQuery,
                         exerciseType,
                         primaryMuscleGroup,
                         equipment,

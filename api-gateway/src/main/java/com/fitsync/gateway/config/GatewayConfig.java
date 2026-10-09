@@ -59,7 +59,10 @@ public class GatewayConfig {
         configuration.setAllowedOrigins(corsProperties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
-        configuration.setExposedHeaders(List.of("X-Correlation-Id", "X-Revoked-Count"));
+        // X-Revoked-Count comes with session revocation; Retry-After and the X-RateLimit-* pair come with a 429,
+        // so the SPA can say when to try again.
+        configuration.setExposedHeaders(List.of(
+                "X-Correlation-Id", "X-Revoked-Count", "Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining"));
         configuration.setAllowCredentials(false);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
