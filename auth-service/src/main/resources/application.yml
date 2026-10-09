@@ -79,6 +79,14 @@ fitsync:
       reuse-grace-period: ${AUTH_REFRESH_REUSE_GRACE:PT10S}
   account-deletion:
     grace-days: ${ACCOUNT_DELETION_GRACE_DAYS:30}
+    # Erases accounts whose grace period has ended: once at startup, then daily (cron in UTC).
+    purge:
+      enabled: ${ACCOUNT_DELETION_PURGE_ENABLED:true}
+      cron: ${ACCOUNT_DELETION_PURGE_CRON:0 30 3 * * *}
+      batch-size: ${ACCOUNT_DELETION_PURGE_BATCH_SIZE:100}
+      # Deletes the Cognito user with AdminDeleteUser (needs cognito-idp:AdminDeleteUser on the pool).
+      # Follows COGNITO_ENABLED unless set on its own.
+      cognito-enabled: ${ACCOUNT_DELETION_COGNITO_DELETE_ENABLED:${COGNITO_ENABLED:false}}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
   outbox:

@@ -14,9 +14,15 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.SQLRestriction;
 
+/**
+ * One body measurement. A deleted entry keeps its row with {@code deletedAt} set, and every query through JPA
+ * leaves such rows out ({@link SQLRestriction}).
+ */
 @Entity
 @Table(name = "body_metric_entries")
+@SQLRestriction("deleted_at is null")
 public class BodyMetricEntryEntity extends BaseAuditableEntity {
 
     @Id
@@ -61,6 +67,9 @@ public class BodyMetricEntryEntity extends BaseAuditableEntity {
     @Column(name = "note", length = 200)
     private String note;
 
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     public UUID getMetricId() { return metricId; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
@@ -86,4 +95,6 @@ public class BodyMetricEntryEntity extends BaseAuditableEntity {
     public void setSource(MetricSource source) { this.source = source; }
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+    public Instant getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
 }

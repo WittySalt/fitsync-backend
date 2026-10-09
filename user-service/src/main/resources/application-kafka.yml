@@ -8,6 +8,8 @@ fitsync:
     listeners:
       user-registered:
         enabled: true
+      account-deleted:
+        enabled: true
   outbox:
     relay:
       enabled: ${OUTBOX_RELAY_ENABLED:true}

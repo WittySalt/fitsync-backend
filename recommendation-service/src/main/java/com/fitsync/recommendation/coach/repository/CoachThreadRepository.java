@@ -25,6 +25,9 @@ public interface CoachThreadRepository extends JpaRepository<CoachThreadEntity, 
     /** Ownership is checked by querying for it rather than by loading and comparing afterwards. */
     Optional<CoachThreadEntity> findByThreadIdAndUserId(UUID threadId, UUID userId);
 
+    /** Every thread a user owns, archived ones included, oldest first, for the account data export. */
+    List<CoachThreadEntity> findByUserIdOrderByDateTimeCreatedAscThreadIdAsc(UUID userId);
+
     /**
      * Removes every thread a user owns, archived or not, in a single statement rather than loading
      * and removing each one. {@code coach_turn} and {@code tool_invocation} both cascade from this

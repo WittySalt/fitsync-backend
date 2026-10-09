@@ -3,13 +3,22 @@ package com.fitsync.media;
 import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.ObjectProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 public class S3MediaStorageService implements MediaStorageService {
 
@@ -52,6 +61,42 @@ public class S3MediaStorageService implements MediaStorageService {
     public String urlFor(String key) {
         String baseUrl = trimTrailingSlash(properties.publicBaseUrl());
         return baseUrl + "/" + encodePath(normalizeKey(key));
+    }
+
+    @Override
+    public int deleteAll(String folderPrefix) {
+        if (folderPrefix == null || !folderPrefix.endsWith("/")) {
+            throw new IllegalArgumentException("Media folder prefix must end with '/'");
+        }
+        String prefix = normalizeKey(folderPrefix.substring(0, folderPrefix.length() - 1)) + "/";
+        S3Client s3Client = s3ClientProvider.getObject();
+        int deleted = 0;
+        String continuationToken = null;
+        do {
+            // One listing page holds at most 1000 keys, which is also the most one DeleteObjects call takes.
+            ListObjectsV2Response page = s3Client.listObjectsV2(ListObjectsV2Request.builder()
+                    .bucket(properties.bucket())
+                    .prefix(prefix)
+                    .continuationToken(continuationToken)
+                    .build());
+            List<ObjectIdentifier> keys = new ArrayList<>();
+            for (S3Object object : page.contents()) {
+                keys.add(ObjectIdentifier.builder().key(object.key()).build());
+            }
+            if (!keys.isEmpty()) {
+                DeleteObjectsResponse response = s3Client.deleteObjects(DeleteObjectsRequest.builder()
+                        .bucket(properties.bucket())
+                        .delete(Delete.builder().objects(keys).quiet(true).build())
+                        .build());
+                if (response.hasErrors() && !response.errors().isEmpty()) {
+                    throw new IllegalStateException("Media objects could not be deleted: "
+                            + response.errors().get(0).code());
+                }
+                deleted += keys.size();
+            }
+            continuationToken = Boolean.TRUE.equals(page.isTruncated()) ? page.nextContinuationToken() : null;
+        } while (continuationToken != null);
+        return deleted;
     }
 
     private PutObjectRequest putRequest(String key, String contentType) {

@@ -45,7 +45,7 @@ class AccountDeletionDecisionTests {
             Map.entry("body_metric_entries", Fate.DELETED_WITH_ACCOUNT),
             Map.entry("code_sets", Fate.NOT_PER_USER),
             Map.entry("code_values", Fate.NOT_PER_USER),
-            Map.entry("outbox_events", Fate.KEPT_PENDING_DECISION),
+            Map.entry("outbox_events", Fate.DELETED_WITH_ACCOUNT),
             Map.entry("user_app_preferences", Fate.DELETED_WITH_ACCOUNT),
             Map.entry("user_goals", Fate.DELETED_WITH_ACCOUNT),
             Map.entry("user_guide_state", Fate.DELETED_WITH_ACCOUNT),

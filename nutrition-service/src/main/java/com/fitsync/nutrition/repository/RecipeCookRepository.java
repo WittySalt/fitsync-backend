@@ -35,6 +35,9 @@ public interface RecipeCookRepository extends JpaRepository<RecipeCookEntity, UU
 
     long countByUserIdAndRecipeIdAndDeletedAtIsNull(UUID userId, UUID recipeId);
 
+    /** Every cook of the user that is not deleted, oldest first, for the personal data export. */
+    List<RecipeCookEntity> findByUserIdAndDeletedAtIsNullOrderByFinishedAtAsc(UUID userId);
+
     @Query("""
             select max(c.finishedAt) from RecipeCookEntity c
             where c.userId = :userId and c.recipeId = :recipeId and c.deletedAt is null

@@ -80,6 +80,8 @@ fitsync:
     listeners:
       user-registered:
         enabled: ${KAFKA_USER_REGISTERED_LISTENER_ENABLED:false}
+      account-deleted:
+        enabled: ${KAFKA_ACCOUNT_DELETED_LISTENER_ENABLED:false}
   outbox:
     relay:
       enabled: ${OUTBOX_RELAY_ENABLED:false}

@@ -109,6 +109,11 @@ public class UserServiceImpl implements UserService {
     private static final String NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE = "NOT_YET_ACTIVE";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
     private static final String DEFAULT_ONBOARDING_TIMEZONE = "Asia/Singapore";
+    /** The other services' exports of the person's data, which the app adds to this one. */
+    private static final List<String> RELATED_DATA_EXPORTS = List.of(
+            "/api/v1/nutrition/me/export",
+            "/api/v1/workouts/me/export",
+            "/api/v1/coach/me/export");
     private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
     private static final Map<String, String> AVATAR_EXTENSIONS = Map.of(
             "image/png", "png",
@@ -394,7 +399,7 @@ public class UserServiceImpl implements UserService {
     public UserProfileView uploadAvatar(CurrentUserPrincipal principal, MultipartFile file) {
         String contentType = validateAvatar(file);
         String extension = AVATAR_EXTENSIONS.get(contentType);
-        String key = "avatars/" + principal.userId() + "/" + UUID.randomUUID() + "." + extension;
+        String key = avatarFolder(principal.userId()) + UUID.randomUUID() + "." + extension;
         String avatarUrl;
         try {
             avatarUrl = mediaStorageServiceProvider.getObject().put(key, file.getBytes(), contentType);
@@ -596,7 +601,10 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public void deleteBodyMetric(CurrentUserPrincipal principal, UUID metricId) {
         BodyMetricEntryEntity entity = getOwnedBodyMetric(principal.userId(), metricId);
-        bodyMetricEntryRepository.delete(entity);
+        // Soft delete: the row stays, marked, and every read leaves it out. No event is published, as before:
+        // the other services keep the latest weight they were sent, which a later entry replaces.
+        entity.setDeletedAt(Instant.now(clock));
+        bodyMetricEntryRepository.save(entity);
     }
 
     @Override
@@ -722,11 +730,18 @@ public class UserServiceImpl implements UserService {
                 goals,
                 bodyMetrics.isEmpty() ? null : bodyMetrics.get(0));
 
+        // Read without creating the row: a person who never answered the readiness questions has none.
+        HealthReadinessView healthReadiness = userHealthReadinessRepository.findById(principal.userId())
+                .map(this::toHealthReadinessView)
+                .orElse(null);
+
         return new AccountDataExportPayload(
                 exportRequest.getCompletedAt(),
                 account,
                 goals,
-                bodyMetrics);
+                bodyMetrics,
+                healthReadiness,
+                RELATED_DATA_EXPORTS);
     }
 
     @Override
@@ -816,6 +831,22 @@ public class UserServiceImpl implements UserService {
         UUID userId = principal.userId();
         Instant deletedAt = Instant.now(Clock.systemUTC());
 
+        purgeAccountData(userId);
+
+        domainEventPublisher.publish(
+                USER_EVENTS_TOPIC, "UserAccount", userId.toString(), new FitSyncDomainEvent<>(
+                UUID.randomUUID(), "AccountDeleted", 1, deletedAt, SOURCE, userId,
+                new AccountDeletedPayload(deletedAt, ACCOUNT_DELETION_REASON_USER_REQUESTED)));
+    }
+
+    /**
+     * Erases everything this service keeps about the person, soft-deleted rows included, and the avatar images
+     * they uploaded. These are real deletes, not the soft deletes used elsewhere: the account itself is being
+     * erased, so nothing that identifies the person may stay.
+     */
+    @Override
+    @Transactional
+    public void purgeAccountData(UUID userId) {
         accountDataExportRequestRepository.deleteByUserId(userId);
         bodyMetricEntryRepository.deleteByUserId(userId);
         userGoalRepository.deleteByUserId(userId);
@@ -827,10 +858,15 @@ public class UserServiceImpl implements UserService {
         userGuideStateRepository.deleteById(userId);
         userProfileRepository.deleteById(userId);
 
-        domainEventPublisher.publish(
-                USER_EVENTS_TOPIC, "UserAccount", userId.toString(), new FitSyncDomainEvent<>(
-                UUID.randomUUID(), "AccountDeleted", 1, deletedAt, SOURCE, userId,
-                new AccountDeletedPayload(deletedAt, ACCOUNT_DELETION_REASON_USER_REQUESTED)));
+        MediaStorageService mediaStorageService = mediaStorageServiceProvider.getIfAvailable();
+        if (mediaStorageService != null) {
+            mediaStorageService.deleteAll(avatarFolder(userId));
+        }
+    }
+
+    /** Every avatar a person uploads is stored under this folder, one object per upload. */
+    private static String avatarFolder(UUID userId) {
+        return "avatars/" + userId + "/";
     }
 
     private UserProfileEntity getOrCreateProfileEntity(CurrentUserPrincipal principal) {
