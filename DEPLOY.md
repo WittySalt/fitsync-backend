@@ -279,7 +279,8 @@ and `SPRING_CACHE_TYPE` (`simple`) are fixed in the rendered `.env` — edit `cd
 4. Check an API path through CloudFront, for example `curl -i https://staging.fitsyncapp.click/api/v1/foods`
    (staging) or the same path on the prod address: a JSON `401 UNAUTHORIZED` means the request reached the
    gateway. Both ALBs accept CloudFront only, and the distributions forward only `/api/*`, so `/actuator/health`
-   through CloudFront returns the SPA page. Check it on the host instead:
+   through CloudFront returns the SPA page. Actuator is VPC-internal only: the ALB health-checks the gateway
+   inside the VPC, and you check it on the host:
    `curl -fsS http://localhost:8088/actuator/health` → `{"status":"UP"}`. Port 8088 is open to the ALB only.
 
 ## 8.5 Media / images (S3) — exercise images + avatars
