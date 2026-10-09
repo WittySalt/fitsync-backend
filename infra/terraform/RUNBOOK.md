@@ -30,7 +30,7 @@ docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 | `email.tf` | `ses:SendEmail` for the EC2 role pinned to `notify_email_sender` (+ an address identity only when `notify_email_create_identity`) | free (SES bills per email) |
 | `data.tf` | RDS PostgreSQL* (RDS-managed master password; Multi-AZ when `db_multi_az`) | **costs money**, ~10 min (Multi-AZ doubles it) |
 | `compute.tf` | EC2 app host + EIP* + deploy key pair | **costs money** |
-| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role, workload boundary, the 8 shared ECR repos, the SES sending domain + its hosted zone and DNS records when `notify_email_domain` is set (own state, applied by hand) | free, instant (the hosted zone is $0.50/month) |
+| `bootstrap/` | GitHub OIDC provider, `fitsync-github-cd` role (backend), `fitsync-frontend-github-deploy` role (frontend), workload boundary, the 8 shared ECR repos, the SES sending domain + its hosted zone and DNS records when `notify_email_domain` is set (own state, applied by hand) | free, instant (the hosted zone is $0.50/month) |
 
 `*` gated behind feature flags (`enable_rds`, `enable_ec2` default **false**; `enable_alb`
 defaults to true, `db_multi_az` to false and is on in `prod.tfvars`).
@@ -146,17 +146,85 @@ so CI and local share one state.
 
 ### CD role (bootstrap/)
 
-`bootstrap/` creates, once per account, the GitHub OIDC provider and the role both
-repos assume (`AWS_ROLE_ARN` = its `github_cd_role_arn` output). It has its own state
-and no workspaces.
+`bootstrap/` creates, once per account, the GitHub OIDC provider and the role the
+backend CD assumes (`AWS_ROLE_ARN` = its `github_cd_role_arn` output). It has its own
+state and no workspaces.
 
-- Trust: only `main` and the `staging` / `production` environments of the two repos,
-  so feature branches and forks cannot assume it.
+- Trust: only `main` and the `staging` / `production` environments of the backend
+  repo, so feature branches and forks cannot assume it. (Until phase 2 of the frontend
+  switch-over below is applied it also still trusts the frontend repo.)
 - Permissions: `PowerUserAccess` (no IAM) plus an inline policy that may manage only
   `fitsync-staging-*` / `fitsync-prod-*` roles, policies and instance profiles.
 - Every role it creates must carry `fitsync-workload-boundary` (all actions except
   IAM, Organizations and Account), so CD can never mint a role stronger than itself.
   `ci_iam.tf` sets that boundary on the EC2 role.
+
+### Frontend CD role (bootstrap/frontend_cd.tf)
+
+The frontend CD only syncs the built SPA to the two frontend buckets and invalidates
+the two distributions; it runs no Terraform. It assumes its own role,
+`fitsync-frontend-github-deploy` (`frontend_cd_role_arn` output), instead of the
+PowerUser `fitsync-github-cd`.
+
+- Trust: only `repo:WittySalt/fitsync-frontend:environment:staging` and
+  `...:environment:production`. Only `deploy-staging` and `deploy-production` assume a
+  role and both run in an environment; `ci-gate` and `build` have no `id-token`
+  permission, so `main`'s ref subject is not trusted.
+- Permissions, one inline policy: `s3:ListBucket` on `frontend_buckets`;
+  `s3:PutObject`, `s3:DeleteObject`, `s3:GetObject` on their objects;
+  `cloudfront:CreateInvalidation`, `cloudfront:GetInvalidation` on
+  `frontend_distribution_ids`. The buckets use SSE-S3, so no KMS permission is needed.
+- No permissions boundary: it is created by an admin here, not by CD, and holds no IAM.
+
+#### Switch-over from the shared role (two phases, in this order)
+
+The frontend's `AWS_ROLE_ARN` pointed at `fitsync-github-cd`, and a GitLab-era role
+`fitsync-frontend-deploy` (made by hand, trusts the `gitlab.com` OIDC provider, last used
+2026-06-26) was still in the account. The variable `frontend_cd_phase` splits the change
+so the frontend CD never loses access:
+
+1. **Phase 1** (the default) with an admin profile:
+   ```bash
+   cd infra/terraform/bootstrap
+   terraform init
+   terraform plan -out=frontend-cd-1.tfplan
+   # expect: 3 to import, 2 to add, 0 to change, 0 to destroy
+   #   add:    aws_iam_role.frontend_cd, aws_iam_role_policy.frontend_cd_deploy
+   #   import: aws_iam_role.legacy_frontend_deploy[0] and its two inline policies
+   terraform apply frontend-cd-1.tfplan
+   terraform output -raw frontend_cd_role_arn
+   ```
+   The imports only adopt the old role into state; nothing in AWS changes on it.
+2. **Point the frontend at the new role** (the person with repo admin runs this):
+   ```bash
+   gh variable set AWS_ROLE_ARN --repo WittySalt/fitsync-frontend      --body "arn:aws:iam::437659978621:role/fitsync-frontend-github-deploy"
+   ```
+3. **Prove it.** In the frontend repo run Actions → CD → Run workflow on `main` with
+   `deploy_prod` unticked. `deploy-staging` must pass its sync, invalidation and smoke
+   test. If it fails with AccessDenied, set `AWS_ROLE_ARN` back to
+   `arn:aws:iam::437659978621:role/fitsync-github-cd` (still trusted in phase 1) and fix
+   the policy before going on. The first prod deploy with `deploy_prod` ticked can come
+   after phase 2; the prod statements are the same shape on the prod bucket and
+   distribution.
+4. **Phase 2**, only after step 3 passed:
+   ```bash
+   terraform plan -var frontend_cd_phase=2 -out=frontend-cd-2.tfplan
+   # expect: 0 to add, 1 to change, 3 to destroy
+   #   change:  aws_iam_role.github_cd (trust loses the three fitsync-frontend subjects)
+   #   destroy: aws_iam_role.legacy_frontend_deploy[0] and its two inline policies
+   terraform apply frontend-cd-2.tfplan
+   ```
+   Keep passing `-var frontend_cd_phase=2` on every later bootstrap apply until the
+   cleanup below is merged; a plain apply would add the frontend back to
+   `fitsync-github-cd`'s trust and try to import a role that no longer exists.
+
+The `gitlab.com` OIDC provider stays: the backend's GitLab-era role `fitsync-gitlab-ci`
+still trusts it. Retiring both is a separate change.
+
+**Cleanup after phase 2** (follow-up PR): delete the "Retiring the GitLab-era role"
+section of `frontend_cd.tf`, the `frontend_cd_phase` variable and the
+`cd_trusted_repositories` phase-1 branch in `main.tf`; the plan must then show no
+changes.
 
 ## Rebuild (bootstrap → staging → prod)
 
@@ -164,7 +232,8 @@ Run from `infra/terraform` with an admin AWS profile. Every step that costs mone
 marked.
 
 1. **Bootstrap (free).** `cd bootstrap && terraform init && terraform apply`, then set
-   `AWS_ROLE_ARN`, `AWS_ACCOUNT_ID`, `AWS_REGION` as repository variables in both repos.
+   `AWS_ROLE_ARN`, `AWS_ACCOUNT_ID`, `AWS_REGION` as repository variables in both repos
+   (backend: `github_cd_role_arn`; frontend: `frontend_cd_role_arn`).
 2. **Deploy keys.** One key per environment:
    ```bash
    ssh-keygen -t ed25519 -N "" -C fitsync-staging-deploy -f fitsync-staging-deploy
