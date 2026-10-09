@@ -3,12 +3,12 @@ package com.fitsync.persistence.outbox;
 import java.time.Clock;
 import java.util.Map;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportAware;
-import org.springframework.core.env.Environment;
 import org.springframework.core.type.AnnotationMetadata;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -30,9 +30,8 @@ public class OutboxCleanupConfiguration implements ImportAware {
     @Bean
     @ConditionalOnProperty(prefix = "fitsync.outbox.cleanup", name = "enabled", havingValue = "true",
             matchIfMissing = true)
-    OutboxCleanupJob outboxCleanupJob(JdbcTemplate jdbcTemplate, OutboxCleanupProperties properties,
-                                      Environment environment) {
-        return new OutboxCleanupJob(jdbcTemplate, properties, Clock.systemUTC(),
-                environment.getProperty("spring.application.name", "service"), publishedColumn);
+    OutboxCleanupJob outboxCleanupJob(ObjectProvider<JdbcTemplate> jdbcTemplateProvider,
+                                      OutboxCleanupProperties properties) {
+        return new OutboxCleanupJob(jdbcTemplateProvider, properties, Clock.systemUTC(), publishedColumn);
     }
 }

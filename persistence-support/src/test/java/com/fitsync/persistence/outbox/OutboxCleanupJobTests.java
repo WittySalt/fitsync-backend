@@ -8,11 +8,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
@@ -62,7 +65,8 @@ class OutboxCleanupJobTests {
         int deleted = job(properties(Duration.ofDays(7), 500, 100)).deleteExpiredPublishedEvents();
 
         assertThat(deleted).isEqualTo(1);
-        assertThat(remainingIds()).containsExactlyInAnyOrder(freshPublished, oldPending, oldFailed, failedWithStaleTime)
+        assertThat(remainingIds())
+                .containsExactlyInAnyOrder(freshPublished, oldPending, oldFailed, failedWithStaleTime)
                 .doesNotContain(oldPublished);
     }
 
@@ -145,8 +149,8 @@ class OutboxCleanupJobTests {
                 Timestamp.from(NOW.minus(Duration.ofDays(9))));
         jdbcTemplate.update("insert into outbox_events values (?, 'PENDING', null)", pending);
 
-        int deleted = new OutboxCleanupJob(jdbcTemplate, properties(Duration.ofDays(7), 500, 100), CLOCK,
-                "auth-service", OutboxPublishedColumn.PUBLISHED_AT).deleteExpiredPublishedEvents();
+        int deleted = new OutboxCleanupJob(jdbcProvider(), properties(Duration.ofDays(7), 500, 100), CLOCK,
+                OutboxPublishedColumn.PUBLISHED_AT).deleteExpiredPublishedEvents();
 
         assertThat(deleted).isEqualTo(1);
         assertThat(remainingIds()).containsExactly(pending);
@@ -172,8 +176,12 @@ class OutboxCleanupJobTests {
     }
 
     private OutboxCleanupJob job(OutboxCleanupProperties properties) {
-        return new OutboxCleanupJob(jdbcTemplate, properties, CLOCK, "test-service",
-                OutboxPublishedColumn.DATE_TIME_PUBLISHED);
+        return new OutboxCleanupJob(jdbcProvider(), properties, CLOCK, OutboxPublishedColumn.DATE_TIME_PUBLISHED);
+    }
+
+    private ObjectProvider<JdbcTemplate> jdbcProvider() {
+        return new StaticListableBeanFactory(Map.of("jdbcTemplate", jdbcTemplate))
+                .getBeanProvider(JdbcTemplate.class);
     }
 
     private static OutboxCleanupProperties properties(Duration retention, int batchSize, int maxBatches) {
