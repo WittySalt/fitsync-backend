@@ -300,7 +300,7 @@ jobs:
           cat > .env.deploy <<EOF
           ECR_REGISTRY=$ECR_REGISTRY
           IMAGE_TAG=$IMAGE_TAG
-          JWT_EXPIRATION=PT2H
+          JWT_EXPIRATION=PT15M
           REDIS_HOST=redis
           REDIS_PORT=6379
           SPRING_CACHE_TYPE=redis
@@ -535,7 +535,7 @@ jobs:
           cat > .env.deploy <<EOF
           ECR_REGISTRY=$ECR_REGISTRY
           IMAGE_TAG=$IMAGE_TAG
-          JWT_EXPIRATION=PT2H
+          JWT_EXPIRATION=PT15M
           REDIS_HOST=redis
           REDIS_PORT=6379
           SPRING_CACHE_TYPE=redis
