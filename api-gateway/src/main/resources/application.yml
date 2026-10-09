@@ -3,14 +3,17 @@ spring:
     name: api-gateway
   profiles:
     default: local
+  # Redis holds the revoked-session deny-list (RevokedSessionFilter) and the rate limit counters
+  # (RateLimitFilter). Both are asked on the request path and both fail open, so the timeouts are short.
+  # The password, if any, binds from SPRING_DATA_REDIS_PASSWORD.
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      # Checked on every request that carries a session token, so a slow or absent Redis must fail fast;
-      # RevokedSessionFilter then lets the request through (fail open).
-      timeout: ${REDIS_TIMEOUT:200ms}
-      connect-timeout: ${REDIS_CONNECT_TIMEOUT:200ms}
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:200ms}
+      connect-timeout: ${SPRING_DATA_REDIS_CONNECT_TIMEOUT:200ms}
+      repositories:
+        enabled: false
 
 server:
   port: ${SERVER_PORT:8088}
@@ -24,8 +27,9 @@ management:
     health:
       probes:
         enabled: true
+  # The deny-list and the rate limiter both fail open, so Redis being down must not mark the gateway
+  # unhealthy: the ALB health check reads /actuator/health.
   health:
-    # The deny-list fails open, so Redis being down must not mark the gateway unhealthy and restart it.
     redis:
       enabled: false
 
@@ -55,3 +59,13 @@ fitsync:
       analytics-service-base-url: ${ANALYTICS_SERVICE_BASE_URL:http://localhost:8085}
       recommendation-service-base-url: ${RECOMMENDATION_SERVICE_BASE_URL:http://localhost:8086}
       notification-service-base-url: ${NOTIFICATION_SERVICE_BASE_URL:http://localhost:8087}
+    # Per-caller limits over a fixed window, counted in Redis (see GatewayRateLimitProperties).
+    # On by default; set GATEWAY_RATE_LIMIT_ENABLED=false to switch it off locally. Trusted proxy hops is
+    # how many proxies append to X-Forwarded-For in front of the gateway: 0 locally, 2 behind CloudFront + ALB.
+    rate-limit:
+      enabled: ${GATEWAY_RATE_LIMIT_ENABLED:true}
+      window: ${GATEWAY_RATE_LIMIT_WINDOW:PT1M}
+      general-limit: ${GATEWAY_RATE_LIMIT_GENERAL:120}
+      auth-limit: ${GATEWAY_RATE_LIMIT_AUTH:10}
+      trusted-proxy-hops: ${GATEWAY_RATE_LIMIT_TRUSTED_PROXY_HOPS:0}
+      redis-backoff: ${GATEWAY_RATE_LIMIT_REDIS_BACKOFF:PT30S}

@@ -220,6 +220,51 @@ Recommended initial limits:
 
 Do not place domain validation rules here. Input validation still belongs in each service.
 
+### 7.1 Rate limiting as implemented
+
+The gateway counts every request in Redis and answers `429 Too Many Requests` once a caller is over its
+limit. The code lives in `com.fitsync.gateway.ratelimit`, and the filter runs inside the security chain,
+after authentication and before authorization.
+
+| Who is counted | Key in Redis | Default limit |
+|---|---|---|
+| An authenticated caller, on any route | `fitsync:ratelimit:general:user:<userId>` | 120 requests a minute |
+| An unauthenticated call to `/api/v1/auth/**` (sign-in, bootstrap, cancelling a deletion) | `fitsync:ratelimit:auth:ip:<client address>` | 10 requests a minute |
+| Any other unauthenticated call | `fitsync:ratelimit:general:ip:<client address>` | 120 requests a minute |
+
+A caller authenticated by a Cognito token rather than an application token is counted under a SHA-256
+prefix of its principal name, so no user name or email is written into Redis. The coach routes keep their
+own database-backed limit of five questions an hour in recommendation-service and are under the general
+limit only here. `/actuator/health` and its sub-paths (the ALB health check), CORS preflights and the async
+and error dispatches that follow an already counted request are never counted.
+
+Each counter is a fixed one-minute window. A small Lua script increments the key and sets its expiry on the
+first hit in one atomic step, and returns the count with the time left in the window. A rejected request
+gets the standard error body with code `RATE_LIMITED` and a `Retry-After` header holding the seconds left;
+every counted response also carries `X-RateLimit-Limit` and `X-RateLimit-Remaining`, and CORS exposes all
+three to the SPA.
+
+The client address comes from `X-Forwarded-For`, read from the right. The gateway appends the address the
+connection came from and then counts `trusted-proxy-hops` entries back. In the cloud CloudFront and then
+the ALB each append one entry, so with two hops the gateway reads the address CloudFront saw. Anything a
+client writes into the header itself sits further left and is ignored, so a client cannot choose its own
+key. This relies on the gateway being reachable only through those proxies, which the security groups
+enforce in prod. An entry that is not an IP literal is never used as a key.
+
+The limiter fails open. If Redis cannot answer, the request goes through, one warning is logged, and Redis
+is left alone for 30 seconds before it is tried again. Redis is not part of the gateway's health check, so a
+Redis outage cannot take the gateway out of the load balancer.
+
+| Property | Environment variable | Default |
+|---|---|---|
+| `fitsync.gateway.rate-limit.enabled` | `GATEWAY_RATE_LIMIT_ENABLED` | `true` (set `false` locally to switch it off) |
+| `fitsync.gateway.rate-limit.general-limit` | `GATEWAY_RATE_LIMIT_GENERAL` | `120` |
+| `fitsync.gateway.rate-limit.auth-limit` | `GATEWAY_RATE_LIMIT_AUTH` | `10` |
+| `fitsync.gateway.rate-limit.window` | `GATEWAY_RATE_LIMIT_WINDOW` | `PT1M` |
+| `fitsync.gateway.rate-limit.trusted-proxy-hops` | `GATEWAY_RATE_LIMIT_TRUSTED_PROXY_HOPS` | `0` (the prod compose file sets `2`) |
+| `fitsync.gateway.rate-limit.redis-backoff` | `GATEWAY_RATE_LIMIT_REDIS_BACKOFF` | `PT30S` |
+| `spring.data.redis.host` / `port` | `SPRING_DATA_REDIS_HOST` / `SPRING_DATA_REDIS_PORT` | `localhost` / `6379` (compose sets `redis`) |
+
 ---
 
 ## 8. Error Handling and Resilience

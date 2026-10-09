@@ -44,6 +44,19 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
     listener:
       missing-topics-fatal: false
+  # The shared catalogue search cache (CatalogueCacheConfig): Redis by default, SPRING_CACHE_TYPE=none turns
+  # it off. A Redis failure falls back to the database, and the short timeouts keep that fallback quick.
+  # The password, if any, binds from SPRING_DATA_REDIS_PASSWORD.
+  cache:
+    type: ${SPRING_CACHE_TYPE:redis}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:300ms}
+      connect-timeout: ${SPRING_DATA_REDIS_CONNECT_TIMEOUT:300ms}
+      repositories:
+        enabled: false
 
 server:
   port: ${SERVER_PORT:8083}
@@ -57,6 +70,10 @@ management:
     health:
       probes:
         enabled: true
+  # The cache is optional; Redis being down must not mark the service unhealthy.
+  health:
+    redis:
+      enabled: false
 
 springdoc:
   swagger-ui:
@@ -68,6 +85,9 @@ security:
     expiration: ${JWT_EXPIRATION:PT2H}
 
 fitsync:
+  # How long a catalogue search answer stays in Redis; imports evict it sooner.
+  catalogue-cache:
+    ttl: ${CATALOGUE_CACHE_TTL:PT1H}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

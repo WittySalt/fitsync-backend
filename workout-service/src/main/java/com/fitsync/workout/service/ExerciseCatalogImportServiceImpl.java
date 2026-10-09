@@ -15,6 +15,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fitsync.media.MediaStorageService;
+import com.fitsync.workout.config.CatalogueCacheConfig;
 import com.fitsync.workout.domain.ExerciseEquipment;
 import com.fitsync.workout.domain.ExerciseStatus;
 import com.fitsync.workout.domain.ExerciseType;
@@ -31,6 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -76,7 +78,9 @@ public class ExerciseCatalogImportServiceImpl implements ExerciseCatalogImportSe
         this.catalogResource = catalogResource;
     }
 
+    /** Changes the shared catalogue, so every cached catalogue search is dropped once it has run. */
     @Override
+    @CacheEvict(cacheNames = CatalogueCacheConfig.EXERCISE_SEARCH_CACHE, allEntries = true)
     public ExerciseCatalogImportResponse importFreeExerciseDbCatalog() {
         List<FreeExercise> sourceExercises = readCatalog();
         Map<FallbackKey, Integer> fallbackCounts = new LinkedHashMap<>();

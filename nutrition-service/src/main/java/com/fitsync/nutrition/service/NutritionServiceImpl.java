@@ -27,6 +27,7 @@ import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.nutrition.MealDeletedPayload;
 import com.fitsync.contracts.events.nutrition.MealLoggedPayload;
 import com.fitsync.contracts.events.nutrition.MealUpdatedPayload;
+import com.fitsync.nutrition.config.CatalogueCacheConfig;
 import com.fitsync.nutrition.domain.FoodCatalogScope;
 import com.fitsync.nutrition.domain.FoodCatalogSource;
 import com.fitsync.nutrition.domain.FoodCreationMode;
@@ -109,9 +110,10 @@ import com.fitsync.nutrition.security.CurrentUserPrincipal;
 import com.fitsync.web.error.BadRequestException;
 import com.fitsync.web.error.ConflictException;
 import com.fitsync.web.error.ResourceNotFoundException;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -174,6 +176,7 @@ public class NutritionServiceImpl implements NutritionService {
     private final RecipeLibraryService recipeLibraryService;
     private final RecipeInsightService recipeInsightService;
     private final FuzzyFoodSearch fuzzyFoodSearch;
+    private final FoodCatalogueCache foodCatalogueCache;
 
     public NutritionServiceImpl(DomainEventPublisher domainEventPublisher,
                                 MealLogRepository mealLogRepository,
@@ -198,8 +201,10 @@ public class NutritionServiceImpl implements NutritionService {
                                 NutritionDiaryService nutritionDiaryService,
                                 RecipeLibraryService recipeLibraryService,
                                 RecipeInsightService recipeInsightService,
-                                FuzzyFoodSearch fuzzyFoodSearch) {
+                                FuzzyFoodSearch fuzzyFoodSearch,
+                                FoodCatalogueCache foodCatalogueCache) {
         this.fuzzyFoodSearch = fuzzyFoodSearch;
+        this.foodCatalogueCache = foodCatalogueCache;
         this.domainEventPublisher = domainEventPublisher;
         this.mealLogRepository = mealLogRepository;
         this.mealItemRepository = mealItemRepository;
@@ -515,12 +520,29 @@ public class NutritionServiceImpl implements NutritionService {
         return nutritionDiaryService.getDailySummary(principal, date, timezone);
     }
 
+    /**
+     * A user who owns no food sees exactly the shared catalogue, so their search is answered from the catalogue
+     * cache; anyone else's goes to the database, since it must include their own foods.
+     */
     @Override
     @Transactional(readOnly = true)
     public Page<FoodSearchResultView> searchFoods(CurrentUserPrincipal principal, FoodSearchCriteria criteria) {
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
         String normalizedQuery = normalizeQuery(criteria.query());
+        UUID userId = principal.userId();
+        if (!FoodCatalogueCache.isCacheable(criteria, normalizedQuery)
+                || foodCatalogItemRepository.existsByOwnerUserId(userId)) {
+            return runFoodSearch(userId, criteria, normalizedQuery, today).toPage();
+        }
+        return foodCatalogueCache.search(
+                FoodCatalogueCache.key(criteria, normalizedQuery, today),
+                () -> runFoodSearch(FoodCatalogueCache.CATALOGUE_ONLY_OWNER, criteria, normalizedQuery, today))
+                .toPage();
+    }
 
+    /** The search itself, for the foods {@code ownerUserId} may see. */
+    private FoodSearchPage runFoodSearch(UUID ownerUserId, FoodSearchCriteria criteria, String normalizedQuery,
+                                         LocalDate today) {
         String categoryCode = null;
         String pathPrefix = null;
         if (criteria.categoryId() != null) {
@@ -539,13 +561,13 @@ public class NutritionServiceImpl implements NutritionService {
         PageRequest pageRequest = PageRequest.of(page, size);
         Page<FoodCatalogItemEntity> foodPage = foodCatalogItemRepository.findAll(
                 FoodCatalogSearchSpecification.accessibleSearch(
-                        principal.userId(), normalizedQuery, today, categoryCode, pathPrefix,
+                        ownerUserId, normalizedQuery, today, categoryCode, pathPrefix,
                         criteria.brandId(), criteria.verified(), criteria.scope(), foodGroup),
                 pageRequest);
         List<FoodCatalogItemEntity> exactFoods = foodPage.getContent();
         List<FoodCatalogItemEntity> extraFoods = shouldSearchSimilarFoods(criteria, normalizedQuery, page,
                 exactFoods.size())
-                ? similarFoods(principal.userId(), normalizedQuery, today, exactFoods, size - exactFoods.size())
+                ? similarFoods(ownerUserId, normalizedQuery, today, exactFoods, size - exactFoods.size())
                 : List.of();
         List<FoodCatalogItemEntity> foods = extraFoods.isEmpty() ? exactFoods
                 : mergeSimilar(exactFoods, extraFoods, size);
@@ -577,13 +599,13 @@ public class NutritionServiceImpl implements NutritionService {
                         defaultServings.get(food.getFoodId())))
                 .toList();
         if (!shouldSearchExternalFoods(criteria, normalizedQuery, page, localResults.size())) {
-            return new PageImpl<>(localResults, pageRequest, totalFound);
+            return new FoodSearchPage(localResults, page, size, totalFound, true);
         }
         // External results only fill the page up to the fallback threshold, never past the page size, and
         // skip any product whose barcode is already in the local results.
         int externalLimit = Math.min(size - localResults.size(), EXTERNAL_SEARCH_FALLBACK_THRESHOLD - localResults.size());
         if (externalLimit <= 0) {
-            return new PageImpl<>(localResults, pageRequest, totalFound);
+            return new FoodSearchPage(localResults, page, size, totalFound, true);
         }
         List<String> localBarcodes = primaryBarcodes.values().stream()
                 .filter(java.util.Objects::nonNull)
@@ -595,15 +617,16 @@ public class NutritionServiceImpl implements NutritionService {
                     .limit(externalLimit)
                     .toList();
         } catch (RuntimeException ex) {
-            // The external source is best effort: when it is down the local results are still returned.
-            return new PageImpl<>(localResults, pageRequest, totalFound);
+            // The external source is best effort: when it is down the local results are still returned, but
+            // not cached, so the next search asks the external source again.
+            return new FoodSearchPage(localResults, page, size, totalFound, false);
         }
         if (externalResults.isEmpty()) {
-            return new PageImpl<>(localResults, pageRequest, totalFound);
+            return new FoodSearchPage(localResults, page, size, totalFound, true);
         }
         List<FoodSearchResultView> combined = new ArrayList<>(localResults);
         combined.addAll(externalResults);
-        return new PageImpl<>(combined, pageRequest, totalFound + externalResults.size());
+        return new FoodSearchPage(combined, page, size, totalFound + externalResults.size(), true);
     }
 
     /**
@@ -659,8 +682,10 @@ public class NutritionServiceImpl implements NutritionService {
                 && blankToNull(criteria.foodGroup()) == null;
     }
 
+    /** The same tree for every user, changed only by migrations, so it is cached until its TTL. */
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = CatalogueCacheConfig.FOOD_CATEGORIES_CACHE, key = "'all'")
     public List<FoodCategoryView> listCategories(CurrentUserPrincipal principal) {
         List<FoodCategoryEntity> categories = foodCategoryRepository
                 .findByActiveTrueOrderBySortOrderAscDisplayNameAsc();
@@ -1520,7 +1545,9 @@ public class NutritionServiceImpl implements NutritionService {
      * imported the same barcode first and the unique constraint fails, the food that request saved can be
      * read and returned in a fresh one.
      */
+    /** May add a food to the shared catalogue, so every cached catalogue search is dropped once it has run. */
     @Override
+    @CacheEvict(cacheNames = CatalogueCacheConfig.FOOD_SEARCH_CACHE, allEntries = true)
     public FoodDetailView importFoodByBarcode(CurrentUserPrincipal principal, String barcode) {
         String normalizedBarcode = requireNonBlank(barcode, "barcode is required");
         LocalDate today = LocalDate.now(ZoneId.systemDefault());

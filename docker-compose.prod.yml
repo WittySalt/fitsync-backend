@@ -172,9 +172,17 @@ services:
       RECOMMENDATION_SERVICE_BASE_URL: http://recommendation-service:8086
       # Only the admin console's email "send now" goes here (/api/v1/admin/notifications/**).
       NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8087
-      # Revoked-session deny-list that auth-service writes. The gateway fails open if Redis is down.
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
+      # Redis for the revoked-session deny-list that auth-service writes and for the per-user / per-IP
+      # rate limit counters; both fail open if Redis is down. Two proxies append to X-Forwarded-For in
+      # the cloud (CloudFront, then the ALB), hence 2 trusted hops. GATEWAY_RATE_LIMIT_ENABLED=false turns
+      # the limiter off (e.g. in a local .env).
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
+      SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
+      GATEWAY_RATE_LIMIT_ENABLED: ${GATEWAY_RATE_LIMIT_ENABLED:-true}
+      GATEWAY_RATE_LIMIT_GENERAL: ${GATEWAY_RATE_LIMIT_GENERAL:-120}
+      GATEWAY_RATE_LIMIT_AUTH: ${GATEWAY_RATE_LIMIT_AUTH:-10}
+      GATEWAY_RATE_LIMIT_TRUSTED_PROXY_HOPS: ${GATEWAY_RATE_LIMIT_TRUSTED_PROXY_HOPS:-2}
       JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
     ports:
       - "8088:8088"
@@ -255,6 +263,12 @@ services:
       SERVER_PORT: 8082
       FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY: ${FREE_EXERCISE_DB_IMAGE_SOURCE_DIRECTORY:-/opt/fitsync/free-exercise-db/exercises}
       WORKOUT_CATALOG_AUTO_IMPORT: ${WORKOUT_CATALOG_AUTO_IMPORT:-true}
+      # Shared catalogue search cache in the redis container; fails open to the database.
+      # CATALOGUE_CACHE_TYPE=none turns it off (its own name, so analytics' SPRING_CACHE_TYPE is not touched).
+      SPRING_CACHE_TYPE: ${CATALOGUE_CACHE_TYPE:-redis}
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
+      SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
     volumes:
       - ${FREE_EXERCISE_DB_IMAGES_DIR:-./.local/free-exercise-db/exercises}:/opt/fitsync/free-exercise-db/exercises:ro
     healthcheck:
@@ -273,6 +287,12 @@ services:
       DB_USERNAME: nutrition_svc
       DB_PASSWORD: ${NUTRITION_DB_PASSWORD}
       SERVER_PORT: 8083
+      # Shared catalogue search cache in the redis container; fails open to the database.
+      # CATALOGUE_CACHE_TYPE=none turns it off (its own name, so analytics' SPRING_CACHE_TYPE is not touched).
+      SPRING_CACHE_TYPE: ${CATALOGUE_CACHE_TYPE:-redis}
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
+      SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
       interval: 30s

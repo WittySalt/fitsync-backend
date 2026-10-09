@@ -1,4 +1,7 @@
 spring:
+  # No catalogue cache in tests: many replace the catalogue between cases. CatalogueCache tests turn it on.
+  cache:
+    type: none
   datasource:
     url: jdbc:h2:mem:workoutdb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;INIT=CREATE SCHEMA IF NOT EXISTS workout;DB_CLOSE_DELAY=-1
     driver-class-name: org.h2.Driver

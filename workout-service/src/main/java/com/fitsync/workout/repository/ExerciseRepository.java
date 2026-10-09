@@ -19,6 +19,9 @@ public interface ExerciseRepository extends JpaRepository<ExerciseEntity, UUID>,
 
     boolean existsByCodeAndOwnerUserId(String code, UUID ownerUserId);
 
+    /** Whether the user has exercises of their own in the given status, which a catalogue-only search would miss. */
+    boolean existsByOwnerUserIdAndStatus(UUID ownerUserId, ExerciseStatus status);
+
     List<ExerciseEntity> findByOwnerUserIdOrderByNameAsc(UUID ownerUserId);
 
     Optional<ExerciseEntity> findByExternalSourceAndExternalRef(String externalSource, String externalRef);

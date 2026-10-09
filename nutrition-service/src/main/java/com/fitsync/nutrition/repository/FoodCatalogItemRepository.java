@@ -15,6 +15,9 @@ import org.springframework.data.repository.query.Param;
 public interface FoodCatalogItemRepository extends JpaRepository<FoodCatalogItemEntity, UUID>,
         JpaSpecificationExecutor<FoodCatalogItemEntity> {
 
+    /** Whether the user owns any food (a clone, for one), which a catalogue-only search would leave out. */
+    boolean existsByOwnerUserId(UUID ownerUserId);
+
     // Paged, relevance-ranked food search is built dynamically via FoodCatalogSearchSpecification
     // (through JpaSpecificationExecutor.findAll) so each optional filter adds a predicate only when
     // present — the query never sends an untyped null bind parameter (Postgres-safe; the old static

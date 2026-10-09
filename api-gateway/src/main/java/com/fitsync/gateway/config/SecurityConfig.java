@@ -1,10 +1,12 @@
 package com.fitsync.gateway.config;
 
+import com.fitsync.gateway.ratelimit.RateLimitFilter;
 import com.fitsync.gateway.security.JwtAuthenticationFilter;
 import com.fitsync.gateway.security.RestAuthenticationEntryPoint;
 import com.fitsync.gateway.security.RevokedSessionFilter;
 import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -19,6 +21,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
@@ -30,18 +33,21 @@ public class SecurityConfig {
     private final ObjectProvider<JwtDecoder> cognitoJwtDecoderProvider;
     private final ObjectProvider<Converter<Jwt, ? extends AbstractAuthenticationToken>>
             cognitoJwtAuthenticationConverterProvider;
+    private final ObjectProvider<RateLimitFilter> rateLimitFilterProvider;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           RestAuthenticationEntryPoint restAuthenticationEntryPoint,
                           CognitoProperties cognitoProperties,
                           ObjectProvider<JwtDecoder> cognitoJwtDecoderProvider,
                           ObjectProvider<Converter<Jwt, ? extends AbstractAuthenticationToken>>
-                                  cognitoJwtAuthenticationConverterProvider) {
+                                  cognitoJwtAuthenticationConverterProvider,
+                          ObjectProvider<RateLimitFilter> rateLimitFilterProvider) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.restAuthenticationEntryPoint = restAuthenticationEntryPoint;
         this.cognitoProperties = cognitoProperties;
         this.cognitoJwtDecoderProvider = cognitoJwtDecoderProvider;
         this.cognitoJwtAuthenticationConverterProvider = cognitoJwtAuthenticationConverterProvider;
+        this.rateLimitFilterProvider = rateLimitFilterProvider;
     }
 
     @Bean
@@ -84,7 +90,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterAfter(revokedSessionFilter, JwtAuthenticationFilter.class);
+                // Both after every authentication filter and before authorization. The revoked-session check
+                // comes first, so a revoked token is turned away with SESSION_REVOKED before it is ever counted
+                // under its user's id; the rate limit then counts what is left.
+                .addFilterBefore(revokedSessionFilter, AuthorizationFilter.class)
+                .addFilterAfter(rateLimitFilterProvider.getObject(), RevokedSessionFilter.class);
 
         if (cognitoProperties.enabled()) {
             JwtDecoder cognitoJwtDecoder = cognitoJwtDecoderProvider.getIfAvailable();
@@ -102,6 +112,25 @@ public class SecurityConfig {
         }
 
         return http.build();
+    }
+
+    /**
+     * The revoked-session and rate limit filters run inside the security chain only; without these, Spring Boot
+     * would also register each bean as a plain servlet filter, outside the chain.
+     */
+    @Bean
+    FilterRegistrationBean<RevokedSessionFilter> revokedSessionFilterServletRegistration(
+            RevokedSessionFilter revokedSessionFilter) {
+        FilterRegistrationBean<RevokedSessionFilter> registration = new FilterRegistrationBean<>(revokedSessionFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    FilterRegistrationBean<RateLimitFilter> rateLimitFilterServletRegistration(RateLimitFilter rateLimitFilter) {
+        FilterRegistrationBean<RateLimitFilter> registration = new FilterRegistrationBean<>(rateLimitFilter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     /**
