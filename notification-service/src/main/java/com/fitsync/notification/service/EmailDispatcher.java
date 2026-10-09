@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fitsync.notification.config.NotificationProperties;
@@ -29,6 +30,10 @@ import com.fitsync.notification.repository.RecipientRepository;
  * Quiet hours hold an email until they end. Each email runs in its own transaction, so one failure
  * leaves the rest untouched. Only ids and kinds are logged, never an address or a body. The stored
  * subject stays as composed; an environment's subject prefix is added only as the email leaves.
+ *
+ * <p>Two callers reach the same rules: the tick, which works through every due email, and
+ * {@link #dispatchNow}, which sends one email just after it was queued. Each email is read with a row
+ * lock, so whichever caller comes second waits and then finds the email no longer pending.
  */
 @Service
 public class EmailDispatcher {
@@ -45,6 +50,7 @@ public class EmailDispatcher {
     private final RecipientRepository recipients;
     private final EmailSender sender;
     private final TransactionTemplate transactions;
+    private final TransactionTemplate newTransactions;
     private final Clock clock;
     private final NotificationProperties.Email settings;
 
@@ -54,6 +60,10 @@ public class EmailDispatcher {
         this.recipients = recipients;
         this.sender = sender;
         this.transactions = transactions;
+        // dispatchNow runs after the queueing transaction has committed, where the old transaction
+        // may still be bound to the thread, so it needs a transaction of its own.
+        this.newTransactions = new TransactionTemplate(transactions.getTransactionManager());
+        this.newTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
         this.settings = properties.email();
     }
@@ -65,7 +75,7 @@ public class EmailDispatcher {
             List<UUID> due = emails.findTop50ByStatusAndDueAtLessThanEqualOrderByDueAtAsc(EmailStatus.PENDING, now)
                     .stream().map(EmailEntity::getEmailId).toList();
             for (UUID emailId : due) {
-                transactions.executeWithoutResult(status -> dispatchOne(emailId));
+                dispatchSafely(transactions, emailId);
             }
             if (due.size() < BATCH) {
                 return;
@@ -73,9 +83,27 @@ public class EmailDispatcher {
         }
     }
 
+    /**
+     * Sends one email that was just queued, if it is still pending and due. Anything that goes wrong
+     * leaves the email to the tick, which retries it as usual.
+     */
+    public void dispatchNow(UUID emailId) {
+        dispatchSafely(newTransactions, emailId);
+    }
+
+    private void dispatchSafely(TransactionTemplate template, UUID emailId) {
+        try {
+            template.executeWithoutResult(status -> dispatchOne(emailId));
+        } catch (RuntimeException ex) {
+            // A failed send is handled inside dispatchOne; this is a database error or a lock wait
+            // that gave up. The email stays pending and a later pass picks it up again.
+            log.warn("event=email_dispatch_error emailId={} exceptionClass={}", emailId, ex.getClass().getName());
+        }
+    }
+
     private void dispatchOne(UUID emailId) {
         Instant now = clock.instant();
-        EmailEntity email = emails.findById(emailId).orElse(null);
+        EmailEntity email = emails.findByIdForUpdate(emailId).orElse(null);
         if (email == null || email.getStatus() != EmailStatus.PENDING || email.getDueAt().isAfter(now)) {
             return;
         }

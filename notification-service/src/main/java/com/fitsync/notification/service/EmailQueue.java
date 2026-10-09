@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import com.fitsync.notification.domain.EmailKind;
@@ -17,6 +18,9 @@ import com.fitsync.notification.service.EmailComposer.ComposedEmail;
  * Records an email as decided. The record is what keeps an email from going out twice: a second
  * decision with the same user, kind and dedupe key is ignored, whether the first one was sent,
  * dropped or is still waiting.
+ *
+ * <p>An email that is already due is announced with {@link DueEmailQueued}, so it can go out as soon as
+ * the caller's transaction commits instead of on the next tick.
  */
 @Service
 public class EmailQueue {
@@ -25,10 +29,12 @@ public class EmailQueue {
 
     private final EmailRepository emails;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
-    public EmailQueue(EmailRepository emails, Clock clock) {
+    public EmailQueue(EmailRepository emails, Clock clock, ApplicationEventPublisher events) {
         this.emails = emails;
         this.clock = clock;
+        this.events = events;
     }
 
     /**
@@ -41,10 +47,14 @@ public class EmailQueue {
         if (emails.existsByUserIdAndKindAndDedupeKey(userId, kind, dedupeKey)) {
             return false;
         }
+        Instant now = clock.instant();
         EmailEntity email = new EmailEntity(userId, kind, dedupeKey, content.subject(), content.bodyText(),
-                dueAt, expiresAt, clock.instant());
+                dueAt, expiresAt, now);
         emails.save(email);
         log.info("event=email_queued emailId={} kind={}", email.getEmailId(), kind);
+        if (!dueAt.isAfter(now)) {
+            events.publishEvent(new DueEmailQueued(email.getEmailId()));
+        }
         return true;
     }
 }

@@ -8,6 +8,7 @@ import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.fitsync.notification.domain.EmailKind;
 import com.fitsync.notification.domain.EmailStatus;
@@ -15,8 +16,15 @@ import com.fitsync.notification.email.OutgoingEmail;
 import com.fitsync.notification.entity.EmailEntity;
 import com.fitsync.notification.support.NotificationTestBase;
 
-/** The rules every email shares: the master switch, deletion, E6's exemptions, retries and the footer. */
+/**
+ * The rules every email shares: the master switch, deletion, E6's exemptions, retries and the footer.
+ * These checks drive the tick by hand, so the send right after queueing is switched off here and
+ * covered in {@link ImmediateDispatchTests}.
+ */
 class DispatcherRulesTests extends NotificationTestBase {
+
+    @MockitoBean
+    private ImmediateEmailDispatch immediateDispatch;
 
     @Autowired
     private TrainingReminderPlanner planner;
