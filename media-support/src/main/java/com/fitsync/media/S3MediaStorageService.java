@@ -4,10 +4,10 @@ import java.io.InputStream;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.time.Duration;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -28,8 +28,15 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 public class S3MediaStorageService implements MediaStorageService {
 
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
-    /** Cached for a year as immutable, so changed content has to be stored under a new key. */
-    private static final String CACHE_CONTROL = "public, max-age=31536000, immutable";
+    /** Public catalogue media is cached for a year as immutable, so changed content needs a new key. */
+    private static final String PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
+    /**
+     * Private media (avatars) may only be kept by the viewer's own browser, and no longer than the pre-signed URL
+     * it was read through stays valid, so shared caches never hold a copy.
+     */
+    private static final String PRIVATE_CACHE_CONTROL = "private, max-age=3600";
+    /** Keys under this prefix are private objects that the bucket policy does not expose. */
+    private static final String PRIVATE_KEY_PREFIX = "avatars/";
 
     private final ObjectProvider<S3Client> s3ClientProvider;
     private final ObjectProvider<S3Presigner> s3PresignerProvider;
@@ -146,7 +153,7 @@ public class S3MediaStorageService implements MediaStorageService {
                 .bucket(properties.bucket())
                 .key(key)
                 .contentType(contentType == null || contentType.isBlank() ? DEFAULT_CONTENT_TYPE : contentType)
-                .cacheControl(CACHE_CONTROL)
+                .cacheControl(key.startsWith(PRIVATE_KEY_PREFIX) ? PRIVATE_CACHE_CONTROL : PUBLIC_CACHE_CONTROL)
                 .build();
     }
 

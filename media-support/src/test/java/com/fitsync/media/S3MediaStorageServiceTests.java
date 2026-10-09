@@ -1,9 +1,10 @@
 package com.fitsync.media;
 
+import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,23 @@ class S3MediaStorageServiceTests {
         assertEquals("image/jpeg", request.contentType());
         assertEquals("public, max-age=31536000, immutable", request.cacheControl());
         assertEquals("http://media.test/fitsync-media/exercises/Bench%20Press/0.jpg", url);
+    }
+
+    @Test
+    void shouldCacheAvatarsOnlyPrivatelyAndBriefly() {
+        S3Client s3Client = mock(S3Client.class);
+        when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenReturn(PutObjectResponse.builder().build());
+        S3MediaStorageService service = new S3MediaStorageService(s3ClientProvider(s3Client), presignerProvider(),
+                properties());
+
+        service.put("avatars/u-1/a.png", "image".getBytes(StandardCharsets.UTF_8), "image/png");
+        service.put("avatars/u-1/b.png", new ByteArrayInputStream(new byte[] {1}), 1, "image/png");
+
+        ArgumentCaptor<PutObjectRequest> requestCaptor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        verify(s3Client, times(2)).putObject(requestCaptor.capture(), any(RequestBody.class));
+        requestCaptor.getAllValues().forEach(request ->
+                assertEquals("private, max-age=3600", request.cacheControl()));
     }
 
     @Test
