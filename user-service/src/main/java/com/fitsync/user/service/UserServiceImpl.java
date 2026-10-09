@@ -109,6 +109,11 @@ public class UserServiceImpl implements UserService {
     private static final String NOTIFICATION_DELIVERY_STATUS_NOT_YET_ACTIVE = "NOT_YET_ACTIVE";
     private static final String ONBOARDING_BASELINE_NOTE = "Initial onboarding baseline";
     private static final String DEFAULT_ONBOARDING_TIMEZONE = "Asia/Singapore";
+    /** The other services' exports of the person's data, which the app adds to this one. */
+    private static final List<String> RELATED_DATA_EXPORTS = List.of(
+            "/api/v1/nutrition/me/export",
+            "/api/v1/workouts/me/export",
+            "/api/v1/coach/me/export");
     private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
     private static final Map<String, String> AVATAR_EXTENSIONS = Map.of(
             "image/png", "png",
@@ -725,11 +730,18 @@ public class UserServiceImpl implements UserService {
                 goals,
                 bodyMetrics.isEmpty() ? null : bodyMetrics.get(0));
 
+        // Read without creating the row: a person who never answered the readiness questions has none.
+        HealthReadinessView healthReadiness = userHealthReadinessRepository.findById(principal.userId())
+                .map(this::toHealthReadinessView)
+                .orElse(null);
+
         return new AccountDataExportPayload(
                 exportRequest.getCompletedAt(),
                 account,
                 goals,
-                bodyMetrics);
+                bodyMetrics,
+                healthReadiness,
+                RELATED_DATA_EXPORTS);
     }
 
     @Override

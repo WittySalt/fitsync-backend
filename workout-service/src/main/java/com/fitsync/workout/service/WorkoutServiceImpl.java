@@ -62,6 +62,7 @@ import com.fitsync.workout.dto.WorkoutExerciseLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseLogView;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogInput;
 import com.fitsync.workout.dto.WorkoutExerciseSetLogView;
+import com.fitsync.workout.dto.WorkoutDataExport;
 import com.fitsync.workout.dto.WorkoutExportView;
 import com.fitsync.workout.dto.WorkoutPlanDayInput;
 import com.fitsync.workout.dto.WorkoutPlanDayView;
@@ -318,6 +319,26 @@ public class WorkoutServiceImpl implements WorkoutService {
                 workoutSessionRepository.findByUserIdOrderByStartedAtDesc(userId).stream()
                         .map(this::toSessionView)
                         .toList());
+    }
+
+    /**
+     * Sessions the person deleted are left out, since the entity hides them from every read. Archived plans and
+     * archived custom exercises are still the person's data and are included.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public WorkoutDataExport exportAccountData(CurrentUserPrincipal currentUser) {
+        UUID userId = currentUser.userId();
+        return new WorkoutDataExport(
+                WorkoutDataExport.SERVICE_NAME,
+                Instant.now(clock),
+                workoutSessionRepository.findByUserIdOrderByStartedAtDesc(userId).stream()
+                        .map(this::toSessionView)
+                        .toList(),
+                workoutPlanRepository.findByUserIdOrderByDateTimeUpdatedDesc(userId).stream()
+                        .map(this::toPlanView)
+                        .toList(),
+                exerciseService.exportCustomExercises(currentUser));
     }
 
     @Override

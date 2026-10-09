@@ -28,6 +28,9 @@ public interface CoachPageReadingRepository extends JpaRepository<CoachPageReadi
     List<CoachPageReadingEntity> findByUserIdAndSurfaceAndPeriodKeyIn(UUID userId, ReadingSurface surface,
                                                                       Collection<String> periodKeys);
 
+    /** Every reading a user has, for the account data export, in a stable order. */
+    List<CoachPageReadingEntity> findByUserIdOrderBySurfaceAscPeriodKeyAsc(UUID userId);
+
     void deleteByUserId(UUID userId);
 
     /**

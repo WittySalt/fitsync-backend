@@ -14,6 +14,9 @@ public interface RecipeFavoriteRepository extends JpaRepository<RecipeFavoriteEn
 
     Optional<RecipeFavoriteEntity> findByUserIdAndRecipeId(UUID userId, UUID recipeId);
 
+    /** Every recipe the user saved, oldest first, for the personal data export. */
+    List<RecipeFavoriteEntity> findByUserIdOrderBySavedAtAsc(UUID userId);
+
     /** Which of the given recipes the user has saved, so that a page of recipes needs one query. */
     @Query("select f.recipeId from RecipeFavoriteEntity f where f.userId = :userId and f.recipeId in :recipeIds")
     List<UUID> findSavedRecipeIds(@Param("userId") UUID userId, @Param("recipeIds") Collection<UUID> recipeIds);
