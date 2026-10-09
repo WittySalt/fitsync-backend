@@ -15,7 +15,10 @@
 #   - the shared ECR repositories (registry.tf), empty ones cost nothing
 #   - the SES sending domain, its public hosted zone and DNS records (email.tf), only when
 #     notify_email_domain is set
-# All of this is free, except the hosted zone at $0.50 a month.
+#   - privacy@ inbound mail: MX, SES receipt rule, raw-mail bucket and a forwarder Lambda
+#     (email_inbound.tf), only when privacy_forward_to is set as well
+# All of this is free, except the hosted zone at $0.50 a month (inbound mail costs cents
+# at privacy@ volumes).
 # ─────────────────────────────────────────────────────────────────────────────
 
 terraform {
@@ -25,6 +28,11 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    # Zips the privacy@ forwarder Lambda (email_inbound.tf).
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
     }
   }
 

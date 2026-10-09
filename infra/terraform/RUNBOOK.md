@@ -369,6 +369,46 @@ Check from the host after a deploy:
 sender in the `.env` differs from `notify_email_sender`; `MessageRejected` means an
 identity is not verified yet (the domain, or a sandbox recipient).
 
+## Inbound mail (privacy@)
+
+Mail sent to `privacy@fitsyncapp.click` is forwarded to the project owner's inbox. SES receives
+it in ap-southeast-1 (receiving is supported there), keeps the raw message in the private
+bucket `fitsync-privacy-inbound-437659978621` for 30 days, and the Lambda
+`fitsync-privacy-forwarder` sends a copy on. The copy comes from
+`FitSync Privacy <noreply@fitsyncapp.click>` with the subject prefixed `[privacy@]`, and its
+Reply-To is the original sender, so pressing Reply in the inbox answers the person who wrote.
+All of it lives in `bootstrap/email_inbound.tf` and is applied by hand.
+
+The destination is `privacy_forward_to`, which has no default so that an apply without it
+stops instead of removing the forwarder. While the account is in the SES sandbox the
+destination must be a verified SES identity. The owner's address already is one; for a new
+address add `-var privacy_forward_to_create_identity=true` and click the link SES sends.
+
+1. **Plan and apply** with an admin profile of 437659978621:
+
+   ```bash
+   cd infra/terraform/bootstrap
+   terraform init
+   terraform plan -var privacy_forward_to=<owner inbox> -out=bootstrap-inbound.tfplan
+   terraform apply bootstrap-inbound.tfplan
+   ```
+
+   The plan of 2026-10-09 read 15 to add, 0 to change, 0 to destroy: the apex MX record, the
+   bucket with its five settings, the log group, the Lambda with its role, policy and invoke
+   permission, and the receipt rule set (made active) with its one rule. Pass the same
+   `privacy_forward_to` on every later bootstrap apply, or keep it in an untracked
+   `bootstrap/terraform.tfvars`.
+2. **Test.** From any outside mailbox send a message to `privacy@fitsyncapp.click`. Within a
+   minute it should arrive in the owner's inbox as `[privacy@] <subject>`. If it does not:
+   `aws s3 ls s3://fitsync-privacy-inbound-437659978621/privacy/` shows whether SES received
+   it, and `aws logs tail /aws/lambda/fitsync-privacy-forwarder --since 1h` shows the forward
+   (the log carries message ids only). `MessageRejected` there means the destination is not a
+   verified identity yet.
+
+Only `privacy@` is matched; mail to any other address at the domain is bounced by SES. A
+message that fails the virus scan is stored but not forwarded. The forwarder's header rewrite
+has unit tests: `python -m unittest discover -s bootstrap/lambda/privacy_forwarder`.
+
 ## Hardening switch-over: private DB subnets, SSH over SSM, prod Cognito
 
 Four changes landed together in `network.tf`, `data.tf`, `ci_iam.tf`, `cognito_prod.tf` and
