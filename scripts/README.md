@@ -55,7 +55,8 @@ Locally it only logs emails (`FITSYNC_NOTIFY_EMAIL_ENABLED` stays false).
 
 5. Eyeball checklist, steady account unless noted (numbers in the table below):
    - Home: the streak, ending yesterday; the weekly goal is six sessions and every session counts,
-     mobility included, so on Friday it reads four in, two to go; the guide card fits the hour.
+     mobility included, so on Friday it reads four in, two to go. There is no Getting started
+     card for steady and drifting, and no tour starts by itself for them.
    - Workout Today: "this week" counts the days trained against those trained or still planned (4 of 6
      on Friday, 5 of 6 on Saturday); the plan days before today are done and today's plan session is still to start
      (no plan session on Tuesday, Wednesday and Sunday, nor on Thursday once the Thursday run was
@@ -79,10 +80,49 @@ Locally it only logs emails (`FITSYNC_NOTIFY_EMAIL_ENABLED` stays false).
    powershell -NoProfile -File scripts\demo-down.ps1
    ```
 
+## Cloud reseed
+
+`scripts\demo-reseed-cloud.ps1` seeds the same three accounts on the staging or prod AWS
+environment. It copies `demo-cloud-remote.sh` and the seed to a private temp dir on the EC2 host
+with scp, runs the seed there as the RDS master user (the password is read from Secrets Manager on
+the host and never printed), restarts analytics-service and recommendation-service, waits until both
+are healthy and prints the same checklist as the local script. The temp dir is removed afterwards.
+
+Without `-Apply` the script is a dry run. It only reads: it checks each account and the system
+catalogues and prints the rows each account has now, which are the rows the seed would replace.
+Because the seed deletes the account's data, always run the dry run first.
+
+Before the first run:
+
+- Copy `scripts\demo-cloud.example.env` to `scripts\demo-cloud.env` (git-ignored) and fill in the
+  EC2 host, the SSH key path and the app secret id of each environment. The addresses come from
+  `scripts\demo-accounts.env`, as for the local script.
+- Sign in once on that environment with every account, so it exists in `auth.app_users`.
+- No account may have a pending deletion. Signing in again cancels it.
+- None of them may be the admin account. The script refuses to seed an ADMIN.
+- The system catalogues must be present: the USDA foods (nutrition V900/V901 seeds) and the system
+  recipe library. The exercise catalogue is optional, because the seed brings its own exercises when
+  it is missing.
+
+The dry run stops with a message naming the account or catalogue that blocks the run.
+
+```powershell
+powershell -NoProfile -File scripts\demo-reseed-cloud.ps1 -Env staging
+```
+
+When it passes, run it again with `-Apply`. `-Now 2026-10-09T09:30` pins the run time (Singapore,
+default now) and `-Persona steady,drifting` seeds only those accounts.
+
+```powershell
+powershell -NoProfile -File scripts\demo-reseed-cloud.ps1 -Env staging -Apply
+powershell -NoProfile -File scripts\demo-reseed-cloud.ps1 -Env prod -Apply
+```
+
 ## What the demo accounts show
 
-Names and dates. The seed gives an account a person's name only where its stored name is blank or a
-persona word (steady, drifting, fresh, any case): steady becomes Jamie Lim, drifting Alex Tan and fresh
+Names and dates. The seed gives an account a person's name only where its stored name is blank, a
+persona word (steady, drifting, fresh, any case) or the local part of its email (any case), which
+sign-up fills in when no name is given: steady becomes Jamie Lim, drifting Alex Tan and fresh
 Sam Lee, in the profile (display, first and last name), the auth account and notification-service's
 copy. A real name, such as steady's own, is kept. steady and drifting are members since the first day of
 the seeded history, 59 days before the run day at 06:00; fresh keeps its real creation date, since it

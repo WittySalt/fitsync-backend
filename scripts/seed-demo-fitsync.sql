@@ -193,15 +193,33 @@ delete from user_domain.user_nutrition_preferences where user_id      in (select
 delete from user_domain.user_notification_preferences where user_id   in (select user_id from demo_config);
 delete from user_domain.user_health_readiness      where user_id      in (select user_id from demo_config);  -- -> injury areas
 delete from user_domain.account_data_export_requests where user_id    in (select user_id from demo_config);
--- The first-run guide's saved state (V9). Cleared for the fresh persona only, so its first tour starts by
--- itself again on the next sign-in; steady and drifting keep theirs, so a tour does not open over a
--- recording. Guarded on the table existing, since it arrived in a later user-service migration.
+-- The first-run guide's saved state (V9), one JSON object per user in the shape the frontend's
+-- GuideService keeps (tourMap, cardHidden, tourSkipped, restarted, counters). fresh gets no row, so its
+-- first tour starts by itself on the next sign-in. steady and drifting are established users: the
+-- Getting started card is hidden, the tour is skipped, the four first-tour pages and the session player
+-- are marked seen, nothing is restarted and no counters are kept. The row is replaced on every run, so
+-- leftover first-use state from a real sign-in never brings the card back. Guarded on the table
+-- existing, since it arrived in a later user-service migration.
 do $$
 begin
     if exists (select 1 from information_schema.tables
                 where table_schema = 'user_domain' and table_name = 'user_guide_state') then
         delete from user_domain.user_guide_state
-         where user_id in (select user_id from demo_config where persona = 'fresh');
+         where user_id in (select user_id from demo_config);
+        insert into user_domain.user_guide_state (user_id, state, updated_at)
+        select c.user_id,
+               jsonb_build_object(
+                   'tourMap', (select jsonb_object_agg(page, jsonb_build_object(
+                                          'seen', true, 'skippedByData', false, 'replayedAt', null))
+                                 from unnest(array['workout', 'nutrition', 'progress', 'me',
+                                                   'workout-session-player']) as page),
+                   'cardHidden', true,
+                   'tourSkipped', true,
+                   'restarted', false,
+                   'counters', '{}'::jsonb)::text,
+               c.now_ts
+          from demo_config c
+         where c.persona in ('steady', 'drifting');
     end if;
 end $$;
 
@@ -310,23 +328,28 @@ from demo_config c
 where p.user_id = c.user_id and c.persona in ('steady', 'drifting');
 
 -- Display names. Home greets by first name, and the demo accounts were registered with a persona word
--- as their name ("Good evening, drifting."; the fresh account even carries "steady"). A name that is
--- blank or any persona word (steady, drifting, fresh, in any case) is replaced by the persona's person:
+-- as their name ("Good evening, drifting."; the fresh account even carries "steady"), or sign-up filled
+-- the name from the address ("Good afternoon, 2579706652."). A name that is blank, any persona word
+-- (steady, drifting, fresh, in any case) or the email's local part (the text before the @, in any case)
+-- is replaced by the persona's person:
 -- steady Jamie Lim, drifting Alex Tan, fresh Sam Lee. A real name, such as steady's own, is never
 -- overwritten. The same rule is applied to the auth account's name, which signed-in tokens carry, and to
 -- notification-service's copy of it.
 create temporary table demo_name on commit drop as
-select c.user_id, n.display_name, n.first_name, n.last_name
+select c.user_id, n.display_name, n.first_name, n.last_name,
+       lower(split_part(:'email', '@', 1)) as local_part
 from demo_config c
 join (values ('steady',   'Jamie Lim', 'Jamie', 'Lim'),
              ('drifting', 'Alex Tan',  'Alex',  'Tan'),
              ('fresh',    'Sam Lee',   'Sam',   'Lee')) n(persona, display_name, first_name, last_name)
   on n.persona = c.persona;
 
--- True when a stored name is a placeholder: blank, or one of the persona words.
-create or replace function pg_temp.demo_placeholder_name(v text) returns boolean
+-- True when a stored name is a placeholder: blank, one of the persona words, or the email's local part.
+create or replace function pg_temp.demo_placeholder_name(v text, local_part text) returns boolean
 language sql immutable as $f$
-    select coalesce(btrim(v), '') = '' or lower(btrim(v)) in ('steady', 'drifting', 'fresh')
+    select coalesce(btrim(v), '') = ''
+        or lower(btrim(v)) in ('steady', 'drifting', 'fresh')
+        or lower(btrim(v)) = local_part
 $f$;
 
 -- The profile: a placeholder display name takes the whole person (first and last name included where
@@ -334,24 +357,24 @@ $f$;
 -- which then takes the display name's first word.
 update user_domain.user_profiles p
 set display_name = n.display_name,
-    first_name   = case when pg_temp.demo_placeholder_name(p.first_name) then n.first_name else p.first_name end,
-    last_name    = case when pg_temp.demo_placeholder_name(p.last_name)  then n.last_name  else p.last_name  end
+    first_name   = case when pg_temp.demo_placeholder_name(p.first_name, n.local_part) then n.first_name else p.first_name end,
+    last_name    = case when pg_temp.demo_placeholder_name(p.last_name, n.local_part)  then n.last_name  else p.last_name  end
 from demo_name n
 where p.user_id = n.user_id
-  and pg_temp.demo_placeholder_name(p.display_name);
+  and pg_temp.demo_placeholder_name(p.display_name, n.local_part);
 
 update user_domain.user_profiles p
 set first_name = split_part(btrim(p.display_name), ' ', 1)
 from demo_name n
 where p.user_id = n.user_id
-  and pg_temp.demo_placeholder_name(p.first_name)
-  and not pg_temp.demo_placeholder_name(p.display_name);
+  and pg_temp.demo_placeholder_name(p.first_name, n.local_part)
+  and not pg_temp.demo_placeholder_name(p.display_name, n.local_part);
 
 update auth.app_users u
 set display_name = n.display_name
 from demo_name n
 where u.id = n.user_id
-  and pg_temp.demo_placeholder_name(u.display_name);
+  and pg_temp.demo_placeholder_name(u.display_name, n.local_part);
 
 do $$
 begin
@@ -361,7 +384,7 @@ begin
         set display_name = n.display_name
         from demo_name n
         where r.user_id = n.user_id
-          and pg_temp.demo_placeholder_name(r.display_name);
+          and pg_temp.demo_placeholder_name(r.display_name, n.local_part);
     end if;
 end $$;
 
