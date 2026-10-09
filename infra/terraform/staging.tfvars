@@ -39,8 +39,7 @@ cognito_logout_urls   = ["http://localhost:3000/logout/callback"]
 # keep it equal to the staging NOTIFY_EMAIL_SENDER variable in GitHub.
 notify_email_sender = "noreply-staging@fitsyncapp.click"
 
-# ── Switch-over to SSM (RUNBOOK.md "Hardening switch-over") ──
-# The database moved onto the private subnets on 2026-10-09 (db_subnet_tier now defaults to
-# "private"). Port 22 stays open until CD has deployed through SSM once; delete this line
-# then (the default is no SSH port).
-ssh_ingress_cidrs = ["0.0.0.0/0"]
+# ── Hardening switch-over done (RUNBOOK.md "Hardening switch-over") ──
+# 2026-10-09: the database runs on the private subnets and the host has no SSH port; operators
+# and CD reach it through SSM Session Manager. db_subnet_tier and ssh_ingress_cidrs use their
+# defaults ("private", no SSH ingress).
