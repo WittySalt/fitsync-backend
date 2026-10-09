@@ -1,10 +1,12 @@
 # ── S3: media (exercise images + avatars, public read) ───────────────────────
 # Each environment writes to its own bucket. Staging gets a bucket made here; prod
-# keeps the existing fitsync-media (var.existing_media_bucket), which Terraform does
-# not manage. The services upload with the EC2 instance role (s3:PutObject only).
+# adopts the existing fitsync-media by import (var.prod_media_bucket, media_prod.tf).
+# var.existing_media_bucket still names a bucket to use without managing it. The services
+# upload with the EC2 instance role (s3:PutObject only).
 locals {
-  create_media_bucket = var.existing_media_bucket == ""
-  media_bucket        = local.create_media_bucket ? aws_s3_bucket.media[0].bucket : var.existing_media_bucket
+  create_media_bucket = var.existing_media_bucket == "" && !local.adopt_media_bucket
+  media_bucket = (local.create_media_bucket ? aws_s3_bucket.media[0].bucket :
+  local.adopt_media_bucket ? aws_s3_bucket.media_prod[0].bucket : var.existing_media_bucket)
 }
 
 resource "aws_s3_bucket" "media" {

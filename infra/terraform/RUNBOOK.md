@@ -25,6 +25,7 @@ docker-compose.prod.yml + ec2-deploy.sh  ──►  containers on the EC2 host
 | `storage.tf` | S3 media bucket, S3 frontend bucket, CloudFront* | ~free; CloudFront slow |
 | `auth.tf` | Cognito user pool + SPA client + hosted domain (staging) | free tier, instant |
 | `cognito_prod.tf` | adopts the hand-built prod pool, its client and domain by `import` (prod only, never recreated) | free, instant |
+| `media_prod.tf` | adopts the hand-built prod media bucket `fitsync-media` and its policy, public access block, encryption and ownership settings by `import` (prod only, never recreated or emptied) | free, instant |
 | `ci_iam.tf` | EC2 instance role/profile, CI deploy policy, SSM ssh operator policy | free, instant |
 | `email.tf` | `ses:SendEmail` for the EC2 role pinned to `notify_email_sender` (+ an address identity only when `notify_email_create_identity`) | free (SES bills per email) |
 | `data.tf` | RDS PostgreSQL* (RDS-managed master password; Multi-AZ when `db_multi_az`) | **costs money**, ~10 min (Multi-AZ doubles it) |
@@ -48,10 +49,11 @@ from an empty database.
 Both environments pull from the same ECR repositories (`fitsync-<service>`, in
 `bootstrap/`): staging runs a commit's images first, and prod deploys the same tag.
 
-The prod Cognito pool `ap-southeast-1_myVyuOmPD` (holds real users) was built by hand and is
-adopted by import in the prod workspace, never recreated ("Prod Cognito under Terraform").
-Kept outside Terraform on purpose: the media bucket `fitsync-media`, and the frontend bucket
-and CloudFront distribution of prod.
+The prod Cognito pool `ap-southeast-1_myVyuOmPD` (holds real users) and the prod media bucket
+`fitsync-media` (holds the uploaded images) were built by hand and are adopted by import in the
+prod workspace, never recreated ("Prod Cognito under Terraform", "Prod media bucket under
+Terraform"). The frontend bucket and CloudFront distribution of prod belong to the frontend
+repository's Terraform.
 
 ## Prerequisites
 
@@ -300,11 +302,11 @@ identity is not verified yet (the domain, or a sandbox recipient).
 
 ## Hardening switch-over: private DB subnets, SSH over SSM, prod Cognito
 
-Three changes landed together in `network.tf`, `data.tf`, `ci_iam.tf` and `cognito_prod.tf`.
-The database moves into private subnets that have no route to the internet, the app host
-closes port 22 and is reached with ssh over SSM Session Manager, and the prod workspace adopts
-the hand-built prod Cognito pool by import. None of them replaces the database, the user pool
-or the EC2 instance. Both tfvars files carry two transitional lines (`db_subnet_tier = "both"`
+Four changes landed together in `network.tf`, `data.tf`, `ci_iam.tf`, `cognito_prod.tf` and
+`media_prod.tf`. The database moves into private subnets that have no route to the internet,
+the app host closes port 22 and is reached with ssh over SSM Session Manager, and the prod
+workspace adopts the hand-built prod Cognito pool and the prod media bucket by import. None of
+them replaces the database, the user pool, the bucket or the EC2 instance. Both tfvars files carry two transitional lines (`db_subnet_tier = "both"`
 and `ssh_ingress_cidrs = ["0.0.0.0/0"]`) so that merging the code changes nothing that would
 break a running environment; each line is deleted at its step below.
 
@@ -313,7 +315,7 @@ The plans of 2026-10-09 against the live state, with the transitional lines in p
 | Workspace | Plan | What it does |
 |---|---|---|
 | staging | 6 to add, 2 to change, 0 to destroy | two private subnets, their route table and two associations, the `fitsync-staging-ssm-operator` policy; the DB subnet group gains the private subnets; `fitsync-staging-ci-deploy` gains the SSM session statements |
-| prod | 3 to import, 6 to add, 2 to change, 0 to destroy | the same for prod, plus the import of the pool, its app client and its domain with no change to any of them |
+| prod | 8 to import, 6 to add, 2 to change, 0 to destroy | the same for prod, plus the import of the Cognito pool, its app client and its domain, and of the media bucket with its policy, public access block, encryption and ownership settings, with no change to any of them |
 
 With both transitional lines removed the plans add one in-place change, the app security group
 losing its port 22 rule, and still destroy and replace nothing.
@@ -336,8 +338,9 @@ as soon as it is applied.
 5. Staging SSH port: delete the `ssh_ingress_cidrs` line from `staging.tfvars`, apply staging,
    commit. `Test-NetConnection <staging EIP> -Port 22` must now fail and `ssh fitsync-staging`
    must still work.
-6. Prod database and Cognito: the same database steps for prod. The first prod apply also
-   imports the Cognito pool, client and domain ("Prod Cognito under Terraform" below).
+6. Prod database, Cognito and media: the same database steps for prod. The first prod apply
+   also imports the Cognito pool, client and domain and the media bucket ("Prod Cognito under
+   Terraform" and "Prod media bucket under Terraform" below).
 7. Prod deploy over SSM: run CD with `deploy_prod` (after a staging run in the same run, or with
    `skip_staging` and a reason) and check that `deploy-prod` passes.
 8. Prod SSH port: delete the `ssh_ingress_cidrs` line from `prod.tfvars`, apply prod, commit.
@@ -750,6 +753,36 @@ new variable. Saved as a file, it applies with `git apply` to `main` as of this 
  gh secret   set PROD_EC2_SSH_KEY --repo WittySalt/fitsync-backend < path/to/id_ed25519
  ```
 ```
+
+### Prod media bucket under Terraform
+
+Prod serves exercise images and avatars from `fitsync-media`, created by hand in June 2026 and
+holding 1749 objects (about 100 MB) on 2026-10-09. `media_prod.tf` adopts it with `import`
+blocks that are empty unless `prod_media_bucket` is set, which only `prod.tfvars` does (it
+replaces the old `existing_media_bucket` line). Staging keeps creating its own
+`fitsync-staging-media-<account>` bucket in `storage.tf`, and `existing_media_bucket` still
+works for a bucket that should only be used, not managed. Preconditions refuse
+`prod_media_bucket` outside the prod workspace or together with `existing_media_bucket`.
+
+The live settings, read with `aws s3api get-bucket-*` and `terraform plan -generate-config-out`,
+and what the code does with each:
+
+| Setting | Live value | In `media_prod.tf` |
+|---|---|---|
+| bucket policy | public `s3:GetObject` on `fitsync-media/*` (Sid `PublicReadObjects`) | imported as is |
+| public access block | public ACLs blocked and ignored, public policies allowed | imported as is |
+| default encryption | SSE-S3 (`AES256`), no bucket key | imported as is |
+| object ownership | `BucketOwnerEnforced` (ACLs disabled) | imported as is |
+| versioning | never enabled | not managed |
+| lifecycle, CORS, website, logging | none | not managed |
+| tags | none | ignored (the default tags would be the only change) |
+
+The prod plan imports all five resources with no attribute change. `force_destroy` is never set
+(it is ignored, so the import's empty value stays and reads as false), and the bucket, its
+public access block and its policy carry `prevent_destroy`, so no plan can delete the bucket or
+cut public read. The EC2 role's `s3:PutObject` grant (`storage.tf`) and the `media_bucket`
+output keep the same bucket name. Never apply a plan that replaces or destroys
+`aws_s3_bucket.media_prod`; to take the bucket out of Terraform again, use `terraform state rm`.
 
 ### Prod Cognito under Terraform
 

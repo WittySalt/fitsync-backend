@@ -100,6 +100,12 @@ variable "db_multi_az" {
   default     = false
 }
 
+variable "prod_media_bucket" {
+  description = "Hand-built prod media bucket that media_prod.tf adopts by import and manages (prod only; empty = nothing adopted)"
+  type        = string
+  default     = ""
+}
+
 variable "existing_media_bucket" {
   description = "Use this existing media bucket instead of creating one (prod: fitsync-media)"
   type        = string

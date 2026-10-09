@@ -8,10 +8,10 @@
 #   terraform apply -var-file=prod.tfvars    # with TF_VAR_ec2_public_key
 #
 # Resources are named fitsync-prod-*. The hand-built Cognito pool (real users) is
-# adopted by import (cognito_prod.tf). Kept outside Terraform on purpose: the media
-# bucket fitsync-media (prod uploads to it with the instance role, granted here), the
-# frontend bucket fitsync-frontend-prod and its CloudFront distribution. See RUNBOOK.md
-# "Rebuild".
+# adopted by import (cognito_prod.tf), and so is the media bucket fitsync-media
+# (media_prod.tf; prod uploads to it with the instance role, granted here). Kept outside
+# this stack: the frontend bucket fitsync-frontend-prod and its CloudFront distribution
+# (frontend repo). See RUNBOOK.md "Rebuild".
 
 region = "ap-southeast-1"
 env    = "prod"
@@ -25,8 +25,9 @@ ec2_instance_type = "t3.large"
 db_engine_version = "16"
 db_multi_az       = true
 
-# The existing media bucket (exercise images already uploaded). Staging gets its own.
-existing_media_bucket = "fitsync-media"
+# The existing media bucket (exercise images already uploaded), adopted by import in
+# media_prod.tf and never recreated or emptied. Staging gets its own.
+prod_media_bucket = "fitsync-media"
 
 # Existing pool ap-southeast-1_myVyuOmPD stays in charge of sign-in. auth.tf builds no
 # pool here; cognito_prod.tf adopts the existing one by import and must never recreate it
