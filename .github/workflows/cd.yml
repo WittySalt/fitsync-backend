@@ -389,12 +389,18 @@ jobs:
           STRESS_USER_EMAIL: ${{ secrets.STRESS_USER_EMAIL }}
           STRESS_USER_PASSWORD: ${{ secrets.STRESS_USER_PASSWORD }}
           STRESS_PROFILE: ${{ vars.STRESS_PROFILE }}
+          STRESS_COGNITO_CLIENT_ID: ${{ vars.STRESS_COGNITO_CLIENT_ID }}
+          STRESS_RATE_PER_MIN: ${{ vars.STRESS_RATE_PER_MIN }}
+          STRESS_EXPECT_RATE_LIMIT: ${{ vars.STRESS_EXPECT_RATE_LIMIT }}
         run: |
           if [ -z "$STRESS_TARGET_URL" ]; then
             echo "STRESS_TARGET_URL is not set."; exit 1
           fi
           k6 run -e BASE_URL="$STRESS_TARGET_URL" -e USER_EMAIL="$STRESS_USER_EMAIL" \
             -e USER_PASSWORD="$STRESS_USER_PASSWORD" -e PROFILE="${STRESS_PROFILE:-load}" \
+            -e COGNITO_CLIENT_ID="$STRESS_COGNITO_CLIENT_ID" \
+            -e RATE_PER_MIN="${STRESS_RATE_PER_MIN:-50}" \
+            -e EXPECT_RATE_LIMIT="${STRESS_EXPECT_RATE_LIMIT:-false}" \
             stress/k6/load-test.js
       - uses: actions/upload-artifact@v4
         if: always()
