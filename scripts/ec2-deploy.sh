@@ -24,10 +24,15 @@ ROLLBACK_FILE="$DEPLOY_DIR/.previous_prod_tag"
 # The runnable images (nginx is handled separately once TLS certs exist). `kafka`
 # is in the `events` compose profile (enabled below) and backs the cross-service
 # event projections (e.g. goal targets → nutrition daily budget).
-SERVICES="redis kafka api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service notification-service"
+INFRA_SERVICES="redis kafka"
+APP_SERVICES="api-gateway auth-service user-service workout-service nutrition-service analytics-service recommendation-service notification-service"
+SERVICES="$INFRA_SERVICES $APP_SERVICES"
 
 # --profile events so the in-stack kafka broker (profiled) is eligible to start.
-compose() { sudo docker compose -f docker-compose.prod.yml --profile events "$@"; }
+# IMAGE_TAG is passed through sudo explicitly: sudo resets the environment, so without
+# it compose would read IMAGE_TAG from .env (the new tag) and a rollback would re-up
+# the very images that just failed.
+compose() { sudo env IMAGE_TAG="$IMAGE_TAG" docker compose -f docker-compose.prod.yml --profile events "$@"; }
 
 # ── one-time bootstrap (Amazon Linux 2023) ───────────────────────────────────
 if ! command -v docker >/dev/null 2>&1; then
@@ -111,8 +116,19 @@ PREV_TAG="$(cat "$ROLLBACK_FILE" 2>/dev/null || echo '')"
 echo "==> pulling images (tag: $IMAGE_TAG)"
 compose pull $SERVICES
 
+# Two phases. Infra (redis, kafka) is brought up and health-checked first, while the host
+# is quiet, so a broken broker still fails the deploy. The app services are then started
+# and waited on by themselves. Kafka is no depends_on of any service, so it is not in the
+# second wait set: its probe starts a JVM, and during the burst of eight JVM services
+# starting at once it could time out and fail a deploy whose broker was fine all along.
+# redis stays in both, as a service_healthy dependency of the services.
+bring_up() {
+  compose up -d --wait --wait-timeout 300 $INFRA_SERVICES \
+    && compose up -d --wait --wait-timeout 300 $APP_SERVICES
+}
+
 echo "==> starting stack"
-if compose up -d --wait --wait-timeout 300 $SERVICES; then
+if bring_up; then
   echo "$IMAGE_TAG" > "$ROLLBACK_FILE"
   echo "==> deploy OK ($IMAGE_TAG)"
 else
@@ -123,7 +139,7 @@ else
   compose logs --no-color --tail 120 || true
   if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
     echo "==> rolling back to $PREV_TAG"
-    IMAGE_TAG="$PREV_TAG" compose up -d --wait --wait-timeout 300 $SERVICES
+    IMAGE_TAG="$PREV_TAG" bring_up
   fi
   exit 1
 fi

@@ -95,11 +95,16 @@ services:
     command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-160mb}", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
     volumes:
       - redis-data:/data
+    # Healthcheck timeouts in this file allow for the deploy burst. When the CD recreates the
+    # eight JVM services at once, the t3.large is CPU-bound for a few minutes, and a probe that
+    # normally answers in milliseconds can take several seconds. A tight timeout then marks a
+    # working container unhealthy and fails `up --wait`.
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 3s
-      retries: 5
+      timeout: 10s
+      retries: 6
+      start_period: 10s
     networks: [fitsync-net]
 
   # Single-node KRaft broker for the event bus. Behind the `events` profile so a
@@ -132,11 +137,19 @@ services:
       - "127.0.0.1:9092:9092"
     volumes:
       - kafka-data:/tmp/kraft-combined-logs
+    # A real broker check: an admin client lists the topics. It starts a JVM on every probe,
+    # and that JVM would otherwise inherit KAFKA_HEAP_OPTS (the broker's own 512m heap) and the
+    # broker's G1 flags inside the same 768m container. The probe therefore gets a small heap,
+    # the serial collector and the C1 compiler only, which start fastest. While the services
+    # start after a deploy the probe can still take well over 5s, so the timeout is 30s and the
+    # broker is marked unhealthy only after several minutes of failed probes. start_period
+    # covers a cold broker start (KRaft format and log recovery) on a fresh host.
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
+      test: ["CMD-SHELL", "KAFKA_HEAP_OPTS='-Xms32m -Xmx128m' KAFKA_JVM_PERFORMANCE_OPTS='-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Djava.awt.headless=true' /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 30s
+      retries: 8
+      start_period: 90s
     networks: [fitsync-net]
 
   api-gateway:
@@ -190,7 +203,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 180s
     depends_on:
@@ -231,7 +244,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 180s
     depends_on:
@@ -249,7 +262,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 180s
 
@@ -275,7 +288,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 180s
 
@@ -297,7 +310,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 180s
 
@@ -327,7 +340,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       # analytics replays/projects on startup; give it longer before being marked
       # unhealthy (other services use 40s). Pairs with the deploy --wait-timeout.
@@ -375,7 +388,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 180s
     depends_on:
@@ -429,7 +442,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 180s
 
