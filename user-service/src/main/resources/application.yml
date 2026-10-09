@@ -71,6 +71,9 @@ fitsync:
     aws-default-credentials: ${FITSYNC_MEDIA_AWS_DEFAULT_CREDENTIALS:false}
     bucket: ${FITSYNC_MEDIA_BUCKET:${MINIO_BUCKET:fitsync-media}}
     public-base-url: ${FITSYNC_MEDIA_PUBLIC_BASE_URL:http://localhost:9000/fitsync-media}
+    # Endpoint written into pre-signed avatar URLs; blank means the endpoint above. It must be
+    # reachable from the browser (locally http://localhost:9000, not the in-docker minio:9000).
+    presign-endpoint: ${FITSYNC_MEDIA_PRESIGN_ENDPOINT:}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     topics:

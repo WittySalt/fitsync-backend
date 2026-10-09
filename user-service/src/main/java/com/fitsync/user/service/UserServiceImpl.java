@@ -1033,7 +1033,8 @@ public class UserServiceImpl implements UserService {
 
     private UserProfileView toProfileView(UserProfileEntity entity) {
         return new UserProfileView(
-                entity.getDisplayName(), entity.getFirstName(), entity.getLastName(), entity.getAvatarUrl(),
+                entity.getDisplayName(), entity.getFirstName(), entity.getLastName(),
+                AvatarUrls.readableUrl(entity.getAvatarUrl(), mediaStorageServiceProvider.getIfAvailable()),
                 entity.getBirthDate(), entity.getGender(), entity.getHeightCm(), entity.getActivityLevel(),
                 entity.getTimezone(), entity.getLocationDisplay(), entity.getBio(),
                 entity.getMembershipTier(), entity.getMembershipStatus(), entity.isOnboardingCompleted(),

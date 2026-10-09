@@ -1,12 +1,16 @@
 package com.fitsync.user;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
@@ -107,16 +111,18 @@ class UserAvatarUploadIT {
                 .get("avatarUrl")
                 .asText();
         String publicBaseUrl = mediaEndpoint() + "/" + BUCKET;
-        assertThat(avatarUrl)
+        // The profile keeps the stable public-form URL; the response hands out a pre-signed one, because the
+        // bucket does not let anyone read avatars/ without a signature.
+        String storedUrl = userProfileRepository.findById(userId).orElseThrow().getAvatarUrl();
+        assertThat(storedUrl)
                 .startsWith(publicBaseUrl + "/avatars/" + userId + "/")
                 .endsWith(".png");
-        assertThat(userProfileRepository.findById(userId))
-                .isPresent()
-                .get()
-                .extracting(profile -> profile.getAvatarUrl())
-                .isEqualTo(avatarUrl);
+        assertThat(avatarUrl)
+                .startsWith(storedUrl + "?")
+                .contains("X-Amz-Expires=3600")
+                .contains("X-Amz-Signature=");
 
-        String objectKey = URI.create(avatarUrl).getPath().substring(("/" + BUCKET + "/").length());
+        String objectKey = URI.create(storedUrl).getPath().substring(("/" + BUCKET + "/").length());
         var object = s3Client.headObject(HeadObjectRequest.builder()
                 .bucket(BUCKET)
                 .key(objectKey)
@@ -124,10 +130,19 @@ class UserAvatarUploadIT {
         assertThat(object.contentType()).isEqualTo(MediaType.IMAGE_PNG_VALUE);
         assertThat(object.contentLength()).isEqualTo(file.getSize());
 
+        HttpClient http = HttpClient.newHttpClient();
+        HttpResponse<byte[]> signed = http.send(HttpRequest.newBuilder(URI.create(avatarUrl)).build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(signed.statusCode()).isEqualTo(200);
+        assertThat(signed.body()).isEqualTo(file.getBytes());
+        HttpResponse<byte[]> unsigned = http.send(HttpRequest.newBuilder(URI.create(storedUrl)).build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(unsigned.statusCode()).isEqualTo(403);
+
         mockMvc.perform(get("/api/v1/users/me/profile")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.avatarUrl").value(avatarUrl));
+                .andExpect(jsonPath("$.avatarUrl").value(startsWith(storedUrl + "?")));
     }
 
     @Test

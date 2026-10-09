@@ -37,7 +37,9 @@ resource "aws_s3_bucket_policy" "media_public_read" {
       Effect    = "Allow"
       Principal = "*"
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.media[0].arn}/*"
+      # Catalogue media only. Avatars (avatars/) stay private and are read through
+      # pre-signed URLs from user-service (media_avatars.tf).
+      Resource = "${aws_s3_bucket.media[0].arn}/exercises/*"
     }]
   })
   depends_on = [aws_s3_bucket_public_access_block.media]

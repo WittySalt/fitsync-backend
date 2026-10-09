@@ -1,11 +1,14 @@
 package com.fitsync.media;
 
 import java.io.InputStream;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.time.Duration;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -19,6 +22,8 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 public class S3MediaStorageService implements MediaStorageService {
 
@@ -27,10 +32,14 @@ public class S3MediaStorageService implements MediaStorageService {
     private static final String CACHE_CONTROL = "public, max-age=31536000, immutable";
 
     private final ObjectProvider<S3Client> s3ClientProvider;
+    private final ObjectProvider<S3Presigner> s3PresignerProvider;
     private final MediaStorageProperties properties;
 
-    public S3MediaStorageService(ObjectProvider<S3Client> s3ClientProvider, MediaStorageProperties properties) {
+    public S3MediaStorageService(ObjectProvider<S3Client> s3ClientProvider,
+                                 ObjectProvider<S3Presigner> s3PresignerProvider,
+                                 MediaStorageProperties properties) {
         this.s3ClientProvider = s3ClientProvider;
+        this.s3PresignerProvider = s3PresignerProvider;
         this.properties = properties;
     }
 
@@ -97,6 +106,39 @@ public class S3MediaStorageService implements MediaStorageService {
             continuationToken = Boolean.TRUE.equals(page.isTruncated()) ? page.nextContinuationToken() : null;
         } while (continuationToken != null);
         return deleted;
+    }
+
+    @Override
+    public String presignedGetUrl(String key, Duration ttl) {
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            throw new IllegalArgumentException("Pre-signed URL lifetime must be positive");
+        }
+        GetObjectPresignRequest request = GetObjectPresignRequest.builder()
+                .signatureDuration(ttl)
+                .getObjectRequest(get -> get.bucket(properties.bucket()).key(normalizeKey(key)))
+                .build();
+        return s3PresignerProvider.getObject().presignGetObject(request).url().toString();
+    }
+
+    @Override
+    public Optional<String> keyForUrl(String url) {
+        if (url == null) {
+            return Optional.empty();
+        }
+        String prefix = trimTrailingSlash(properties.publicBaseUrl()) + "/";
+        String trimmed = url.trim();
+        if (!trimmed.startsWith(prefix) || trimmed.indexOf('?') >= 0 || trimmed.indexOf('#') >= 0) {
+            return Optional.empty();
+        }
+        try {
+            String key = Arrays.stream(trimmed.substring(prefix.length()).split("/", -1))
+                    // Undoes encodePath; a literal '+' was encoded as %2B, so it must survive decoding.
+                    .map(segment -> URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8))
+                    .collect(Collectors.joining("/"));
+            return Optional.of(normalizeKey(key));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
+        }
     }
 
     private PutObjectRequest putRequest(String key, String contentType) {

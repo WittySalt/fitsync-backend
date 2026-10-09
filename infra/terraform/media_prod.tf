@@ -11,7 +11,9 @@
 # The arguments mirror the live bucket as `terraform plan -generate-config-out` read it on
 # 2026-10-09, so the import changes nothing:
 #   - bucket policy: public GetObject on every object (Sid PublicReadObjects); the SPA links
-#     the images directly.
+#     the images directly. CHANGED since the import: public read now covers exercises/ only,
+#     and avatars/ is read through pre-signed URLs (media_avatars.tf). The first apply after
+#     this change updates the policy in place.
 #   - public access block: public ACLs blocked and ignored, public policies allowed. This is
 #     stricter than the staging bucket, which also allows public ACLs.
 #   - default encryption SSE-S3 (AES256), no bucket key; object ownership BucketOwnerEnforced
@@ -104,7 +106,8 @@ resource "aws_s3_bucket_policy" "media_prod" {
       Effect    = "Allow"
       Principal = "*"
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.media_prod[0].arn}/*"
+      # Exercise images only; avatars/ is private (pre-signed reads, media_avatars.tf).
+      Resource = "${aws_s3_bucket.media_prod[0].arn}/exercises/*"
     }]
   })
 
