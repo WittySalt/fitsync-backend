@@ -49,10 +49,8 @@ api_from_cloudfront_only = true
 # the production NOTIFY_EMAIL_SENDER variable in GitHub.
 notify_email_sender = "noreply@fitsyncapp.click"
 
-# ── Switch-over to private DB subnets and SSM (RUNBOOK.md "Hardening switch-over") ──
-# Transitional values. "both" keeps the public subnets in the DB subnet group while the
-# database moves onto the private ones, and port 22 stays open until CD connects through
-# SSM. Delete both lines (the defaults are "private" and no SSH port) in the commit that
-# finishes the switch-over for this environment; until then a CD apply changes neither.
-db_subnet_tier    = "both"
+# ── Switch-over to SSM (RUNBOOK.md "Hardening switch-over") ──
+# The database moved onto the private subnets on 2026-10-09, primary and standby
+# (db_subnet_tier now defaults to "private"). Port 22 stays open until CD has deployed prod
+# through SSM once; delete this line then (the default is no SSH port).
 ssh_ingress_cidrs = ["0.0.0.0/0"]
