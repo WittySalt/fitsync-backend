@@ -68,7 +68,9 @@ public record CompleteOnboardingRequest(
         boolean mealReminderEnabled,
         boolean weighInReminderEnabled,
         @Valid UpsertHealthReadinessRequest healthReadiness,
-        PrimaryGoal primaryGoal) {
+        PrimaryGoal primaryGoal,
+        // Consent to process the health answers above. Absent means not given, as before the field existed.
+        Boolean healthDataConsent) {
 
     public CompleteOnboardingRequest {
         equipmentInventory = equipmentInventory == null ? List.of() : List.copyOf(equipmentInventory);

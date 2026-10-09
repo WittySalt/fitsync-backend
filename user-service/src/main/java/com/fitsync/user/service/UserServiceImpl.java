@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -267,7 +268,7 @@ public class UserServiceImpl implements UserService {
                         request.language() == null ? LanguagePreference.EN : request.language(),
                         timezone,
                         request.privacyLevel() == null ? PrivacyLevel.PRIVATE : request.privacyLevel(),
-                        false),
+                        Boolean.TRUE.equals(request.healthDataConsent())),
                 new com.fitsync.user.dto.UpsertTrainingPreferencesRequest(
                         request.fitnessLevel(),
                         request.trainingLocation(),
@@ -430,7 +431,7 @@ public class UserServiceImpl implements UserService {
         app.setLanguage(request.app().language());
         app.setTimezone(request.app().timezone());
         app.setPrivacyLevel(request.app().privacyLevel());
-        app.setDataSharingConsent(request.app().dataSharingConsent());
+        applyHealthDataConsent(app, request.app().dataSharingConsent());
 
         UserTrainingPreferencesEntity training = getOrCreateTrainingPreferencesEntity(principal.userId());
         training.setFitnessLevel(request.training().fitnessLevel());
@@ -1031,6 +1032,20 @@ public class UserServiceImpl implements UserService {
         energyProfileService.publishEnergyProfile(userId);
     }
 
+    /**
+     * Records consent to process health answers. Turning it on stamps the time, turning it off clears the
+     * stamp, and sending the same value again leaves the stamp as it was.
+     */
+    private void applyHealthDataConsent(UserAppPreferencesEntity app, boolean consent) {
+        if (consent && !app.isDataSharingConsent()) {
+            // Microseconds, as the database keeps them, so the answer and a later read agree.
+            app.setHealthDataConsentAt(Instant.now(clock).truncatedTo(ChronoUnit.MICROS));
+        } else if (!consent) {
+            app.setHealthDataConsentAt(null);
+        }
+        app.setDataSharingConsent(consent);
+    }
+
     private UserProfileView toProfileView(UserProfileEntity entity) {
         return new UserProfileView(
                 entity.getDisplayName(), entity.getFirstName(), entity.getLastName(),
@@ -1051,7 +1066,8 @@ public class UserServiceImpl implements UserService {
                         app.getLanguage(),
                         app.getTimezone(),
                         app.getPrivacyLevel(),
-                        app.isDataSharingConsent()),
+                        app.isDataSharingConsent(),
+                        app.getHealthDataConsentAt()),
                 new TrainingPreferencesView(
                         training.getFitnessLevel(),
                         training.getTrainingLocation(),
