@@ -9,9 +9,11 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 import com.fitsync.web.config.CommonKafkaListenerErrorConfiguration;
 import com.fitsync.web.config.CommonWebErrorConfiguration;
+import com.fitsync.persistence.outbox.EnableOutboxCleanup;
 
 @EnableJpaAuditing
 @EnableScheduling
+@EnableOutboxCleanup
 @ConfigurationPropertiesScan
 @Import({CommonWebErrorConfiguration.class, CommonKafkaListenerErrorConfiguration.class})
 @SpringBootApplication

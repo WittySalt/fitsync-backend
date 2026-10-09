@@ -2,6 +2,7 @@ package com.fitsync.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fitsync.persistence.outbox.OutboxCleanupJob;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
@@ -36,5 +37,14 @@ class AuthServiceApplicationTests {
         YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
         yaml.setResources(new FileSystemResource("src/main/resources/application.yml"));
         assertThat(yaml.getObject()).containsEntry("server.forward-headers-strategy", "native");
+    }
+
+    @Autowired
+    private OutboxCleanupJob outboxCleanupJob;
+
+    @Test
+    void outboxCleanupRunsAgainstThisServicesOutboxTable() {
+        // A wrong column or table name would fail here as a SQL error rather than in production.
+        assertThat(outboxCleanupJob.deleteExpiredPublishedEvents()).isZero();
     }
 }
