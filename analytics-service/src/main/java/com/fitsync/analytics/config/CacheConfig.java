@@ -1,6 +1,10 @@
 package com.fitsync.analytics.config;
 
 import java.time.Duration;
+import java.util.Collection;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,18 +51,38 @@ public class CacheConfig implements CachingConfigurer {
     public static final String ACHIEVEMENTS_CACHE = "analyticsAchievements";
     public static final String WEEKLY_REPORT_CACHE = "analyticsWeeklyReport";
 
-    @Bean
-    RedisCacheManagerBuilderCustomizer analyticsRedisCacheManagerBuilderCustomizer(ObjectMapper objectMapper) {
+    /**
+     * The serializer of every analytics cache value; package-visible so tests round-trip through it
+     * ({@code CacheValueSerializerRoundTripTests}). Values carry their type so records come back as their own
+     * classes, but only this service's types and JDK value types (collections, maps, {@code java.time}, numbers,
+     * strings, UUIDs) may be named: any other type written into Redis is refused instead of instantiated.
+     */
+    static GenericJackson2JsonRedisSerializer cacheValueSerializer(ObjectMapper objectMapper) {
         ObjectMapper cacheObjectMapper = objectMapper.copy();
         cacheObjectMapper.activateDefaultTyping(
-                BasicPolymorphicTypeValidator.builder().allowIfSubType(Object.class).build(),
+                BasicPolymorphicTypeValidator.builder()
+                        .allowIfSubType("com.fitsync.analytics.")
+                        .allowIfSubType("java.time.")
+                        .allowIfSubType(Collection.class)
+                        .allowIfSubType(Map.class)
+                        .allowIfSubType(Optional.class)
+                        .allowIfSubType(UUID.class)
+                        .allowIfSubType(Number.class)
+                        .allowIfSubType(String.class)
+                        .allowIfSubType(Boolean.class)
+                        .allowIfSubType(Character.class)
+                        .allowIfSubTypeIsArray()
+                        .build(),
                 ObjectMapper.DefaultTyping.EVERYTHING,
                 JsonTypeInfo.As.PROPERTY);
         GenericJackson2JsonRedisSerializer.registerNullValueSerializer(cacheObjectMapper, "@class");
+        return new GenericJackson2JsonRedisSerializer(cacheObjectMapper);
+    }
 
-        GenericJackson2JsonRedisSerializer serializer = new GenericJackson2JsonRedisSerializer(cacheObjectMapper);
+    @Bean
+    RedisCacheManagerBuilderCustomizer analyticsRedisCacheManagerBuilderCustomizer(ObjectMapper objectMapper) {
         RedisSerializationContext.SerializationPair<Object> valuePair =
-                RedisSerializationContext.SerializationPair.fromSerializer(serializer);
+                RedisSerializationContext.SerializationPair.fromSerializer(cacheValueSerializer(objectMapper));
 
         return builder -> builder
                 .withCacheConfiguration(

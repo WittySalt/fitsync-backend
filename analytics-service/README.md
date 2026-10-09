@@ -99,7 +99,11 @@ SPRING_DATA_REDIS_CONNECT_TIMEOUT=500ms
   example `analyticsDashboard::<userId>:<today>` or `analyticsStreaks::<userId>`. Redis holds nothing else in this stack, so the cache names
   (all `analytics*`) are the namespace.
 - Values are JSON with their type (`GenericJackson2JsonRedisSerializer`), so a cached record comes
-  back as its own class.
+  back as its own class. The type validator allows only this service's types and JDK value types
+  (collections and maps, `java.time`, numbers, strings, UUIDs); any other type named in a Redis value
+  is refused rather than instantiated. `CacheValueSerializerRoundTripTests` round-trips the return type
+  of every `@Cacheable` method through this serializer, with `List.of`/`Set.of`/`Map.of`, nested
+  records, enums and `java.time` values filled in, both full and empty.
 - In the compose stack Redis is a pure cache: `maxmemory 160mb` inside a 256m container,
   `allkeys-lru` eviction, and no persistence, so a restart starts empty.
 
