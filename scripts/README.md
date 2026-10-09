@@ -148,9 +148,13 @@ host, the same way it is done locally, and remove it afterwards:
 services:
   recommendation-service:
     environment:
-      FITSYNC_COACH_TURNS_PER_HOUR: "500"
-      FITSYNC_COACH_TURNS_PER_DAY: "1000"
+      FITSYNC_COACH_TURNSPERHOUR: "500"
+      FITSYNC_COACH_TURNSPERDAY: "1000"
 ```
+
+Spring reads an underscore in an environment variable as a dot, so `TURNSPERHOUR` and `TURNSPERDAY`
+are written as one word. The form
+`FITSYNC_COACH_TURNS_PER_HOUR` would not bind.
 
 Recreate recommendation-service with both files (`docker compose -f docker-compose.prod.yml -f
 docker-compose.eval.yml up -d recommendation-service`), run the evaluation, then recreate it with

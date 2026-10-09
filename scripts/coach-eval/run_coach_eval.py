@@ -416,7 +416,7 @@ class Client:
         if status != 201:
             hint = ""
             if status == 429 and isinstance(body, dict) and body.get("code") == "COACH_LIMIT":
-                hint = (" (the coach's per-user limit is full: raise FITSYNC_COACH_TURNS_PER_HOUR on the target, "
+                hint = (" (the coach's per-user limit is full: raise FITSYNC_COACH_TURNSPERHOUR on the target, "
                         "see scripts/README.md)")
             raise SystemExit(f"could not create a thread: {status} {body}{hint}")
         return body["threadId"]
@@ -507,7 +507,7 @@ def retry_self_test() -> int:
         client.new_thread()
         check("long coach limit fails", "returned", "SystemExit")
     except SystemExit as exc:
-        check("long coach limit message", "FITSYNC_COACH_TURNS_PER_HOUR" in str(exc), True)
+        check("long coach limit message", "FITSYNC_COACH_TURNSPERHOUR" in str(exc), True)
     check("long coach limit retries", client.retries, 0)
     return failures
 
