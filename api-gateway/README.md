@@ -176,9 +176,23 @@ Important:
 
 ### 6.4 Auth-service special case
 
-`/api/v1/auth/login` and `/api/v1/auth/register` should bypass JWT checks.
+`/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/bootstrap` and `/api/v1/auth/refresh` bypass the
+gateway's JWT check. Bootstrap is verified by auth-service with the Cognito token, and refresh carries its refresh
+token in the body.
 
 `/api/v1/auth/me` may be validated at the gateway first and then passed to `auth-service`.
+
+### 6.5 Revoked sessions
+
+`RevokedSessionFilter` runs right after `JwtAuthenticationFilter`. When a verified application token has a `sid`
+claim, the filter looks up `fitsync:revoked-sid:<sid>` in Redis and answers 401 with code `SESSION_REVOKED` if the
+key exists. auth-service writes that key when it revokes a session.
+
+A token without `sid` was issued before sessions existed and is accepted until it expires. When Redis cannot be
+reached, the filter lets the request through, stops asking Redis for five seconds, and logs a warning at most once a
+minute. Revocation is then still enforced within one access-token lifetime, because auth-service refuses the
+session's next refresh. The Redis health indicator is switched off so that Redis being down does not mark the
+gateway unhealthy. The gateway reads `REDIS_HOST` and `REDIS_PORT` (default `localhost:6379`).
 
 ---
 

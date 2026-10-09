@@ -36,8 +36,8 @@ public class AccountDeletionPolicy {
     }
 
     /**
-     * Refuses an account that has asked to be deleted. This only stops new tokens from being issued: an
-     * application token issued before the request stays valid until it expires, because tokens are not revoked.
+     * Refuses an account that has asked to be deleted, so no new session is opened for it. The sessions it had are
+     * revoked when the deletion is requested (see {@code SessionService#revokeAllForUser}).
      */
     public void requireNoPendingDeletion(AppUser user) {
         Instant requestedAt = user.getAccountDeletionRequestedAt();

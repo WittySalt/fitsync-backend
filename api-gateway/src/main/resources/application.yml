@@ -3,6 +3,14 @@ spring:
     name: api-gateway
   profiles:
     default: local
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Checked on every request that carries a session token, so a slow or absent Redis must fail fast;
+      # RevokedSessionFilter then lets the request through (fail open).
+      timeout: ${REDIS_TIMEOUT:200ms}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:200ms}
 
 server:
   port: ${SERVER_PORT:8088}
@@ -16,6 +24,10 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # The deny-list fails open, so Redis being down must not mark the gateway unhealthy and restart it.
+    redis:
+      enabled: false
 
 springdoc:
   swagger-ui:

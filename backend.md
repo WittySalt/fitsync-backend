@@ -128,12 +128,54 @@ Responsibilities:
 - login
 - password hashing
 - token issuance
-- refresh token support later if needed
+- multi-device sessions with refresh-token rotation and revocation
 
 Own data:
 
 - auth credentials
 - auth-related metadata
+- sessions (`auth.auth_sessions`)
+
+#### Sessions and tokens
+
+Every sign-in (the Cognito exchange at `POST /api/v1/auth/bootstrap`, and local register and login when they are
+switched on) opens a session, which is one row in `auth.auth_sessions` per signed-in device. The response carries
+a short-lived access token and an opaque refresh token.
+
+The access token is the HS384 JWT the gateway and services already verify. Its lifetime is `JWT_EXPIRATION`, which
+now defaults to `PT15M`, and it carries the claim `sid` with the session id.
+
+The refresh token is 256 random bits encoded as base64url. auth-service stores only its SHA-256 hash, and it
+compares hashes in constant time. Every call to `POST /api/v1/auth/refresh` replaces the refresh token with a new
+one and moves the old hash into `previous_refresh_token_hash`. If a client presents that previous token again, two
+parties hold the same token, so the whole session is revoked and the call answers 401 `SESSION_REVOKED`. The one
+exception is a duplicate that arrives within `AUTH_REFRESH_REUSE_GRACE` (default 10 seconds) of the rotation: it is
+refused with 401 `SESSION_EXPIRED` and the session stays alive, because that is almost always a second tab or a
+retried request from the same device, and the client still holds the newer token. A session
+expires when it has not been refreshed for `AUTH_REFRESH_TOKEN_TTL` (default `P30D`), and each refresh starts that
+period again.
+
+Revoking a session sets `revoked_at` and `revoked_reason`; the row is never deleted. The reasons are `LOGOUT`,
+`REVOKED_BY_USER`, `REVOKED_OTHERS`, `REFRESH_TOKEN_REUSE` and `ACCOUNT_DELETION`. After the revoking transaction
+commits, auth-service writes `fitsync:revoked-sid:<sid>` to Redis with a TTL of the access-token lifetime plus 60
+seconds. The gateway refuses any token whose `sid` is on that list with 401 `SESSION_REVOKED`, so a revoked device
+loses access at once instead of when its access token runs out.
+
+A request for account deletion revokes all of that account's sessions. There is no password-change endpoint, so
+nothing else revokes all sessions today. auth-service has no AWS credentials or Cognito admin permission, so it does
+not call Cognito `AdminUserGlobalSignOut`; the Cognito refresh token held by the browser stays valid, but a pending
+deletion already refuses a new bootstrap.
+
+Two failure modes are accepted on purpose. When Redis is unreachable the gateway lets tokens through (fail open) and
+logs a warning at most once a minute, because failing closed would take the whole API down with Redis. Revocation is
+then still enforced within one access-token lifetime, since the revoked session's next refresh is refused by the
+database. A token issued before sessions existed has no `sid` and is accepted until it expires, so a deploy does not
+sign everyone out.
+
+Session management is refused (401 `SESSION_REVOKED`) to a token whose own session is revoked, which auth-service
+checks against the database. A signed-out device therefore cannot revoke the owner's other sessions even while the
+gateway cannot see Redis. Revoking a session does not publish an event yet. A `SessionRevoked` event on
+`user-events` could later let notification-service send a "signed out of a device" email.
 
 ### 6.3 user-service
 

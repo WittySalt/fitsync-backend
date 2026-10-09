@@ -2,55 +2,51 @@ package com.fitsync.auth.service;
 
 import java.time.Instant;
 import java.util.Locale;
-import java.util.Map;
 import java.util.UUID;
 
 import com.fitsync.auth.messaging.DomainEventPublisher;
 import com.fitsync.auth.dto.AuthResponse;
 import com.fitsync.auth.dto.LoginRequest;
 import com.fitsync.auth.dto.RegisterRequest;
+import com.fitsync.auth.dto.SessionClient;
 import com.fitsync.auth.entity.AppUser;
 import com.fitsync.auth.entity.AuthProvider;
 import com.fitsync.auth.exception.ConflictException;
 import com.fitsync.auth.exception.UnauthorizedException;
 import com.fitsync.auth.repository.AppUserRepository;
-import com.fitsync.auth.security.JwtService;
 import com.fitsync.contracts.events.FitSyncDomainEvent;
 import com.fitsync.contracts.events.user.UserRegisteredPayload;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Local password accounts (register and login) and issuing the application token for any account. The token
- * is an HMAC-signed JWT whose subject is the email and whose claims carry the id, display name and role that
- * the gateway and the other services read.
+ * Local password accounts (register and login). Both open a session through {@link SessionService}, exactly as
+ * the Cognito bootstrap does, so every sign-in path issues a short-lived access token and a refresh token.
  */
 @Service
 public class AuthService {
 
     private final AppUserRepository appUserRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService;
+    private final SessionService sessionService;
     private final DomainEventPublisher domainEventPublisher;
     private final AccountDeletionPolicy accountDeletionPolicy;
 
     public AuthService(AppUserRepository appUserRepository,
                        PasswordEncoder passwordEncoder,
-                       JwtService jwtService,
+                       SessionService sessionService,
                        DomainEventPublisher domainEventPublisher,
                        AccountDeletionPolicy accountDeletionPolicy) {
         this.appUserRepository = appUserRepository;
         this.passwordEncoder = passwordEncoder;
-        this.jwtService = jwtService;
+        this.sessionService = sessionService;
         this.domainEventPublisher = domainEventPublisher;
         this.accountDeletionPolicy = accountDeletionPolicy;
     }
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public AuthResponse register(RegisterRequest request, SessionClient client) {
         if (appUserRepository.existsByEmailIgnoreCase(request.email())) {
             throw new ConflictException("Email is already registered");
         }
@@ -63,11 +59,11 @@ public class AuthService {
 
         AppUser savedUser = appUserRepository.save(user);
         publishUserRegistered(savedUser);
-        return issueToken(savedUser);
+        return sessionService.startSession(savedUser, client);
     }
 
-    @Transactional(readOnly = true)
-    public AuthResponse login(LoginRequest request) {
+    @Transactional
+    public AuthResponse login(LoginRequest request, SessionClient client) {
         AppUser user = appUserRepository.findByEmailIgnoreCase(request.email())
                 .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
 
@@ -81,25 +77,7 @@ public class AuthService {
 
         // Checked after the password so that the state of an account is only revealed to its owner.
         accountDeletionPolicy.requireNoPendingDeletion(user);
-        return issueToken(user);
-    }
-
-    public AuthResponse issueToken(AppUser user) {
-        UserDetails userDetails = User.withUsername(user.getEmail())
-                .password(user.getPasswordHash())
-                .authorities("ROLE_" + user.getRole().name())
-                .build();
-        String token = jwtService.generateToken(userDetails, Map.of(
-                "userId", user.getId().toString(),
-                "displayName", user.getDisplayName(),
-                "role", user.getRole().name()));
-        return new AuthResponse(
-                user.getId(),
-                user.getEmail(),
-                user.getDisplayName(),
-                user.getRole().name(),
-                "Bearer",
-                token);
+        return sessionService.startSession(user, client);
     }
 
     private void publishUserRegistered(AppUser user) {

@@ -2,6 +2,7 @@ package com.fitsync.gateway.config;
 
 import com.fitsync.gateway.security.JwtAuthenticationFilter;
 import com.fitsync.gateway.security.RestAuthenticationEntryPoint;
+import com.fitsync.gateway.security.RevokedSessionFilter;
 import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -44,7 +45,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, RevokedSessionFilter revokedSessionFilter)
+            throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
@@ -64,6 +66,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/bootstrap",
+                                // The refresh token in the body is the credential, checked by auth-service.
+                                "/api/v1/auth/refresh",
                                 // Cancelling a pending deletion is done with the Cognito identity
                                 // token, because such an account has no application token. The
                                 // auth service verifies that token itself, as it does for bootstrap.
@@ -79,7 +83,8 @@ public class SecurityConfig {
                         // route at all.
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(revokedSessionFilter, JwtAuthenticationFilter.class);
 
         if (cognitoProperties.enabled()) {
             JwtDecoder cognitoJwtDecoder = cognitoJwtDecoderProvider.getIfAvailable();

@@ -30,6 +30,22 @@ public class JwtService {
                 claims.get("role", String.class));
     }
 
+    /**
+     * The {@code sid} claim naming the auth-service session the token belongs to, or {@code null} when the token
+     * has none (issued before sessions existed) or it is not a UUID.
+     */
+    public UUID extractSessionId(String token) {
+        String sid = extractAllClaims(token).get("sid", String.class);
+        if (sid == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(sid);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
     private Claims extractAllClaims(String token) {
         return Jwts.parser()
                 .verifyWith(signingKey())

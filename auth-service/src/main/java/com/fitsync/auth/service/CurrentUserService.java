@@ -16,6 +16,7 @@ import com.fitsync.auth.dto.SecurityOverviewResponse;
 import com.fitsync.auth.dto.UpdateRecoveryEmailRequest;
 import com.fitsync.auth.entity.AppUser;
 import com.fitsync.auth.entity.AuthProvider;
+import com.fitsync.auth.entity.SessionRevocationReason;
 import com.fitsync.auth.exception.ConflictException;
 import com.fitsync.auth.exception.NotFoundException;
 import com.fitsync.auth.exception.UnauthorizedException;
@@ -52,17 +53,27 @@ public class CurrentUserService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AccountDeletionPolicy accountDeletionPolicy;
+    private final SessionService sessionService;
 
     public CurrentUserService(AppUserRepository appUserRepository,
                               DomainEventPublisher domainEventPublisher,
                               PasswordEncoder passwordEncoder,
                               JwtService jwtService,
-                              AccountDeletionPolicy accountDeletionPolicy) {
+                              AccountDeletionPolicy accountDeletionPolicy,
+                              SessionService sessionService) {
         this.appUserRepository = appUserRepository;
         this.domainEventPublisher = domainEventPublisher;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.accountDeletionPolicy = accountDeletionPolicy;
+        this.sessionService = sessionService;
+    }
+
+    /** The signed-in caller's account; a caller without one here is answered with 404, as elsewhere. */
+    @Transactional(readOnly = true)
+    public AppUser requireCurrentUser(Authentication authentication) {
+        return resolveUser(authentication)
+                .orElseThrow(() -> new NotFoundException("Authenticated user is not provisioned in auth-service"));
     }
 
     @Transactional(readOnly = true)
@@ -164,6 +175,11 @@ public class CurrentUserService {
             user = appUserRepository.save(user);
             publishAccountDeletionRequested(user);
         }
+
+        // Signs the account out on every device, including the one making this request. A pending deletion
+        // already refuses new sessions, so a repeated request finds nothing left to revoke. auth-service has no
+        // Cognito admin credentials, so the Cognito refresh token is not signed out globally here.
+        sessionService.revokeAllForUser(user.getId(), SessionRevocationReason.ACCOUNT_DELETION);
 
         return toAccountDeletionStatus(user);
     }
