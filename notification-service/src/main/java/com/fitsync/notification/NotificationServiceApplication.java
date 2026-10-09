@@ -5,10 +5,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import com.fitsync.notification.config.JwtProperties;
 import com.fitsync.notification.config.NotificationProperties;
 
 @SpringBootApplication(scanBasePackages = {"com.fitsync.notification", "com.fitsync.web"})
-@EnableConfigurationProperties(NotificationProperties.class)
+@EnableConfigurationProperties({NotificationProperties.class, JwtProperties.class})
 @EnableScheduling
 public class NotificationServiceApplication {
 

@@ -21,7 +21,7 @@ public class GatewayProxyController {
 
     /** The only admin console destinations; anything else is a 404 before any upstream call. */
     private static final Set<String> ADMIN_SERVICE_NAMES =
-            Set.of("auth", "users", "workouts", "nutrition", "analytics", "coach");
+            Set.of("auth", "users", "workouts", "nutrition", "analytics", "coach", "notifications");
 
     private final GatewayProxyService gatewayProxyService;
 

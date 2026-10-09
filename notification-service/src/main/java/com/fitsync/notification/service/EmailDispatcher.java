@@ -11,12 +11,14 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fitsync.notification.config.NotificationProperties;
 import com.fitsync.notification.domain.EmailKind;
 import com.fitsync.notification.domain.EmailStatus;
+import com.fitsync.notification.domain.EmailTrigger;
 import com.fitsync.notification.email.EmailSender;
 import com.fitsync.notification.email.OutgoingEmail;
 import com.fitsync.notification.entity.EmailEntity;
@@ -55,14 +57,15 @@ public class EmailDispatcher {
     private final NotificationProperties.Email settings;
 
     public EmailDispatcher(EmailRepository emails, RecipientRepository recipients, EmailSender sender,
-                           TransactionTemplate transactions, Clock clock, NotificationProperties properties) {
+                           PlatformTransactionManager transactionManager, Clock clock,
+                           NotificationProperties properties) {
         this.emails = emails;
         this.recipients = recipients;
         this.sender = sender;
-        this.transactions = transactions;
+        this.transactions = new TransactionTemplate(transactionManager);
         // dispatchNow runs after the queueing transaction has committed, where the old transaction
         // may still be bound to the thread, so it needs a transaction of its own.
-        this.newTransactions = new TransactionTemplate(transactions.getTransactionManager());
+        this.newTransactions = new TransactionTemplate(transactionManager);
         this.newTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
         this.settings = properties.email();
@@ -124,7 +127,8 @@ public class EmailDispatcher {
                 drop(email, reason);
                 return;
             }
-            if (RecipientTime.inQuietHours(localNow.toLocalTime(), recipient.getQuietHoursStart(),
+            // An admin send is deliberate, so it is not held for quiet hours; the opt-in above still applies.
+            if (email.getTrigger() != EmailTrigger.ADMIN && RecipientTime.inQuietHours(localNow.toLocalTime(), recipient.getQuietHoursStart(),
                     recipient.getQuietHoursEnd())) {
                 deferPastQuietHours(email, localNow, recipient);
                 return;

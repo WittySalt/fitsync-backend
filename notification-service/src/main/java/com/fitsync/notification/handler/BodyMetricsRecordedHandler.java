@@ -33,8 +33,8 @@ import com.fitsync.notification.service.RecipientTime;
 @Service
 public class BodyMetricsRecordedHandler implements DomainEventConsumer<BodyMetricsRecordedPayload> {
 
-    static final String WEIGHT = "WEIGHT";
-    static final String ACTIVE = "ACTIVE";
+    public static final String WEIGHT = "WEIGHT";
+    public static final String ACTIVE = "ACTIVE";
 
     private final WeightRepository weights;
     private final GoalRepository goals;
@@ -89,7 +89,7 @@ public class BodyMetricsRecordedHandler implements DomainEventConsumer<BodyMetri
     }
 
     /** True when the weight reached the target in the goal's direction; no direction means no email. */
-    static boolean reached(BigDecimal start, BigDecimal target, BigDecimal weight) {
+    public static boolean reached(BigDecimal start, BigDecimal target, BigDecimal weight) {
         if (start == null || target == null) {
             return false;
         }

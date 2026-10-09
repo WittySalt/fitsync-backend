@@ -1,6 +1,7 @@
 package com.fitsync.notification.service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -26,6 +27,8 @@ import com.fitsync.notification.service.EmailComposer.ComposedEmail;
 public class EmailQueue {
 
     private static final Logger log = LoggerFactory.getLogger(EmailQueue.class);
+
+    private static final Duration ADMIN_VALID_FOR = Duration.ofHours(1);
 
     private final EmailRepository emails;
     private final Clock clock;
@@ -56,5 +59,23 @@ public class EmailQueue {
             events.publishEvent(new DueEmailQueued(email.getEmailId()));
         }
         return true;
+    }
+
+    /**
+     * Queues an email an admin asked for, due now. Its dedupe key is its own, so it neither blocks
+     * nor is blocked by the user's ordinary email of the same kind. It lasts an hour, which covers
+     * the retries, so an email that SES keeps refusing does not arrive much later.
+     *
+     * @return the id of the new email
+     */
+    public UUID queueForAdmin(UUID userId, EmailKind kind, ComposedEmail content, UUID adminId) {
+        Instant now = clock.instant();
+        EmailEntity email = new EmailEntity(userId, kind, "admin:" + UUID.randomUUID(), content.subject(),
+                content.bodyText(), now, now.plus(ADMIN_VALID_FOR), now);
+        email.markAdminSent(adminId);
+        emails.save(email);
+        log.info("event=email_queued emailId={} kind={} trigger=ADMIN", email.getEmailId(), kind);
+        events.publishEvent(new DueEmailQueued(email.getEmailId()));
+        return email.getEmailId();
     }
 }

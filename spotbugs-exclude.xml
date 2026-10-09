@@ -839,4 +839,25 @@
         <Class name="com.fitsync.recommendation.coach.service.CoachRateLimiter"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+
+    <!-- notification-service admin "send now" (POST/GET /api/v1/internal/users/{userId}/emails).
+         The controller is an intentional endpoint behind the ADMIN role and a stateless bearer token. -->
+    <Match>
+        <Class name="com.fitsync.notification.admin.AdminEmailController"/>
+        <Bug pattern="SPRING_ENDPOINT"/>
+    </Match>
+
+    <!-- Constructor injection of Spring repositories, the queue and the TransactionTemplate; the
+         service never hands them out. -->
+    <Match>
+        <Class name="com.fitsync.notification.admin.AdminEmailService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- The audit lines log only UUIDs (parsed by Spring, so they cannot hold CR or LF), enum
+         constants and fixed error codes; nothing free-form from the request reaches the log. -->
+    <Match>
+        <Class name="com.fitsync.notification.admin.AdminEmailService"/>
+        <Bug pattern="CRLF_INJECTION_LOGS"/>
+    </Match>
 </FindBugsFilter>

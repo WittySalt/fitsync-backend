@@ -32,7 +32,8 @@ class InternalPathListTests {
             "workouts", "workout-service",
             "nutrition", "nutrition-service",
             "analytics", "analytics-service",
-            "coach", "recommendation-service");
+            "coach", "recommendation-service",
+            "notifications", "notification-service");
 
     /**
      * Internal paths that exist and that the gateway deliberately does not forward, each with the reason. The
@@ -93,6 +94,7 @@ class InternalPathListTests {
         assertThat(internalPaths("workout-service")).contains("/workouts/exercises/summary", "/outbox/pending");
         assertThat(internalPaths("analytics-service")).contains("/analytics/users/{userId}/dashboard/rebuild");
         assertThat(internalPaths("recommendation-service")).containsExactly("/coach/quality");
+        assertThat(internalPaths("notification-service")).containsExactly("/users/{userId}/emails");
     }
 
     /** The service's internal paths after {@code /api/v1/internal}, with path variables written {@code {name}}. */

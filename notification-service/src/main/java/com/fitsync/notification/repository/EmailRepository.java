@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 
 import com.fitsync.notification.domain.EmailKind;
 import com.fitsync.notification.domain.EmailStatus;
+import com.fitsync.notification.domain.EmailTrigger;
 import com.fitsync.notification.entity.EmailEntity;
 
 import jakarta.persistence.LockModeType;
@@ -20,6 +21,10 @@ import jakarta.persistence.LockModeType;
 public interface EmailRepository extends JpaRepository<EmailEntity, UUID> {
 
     boolean existsByUserIdAndKindAndDedupeKey(UUID userId, EmailKind kind, String dedupeKey);
+
+    Optional<EmailEntity> findByUserIdAndKindAndDedupeKey(UUID userId, EmailKind kind, String dedupeKey);
+
+    long countByTriggerAndAdminIdAndCreatedAtGreaterThanEqual(EmailTrigger trigger, UUID adminId, Instant since);
 
     List<EmailEntity> findTop50ByStatusAndDueAtLessThanEqualOrderByDueAtAsc(EmailStatus status, Instant now);
 

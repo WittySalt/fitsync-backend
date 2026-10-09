@@ -29,7 +29,9 @@ public final class GatewayInternalPaths {
             "nutrition", List.of(OUTBOX_PENDING, OUTBOX_PUBLISH),
             "analytics", List.of(ANALYTICS_USER + "dashboard/rebuild", ANALYTICS_USER + "nutrition/rebuild",
                     ANALYTICS_USER + "workouts/rebuild"),
-            "coach", List.of("/coach/quality"));
+            "coach", List.of("/coach/quality"),
+            // The console's "send now" for one user's emails: GET lists the kinds, POST sends one.
+            "notifications", List.of("/users/*/emails"));
 
     private static final AntPathMatcher MATCHER = new AntPathMatcher();
 

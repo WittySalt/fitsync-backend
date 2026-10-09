@@ -42,3 +42,4 @@ fitsync:
       nutrition-service-base-url: ${NUTRITION_SERVICE_BASE_URL:http://localhost:8083}
       analytics-service-base-url: ${ANALYTICS_SERVICE_BASE_URL:http://localhost:8085}
       recommendation-service-base-url: ${RECOMMENDATION_SERVICE_BASE_URL:http://localhost:8086}
+      notification-service-base-url: ${NOTIFICATION_SERVICE_BASE_URL:http://localhost:8087}

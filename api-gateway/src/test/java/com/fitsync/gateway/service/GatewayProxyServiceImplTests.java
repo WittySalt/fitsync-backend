@@ -37,7 +37,8 @@ class GatewayProxyServiceImplTests {
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
                 "http://analytics-service:8085",
-                "http://recommendation-service:8086"));
+                "http://recommendation-service:8086",
+                "http://notification-service:8087"));
 
         server.expect(once(), requestTo("http://auth-service:8080/api/v1/auth/register?source=e2e"))
                 .andExpect(method(HttpMethod.POST))
@@ -61,7 +62,8 @@ class GatewayProxyServiceImplTests {
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
                 "http://analytics-service:8085",
-                "http://recommendation-service:8086"));
+                "http://recommendation-service:8086",
+                "http://notification-service:8087"));
 
         server.expect(once(), requestTo("http://auth-service:8080/api/v1/auth/me"))
                 .andExpect(header("X-Forwarded-For", "6.6.6.6, 203.0.113.7"))
@@ -92,7 +94,8 @@ class GatewayProxyServiceImplTests {
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
                 "http://analytics-service:8085",
-                "http://recommendation-service:8086"));
+                "http://recommendation-service:8086",
+                "http://notification-service:8087"));
 
         server.expect(once(), requestTo("http://auth-service:8080/api/v1/auth/bootstrap"))
                 .andExpect(method(HttpMethod.POST))
@@ -198,7 +201,8 @@ class GatewayProxyServiceImplTests {
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
                 "http://analytics-service:8085",
-                "http://recommendation-service:8086"));
+                "http://recommendation-service:8086",
+                "http://notification-service:8087"));
 
         server.expect(once(), requestTo("http://recommendation-service:8086/api/v1/recommendations"))
                 .andExpect(method(HttpMethod.GET))
@@ -220,7 +224,8 @@ class GatewayProxyServiceImplTests {
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
                 "http://analytics-service:8085",
-                "http://recommendation-service:8086"));
+                "http://recommendation-service:8086",
+                "http://notification-service:8087"));
 
         server.expect(once(), requestTo("http://auth-service:8080" + INTERNAL_OUTBOX_PUBLISH))
                 .andExpect(method(HttpMethod.POST))
@@ -274,7 +279,8 @@ class GatewayProxyServiceImplTests {
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
                 "http://analytics-service:8085",
-                "http://recommendation-service:8086"));
+                "http://recommendation-service:8086",
+                "http://notification-service:8087"));
 
         server.expect(once(), requestTo("http://auth-service:8080" + INTERNAL_OUTBOX_PUBLISH))
                 .andExpect(method(HttpMethod.POST))
@@ -305,7 +311,8 @@ class GatewayProxyServiceImplTests {
         GatewayProxyService service = new GatewayProxyServiceImpl(restTemplate, coachRequestFactory(),
                 new GatewayRoutesProperties("http://auth-service:8080", "http://user-service:8081",
                         "http://workout-service:8082", "http://nutrition-service:8083",
-                        "http://analytics-service:8085", "http://recommendation-service:8086"));
+                        "http://analytics-service:8085", "http://recommendation-service:8086",
+                "http://notification-service:8087"));
 
         for (String path : new String[] {"/api/v1/admin/users/profiles/reconcile", "/api/v1/admin/users/users",
                 "/api/v1/admin/users", "/api/v1/admin/analytics/outbox/pending",
@@ -358,7 +365,8 @@ class GatewayProxyServiceImplTests {
                 "http://workout-service:8082",
                 "http://nutrition-service:8083",
                 "http://analytics-service:8085",
-                "http://recommendation-service:8086"));
+                "http://recommendation-service:8086",
+                "http://notification-service:8087"));
     }
 
     /** The coach routes use their own factory; these tests exercise the collected forward. */
