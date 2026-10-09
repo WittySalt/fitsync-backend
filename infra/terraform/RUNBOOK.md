@@ -332,7 +332,7 @@ as soon as it is applied.
    transitional apply, move, verify, then delete the `db_subnet_tier` line and apply).
 3. Operator access: set up ssh over SSM on your machine ("SSH over SSM" below) and check that
    `ssh fitsync-staging` works while port 22 is still open.
-4. CD: approve the protected `.github/` change in "Proposed cd.yml change" below, merge it, and
+4. CD: merge the `.github/` change described in "cd.yml over SSM" below, and
    set the `PROD_EC2_INSTANCE_ID` repository variable. Run CD once for staging and check that
    `deploy-staging-app` passes. It now deploys through SSM.
 5. Staging SSH port: delete the `ssh_ingress_cidrs` line from `staging.tfvars`, apply staging,
@@ -555,9 +555,9 @@ The cloud reseed helper (`scripts\demo-reseed-cloud.ps1`) uses the same tunnel; 
 `*_HOST` addresses (see `scripts\README.md` "Cloud reseed"). psql still runs in a postgres:16
 container on the host, which reaches the private RDS through the VPC.
 
-### Proposed cd.yml change
+### cd.yml over SSM
 
-`.github/` is protected, so this branch does not edit it. The change below switches both deploy
+Applied in `.github/workflows/cd.yml` with the owner's approval. The change below switches both deploy
 jobs from ssh/scp against the public IP to the same commands over SSM: it installs the Session
 Manager plugin on the runner, takes the instance id from `terraform output ec2_instance_id` for
 staging and from the new `PROD_EC2_INSTANCE_ID` repository variable for prod, waits until the
