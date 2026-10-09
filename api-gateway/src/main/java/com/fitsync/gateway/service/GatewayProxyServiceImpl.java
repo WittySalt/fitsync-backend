@@ -81,7 +81,7 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
     /**
      * The fixed set of admin console destinations, keyed by the path segment the console uses.
      *
-     * <p>The key is never used to build a host name or URL; it only selects one of these six
+     * <p>The key is never used to build a host name or URL; it only selects one of these seven
      * already-configured base URLs, so a caller cannot steer a request anywhere else by choosing
      * an unusual segment value.
      */
@@ -92,7 +92,8 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
             "nutrition", GatewayRoutesProperties::nutritionServiceBaseUrl,
             "analytics", GatewayRoutesProperties::analyticsServiceBaseUrl,
             // The coach lives in recommendation-service; it has no admin surface of its own.
-            "coach", GatewayRoutesProperties::recommendationServiceBaseUrl);
+            "coach", GatewayRoutesProperties::recommendationServiceBaseUrl,
+            "notifications", GatewayRoutesProperties::notificationServiceBaseUrl);
 
     /** Rejects an encoded slash or backslash, a literal backslash, or an embedded scheme. */
     private static final Pattern SUSPICIOUS_ADMIN_PATH = Pattern.compile("\\\\|%2f|%5c|://", Pattern.CASE_INSENSITIVE);

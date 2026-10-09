@@ -47,6 +47,7 @@ import org.springframework.web.client.RestTemplate;
         "fitsync.gateway.routes.nutrition-service-base-url=http://nutrition-service:8083",
         "fitsync.gateway.routes.analytics-service-base-url=http://analytics-service:8085",
         "fitsync.gateway.routes.recommendation-service-base-url=http://recommendation-service:8086",
+        "fitsync.gateway.routes.notification-service-base-url=http://notification-service:8087",
         "fitsync.gateway.cors.allowed-origins=http://localhost:3000"
 })
 class AdminInternalPathListTests {
@@ -81,6 +82,32 @@ class AdminInternalPathListTests {
         mockMvc.perform(post("/api/v1/admin/analytics/analytics/users/u-1/dashboard/rebuild")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + signedToken("ADMIN")))
                 .andExpect(status().isOk());
+
+        downstream.verify();
+    }
+
+    @Test
+    void theEmailSendNowRouteIsForwardedToNotificationService() throws Exception {
+        downstream.expect(once(),
+                        requestTo("http://notification-service:8087/api/v1/internal/users/u-1/emails"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{\"kinds\":[]}", MediaType.APPLICATION_JSON));
+        downstream.expect(once(),
+                        requestTo("http://notification-service:8087/api/v1/internal/users/u-1/emails"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{\"kind\":\"GOAL_REACHED\",\"outcome\":\"SENT\"}",
+                        MediaType.APPLICATION_JSON));
+
+        String admin = "Bearer " + signedToken("ADMIN");
+        mockMvc.perform(get("/api/v1/admin/notifications/users/u-1/emails").header(HttpHeaders.AUTHORIZATION, admin))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/admin/notifications/users/u-1/emails").header(HttpHeaders.AUTHORIZATION, admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"kind\":\"GOAL_REACHED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("SENT"));
+        mockMvc.perform(get("/api/v1/admin/notifications/users/u-1/emails")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + signedToken("USER")))
+                .andExpect(status().isForbidden());
 
         downstream.verify();
     }

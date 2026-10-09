@@ -33,7 +33,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "fitsync.gateway.routes.workout-service-base-url=http://workout-service:8082",
         "fitsync.gateway.routes.nutrition-service-base-url=http://nutrition-service:8083",
         "fitsync.gateway.routes.analytics-service-base-url=http://analytics-service:8085",
-        "fitsync.gateway.routes.recommendation-service-base-url=http://recommendation-service:8086"
+        "fitsync.gateway.routes.recommendation-service-base-url=http://recommendation-service:8086",
+        "fitsync.gateway.routes.notification-service-base-url=http://notification-service:8087"
 })
 class GatewayCorsDefaultsTests {
 

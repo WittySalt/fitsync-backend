@@ -162,6 +162,8 @@ services:
       NUTRITION_SERVICE_BASE_URL: http://nutrition-service:8083
       ANALYTICS_SERVICE_BASE_URL: http://analytics-service:8085
       RECOMMENDATION_SERVICE_BASE_URL: http://recommendation-service:8086
+      # Only the admin console's email "send now" goes here (/api/v1/admin/notifications/**).
+      NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8087
       JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
     ports:
       - "8088:8088"
@@ -346,8 +348,9 @@ services:
 
   # notification-service sends the product's emails (welcome, goal reached, reminders, weekly
   # recap, account deletion notices) through Amazon SES with the EC2 instance role, so no key
-  # lives on the host. It owns the `notification` schema, has no public API (the gateway does
-  # not route to it, and no host port is published) and only serves /actuator/health.
+  # lives on the host. It owns the `notification` schema and publishes no host port. Its only
+  # API is the admin console's email "send now", which the gateway forwards from
+  # /api/v1/admin/notifications/** after checking the ADMIN role; it checks JWT_SECRET again.
   #
   # Email is OFF by default: with FITSYNC_NOTIFY_EMAIL_ENABLED=false every message is written to
   # the log instead of being sent. The sender must be an identity verified in SES (see

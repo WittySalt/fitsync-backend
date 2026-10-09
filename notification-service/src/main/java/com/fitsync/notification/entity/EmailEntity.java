@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.fitsync.notification.domain.EmailKind;
 import com.fitsync.notification.domain.EmailStatus;
+import com.fitsync.notification.domain.EmailTrigger;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -56,6 +57,14 @@ public class EmailEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "trigger_source", nullable = false, length = 10)
+    private EmailTrigger trigger = EmailTrigger.EVENT;
+
+    /** The admin who asked for the email; set only when the trigger is ADMIN. */
+    @Column(name = "admin_id")
+    private UUID adminId;
+
     protected EmailEntity() {
     }
 
@@ -89,4 +98,12 @@ public class EmailEntity {
     public Instant getSentAt() { return sentAt; }
     public void setSentAt(Instant sentAt) { this.sentAt = sentAt; }
     public Instant getCreatedAt() { return createdAt; }
+    public EmailTrigger getTrigger() { return trigger; }
+    public UUID getAdminId() { return adminId; }
+
+    /** Marks the email as one an admin asked for, which skips quiet hours when it is sent. */
+    public void markAdminSent(UUID admin) {
+        this.trigger = EmailTrigger.ADMIN;
+        this.adminId = admin;
+    }
 }
