@@ -217,6 +217,9 @@
                              empty-page responses that triggered the "bytes is null"
                              NPE on the first full pull (NvdCveClient._next). -->
                         <nvdApiDelay>4000</nvdApiDelay>
+                        <!-- Sonatype OSS Index now rejects anonymous requests (HTTP 401), which
+                             aborts the scan. The NVD data above is the vulnerability source. -->
+                        <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
                     </configuration>
                     <executions>
                         <execution>
