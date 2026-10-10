@@ -48,10 +48,9 @@ jobs:
     env:
       TESTCONTAINERS_RYUK_DISABLED: "true"
       # Broker-backed ITs (UserRegisteredKafkaIT, WorkoutRelayKafkaIT) use the kafka
-      # service below; UserAvatarUploadIT starts its own MinIO via Testcontainers.
+      # service below.
       KAFKA_INTEGRATION_TESTS: "true"
       KAFKA_BOOTSTRAP_SERVERS: localhost:9092
-      MINIO_INTEGRATION_TESTS: "true"
     # Single-node KRaft broker, same image as docker-compose.yml. Steps run on the
     # runner host, so the broker advertises localhost:9092.
     services:
