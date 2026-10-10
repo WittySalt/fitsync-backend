@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.15</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -31,15 +31,19 @@
         <module>persistence-support</module>
         <module>media-support</module>
         <module>web-support</module>
+        <!-- Last: merges every module's coverage and enforces the project-wide gate. -->
+        <module>coverage-report</module>
     </modules>
 
     <properties>
         <java.version>17</java.version>
-        <springdoc.version>2.6.0</springdoc.version>
+        <!-- 2.9.1 is built against Spring Boot 3.5.16 and bundles swagger-ui 5.32.14 (DOMPurify 3.4.13),
+             which clears CVE-2026-65898 found in swagger-ui 5.17.14 (DOMPurify 3.1.4). -->
+        <springdoc.version>2.9.1</springdoc.version>
         <jjwt.version>0.12.6</jjwt.version>
         <!-- One AWS SDK version for every module that talks to AWS (media S3, coach Bedrock). -->
         <aws.sdk.version>2.25.70</aws.sdk.version>
-        <!-- Patch-level overrides of Spring Boot 3.5.15's managed versions, for CVEs Trivy found
+        <!-- Patch-level overrides of Spring Boot 3.5.16's managed versions, for CVEs Trivy found
              in the images (2026-10-08). Drop each one once Spring Boot ships an equal or newer version. -->
         <!-- Tomcat 10.1.55: CVE-2026-65182/65905/68525 (CRITICAL), fixed in 10.1.58+. -->
         <tomcat.version>10.1.60</tomcat.version>
@@ -49,6 +53,8 @@
         <jackson-bom.version>2.21.7</jackson-bom.version>
         <!-- PostgreSQL JDBC 42.7.11: CVE-2026-54291 (HIGH), fixed in 42.7.12. -->
         <postgresql.version>42.7.12</postgresql.version>
+        <!-- Log4j API 2.24.3: CVE-2026-34479 (Log4j1XmlLayout escaping), fixed in 2.25.4. -->
+        <log4j2.version>2.25.5</log4j2.version>
         <!-- Security / Quality plugin versions -->
         <jacoco.version>0.8.12</jacoco.version>
         <spotbugs.version>4.8.6.4</spotbugs.version>
@@ -59,9 +65,10 @@
         <!-- Coverage gate: fail build if line coverage drops below this -->
         <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>
         <!-- Whether the per-module JaCoCo check breaks the build. Off by default so
-             every module still reports coverage to Sonar without going red; the real
-             project-wide gate is the Sonar Quality Gate (sonar.qualitygate.wait).
-             Modules that want a hard local gate (e.g. user-service) override to true. -->
+             small support modules can sit below the line without going red; the hard
+             project-wide gate is the coverage-report module, which checks the merged
+             coverage of all modules. Modules that want their own hard gate
+             (e.g. user-service) override to true. -->
         <jacoco.halt.on.failure>false</jacoco.halt.on.failure>
         <!-- SonarQube/SonarCloud: passed per-build in CI, sane defaults here. -->
         <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
@@ -202,12 +209,17 @@
                     <configuration>
                         <format>ALL</format>
                         <failBuildOnCVSS>7</failBuildOnCVSS>
-                        <suppressionFile>${project.basedir}/../dependency-check-suppress.xml</suppressionFile>
+                        <!-- maven.multiModuleProjectDirectory is the repository root for both the
+                             aggregate goal (run at the root) and per-module check goals. -->
+                        <suppressionFile>${maven.multiModuleProjectDirectory}/dependency-check-suppress.xml</suppressionFile>
                         <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
                         <!-- Space out NVD API requests to avoid the rate-limited
                              empty-page responses that triggered the "bytes is null"
                              NPE on the first full pull (NvdCveClient._next). -->
                         <nvdApiDelay>4000</nvdApiDelay>
+                        <!-- Sonatype OSS Index now rejects anonymous requests (HTTP 401), which
+                             aborts the scan. The NVD data above is the vulnerability source. -->
+                        <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
                     </configuration>
                     <executions>
                         <execution>

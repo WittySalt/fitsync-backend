@@ -38,6 +38,7 @@ jobs:
         run: gitleaks detect --source . --verbose --redact
 
   # ── verify: build + unit/integration tests + coverage (JaCoCo) + SAST (SpotBugs) ──
+  # coverage-report fails the build when merged line coverage is below 80 %.
   # Docker is available on ubuntu-latest, so Testcontainers integration tests run.
   # When SONAR_TOKEN is set, also publishes to SonarCloud/SonarQube and blocks on
   # the Quality Gate. Sonar stays off until the token is set (green by default).
@@ -46,6 +47,35 @@ jobs:
     needs: secret-scan
     env:
       TESTCONTAINERS_RYUK_DISABLED: "true"
+      # Broker-backed ITs (UserRegisteredKafkaIT, WorkoutRelayKafkaIT) use the kafka
+      # service below.
+      KAFKA_INTEGRATION_TESTS: "true"
+      KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+    # Single-node KRaft broker, same image as docker-compose.yml. Steps run on the
+    # runner host, so the broker advertises localhost:9092.
+    services:
+      kafka:
+        image: apache/kafka:3.7.0
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
         with:

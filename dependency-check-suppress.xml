@@ -3,16 +3,136 @@
     <!--
       Add suppression entries only when:
         1. The CVE is a confirmed false positive for this usage, OR
-        2. The vulnerability is in a test-scope dependency and cannot affect production.
+        2. The vulnerable code path is not reachable in this application, OR
+        3. The vulnerability is in a test-scope dependency and cannot affect production.
       Each suppression MUST include a notes field explaining WHY it is safe to suppress.
+      Entries are pinned to the exact vulnerable version through packageUrl, so they stop
+      matching (and must be removed) as soon as the dependency is upgraded.
     -->
 
-    <!-- Example suppression template (remove when first real suppression is needed):
+    <!--
+      Spring Framework 6.2.19 (spring-core, spring-web, spring-webmvc, ...).
+      Every CVE below is fixed only in Spring Framework 6.2.20 (a commercial-support release
+      that is not on Maven Central) or 7.0.9 (Spring Boot 4, a major upgrade). Spring Boot
+      3.5.16, the newest 3.5.x on Maven Central, still ships 6.2.19. All nine services run on
+      the servlet stack (spring-boot-starter-web); none uses WebFlux, RSocket, Jetty, XSLT
+      views, template engines, functional endpoints (RouterFunction) or user-supplied SpEL.
+      Remove these entries once the backend moves to Spring Boot 4 / Spring Framework 7.
+      Reviewed 2026-10-10.
+    -->
     <suppress>
-        <notes>CVE-XXXX-YYYY: false positive — this class/method is not reachable in our usage.
-               Reviewed by: [name], Date: [date]</notes>
-        <cve>CVE-XXXX-YYYY</cve>
+        <notes>CVE-2026-47884: SSRF/RCE through XsltView with a "/**" view mapping. No service uses
+               XsltView or any view resolution; every controller returns JSON (@RestController).
+               Also accepted in .trivyignore (2026-10-08).</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47884</cve>
     </suppress>
-    -->
+    <suppress>
+        <notes>CVE-2026-47885: WebFlux PartEventHttpMessageReader ignores maxPartSize when
+               maxInMemorySize is -1. WebFlux is not on any service's classpath as a server stack.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47885</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-47886: DoS when user-supplied SpEL uses the power operator with BigDecimal.
+               No code parses SpEL from request data (no SpelExpressionParser in src/main); the only
+               SpEL is fixed annotation/config expressions written by developers.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47886</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-47888: memory leak in Spring RSocket via a malformed SETUP frame. No service
+               uses RSocket.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47888</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-47889: WebFlux on the Jetty 12 Core adapter drops the SameSite cookie
+               attribute. Services run Spring MVC on Tomcat; no WebFlux, no Jetty.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47889</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-47890: SSE stream corruption when view fragments are rendered over SSE (Spring
+               rates it LOW). The only SSE is the coach stream, an SseEmitter sending JSON events;
+               no template engine or FragmentsRendering exists. Also accepted in .trivyignore.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47890</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-47891: WebFlux with the Aalto XML parser ignores maxInMemorySize. No WebFlux,
+               no XML request bodies, Aalto is not on the classpath.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47891</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-47892: header predicate bypass on pre-flight requests for WebFlux functional
+               endpoints. No WebFlux and no RouterFunction endpoints; all controllers are annotated.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47892</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-47893: WebFlux WebSocket handshake exposes request headers in an exception
+               reason. No WebFlux and no WebSocket endpoints.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-47893</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-59282: DoS when data binding applies user-supplied property paths onto a target
+               object. No handler binds request parameters onto objects (no @ModelAttribute, no
+               implicit form-object parameters, no WebDataBinder customisation); request payloads are
+               JSON read by Jackson through @RequestBody, and query parameters are bound to scalar
+               @RequestParam values only.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-59282</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-59283: SimpleEvaluationContext guard bypass when the SpEL compiler is active.
+               No code evaluates SpEL from user input and the SpEL compiler is not enabled
+               (spring.expression.compiler.mode is unset).</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-59283</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-59313: SSE stream corruption in the functional web framework (RouterFunction /
+               ServerResponse.sse). The coach stream uses an annotated controller returning
+               SseEmitter, not the functional framework.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework/spring-.*@6\.2\.19$</packageUrl>
+        <cve>CVE-2026-59313</cve>
+    </suppress>
 
+    <!--
+      Spring Security 6.5.11 (spring-security-core, -web, -oauth2-resource-server).
+      Fixed only in 6.5.12 (commercial-support release, not on Maven Central) or 7.x
+      (Spring Boot 4). Remove once the backend moves to Spring Boot 4. Reviewed 2026-10-10.
+    -->
+    <suppress>
+        <notes>CVE-2026-41707: replay through cache eviction in DPoPProofJwtDecoderFactory. The resource
+               servers validate plain bearer JWTs; DPoP-bound tokens are not configured anywhere.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.security/spring-security-.*@6\.5\.11$</packageUrl>
+        <cve>CVE-2026-41707</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-47841: WebAuthn user-verification bypass with a distributed session store. No
+               service enables WebAuthn (passkeys); sessions are stateless JWT.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.security/spring-security-.*@6\.5\.11$</packageUrl>
+        <cve>CVE-2026-47841</cve>
+    </suppress>
+    <suppress>
+        <notes>CVE-2026-59270: the embedded UnboundID LDAP test server (UnboundIdContainer) registers an
+               admin credential and binds to all interfaces. No service uses LDAP, and UnboundID is
+               not on the classpath.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.security/spring-security-.*@6\.5\.11$</packageUrl>
+        <cve>CVE-2026-59270</cve>
+    </suppress>
+
+    <!-- Kotlin standard and reflection libraries (transitive in recommendation-service, through com.anthropic:anthropic-java). -->
+    <suppress>
+        <notes>CVE-2026-53914: false positive. The CVE is unsafe deserialization of Kotlin build-cache
+               metadata in the Kotlin compiler / build tooling. It is matched only through the broad
+               cpe:2.3:a:jetbrains:kotlin CPE; the runtime kotlin-stdlib and kotlin-reflect jars contain no build-cache
+               code, and this project does not compile Kotlin. Reviewed 2026-10-10.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-(stdlib|reflect).*@1.9.25$</packageUrl>
+        <cve>CVE-2026-53914</cve>
+    </suppress>
 </suppressions>
