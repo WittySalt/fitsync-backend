@@ -126,13 +126,13 @@
         <cve>CVE-2026-59270</cve>
     </suppress>
 
-    <!-- Kotlin standard library (transitive in recommendation-service, through com.anthropic:anthropic-java). -->
+    <!-- Kotlin standard and reflection libraries (transitive in recommendation-service, through com.anthropic:anthropic-java). -->
     <suppress>
         <notes>CVE-2026-53914: false positive. The CVE is unsafe deserialization of Kotlin build-cache
                metadata in the Kotlin compiler / build tooling. It is matched only through the broad
-               cpe:2.3:a:jetbrains:kotlin CPE; the runtime kotlin-stdlib jar contains no build-cache
+               cpe:2.3:a:jetbrains:kotlin CPE; the runtime kotlin-stdlib and kotlin-reflect jars contain no build-cache
                code, and this project does not compile Kotlin. Reviewed 2026-10-10.</notes>
-        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-stdlib.*@1.9.25$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-(stdlib|reflect).*@1.9.25$</packageUrl>
         <cve>CVE-2026-53914</cve>
     </suppress>
 </suppressions>
