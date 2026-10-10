@@ -31,6 +31,8 @@
         <module>persistence-support</module>
         <module>media-support</module>
         <module>web-support</module>
+        <!-- Last: merges every module's coverage and enforces the project-wide gate. -->
+        <module>coverage-report</module>
     </modules>
 
     <properties>
@@ -59,9 +61,10 @@
         <!-- Coverage gate: fail build if line coverage drops below this -->
         <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>
         <!-- Whether the per-module JaCoCo check breaks the build. Off by default so
-             every module still reports coverage to Sonar without going red; the real
-             project-wide gate is the Sonar Quality Gate (sonar.qualitygate.wait).
-             Modules that want a hard local gate (e.g. user-service) override to true. -->
+             small support modules can sit below the line without going red; the hard
+             project-wide gate is the coverage-report module, which checks the merged
+             coverage of all modules. Modules that want their own hard gate
+             (e.g. user-service) override to true. -->
         <jacoco.halt.on.failure>false</jacoco.halt.on.failure>
         <!-- SonarQube/SonarCloud: passed per-build in CI, sane defaults here. -->
         <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
