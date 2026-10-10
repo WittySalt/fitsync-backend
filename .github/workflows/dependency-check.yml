@@ -9,6 +9,10 @@ on:
 
 env:
   MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress"
+  # NVD/CVE database kept outside ~/.m2 so the setup-java Maven cache stays small and
+  # this directory gets its own cache below. Not scanned: dependency-check only reads
+  # the Maven dependency graph.
+  DC_DATA_DIR: ${{ github.workspace }}/.dependency-check-data
 
 jobs:
   dependency-audit:
@@ -20,10 +24,28 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: maven
+      - name: Compute NVD cache week
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      # The cache key rolls weekly. Within a week the restored database only needs the NVD
+      # delta since its last update; a new week saves a fresh snapshot, restored from the
+      # newest earlier one so even that run downloads only the delta.
+      - name: Cache dependency-check data
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DC_DATA_DIR }}
+          key: dependency-check-data-${{ runner.os }}-${{ steps.week.outputs.week }}
+          restore-keys: |
+            dependency-check-data-${{ runner.os }}-
+      # package first, in the same reactor, so the aggregate scan resolves the internal
+      # modules (web-support, persistence-support, ...) instead of warning they are missing.
       - name: OWASP dependency-check (aggregate)
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: mvn $MAVEN_CLI_OPTS dependency-check:aggregate -Pdependency-check
+        run: >-
+          mvn $MAVEN_CLI_OPTS -DskipTests -Pdependency-check
+          -DdataDirectory="$DC_DATA_DIR"
+          package dependency-check:aggregate
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
