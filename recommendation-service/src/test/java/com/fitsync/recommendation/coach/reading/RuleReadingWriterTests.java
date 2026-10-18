@@ -318,6 +318,16 @@ class RuleReadingWriterTests {
     }
 
     @Test
+    @DisplayName("runs with no distance the week before: no comparison is made")
+    void runsWithoutAnEarlierDistance() {
+        RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(
+                null, runs("5.75", null, 365, null), null, null));
+
+        assertThat(reading.body()).startsWith("Your cardio sessions averaged 5.75 km [1].");
+        assertThat(reading.body()).doesNotContain("up from", "down from");
+    }
+
+    @Test
     @DisplayName("shorter runs and a slower pace")
     void shorterAndSlower() {
         RuleReadingWriter.RuleReading reading = writeFor(ReadingFactsBuilderTests.withGroups(

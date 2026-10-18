@@ -168,6 +168,10 @@ public class RuleReadingWriter {
         }
         String lead = "Your cardio sessions averaged " + fact.value() + " km " + cite(fact);
         BigDecimal earlier = insight.cardio() == null ? null : insight.cardio().earlierDistancePerSessionKm();
+        if (earlier == null) {
+            // Without the earlier distance there is nothing to compare against, whatever the direction says.
+            return lead + ".";
+        }
         return switch (directionOf(fact)) {
             case UP -> lead + ", up from " + ReadingFactsBuilder.upToTwoDecimals(earlier) + " km.";
             case DOWN -> lead + ", down from " + ReadingFactsBuilder.upToTwoDecimals(earlier) + " km.";

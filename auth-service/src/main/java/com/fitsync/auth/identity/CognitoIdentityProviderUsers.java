@@ -48,7 +48,7 @@ public class CognitoIdentityProviderUsers implements IdentityProviderUsers {
             throw new IllegalStateException("security.cognito.issuer-uri is required to delete Cognito users");
         }
         String path = URI.create(issuerUri.trim()).getPath();
-        String candidate = path == null ? "" : path.replaceAll("^/+|/+$", "");
+        String candidate = path == null ? "" : path.replaceAll("(?:^/+)|(?:/+$)", "");
         if (!USER_POOL_ID.matcher(candidate).matches()) {
             throw new IllegalStateException("security.cognito.issuer-uri does not end with a Cognito user pool id");
         }

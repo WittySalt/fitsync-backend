@@ -22,7 +22,7 @@ public final class CoachVoice {
 
     /** A status code or field name copied from a tool result, such as AHEAD or ON_TRACK, instead of plain words. */
     public static final Pattern RAW_STATUS_WORD = Pattern.compile(
-            "\\b(?:AHEAD|BEHIND|REACHED|STALLED|ON_TRACK|OFF_TRACK|MISSED|NOT_LOGGED|[A-Z]{2,}_[A-Z_]{2,})\\b");
+            "\\b(?:AHEAD|BEHIND|REACHED|STALLED|MISSED|[A-Z]{2,}_[A-Z_]{2,})\\b");
 
     private static final Pattern TRY_AT_SENTENCE_START = Pattern.compile("(?i)(?:^|[.]\\s+)try\\s");
 

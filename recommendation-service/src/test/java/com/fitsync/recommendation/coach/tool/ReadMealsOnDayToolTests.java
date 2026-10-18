@@ -302,4 +302,14 @@ class ReadMealsOnDayToolTests {
     private JsonNode args(String date) {
         return objectMapper.createObjectNode().put("date", date);
     }
+
+    @Test
+    void aMealWithoutAReadableTimeKeepsOnlyItsType() throws Exception {
+        com.fasterxml.jackson.databind.JsonNode meal =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree("{\"mealType\":\"LUNCH\"}");
+
+        java.util.Map<String, Object> entry = ReadMealsOnDayTool.meal(meal, java.time.ZoneOffset.UTC);
+
+        org.assertj.core.api.Assertions.assertThat(entry).containsOnlyKeys("mealType").containsEntry("mealType", "LUNCH");
+    }
 }
