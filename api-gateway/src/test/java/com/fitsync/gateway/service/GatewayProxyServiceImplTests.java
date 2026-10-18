@@ -152,6 +152,31 @@ class GatewayProxyServiceImplTests {
     }
 
     @Test
+    void rejectsDoubleEncodedPathTraversalRequestUri() {
+        assertTraversalRejected("/api/v1/auth/%252e%252e/admin");
+    }
+
+    @Test
+    void rejectsPathTraversalHiddenBehindPathParameters() {
+        assertTraversalRejected("/api/v1/auth/..;jsessionid=x/admin");
+    }
+
+    @Test
+    void rejectsEncodedBackslashInRequestUri() {
+        assertTraversalRejected("/api/v1/auth/%5c..%5cadmin");
+    }
+
+    private void assertTraversalRejected(String requestUri) {
+        GatewayProxyService service = newServiceWithAuthBaseUrl("http://auth-service:8080");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", requestUri);
+        request.setRequestURI(requestUri);
+
+        assertThatThrownBy(() -> service.forwardToAuthService(request, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("path traversal");
+    }
+
+    @Test
     void rejectsBaseUrlWithNonHttpScheme() {
         GatewayProxyService service = newServiceWithAuthBaseUrl("ftp://auth-service:8080");
 

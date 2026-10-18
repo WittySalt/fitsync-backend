@@ -49,6 +49,7 @@ import org.springframework.web.util.UriUtils;
 public class GatewayProxyServiceImpl implements GatewayProxyService {
 
     private static final Logger LOG = LoggerFactory.getLogger(GatewayProxyServiceImpl.class);
+    private static final int MAX_DECODE_ROUNDS = 3;
 
     /**
      * Never copied in either direction. Besides the standard hop-by-hop headers this includes the identity
@@ -390,10 +391,29 @@ public class GatewayProxyServiceImpl implements GatewayProxyService {
         }
     }
 
+    /**
+     * True when the path could climb out of the route it was matched on once a downstream server
+     * normalises it. The path is decoded until it stops changing, so a double-encoded {@code %252e%252e}
+     * cannot hide a dot segment, and each segment is checked without its {@code ;} parameters, which
+     * Tomcat drops before it resolves {@code ..}. A backslash is refused because some servers treat it
+     * as a separator.
+     */
     private boolean containsPathTraversalSegment(String requestUri) {
-        String decodedPath = UriUtils.decode(requestUri, StandardCharsets.UTF_8);
-        for (String segment : decodedPath.split("/")) {
-            if ("..".equals(segment)) {
+        String path = requestUri;
+        for (int round = 0; round < MAX_DECODE_ROUNDS; round++) {
+            String decoded = UriUtils.decode(path, StandardCharsets.UTF_8);
+            if (decoded.equals(path)) {
+                break;
+            }
+            path = decoded;
+        }
+        if (path.indexOf('\\') >= 0) {
+            return true;
+        }
+        for (String segment : path.split("/")) {
+            int parameters = segment.indexOf(';');
+            String name = parameters >= 0 ? segment.substring(0, parameters) : segment;
+            if ("..".equals(name) || ".".equals(name)) {
                 return true;
             }
         }

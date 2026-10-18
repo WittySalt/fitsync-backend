@@ -46,13 +46,13 @@ class DeviceLabelsTests {
 
     @Test
     void aHeaderLabelLosesLineBreaksAndInvisibleCharacters() {
-        assertThat(DeviceLabels.resolve("Kitchen\r\nX-Injected: 1​ tablet", null))
+        assertThat(DeviceLabels.resolve("Kitchen\r\nX-Injected: 1\u200B tablet", null))
                 .isEqualTo("Kitchen X-Injected: 1 tablet");
     }
 
     @Test
     void aHeaderLabelThatIsOnlyInvisibleFallsBackToTheUserAgent() {
-        assertThat(DeviceLabels.resolve("‮​\r\n", "Mozilla/5.0 (X11; Linux x86_64) Firefox/126.0"))
+        assertThat(DeviceLabels.resolve("\u202E\u200B\r\n", "Mozilla/5.0 (X11; Linux x86_64) Firefox/126.0"))
                 .isEqualTo("Firefox on Linux");
     }
 

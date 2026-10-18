@@ -149,11 +149,11 @@ class AuthSessionApiTests {
     void aDeviceLabelHeaderIsSanitisedAndCut() throws Exception {
         JsonNode body = json(mockMvc.perform(post("/api/v1/auth/bootstrap")
                         .with(cognitoJwt("sess-label-1", "sess-label-1@example.com"))
-                        .header("X-Device-Label", "  <b>Phone</b>\tof‮  " + "x".repeat(100)))
+                        .header("X-Device-Label", "  <b>Phone</b>\tof\u202E  " + "x".repeat(100)))
                 .andExpect(status().isOk()));
 
         String label = sessionRepository.findById(sessionIdOf(body)).orElseThrow().getDeviceLabel();
-        assertThat(label).startsWith("bPhone/b of x").hasSize(60).doesNotContain("<", ">", "\t", "‮");
+        assertThat(label).startsWith("bPhone/b of x").hasSize(60).doesNotContain("<", ">", "\t", "\u202E");
     }
 
     @Test
