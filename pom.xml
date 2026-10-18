@@ -63,7 +63,8 @@
         <findsecbugs.version>1.13.0</findsecbugs.version>
         <checkstyle.version>3.4.0</checkstyle.version>
         <owasp.dependency-check.version>12.1.3</owasp.dependency-check.version>
-        <sonar.maven.plugin.version>4.0.0.4121</sonar.maven.plugin.version>
+        <!-- Scanner 4.0 needs Java 21 to run; 5.x provisions its own JRE, so the Java 17 build can publish. -->
+        <sonar.maven.plugin.version>5.1.0.4751</sonar.maven.plugin.version>
         <!-- Coverage gate: fail build if line coverage drops below this -->
         <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>
         <!-- Whether the per-module JaCoCo check breaks the build. Off by default so
