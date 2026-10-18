@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -367,16 +368,18 @@ public final class ProgressFacts {
 
     private static List<SummaryLine> distanceLines(String name, List<SessionSnap> period, List<SessionSnap> previous) {
         List<SummaryLine> lines = new ArrayList<>();
-        List<SessionSnap> paced = period.stream().filter(s -> s.paceSecPerKm() != null).toList();
-        int firstPace = paced.get(0).paceSecPerKm();
-        int lastPace = paced.get(paced.size() - 1).paceSecPerKm();
-        if (paced.size() >= 2) {
-            Trend trend = lastPace < firstPace * (1 - PACE_TREND_RATIO) ? Trend.UP
-                    : (lastPace > firstPace * (1 + PACE_TREND_RATIO) ? Trend.DOWN : Trend.STEADY);
-            lines.add(line("Pace " + ProgressText.pace(firstPace) + " → " + ProgressText.pace(lastPace),
-                    "a km", trend));
-        } else {
-            lines.add(line("Pace " + ProgressText.pace(firstPace), "a km", Trend.STEADY));
+        List<Integer> paces = period.stream().map(SessionSnap::paceSecPerKm).filter(Objects::nonNull).toList();
+        if (!paces.isEmpty()) {
+            int firstPace = paces.get(0);
+            int lastPace = paces.get(paces.size() - 1);
+            if (paces.size() >= 2) {
+                Trend trend = lastPace < firstPace * (1 - PACE_TREND_RATIO) ? Trend.UP
+                        : (lastPace > firstPace * (1 + PACE_TREND_RATIO) ? Trend.DOWN : Trend.STEADY);
+                lines.add(line("Pace " + ProgressText.pace(firstPace) + " → " + ProgressText.pace(lastPace),
+                        "a km", trend));
+            } else {
+                lines.add(line("Pace " + ProgressText.pace(firstPace), "a km", Trend.STEADY));
+            }
         }
         String label = isRunning(name) ? "Longest run" : "Longest";
         BigDecimal longest = maxDistance(period);

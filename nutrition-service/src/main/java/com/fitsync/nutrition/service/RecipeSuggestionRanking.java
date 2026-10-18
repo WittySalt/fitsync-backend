@@ -90,7 +90,7 @@ public final class RecipeSuggestionRanking {
         double budget = 0;
         if (over) {
             // Going over has no lower bound, so that the lighter of two servings over the limit always wins.
-            double excess = serving.kcal() - left;
+            double excess = (double) serving.kcal() - left;
             budget = BUDGET_POINTS * (1 - excess / Math.max(left, OVERSHOOT_FLOOR_KCAL));
         } else {
             Double meal = mealSize(context);

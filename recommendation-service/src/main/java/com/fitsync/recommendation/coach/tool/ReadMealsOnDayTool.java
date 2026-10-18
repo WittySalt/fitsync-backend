@@ -231,10 +231,16 @@ public class ReadMealsOnDayTool implements CoachTool {
         return targets;
     }
 
-    private static Map<String, Object> meal(JsonNode meal, ZoneId zone) {
+    /** One meal as the model sees it. Package-private for tests. */
+    static Map<String, Object> meal(JsonNode meal, ZoneId zone) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("mealType", meal.path("mealType").asText(""));
-        java.time.ZonedDateTime when = instantOf(meal.path("consumedAt")).atZone(zone);
+        Instant consumedAt = instantOf(meal.path("consumedAt"));
+        if (consumedAt == null) {
+            // The caller keeps only meals with a readable time; this guards the method on its own.
+            return entry;
+        }
+        java.time.ZonedDateTime when = consumedAt.atZone(zone);
         entry.put("time", LOCAL_TIME.format(when));
         if (FAST.equals(meal.path("mealType").asText(""))) {
             // A fasted day is not a meal with no calories, so no figures are given and it is said as it is.
