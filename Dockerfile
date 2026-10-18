@@ -21,7 +21,9 @@ ARG SERVICE
 # env var at runtime; this only affects EXPOSE metadata.
 ARG SERVER_PORT=8080
 
-RUN addgroup -S fitsync && adduser -S fitsync -G fitsync
+# Apply Alpine security fixes published after the base image was built (for example libexpat
+# CVE-2026-77214, fixed in 2.9.0-r0, which the 17-jre-alpine tag still ships as 2.8.5).
+RUN apk upgrade --no-cache     && addgroup -S fitsync && adduser -S fitsync -G fitsync
 
 WORKDIR /app
 
